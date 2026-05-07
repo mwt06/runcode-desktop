@@ -1,0 +1,8 @@
+runcode
+Copyright 2026 The runcode Authors
+
+This product includes software developed by The runcode Authors
+(https://github.com/your-username/runcode).
+
+Architecture concepts are derived from Anthropic's Claude Code CLI
+(TypeScript). All Go code in this repository is original.
