@@ -1,4 +1,4 @@
-module github.com/your-username/runcode
+module github.com/wt68/runcode
 
 go 1.26
 

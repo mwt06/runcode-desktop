@@ -11,7 +11,7 @@ Thanks for your interest! `runcode` is in **alpha** — we welcome bug reports, 
 ## Quick development setup
 
 ```bash
-git clone https://github.com/your-username/runcode.git
+git clone https://github.com/wt68/runcode.git
 cd runcode
 go mod download
 go build ./cmd/runcode

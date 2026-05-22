@@ -3,8 +3,8 @@
 > An open-source AI coding companion CLI in Go.
 > 中文名：**奔跑的代码** — see [README.zh-CN.md](./README.zh-CN.md).
 
-[![CI](https://github.com/your-username/runcode/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/runcode/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/your-username/runcode.svg)](https://pkg.go.dev/github.com/your-username/runcode)
+[![CI](https://github.com/wt68/runcode/actions/workflows/ci.yml/badge.svg)](https://github.com/wt68/runcode/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
 > **Status: v0.1-alpha scaffold.** The CLI builds and prints help, but the `chat` command is not wired yet. See the roadmap below.
@@ -18,7 +18,7 @@ It is **inspired by** Anthropic's Claude Code (the official TS CLI), but is a cl
 ## Quick start
 
 ```bash
-git clone https://github.com/your-username/runcode.git
+git clone https://github.com/wt68/runcode.git
 cd runcode
 go build ./cmd/runcode
 ./runcode version

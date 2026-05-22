@@ -3,8 +3,8 @@
 > 一个用 Go 实现的开源终端 AI 编程伴侣。
 > English: see [README.md](./README.md)。
 
-[![CI](https://github.com/your-username/runcode/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/runcode/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/your-username/runcode.svg)](https://pkg.go.dev/github.com/your-username/runcode)
+[![CI](https://github.com/wt68/runcode/actions/workflows/ci.yml/badge.svg)](https://github.com/wt68/runcode/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
 > **状态：v0.1-alpha 脚手架。** 二进制能编译能打印帮助，但 `chat` 子命令尚未接通。详见路线图。
@@ -18,7 +18,7 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/your-username/runcode.git
+git clone https://github.com/wt68/runcode.git
 cd runcode
 go build ./cmd/runcode
 ./runcode version

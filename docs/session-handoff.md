@@ -19,8 +19,8 @@
 - 中文名：奔跑的代码
 - 二进制名：`runcode`
 - 仓库名：`runcode`
-- Go module：`github.com/your-username/runcode`
-  - `your-username` 是占位符，后续创建 GitHub 仓库前需要替换为实际 owner。
+- Go module：`github.com/wt68/runcode`
+  - `wt68` 是当前确认的 GitHub owner。
 - 项目位置：`d:/我的AI/runcode/`
 - 上下文文件命名：优先 `RUNCODE.md`，兼容读取 `CLAUDE.md`
 - 技术栈：
@@ -60,7 +60,7 @@
 当前 `go.mod`：
 
 ```go
-module github.com/your-username/runcode
+module github.com/wt68/runcode
 
 go 1.26
 
@@ -108,7 +108,7 @@ chat is not implemented yet — coming in v0.1 milestone
 说明：
 
 - `LICENSE` 使用 Apache-2.0。
-- `README` 中 GitHub URL 仍是 `github.com/your-username/runcode`，后续替换 owner。
+- `README` 中 GitHub URL 已更新为 `github.com/wt68/runcode`。
 - `SECURITY.md` 和 `CODE_OF_CONDUCT.md` 中暂时使用占位联系信息，后续开源发布前要替换。
 
 ### 5. GitHub 配置
@@ -129,7 +129,7 @@ CI 设计：
 - `test`：linux/macos/windows matrix + `go test -race ./...`
 - `build`：`go build ./cmd/runcode` + GoReleaser snapshot build
 
-注意：仓库没发布前，workflow 中 `your-username` 不影响本地构建，但后续要替换。
+注意：仓库没发布前，workflow 不影响本地构建。
 
 ### 6. 工程配置
 
@@ -162,7 +162,7 @@ GoReleaser 当前配置：
   - linux amd64/arm64
   - darwin amd64/arm64
   - windows amd64/arm64
-- release owner 仍为 `your-username`
+- release owner 为 `wt68`
 
 ### 7. 空目录骨架
 
@@ -238,7 +238,7 @@ go build ./cmd/runcode
 实际验证输出要点：
 
 ```text
-?    github.com/your-username/runcode/cmd/runcode [no test files]
+?    github.com/wt68/runcode/cmd/runcode [no test files]
 
 runcode 0.1.0-alpha
   commit: unknown
@@ -287,7 +287,7 @@ https://goproxy.cn,direct
    ```
 
 4. 当前 `chat` 命令只是占位，尚未接 Bubble Tea、LLM 或工具系统。
-5. `your-username` 是全仓占位符，后续确定 GitHub owner 后要替换。
+5. GitHub owner 已确认为 `wt68`，全仓 module/import/文档 URL 已更新。
 6. `SECURITY.md` 和 `CODE_OF_CONDUCT.md` 中的联系邮箱也还是占位。
 7. 本轮没有提交 git commit。
 8. 本轮没有实现 `pkg/tool`、`pkg/llm` 或任何真实工具。
@@ -451,9 +451,9 @@ go build ./cmd/runcode
 验证输出要点：
 
 ```text
-?    github.com/your-username/runcode/cmd/runcode [no test files]
-ok   github.com/your-username/runcode/pkg/llm
-ok   github.com/your-username/runcode/pkg/tool
+?    github.com/wt68/runcode/cmd/runcode [no test files]
+ok   github.com/wt68/runcode/pkg/llm
+ok   github.com/wt68/runcode/pkg/tool
 ```
 
 ### 当前注意事项
@@ -472,7 +472,7 @@ ok   github.com/your-username/runcode/pkg/tool
 7. `go.mod` 仍是：
 
    ```go
-   module github.com/your-username/runcode
+   module github.com/wt68/runcode
    go 1.26
    ```
 
@@ -526,3 +526,187 @@ ok   github.com/your-username/runcode/pkg/tool
 ### 当前状态一句话总结
 
 `runcode` 现在已经具备可构建 CLI 脚手架、开源项目元数据、目录骨架，以及 `pkg/tool` / `pkg/llm` 两个 public SDK 边界的最小接口与契约测试；下一步应从 `tools/read` 开始接入第一个真实工具。
+
+## 2026-05-07 续作：Read 工具与工具注册已完成
+
+本节记录清理会话前的最新进展。若与上文较早的“下一步推荐”冲突，以本节为准。
+
+### 本轮目标
+
+用户要求继续 `runcode` 项目，且严格限定范围：
+
+- 只实现 `tools/registry.go`
+- 只实现 `tools/read` 真实 Read 工具
+- 不扩展到其他工具
+- 不接入真实 LLM
+- 不实现 executor / ReAct loop
+- 不修改 TUI 或 `chat` 占位行为
+
+### 本轮已完成内容
+
+#### 1. 新增真实 Read 工具
+
+已创建：
+
+```text
+tools/read/read.go
+```
+
+当前设计要点：
+
+- `read.Tool` 实现 `pkg/tool.Tool` 接口。
+- `read.New()` 返回 `tool.Tool`。
+- `Name()` 返回 `Read`。
+- `Description()` 描述为读取文本文件并返回带行号内容。
+- `InputSchema()` 支持：
+  - `path`：必填 string。
+  - `offset`：可选 integer，0-based 行偏移，默认 0。
+  - `limit`：可选 integer，最大读取行数，`<= 0` 时默认 2000。
+- `IsConcurrencySafe()` 返回 `true`。
+- `Run()` 行为：
+  - 解析 JSON 输入。
+  - 校验 `path` 必填。
+  - 校验 `offset >= 0`。
+  - 相对路径按 `tool.Context.WorkingDirectory` 解析；若为空则使用当前进程工作目录。
+  - 使用绝对清理路径读取文件。
+  - 目录输入返回错误。
+  - 返回文本格式为：`行号<TAB>内容`。
+  - 文件末尾换行不会额外生成空输出行。
+  - 支持 `context.Context` 取消。
+  - 成功读取后更新 `tool.Context.ReadSet`，key 为解析后的绝对路径，value 包含 `Path`、`Size`、`ModTime`。
+
+#### 2. 新增工具注册骨架
+
+已创建：
+
+```text
+tools/registry.go
+```
+
+当前设计要点：
+
+- package 为 `tools`。
+- 显式导入 `github.com/wt68/runcode/tools/read`。
+- 提供：
+
+```go
+func Builtins() []tool.Tool
+```
+
+- 当前只返回 `read.New()`。
+- 暂未注册 Write/Edit/Glob/Grep/Bash/TodoWrite，即使这些目录存在 `.gitkeep`。
+
+#### 3. 新增测试
+
+已创建：
+
+```text
+tools/read/read_test.go
+tools/registry_test.go
+```
+
+测试覆盖：
+
+- Read 正常读取并返回带行号文本。
+- `offset` / `limit` 行为。
+- 相对路径按 `WorkingDirectory` 解析。
+- `limit <= 0` 使用默认 2000 行。
+- 成功读取后更新 `ReadSet`。
+- 文件不存在返回错误。
+- 目录输入返回错误。
+- 缺少 `path` 返回错误。
+- `tools.Builtins()` 当前只包含 `Read`。
+- 内置工具名不重复。
+
+### 已验证命令
+
+在任意当前目录下使用 `go -C` 指向项目目录，已成功运行：
+
+```bash
+go -C "D:/我的AI/runcode" test ./...
+go -C "D:/我的AI/runcode" build ./cmd/runcode
+```
+
+测试输出要点：
+
+```text
+?    github.com/wt68/runcode/cmd/runcode [no test files]
+ok   github.com/wt68/runcode/pkg/llm
+ok   github.com/wt68/runcode/pkg/tool
+ok   github.com/wt68/runcode/tools
+ok   github.com/wt68/runcode/tools/read
+```
+
+构建通过，无输出。
+
+### 当前注意事项
+
+1. `D:/我的AI/runcode` 仍不是 git 仓库，本轮没有执行 `git init`、没有提交 commit。
+2. 本轮没有新增第三方依赖，`go.mod` 未因本轮 Read 工具改变。
+3. 本轮没有修改 `cmd/runcode/main.go`，`runcode chat` 仍是占位。
+4. 本轮没有实现 executor，因此 Read 工具目前已有实现和注册函数，但尚未被 CLI 调用。
+5. 本轮没有实现其他工具，也没有接入真实 LLM provider。
+6. 之前曾误在 `D:/我的AI/claude-code-cli-master` 默认目录运行 `go test ./...` / `go build ./cmd/runcode`，失败原因只是目录不对；随后使用 `go -C "D:/我的AI/runcode" ...` 验证通过。
+
+### 下一步推荐
+
+下一轮建议仍保持小范围，不要直接跳到 TUI。推荐二选一：
+
+1. 实现最小工具 executor skeleton：
+   - 输入工具名 + JSON 参数。
+   - 从 `tools.Builtins()` 查找工具。
+   - 调用 `tool.Tool.Run()`。
+   - 测试只覆盖 Read 工具执行链路。
+2. 或实现 `internal/prompt/boundary.go` 与最小 prompt assembler skeleton：
+   - 建立静态/动态 prompt 边界。
+   - 不接真实 LLM。
+
+如果继续工具链，建议优先做 executor skeleton，因为它能把 `tools/registry.go` 和 `tools/read` 串起来，但仍不需要真实 LLM 或 TUI。
+
+### 清理会话后建议给 Claude 的第一句话
+
+```text
+读取 d:/我的AI/runcode/docs/session-handoff.md 和 C:\Users\wtgx1\.claude\plans\dapper-frolicking-wolf.md，继续 runcode 项目。注意 pkg/tool、pkg/llm 核心接口骨架已经完成；tools/registry.go 和 tools/read 真实 Read 工具也已经完成并通过 go test/go build。下一步不要直接做真实 LLM 或 TUI，先按 handoff 的下一步推荐继续最小 executor skeleton 或 prompt boundary skeleton。
+```
+
+### 当前状态一句话总结
+
+`runcode` 现在已经具备可构建 CLI 脚手架、`pkg/tool` / `pkg/llm` public API 骨架、真实 `Read` 工具、内置工具注册函数，以及覆盖这些边界的最小测试；下一步应把 Read 通过最小 executor skeleton 串起来，或先建立 prompt boundary skeleton。
+
+## 2026-05-21 续作：prompt、executor、Session ReAct loop 与 reasoning 预判定已完成
+
+本节记录当前最新进展。若与上文较早的“下一步推荐”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- `internal/prompt` 已实现 static/dynamic prompt boundary、assembler、环境信息拼接、memory/project context 动态注入。
+- `internal/repl` 已实现 tool executor、tool spec conversion、tool result conversion。
+- `internal/repl.Session.RunTurn` 已支持有限多轮 provider/tool ReAct loop。
+- `RunTurn` 可选启用 reasoning 预判定：主请求前先由 provider 分类任务场景，再把受控 reasoning guidance 注入本轮 dynamic system prompt。
+- `tools/read` 已加入输出上限，并改为分片读取，避免超长单行先整体读入内存。
+- `docs/architecture.md` 与 `docs/data-flow-and-prompt.md` 已更新当前架构、执行数据流和 prompt 拼接结构。
+
+### 当前仍未实现
+
+- 真实 Anthropic/OpenAI provider。
+- `cmd/runcode chat` 接入 session。
+- Bubble Tea TUI。
+- 权限策略、MCP、hooks、sub-agents、skills、compaction、telemetry、persistence。
+- `Read` 之外的内置工具。
+
+### 已验证命令
+
+```bash
+go -C "D:/我的AI/runcode" test ./...
+PATH="/c/msys64/ucrt64/bin:$PATH" CGO_ENABLED=1 go -C "D:/我的AI/runcode" test -race ./...
+go -C "D:/我的AI/runcode" build ./cmd/runcode
+```
+
+### 下一步推荐
+
+先提交当前基础能力快照。提交后推荐继续做 Anthropic provider skeleton：只实现 provider adapter 的最小结构和测试，不接 TUI，不直接改 `chat` 为真实交互。
+
+### 当前状态一句话总结
+
+`runcode` 现在已经具备 provider-neutral 的 tool/prompt/repl/session 基础闭环和可选 reasoning 预判定；下一步应先提交稳定快照，再实现真实 provider skeleton。
+

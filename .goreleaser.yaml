@@ -60,7 +60,7 @@ changelog:
 
 release:
   github:
-    owner: your-username
+    owner: wt68
     name: runcode
   draft: true
   prerelease: auto

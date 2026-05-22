@@ -26,7 +26,7 @@ streaming tool execution, multi-provider LLM support (Anthropic, OpenAI),
 and MCP integration.
 
 This is the v0.1 alpha scaffold — the chat command is not yet wired.
-See https://github.com/your-username/runcode for status.`,
+See https://github.com/wt68/runcode for status.`,
 		SilenceUsage: true,
 	}
 
