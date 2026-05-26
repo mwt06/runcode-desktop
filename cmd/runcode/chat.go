@@ -38,8 +38,13 @@ type chatConfig struct {
 	PermissionMode string
 }
 
+type chatIO struct {
+	In  io.Reader
+	Err io.Writer
+}
+
 type chatRunner interface {
-	Run(ctx context.Context, cfg chatConfig, prompt string) (string, error)
+	Run(ctx context.Context, cfg chatConfig, io chatIO, prompt string) (string, error)
 }
 
 type defaultChatRunner struct{}
@@ -63,7 +68,7 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			text, err := runner.Run(cmd.Context(), cfg, promptText)
+			text, err := runner.Run(cmd.Context(), cfg, chatIO{In: cmd.InOrStdin(), Err: cmd.ErrOrStderr()}, promptText)
 			if err != nil {
 				return err
 			}
@@ -79,7 +84,7 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 	cmd.Flags().String("auth-token", "", "Anthropic bearer auth token")
 	cmd.Flags().String("cwd", "", "Working directory for tools")
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
-	cmd.Flags().String("permission-mode", "", "Permission mode: safe")
+	cmd.Flags().String("permission-mode", "", "Permission mode: safe or interactive")
 	return cmd
 }
 
@@ -216,8 +221,10 @@ func normalizeTelemetryMode(value string) (string, error) {
 
 func normalizePermissionMode(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "safe":
+	case "", "safe", "non-interactive":
 		return "safe", nil
+	case "interactive", "confirm":
+		return "interactive", nil
 	default:
 		return "", fmt.Errorf("unsupported permission mode %q", value)
 	}
@@ -249,7 +256,7 @@ func chatPrompt(cmd *cobra.Command, args []string) (string, error) {
 	return text, nil
 }
 
-func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, userPrompt string) (string, error) {
+func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime chatIO, userPrompt string) (string, error) {
 	recorder := telemetryRecorder(cfg.Telemetry)
 	defer recorder.Close(context.Background())
 	provider, err := anthropic.New(anthropic.Options{
@@ -262,6 +269,7 @@ func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, userPrompt str
 		return "", err
 	}
 	builtins := tools.Builtins()
+	permissionService := permissionServiceForMode(cfg.PermissionMode, runtime)
 	session, err := repl.NewSession(repl.SessionOptions{
 		Provider:  provider,
 		Model:     cfg.Model,
@@ -277,7 +285,7 @@ func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, userPrompt str
 			ReadSet:          map[string]tool.ReadFile{},
 		},
 		Telemetry:   recorder,
-		Permissions: permissions.NewService(permissions.Options{Mode: cfg.PermissionMode}),
+		Permissions: permissionService,
 	})
 	if err != nil {
 		return "", err
@@ -287,6 +295,17 @@ func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, userPrompt str
 		return "", err
 	}
 	return llm.TextContent(result.FinalAssistant), nil
+}
+
+func permissionServiceForMode(mode string, runtime chatIO) *permissions.Service {
+	if mode == "interactive" {
+		return permissions.NewService(permissions.Options{
+			Mode:              mode,
+			ApprovalAvailable: true,
+			Authorizer:        permissions.InteractiveAuthorizer{Approver: newApprovalPrompter(runtime.In, runtime.Err)},
+		})
+	}
+	return permissions.NewService(permissions.Options{Mode: mode})
 }
 
 func shellInfo() string {

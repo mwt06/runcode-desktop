@@ -10,21 +10,22 @@ func RecordDecision(ctx context.Context, recorder telemetry.Recorder, req Teleme
 	if recorder == nil {
 		recorder = telemetry.Noop()
 	}
+	summary := NewApprovalSummary(req.Action, req.Decision)
 	attrs := telemetry.Attrs{
-		string(telemetry.AttrToolName):              req.Action.ToolName,
-		string(telemetry.AttrActionOperation):       string(req.Action.Operation),
-		string(telemetry.AttrRisk):                  string(req.Action.Risk),
+		string(telemetry.AttrToolName):              summary.ToolName,
+		string(telemetry.AttrActionOperation):       string(summary.Operation),
+		string(telemetry.AttrRisk):                  string(summary.Risk),
 		string(telemetry.AttrPermissionEffect):      string(req.Decision.Effect),
 		string(telemetry.AttrPermissionFinalEffect): string(req.Decision.FinalEffect),
 		string(telemetry.AttrPermissionReason):      string(req.Decision.Reason),
-		string(telemetry.AttrPermissionRule):        req.Decision.Rule,
+		string(telemetry.AttrPermissionRule):        summary.PolicyRule,
 		string(telemetry.AttrPermissionMode):        req.Mode,
 		string(telemetry.AttrApprovalAvailable):     req.ApprovalAvailable,
-		string(telemetry.AttrResourceCount):         len(req.Action.Resources),
-		string(telemetry.AttrResourceTypes):         resourceTypes(req.Action.Resources),
-		string(telemetry.AttrResourceScope):         resourceScopeSummary(req.Action.Resources),
+		string(telemetry.AttrResourceCount):         summary.ResourceCount,
+		string(telemetry.AttrResourceTypes):         summary.ResourceTypes,
+		string(telemetry.AttrResourceScope):         summary.ResourceScope,
 	}
-	addMutationAttrs(attrs, req.Action.Metadata)
+	addMutationAttrs(attrs, summary)
 	recorder.Record(ctx, telemetry.Event{
 		Time:       telemetry.NewEvent(telemetry.EventPermissionDecision).Time,
 		Name:       telemetry.EventPermissionDecision,
@@ -45,46 +46,17 @@ type TelemetryRequest struct {
 	Decision          Decision
 }
 
-func addMutationAttrs(attrs telemetry.Attrs, metadata map[string]any) {
-	if len(metadata) == 0 {
-		return
+func addMutationAttrs(attrs telemetry.Attrs, summary ApprovalSummary) {
+	if summary.MutationKind != "" {
+		attrs[string(telemetry.AttrMutationKind)] = summary.MutationKind
 	}
-	if value, ok := metadata[MetadataMutationKind]; ok {
-		attrs[string(telemetry.AttrMutationKind)] = value
+	if summary.ReadState != "" {
+		attrs[string(telemetry.AttrReadState)] = summary.ReadState
 	}
-	if value, ok := metadata[MetadataReadState]; ok {
-		attrs[string(telemetry.AttrReadState)] = value
+	if summary.ReadRequirement != "" {
+		attrs[string(telemetry.AttrReadRequirement)] = summary.ReadRequirement
 	}
-	if value, ok := metadata[MetadataReadRequirement]; ok {
-		attrs[string(telemetry.AttrReadRequirement)] = value
+	if summary.HasTargetExists {
+		attrs[string(telemetry.AttrTargetExists)] = summary.TargetExists
 	}
-	if value, ok := metadata[MetadataTargetExists]; ok {
-		attrs[string(telemetry.AttrTargetExists)] = value
-	}
-}
-
-func resourceTypes(resources []Resource) []string {
-	values := make([]string, 0, len(resources))
-	seen := map[ResourceType]bool{}
-	for _, resource := range resources {
-		if seen[resource.Type] {
-			continue
-		}
-		seen[resource.Type] = true
-		values = append(values, string(resource.Type))
-	}
-	return values
-}
-
-func resourceScopeSummary(resources []Resource) string {
-	if len(resources) == 0 {
-		return string(ResourceScopeUnknown)
-	}
-	scope := resources[0].Scope
-	for _, resource := range resources[1:] {
-		if resource.Scope != scope {
-			return "mixed"
-		}
-	}
-	return string(scope)
 }

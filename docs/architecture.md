@@ -16,7 +16,7 @@ Implemented:
 - `tools/write`: built-in whole-file write tool, supporting create and overwrite while requiring a fresh complete read before overwriting existing files.
 - `tools/edit`: built-in exact replace tool, requiring a fresh complete read and unique `old_string` unless `replace_all` is set.
 - `internal/repl`: finite ReAct session controller, permission-aware tool executor, tool result conversion, and tool-spec conversion for future model tool exposure.
-- `internal/permissions`: internal permission boundary with action/resource/risk modeling, default safe policy, non-interactive authorizer, and permission telemetry helpers.
+- `internal/permissions`: internal permission boundary with action/resource/risk modeling, default safe policy, non-interactive and interactive authorizers, approval model, and permission telemetry helpers.
 - `internal/telemetry`: internal observability foundation with event model, no-op recorder, bounded async recorder, memory recorder, stderr JSONL support, and permission decision events.
 - `internal/prompt`: system prompt boundary, assembler, and static/dynamic prompt sections.
 - `pkg/llm/providers/anthropic`: Anthropic SDK-backed provider skeleton with request and stream conversion tests.
@@ -25,7 +25,7 @@ Not implemented yet:
 
 - Multi-turn interactive chat loop.
 - Bubble Tea TUI.
-- Interactive permission prompts and persistent policy configuration.
+- Persistent permission policy configuration.
 - MCP, hooks, sub-agents, skills, compaction, and persistence.
 - Built-in tools beyond `Read`, `Write`, and `Edit`.
 
@@ -57,7 +57,7 @@ This keeps tool implementation, tool execution, model-facing tool schemas, and p
 
 `runcode chat` is wired as a minimal non-TUI command. It accepts a single prompt from args or stdin, constructs the Anthropic provider, built-in tools, prompt assembler inputs, telemetry recorder, and `internal/repl.Session`, then prints the final assistant text to stdout.
 
-The command is intentionally single-turn and shell-friendly. It does not preserve cross-turn conversation history, stream partial output to the terminal, start a Bubble Tea UI, or write transcripts. Telemetry is disabled by default; `RUNCODE_TELEMETRY=jsonl` or `--telemetry jsonl` writes structured events to stderr while stdout remains assistant text only.
+The command is intentionally single-turn and shell-friendly. It does not preserve cross-turn conversation history, stream partial output to the terminal, start a Bubble Tea UI, or write transcripts. Telemetry is disabled by default; `RUNCODE_TELEMETRY=jsonl` or `--telemetry jsonl` writes structured events to stderr while stdout remains assistant text only. Interactive permission approval also writes prompts to stderr and reads decisions from stdin, so stdout remains reserved for final assistant text.
 
 ## Prompt cache boundary
 
@@ -91,10 +91,12 @@ Current default mode is `safe` and non-interactive:
 
 - workspace-scoped `Read` is allowed.
 - `Read` outside the configured working directory is denied.
-- `Write` create and fresh-read overwrite inside the workspace are modeled as approval-requiring; without an interactive authorizer they resolve to denial.
-- `Edit` exact replace inside the workspace is modeled as approval-requiring only when the target has a fresh complete read; without an interactive authorizer it resolves to denial.
+- `Write` create and fresh-read overwrite inside the workspace are modeled as approval-requiring; in `safe` mode they resolve to denial.
+- `Edit` exact replace inside the workspace is modeled as approval-requiring only when the target has a fresh complete read; in `safe` mode it resolves to denial.
 - `Write`/`Edit` outside the workspace, missing read state, partial reads, stale reads, invalid targets, unknown tools, and unknown operations are denied.
 - future command execution operations are modeled as approval-requiring, but without an interactive authorizer they resolve to denial.
+
+`interactive` mode (`--permission-mode interactive` or `confirm`, or `RUNCODE_PERMISSION_MODE=interactive`) installs an `InteractiveAuthorizer`. It only handles policy decisions that are already `ask`, prompts for allow-once/deny-once on stderr, and safely denies on EOF, context cancellation, prompt errors, or too many invalid answers. Approval does not bypass resolver, policy, workspace containment, fresh-read, or tool runtime safety gates.
 
 Permission denial is returned to the model as a tool result with `is_error=true`; it does not interrupt the whole turn. This keeps tool success, tool failure, and permission denial on the same ReAct path while reserving Go errors for internal failures.
 
@@ -141,13 +143,13 @@ The current scaffold should be validated through tests rather than through a rea
 | `tools/write` | file creation, fresh-read overwrite, missing/partial/stale read rejection, workspace containment, and missing parent rejection |
 | `tools/edit` | exact replace, replace-all behavior, unique match enforcement, invalid input rejection, fresh-read requirement, and workspace containment |
 | `internal/toolpath` | shared path resolution, workspace containment, symlink handling, mutation target resolution, and read freshness checks |
-| `internal/repl` | session request construction, stream collection, permission-aware executor behavior, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
-| `internal/permissions` | action/resource resolution, workspace containment, default safe policy, non-interactive authorization, and sanitized decision data |
+| `internal/repl` | session request construction, stream collection, permission-aware executor behavior, interactive approval allow/deny execution paths, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
+| `internal/permissions` | action/resource resolution, workspace containment, default safe policy, non-interactive and interactive authorization, approval fallback behavior, and sanitized decision data |
 | `internal/prompt` | boundary behavior, static/dynamic ordering, cache policy, environment isolation, and tool description injection |
 | `internal/telemetry` | event model, JSONL output, async flush/drop behavior, memory recorder, and ID generation |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |
-| `cmd/runcode` | `version` output, chat prompt input, config parsing, fake-runner output, and error propagation |
+| `cmd/runcode` | `version` output, chat prompt input, config parsing, fake-runner output, approval prompt behavior, runtime IO propagation, and error propagation |
 
 Recommended validation commands:
 

@@ -975,3 +975,51 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 ### 当前状态一句话总结
 
 `runcode` 现在已有真实 Read/Write/Edit 内置工具和统一 mutation 权限语义；默认 safe CLI 仍不会无审批写文件，但路径解析、写前必须完整读取、stale read 检查和脱敏 telemetry 边界已经落位。
+
+## 2026-05-26 续作：交互式权限审批已完成
+
+本节记录当前最新进展。若与上文较早的“当前仍未实现”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- `internal/permissions` 新增 approval model：
+  - `ApprovalRequest`
+  - `ApprovalResponse`
+  - `Approver`
+  - `InteractiveAuthorizer`
+- `safe` 模式保持默认安全行为：policy 返回 `ask` 时最终仍 deny，不执行 mutation。
+- `interactive` / `confirm` 模式已接入 CLI：
+  - `--permission-mode interactive`
+  - `--permission-mode confirm`
+  - `RUNCODE_PERMISSION_MODE=interactive`
+- `InteractiveAuthorizer` 只处理 policy 已判定为 `ask` 的 action：
+  - approval allow => final effect 为 allow，reason 为 `approval_granted`。
+  - approval deny => final effect 为 deny，reason 为 `approval_denied`。
+  - approver 缺失、prompt error、EOF、context cancel 等不可用场景安全 deny，reason 为 `approval_unavailable` 或 `approval_denied`。
+- `cmd/runcode` 新增 stderr approval prompter：
+  - 审批提示写 stderr，不污染 stdout。
+  - 审批输入从 stdin 读取。
+  - 支持 `y` / `yes` / `allow`。
+  - 支持空行 / `n` / `no` / `deny`。
+  - 无效输入最多重试 3 次，超过后 deny。
+- 审批提示只展示脱敏摘要：tool name、operation、risk、resource type/scope/count、mutation kind、read state、target exists、policy rule。
+- 审批提示不展示 raw path、tool input、file content、old_string/new_string、credential 或 base URL。
+- `cmd/runcode chat` runner seam 已增加 `chatIO{In, Err}`，避免把 Cobra command 传入 runner，同时让测试可注入 stdin/stderr。
+- `internal/repl.Executor` 已用真实 interactive permission service 覆盖：
+  - ask + approval allow 时 `Write` 实际执行。
+  - ask + approval deny 时工具不运行，返回 `is_error=true` tool result。
+  - permission telemetry 记录 final effect/reason，且不泄露 path/content。
+
+### 当前仍未实现
+
+- 持久化 allowlist / denylist。
+- session 级 permission memory。
+- TUI / 远程审批 UI。
+- Bash/Glob/Grep/TodoWrite/MCP/hooks/sub-agents/skills。
+- 多轮持久 conversation history。
+- Edit append/insert/regex patch/line patch。
+- hash-based stale check。
+
+### 当前状态一句话总结
+
+`runcode` 现在已经具备 safe 与 interactive 两种权限模式；interactive 模式可对 workspace 内合规 mutation 做一次性审批，拒绝、EOF、取消和异常都会安全失败，同时 stdout/stderr 与 telemetry 脱敏边界保持清晰。

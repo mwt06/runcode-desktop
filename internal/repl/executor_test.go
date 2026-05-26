@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wt68/runcode/internal/permissions"
@@ -276,6 +277,69 @@ func TestExecutorAllowsWriteWithInjectedPolicy(t *testing.T) {
 	}
 }
 
+func TestExecutorAllowsWriteWithInteractiveApproval(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	recorder := telemetry.NewMemory()
+	executor := newInteractiveExecutor(t, permissions.ApprovalResponse{Effect: permissions.EffectAllow})
+	_, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Write",
+		Input:     rawInput(t, map[string]any{"path": "new.txt", "content": "alpha"}),
+		Context:   &tool.Context{WorkingDirectory: dir},
+		Telemetry: recorder,
+	})
+	if err != nil {
+		t.Fatalf("execute write: %v", err)
+	}
+	if got := readFile(t, filepath.Join(dir, "new.txt")); got != "alpha" {
+		t.Fatalf("written content = %q, want alpha", got)
+	}
+
+	events := recorder.Events()
+	if len(events) != 3 || events[0].Name != telemetry.EventPermissionDecision || events[1].Name != telemetry.EventToolStart || events[2].Name != telemetry.EventToolEnd {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	attrs := events[0].Attributes
+	if attrs[string(telemetry.AttrPermissionEffect)] != string(permissions.EffectAsk) || attrs[string(telemetry.AttrPermissionFinalEffect)] != string(permissions.EffectAllow) || attrs[string(telemetry.AttrPermissionReason)] != string(permissions.ReasonApprovalGranted) {
+		t.Fatalf("unexpected permission attrs: %#v", attrs)
+	}
+	assertAttrsDoNotContain(t, attrs, dir, "new.txt", "alpha")
+}
+
+func TestExecutorDeniesWriteWithInteractiveRejection(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	recorder := telemetry.NewMemory()
+	executor := newInteractiveExecutor(t, permissions.ApprovalResponse{Effect: permissions.EffectDeny, Reason: permissions.ReasonApprovalDenied})
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Write",
+		Input:     rawInput(t, map[string]any{"path": "new.txt", "content": "alpha"}),
+		Context:   &tool.Context{WorkingDirectory: dir},
+		Telemetry: recorder,
+	})
+	if err != nil {
+		t.Fatalf("execute denied write: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("expected denied error result, got %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("write tool ran unexpectedly, stat error=%v", err)
+	}
+
+	events := recorder.Events()
+	if len(events) != 1 || events[0].Name != telemetry.EventPermissionDecision {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	attrs := events[0].Attributes
+	if attrs[string(telemetry.AttrPermissionEffect)] != string(permissions.EffectAsk) || attrs[string(telemetry.AttrPermissionFinalEffect)] != string(permissions.EffectDeny) || attrs[string(telemetry.AttrPermissionReason)] != string(permissions.ReasonApprovalDenied) {
+		t.Fatalf("unexpected permission attrs: %#v", attrs)
+	}
+	assertAttrsDoNotContain(t, attrs, dir, "new.txt", "alpha")
+}
+
 func TestExecutorRecordsPermissionTelemetryWithoutInputLeak(t *testing.T) {
 	t.Parallel()
 
@@ -417,6 +481,22 @@ func newAllowAllExecutor(toolList []tool.Tool) (*Executor, error) {
 	})
 }
 
+func newInteractiveExecutor(t *testing.T, response permissions.ApprovalResponse) *Executor {
+	t.Helper()
+	executor, err := NewExecutorWithOptions(ExecutorOptions{
+		Tools: tools.Builtins(),
+		Permissions: permissions.NewService(permissions.Options{
+			Mode:              "interactive",
+			ApprovalAvailable: true,
+			Authorizer:        permissions.InteractiveAuthorizer{Approver: testApprover{response: response}},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	return executor
+}
+
 type allowAllPolicy struct{}
 
 func (allowAllPolicy) Decide(context.Context, permissions.Action) permissions.Decision {
@@ -450,6 +530,28 @@ func rawInput(t *testing.T, input map[string]any) json.RawMessage {
 
 func requestFromToolUse(block llm.ContentBlock, tctx *tool.Context) ExecuteRequest {
 	return ExecuteRequest{Name: block.Name, Input: block.Input, ToolUseID: block.ID, Context: tctx}
+}
+
+func assertAttrsDoNotContain(t *testing.T, attrs telemetry.Attrs, forbidden ...string) {
+	t.Helper()
+	data, err := json.Marshal(attrs)
+	if err != nil {
+		t.Fatalf("marshal attrs: %v", err)
+	}
+	text := string(data)
+	for _, value := range forbidden {
+		if value != "" && strings.Contains(text, value) {
+			t.Fatalf("telemetry attrs leaked %q: %#v", value, attrs)
+		}
+	}
+}
+
+type testApprover struct {
+	response permissions.ApprovalResponse
+}
+
+func (a testApprover) Prompt(context.Context, permissions.ApprovalRequest) (permissions.ApprovalResponse, error) {
+	return a.response, nil
 }
 
 type fakeTool struct {

@@ -223,7 +223,7 @@ func TestChatCommandDefaultsPermissionModeSafe(t *testing.T) {
 
 func TestChatCommandReadsPermissionModeFromEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
-	t.Setenv("RUNCODE_PERMISSION_MODE", "safe")
+	t.Setenv("RUNCODE_PERMISSION_MODE", "interactive")
 	runner := &fakeChatRunner{text: "done"}
 	cmd := newChatCmd(runner)
 	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
@@ -231,8 +231,8 @@ func TestChatCommandReadsPermissionModeFromEnv(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute chat: %v", err)
 	}
-	if runner.cfg.PermissionMode != "safe" {
-		t.Fatalf("permission mode = %q, want safe", runner.cfg.PermissionMode)
+	if runner.cfg.PermissionMode != "interactive" {
+		t.Fatalf("permission mode = %q, want interactive", runner.cfg.PermissionMode)
 	}
 }
 
@@ -241,13 +241,30 @@ func TestChatCommandPermissionModeFlagOverridesEnv(t *testing.T) {
 	t.Setenv("RUNCODE_PERMISSION_MODE", "safe")
 	runner := &fakeChatRunner{text: "done"}
 	cmd := newChatCmd(runner)
-	cmd.SetArgs([]string{"--model", "claude-test", "--permission-mode", "safe", "hello"})
+	cmd.SetArgs([]string{"--model", "claude-test", "--permission-mode", "confirm", "hello"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute chat: %v", err)
 	}
-	if runner.cfg.PermissionMode != "safe" {
-		t.Fatalf("permission mode = %q, want safe", runner.cfg.PermissionMode)
+	if runner.cfg.PermissionMode != "interactive" {
+		t.Fatalf("permission mode = %q, want interactive", runner.cfg.PermissionMode)
+	}
+}
+
+func TestChatCommandPassesRuntimeIOToRunner(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
+	cmd.SetIn(strings.NewReader("approval\n"))
+	var errOut bytes.Buffer
+	cmd.SetErr(&errOut)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.runtime.In == nil || runner.runtime.Err != &errOut {
+		t.Fatalf("runtime IO was not propagated: %#v", runner.runtime)
 	}
 }
 
@@ -273,14 +290,16 @@ func TestChatCommandPropagatesRunnerError(t *testing.T) {
 }
 
 type fakeChatRunner struct {
-	cfg    chatConfig
-	prompt string
-	text   string
-	err    error
+	cfg     chatConfig
+	runtime chatIO
+	prompt  string
+	text    string
+	err     error
 }
 
-func (r *fakeChatRunner) Run(_ context.Context, cfg chatConfig, prompt string) (string, error) {
+func (r *fakeChatRunner) Run(_ context.Context, cfg chatConfig, runtime chatIO, prompt string) (string, error) {
 	r.cfg = cfg
+	r.runtime = runtime
 	r.prompt = prompt
 	return r.text, r.err
 }
