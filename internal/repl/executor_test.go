@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
@@ -147,6 +148,61 @@ func TestExecutorPropagatesToolErrors(t *testing.T) {
 	}
 	if errors.Is(err, ErrUnknownTool) || errors.Is(err, ErrInvalidToolRequest) {
 		t.Fatalf("expected tool execution error, got %v", err)
+	}
+}
+
+func TestExecutorRecordsTelemetry(t *testing.T) {
+	t.Parallel()
+
+	recorder := telemetry.NewMemory()
+	executor, err := NewExecutor([]tool.Tool{fakeTool{name: "Fake"}})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	_, err = executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Fake",
+		Input:     json.RawMessage(`{"secret":"not recorded"}`),
+		ToolUseID: "toolu_123",
+		Telemetry: recorder,
+		TraceID:   "trace_test",
+		TurnID:    "turn_test",
+	})
+	if err != nil {
+		t.Fatalf("execute fake: %v", err)
+	}
+	events := recorder.Events()
+	if len(events) != 2 || events[0].Name != telemetry.EventToolStart || events[1].Name != telemetry.EventToolEnd {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	for _, event := range events {
+		if event.TraceID != "trace_test" || event.TurnID != "turn_test" || event.ToolUseID != "toolu_123" {
+			t.Fatalf("missing correlation ids: %#v", event)
+		}
+		if _, ok := event.Attributes["secret"]; ok {
+			t.Fatalf("tool input content leaked into telemetry: %#v", event.Attributes)
+		}
+	}
+	if events[0].Attributes[string(telemetry.AttrInputBytes)] != len(json.RawMessage(`{"secret":"not recorded"}`)) {
+		t.Fatalf("unexpected input bytes attr: %#v", events[0].Attributes)
+	}
+}
+
+func TestExecutorRecordsTelemetryOnToolError(t *testing.T) {
+	t.Parallel()
+
+	recorder := telemetry.NewMemory()
+	executor := newBuiltinExecutor(t)
+	_, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Read",
+		Input:     rawInput(t, map[string]any{"path": filepath.Join(t.TempDir(), "missing.txt")}),
+		Telemetry: recorder,
+	})
+	if err == nil {
+		t.Fatal("expected tool error")
+	}
+	events := recorder.Events()
+	if len(events) != 2 || events[0].Name != telemetry.EventToolStart || events[1].Name != telemetry.EventToolError {
+		t.Fatalf("unexpected events: %#v", events)
 	}
 }
 

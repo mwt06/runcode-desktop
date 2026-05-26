@@ -8,8 +8,11 @@ import (
 	"sort"
 	"strings"
 
+	"time"
+
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/prompt/sections"
+	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
 )
@@ -33,6 +36,8 @@ type SessionOptions struct {
 	ToolEvents    chan<- tool.Event
 	MaxIterations int
 	Reasoning     ReasoningOptions
+	Telemetry     telemetry.Recorder
+	TraceID       string
 }
 
 type Session struct {
@@ -48,6 +53,8 @@ type Session struct {
 	toolEvents    chan<- tool.Event
 	maxIterations int
 	reasoning     ReasoningOptions
+	telemetry     telemetry.Recorder
+	traceID       string
 }
 
 type TurnResult struct {
@@ -81,6 +88,14 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	recorder := opts.Telemetry
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
+	traceID := opts.TraceID
+	if traceID == "" {
+		traceID = telemetry.NewTraceID()
+	}
 
 	return &Session{
 		provider:      opts.Provider,
@@ -95,6 +110,8 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		toolEvents:    opts.ToolEvents,
 		maxIterations: maxIterations,
 		reasoning:     opts.Reasoning,
+		telemetry:     recorder,
+		traceID:       traceID,
 	}, nil
 }
 
@@ -102,12 +119,19 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 	messages := []llm.Message{userMessage(userText)}
 	promptOpts := s.prompt
 	var result TurnResult
+	turn := s.startTurn(ctx, userText)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			turn.error(ctx, result, fmt.Errorf("panic: %v", recovered))
+			panic(recovered)
+		}
+	}()
 
 	if s.reasoning.Enabled {
-		classification, req, usage, err := s.classifyReasoningScenario(ctx, userText)
+		classification, req, usage, err := s.classifyReasoningScenario(ctx, userText, turn.id)
 		if err != nil {
 			if s.reasoning.Strict {
-				return result, err
+				return result, turn.error(ctx, result, err)
 			}
 			classification = ReasoningClassification{Scenario: defaultReasoningScenario(s.reasoning)}
 		}
@@ -120,12 +144,12 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 	for iteration := 0; iteration < s.maxIterations; iteration++ {
 		req, err := s.buildRequestWithMessagesAndPrompt(messages, promptOpts)
 		if err != nil {
-			return result, err
+			return result, turn.error(ctx, result, err)
 		}
 
-		assistant, stopReason, usage, err := s.streamAssistant(ctx, req)
+		assistant, stopReason, usage, err := s.streamAssistant(ctx, req, turn.id, "assistant")
 		if err != nil {
-			return result, err
+			return result, turn.error(ctx, result, err)
 		}
 
 		if iteration == 0 {
@@ -141,15 +165,15 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 
 		messages = append(messages, assistant)
 		if !hasToolUse(assistant) {
-			return result, nil
+			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
-			return result, ErrMaxIterations
+			return result, turn.error(ctx, result, ErrMaxIterations)
 		}
 
-		toolResults, err := s.executeToolUses(ctx, assistant)
+		toolResults, err := s.executeToolUses(ctx, assistant, turn.id)
 		if err != nil {
-			return result, err
+			return result, turn.error(ctx, result, err)
 		}
 		toolMessage := llm.Message{Role: llm.RoleTool, Content: toolResults}
 		result.LastToolMessage = &toolMessage
@@ -158,7 +182,7 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 		messages = append(messages, toolMessage)
 	}
 
-	return result, ErrMaxIterations
+	return result, turn.error(ctx, result, ErrMaxIterations)
 }
 
 func (s *Session) buildRequest(userText string) (llm.Request, error) {
@@ -187,16 +211,57 @@ func (s *Session) buildRequestWithMessagesAndPrompt(messages []llm.Message, prom
 	}, nil
 }
 
-func (s *Session) streamAssistant(ctx context.Context, req llm.Request) (llm.Message, llm.StopReason, *llm.Usage, error) {
+func (s *Session) streamAssistant(ctx context.Context, req llm.Request, turnID string, purpose string) (llm.Message, llm.StopReason, *llm.Usage, error) {
+	requestID := telemetry.NewRequestID()
+	started := time.Now()
+	s.record(ctx, telemetry.Event{
+		Time:      started.UTC(),
+		Name:      telemetry.EventLLMRequestStart,
+		TraceID:   s.traceID,
+		TurnID:    turnID,
+		RequestID: requestID,
+		Attributes: telemetry.Attrs{
+			string(telemetry.AttrProvider):       s.provider.Name(),
+			string(telemetry.AttrModel):          req.Model,
+			string(telemetry.AttrPurpose):        purpose,
+			string(telemetry.AttrMessageCount):   len(req.Messages),
+			string(telemetry.AttrToolCount):      len(req.Tools),
+			string(telemetry.AttrMaxTokens):      req.MaxTokens,
+			string(telemetry.AttrHasTemperature): req.Temperature != nil,
+		},
+	})
 	stream, err := s.provider.Stream(ctx, req)
 	if err != nil {
-		return llm.Message{}, "", nil, fmt.Errorf("stream provider: %w", err)
+		err = fmt.Errorf("stream provider: %w", err)
+		s.record(ctx, s.llmErrorEvent(requestID, turnID, purpose, req, started, err))
+		return llm.Message{}, "", nil, err
 	}
 	defer stream.Close()
-	return collectAssistantMessage(ctx, stream)
+	message, stopReason, usage, err := collectAssistantMessage(ctx, stream)
+	if err != nil {
+		s.record(ctx, s.llmErrorEvent(requestID, turnID, purpose, req, started, err))
+		return llm.Message{}, "", nil, err
+	}
+	s.record(ctx, telemetry.Event{
+		Time:      time.Now().UTC(),
+		Name:      telemetry.EventLLMRequestEnd,
+		TraceID:   s.traceID,
+		TurnID:    turnID,
+		RequestID: requestID,
+		Attributes: telemetry.MergeAttrs(telemetry.Attrs{
+			string(telemetry.AttrProvider):     s.provider.Name(),
+			string(telemetry.AttrModel):        req.Model,
+			string(telemetry.AttrPurpose):      purpose,
+			string(telemetry.AttrStopReason):   string(stopReason),
+			string(telemetry.AttrDurationMS):   telemetry.DurationMS(time.Since(started)),
+			string(telemetry.AttrMessageCount): len(req.Messages),
+			string(telemetry.AttrToolCount):    len(req.Tools),
+		}, telemetry.UsageAttrs(usage)),
+	})
+	return message, stopReason, usage, nil
 }
 
-func (s *Session) classifyReasoningScenario(ctx context.Context, userText string) (ReasoningClassification, *llm.Request, *llm.Usage, error) {
+func (s *Session) classifyReasoningScenario(ctx context.Context, userText string, turnID string) (ReasoningClassification, *llm.Request, *llm.Usage, error) {
 	temperature := 0.0
 	req := llm.Request{
 		Model:    s.model,
@@ -210,18 +275,18 @@ func (s *Session) classifyReasoningScenario(ctx context.Context, userText string
 		Temperature: &temperature,
 		Metadata:    s.metadata,
 	}
-	assistant, _, usage, err := s.streamAssistant(ctx, req)
+	assistant, _, usage, err := s.streamAssistant(ctx, req, turnID, "reasoning_classification")
 	if err != nil {
 		return ReasoningClassification{}, &req, usage, err
 	}
-	classification, err := parseReasoningClassification(assistantText(assistant))
+	classification, err := parseReasoningClassification(llm.TextContent(assistant))
 	if err != nil {
 		return ReasoningClassification{}, &req, usage, err
 	}
 	return classification, &req, usage, nil
 }
 
-func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message) ([]llm.ContentBlock, error) {
+func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, turnID string) ([]llm.ContentBlock, error) {
 	var results []llm.ContentBlock
 	for _, block := range assistant.Content {
 		if block.Type != llm.ContentBlockTypeToolUse {
@@ -233,6 +298,9 @@ func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message) ([
 			ToolUseID: block.ID,
 			Context:   s.toolContext,
 			Events:    s.toolEvents,
+			Telemetry: s.telemetry,
+			TraceID:   s.traceID,
+			TurnID:    turnID,
 		})
 		if err != nil {
 			return nil, err
@@ -263,16 +331,6 @@ func cloneTools(tools []tool.Tool) []tool.Tool {
 	cloned := make([]tool.Tool, len(tools))
 	copy(cloned, tools)
 	return cloned
-}
-
-func assistantText(message llm.Message) string {
-	var builder strings.Builder
-	for _, block := range message.Content {
-		if block.Type == llm.ContentBlockTypeText {
-			builder.WriteString(block.Text)
-		}
-	}
-	return builder.String()
 }
 
 func userMessage(userText string) llm.Message {

@@ -1,6 +1,9 @@
 package llm
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Role identifies the author of a conversation message.
 type Role string
@@ -51,6 +54,17 @@ type ContentBlock struct {
 	Source    *ImageSource
 	Signature string
 	Cache     CacheControl
+}
+
+// TextContent returns the concatenated text blocks in a message.
+func TextContent(message Message) string {
+	var builder strings.Builder
+	for _, block := range message.Content {
+		if block.Type == ContentBlockTypeText {
+			builder.WriteString(block.Text)
+		}
+	}
+	return builder.String()
 }
 
 // ImageSource describes image data supplied to a model.

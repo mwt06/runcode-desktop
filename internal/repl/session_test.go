@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/internal/prompt"
+	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
@@ -369,6 +370,78 @@ func TestSessionRunTurnStrictReasoningReturnsError(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnRecordsTelemetry(t *testing.T) {
+	t.Parallel()
+
+	recorder := telemetry.NewMemory()
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(textEvents("hello"), nil), Telemetry: recorder, TraceID: "trace_test"})
+	result, err := session.RunTurn(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+
+	events := recorder.Events()
+	if got, want := eventNames(events), []telemetry.EventName{telemetry.EventTurnStart, telemetry.EventLLMRequestStart, telemetry.EventLLMRequestEnd, telemetry.EventTurnEnd}; !sameEventNames(got, want) {
+		t.Fatalf("event names = %#v, want %#v", got, want)
+	}
+	for _, event := range events {
+		if event.TraceID != "trace_test" || event.TurnID == "" {
+			t.Fatalf("event missing correlation ids: %#v", event)
+		}
+	}
+	if events[2].RequestID == "" {
+		t.Fatalf("llm request end missing request id: %#v", events[2])
+	}
+	if events[2].Attributes[string(telemetry.AttrOutputTokens)] != result.FinalUsage.OutputTokens {
+		t.Fatalf("llm usage attrs = %#v, usage=%#v", events[2].Attributes, result.FinalUsage)
+	}
+	if events[3].Attributes[string(telemetry.AttrOutputTokens)] != result.FinalUsage.OutputTokens {
+		t.Fatalf("turn usage attrs = %#v, usage=%#v", events[3].Attributes, result.FinalUsage)
+	}
+}
+
+func TestSessionRunTurnRecordsToolTelemetry(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	recorder := telemetry.NewMemory()
+	session := newTestSession(t, SessionOptions{
+		Provider: newFakeProviderSequence(
+			fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+			fakeProviderResponse{events: textEvents("done")},
+		),
+		Tools:       tools.Builtins(),
+		ToolContext: &tool.Context{WorkingDirectory: dir},
+		Telemetry:   recorder,
+		TraceID:     "trace_test",
+	})
+
+	_, err := session.RunTurn(context.Background(), "read sample.txt")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if !hasEvent(recorder.Events(), telemetry.EventToolStart) || !hasEvent(recorder.Events(), telemetry.EventToolEnd) {
+		t.Fatalf("missing tool telemetry events: %#v", eventNames(recorder.Events()))
+	}
+}
+
+func TestSessionRunTurnRecordsTelemetryOnProviderError(t *testing.T) {
+	t.Parallel()
+
+	streamErr := errors.New("stream failed")
+	recorder := telemetry.NewMemory()
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(nil, streamErr), Telemetry: recorder, TraceID: "trace_test"})
+
+	_, err := session.RunTurn(context.Background(), "hi")
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("expected stream error, got %v", err)
+	}
+	if !hasEvent(recorder.Events(), telemetry.EventLLMRequestError) || !hasEvent(recorder.Events(), telemetry.EventTurnError) {
+		t.Fatalf("missing error telemetry events: %#v", eventNames(recorder.Events()))
+	}
+}
+
 func TestSessionRunTurnReturnsMaxIterations(t *testing.T) {
 	t.Parallel()
 
@@ -576,4 +649,33 @@ func sameRoles(a []llm.Role, b []llm.Role) bool {
 		}
 	}
 	return true
+}
+
+func eventNames(events []telemetry.Event) []telemetry.EventName {
+	names := make([]telemetry.EventName, len(events))
+	for i, event := range events {
+		names[i] = event.Name
+	}
+	return names
+}
+
+func sameEventNames(a []telemetry.EventName, b []telemetry.EventName) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func hasEvent(events []telemetry.Event, name telemetry.EventName) bool {
+	for _, event := range events {
+		if event.Name == name {
+			return true
+		}
+	}
+	return false
 }

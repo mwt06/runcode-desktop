@@ -710,3 +710,176 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 
 `runcode` 现在已经具备 provider-neutral 的 tool/prompt/repl/session 基础闭环和可选 reasoning 预判定；下一步应先提交稳定快照，再实现真实 provider skeleton。
 
+
+## 2026-05-22 续作：Anthropic SDK provider skeleton 已完成
+
+本节记录当前最新进展。若与上文较早的“下一步推荐”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- 新增 `pkg/llm/providers/anthropic` provider skeleton，使用官方 `github.com/anthropics/anthropic-sdk-go v1.45.0`。
+- `Provider` 已实现 `llm.Provider`：
+  - `Name()` 返回 `anthropic`。
+  - `Capabilities()` 声明支持 cache control，不声明 thinking request 支持。
+  - `Stream(ctx, req)` 将 neutral request 转为 Anthropic Messages request，并返回 neutral `llm.Stream`。
+- 新增 SDK 隔离层 `sdk.go`，SDK client、request option、stream 类型不泄漏到 `internal/repl`。
+- 新增 request conversion：
+  - system text/cache control
+  - user/assistant/tool messages
+  - tools
+  - assistant `tool_use`
+  - `RoleTool` -> user `tool_result`
+  - max tokens / temperature
+- 新增 stream conversion：
+  - message/content block start/delta/stop
+  - text delta
+  - tool input JSON delta
+  - thinking/signature delta 字段
+  - usage
+  - stop reason 映射
+- 新增 provider 包测试：
+  - `provider_test.go`
+  - `convert_test.go`
+  - `stream_test.go`
+- 更新 `docs/architecture.md`，说明 Anthropic SDK provider skeleton 已存在但尚未接 CLI/TUI。
+
+### 当前仍未实现
+
+- `cmd/runcode chat` 接入 session/provider。
+- 真实 Anthropic API integration test。
+- API key 配置、model discovery、pricing/token budget、retry/backoff、telemetry。
+- OpenAI provider / OpenAI-compatible provider。
+- Bubble Tea TUI。
+- 权限策略、MCP、hooks、sub-agents、skills、compaction、persistence。
+- `Read` 之外的内置工具。
+
+### 已验证命令
+
+```bash
+go -C "D:/我的AI/runcode" mod tidy
+go -C "D:/我的AI/runcode" fmt ./pkg/llm/providers/anthropic
+go -C "D:/我的AI/runcode" test ./pkg/llm/...
+go -C "D:/我的AI/runcode" test ./internal/repl ./pkg/llm/...
+go -C "D:/我的AI/runcode" test ./...
+PATH="/c/msys64/ucrt64/bin:$PATH" CGO_ENABLED=1 go -C "D:/我的AI/runcode" test -race ./...
+go -C "D:/我的AI/runcode" build ./cmd/runcode
+```
+
+全部通过。
+
+### 下一步推荐
+
+先查看 diff 并提交当前 provider skeleton。提交后推荐继续做 OpenAI-compatible provider skeleton，仍保持不接 TUI、不直接改 `chat` 为真实交互。
+
+### 当前状态一句话总结
+
+`runcode` 现在已经具备 provider-neutral 的 tool/prompt/repl/session 基础闭环、可选 reasoning 预判定，以及第一个真实 provider adapter skeleton（Anthropic SDK）；下一步应提交稳定快照，再扩展 OpenAI-compatible provider 或开始设计 CLI wiring。
+
+## 2026-05-22 续作：最小 chat CLI 接入已完成
+
+本节记录当前最新进展。若与上文较早的“下一步推荐”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- `cmd/runcode chat` 已从占位命令改为最小 provider-backed single-turn CLI。
+- chat prompt 输入支持：
+  - `runcode chat "..."` 从命令参数读取。
+  - `printf "..." | runcode chat` 从 stdin 读取。
+- stdout 只输出最终 assistant text，不再打印 banner，便于 shell 管道使用。
+- chat 配置支持：
+  - `--model` / `ANTHROPIC_MODEL`
+  - `--max-tokens` / `ANTHROPIC_MAX_TOKENS`
+  - `--base-url` / `ANTHROPIC_BASE_URL`
+  - `--api-key` / `ANTHROPIC_API_KEY`
+  - `--auth-token` / `ANTHROPIC_AUTH_TOKEN`
+  - `--cwd` / `RUNCODE_CWD`
+- `pkg/llm/providers/anthropic.Options` 已新增 `AuthToken`，SDK client 创建时优先使用 `option.WithAuthToken`，否则使用 `option.WithAPIKey`。
+- chat 命令会构造：
+  - Anthropic provider
+  - `tools.Builtins()`
+  - `internal/repl.Session`
+  - `tool.Context`，其中 `WorkingDirectory` 来自配置，`ReadSet` 初始化为空 map。
+- 新增 chat command fake runner seam，单元测试不触网。
+- `cmd/runcode/main_test.go` 已替换旧 placeholder 测试，覆盖 args/stdin prompt、空 prompt、缺少 model、缺少 credential、env/flag 配置、flag override、runner error。
+- `pkg/llm/providers/anthropic/provider_test.go` 已补充 `AuthToken` 构造测试。
+- `docs/architecture.md` 已更新当前 CLI 边界。
+
+### 当前仍未实现
+
+- Bubble Tea TUI。
+- 多轮持久 conversation history。
+- streaming terminal 输出。
+- SQLite transcript / persistence。
+- 权限策略；当前 chat 只暴露现有 `Read` 工具，后续接 Write/Edit/Bash 前必须先补权限。
+- OpenAI provider / OpenAI-compatible provider。
+- model discovery、pricing/token budget、retry/backoff、telemetry。
+- `Read` 之外的内置工具。
+
+### 下一步推荐
+
+先运行全量验证并查看 diff，然后提交当前 Anthropic provider + chat CLI 稳定快照。提交后建议二选一：
+
+1. 实现 OpenAI-compatible provider skeleton。
+2. 为 chat 增加最小多轮内存 history，但仍不接 TUI。
+
+### 当前状态一句话总结
+
+`runcode` 现在可以通过 `runcode chat` 触发 Anthropic provider、prompt assembler、Session ReAct loop 和当前 `Read` 工具链路；它仍是 single-turn 非 TUI CLI。
+
+## 2026-05-25 续作：observability / telemetry 基础层已完成
+
+本节记录当前最新进展。若与上文较早的“下一步推荐”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- 新增 `internal/telemetry` 内部 observability 基础层：
+  - 统一 `Event` / `EventName` / `Attrs` 模型。
+  - 事件名覆盖 turn、LLM request、tool execution 生命周期。
+  - 属性 key 集中定义，避免各处手写字符串漂移。
+  - `Noop` recorder，默认无行为。
+  - JSONL recorder，每个 event 一行 JSON。
+  - bounded async recorder，非阻塞写入，队列满时 drop event 而不阻塞主流程。
+  - memory recorder，用于测试中验证事件顺序和字段。
+  - trace / turn / request ID 生成，用于关联一个 chat turn 内的请求和工具调用。
+- `internal/repl.Session` 已接入 telemetry：
+  - `turn.start`
+  - `turn.end`
+  - `turn.error`
+  - `llm.request.start`
+  - `llm.request.end`
+  - `llm.request.error`
+- `internal/repl.Executor` 已接入 telemetry：
+  - `tool.execute.start`
+  - `tool.execute.end`
+  - `tool.execute.error`
+- `cmd/runcode chat` 已新增 telemetry 配置：
+  - `--telemetry off|jsonl`
+  - `RUNCODE_TELEMETRY=off|jsonl`
+  - 默认 `off`。
+  - `jsonl` / `stderr-jsonl` 输出到 stderr，stdout 仍只保留 assistant text。
+- telemetry 数据边界：
+  - 不记录 prompt 原文。
+  - 不记录 assistant 原文。
+  - 不记录 tool input JSON 原文。
+  - 不记录 tool output / 文件内容。
+  - 不记录 API key、auth token、base URL。
+  - 只记录长度、数量、名称、stop reason、usage、duration、错误字符串和 correlation ID。
+- 已补充测试：
+  - `internal/telemetry` recorder/event/id 行为。
+  - `internal/repl` session/executor telemetry 事件。
+  - `cmd/runcode` telemetry config 解析。
+- `docs/architecture.md` 已更新 observability 边界。
+
+### 当前仍未实现
+
+- 外部 collector / OpenTelemetry。
+- SQLite transcript / 持久化日志。
+- 数字飞轮数据平台。
+- telemetry sampling / session id / 用户级聚合。
+- Bubble Tea TUI。
+- 多轮持久 conversation history。
+- 权限策略与更多工具。
+
+### 当前状态一句话总结
+
+`runcode` 现在具备一套内部统一 telemetry 事件模型和非阻塞本地 JSONL 输出能力，可用于验证 chat/session/provider/tool 主链路，并为后续数字飞轮预留低耦合扩展点。

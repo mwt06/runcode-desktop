@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
+	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -25,6 +27,9 @@ type ExecuteRequest struct {
 	ToolUseID string
 	Context   *tool.Context
 	Events    chan<- tool.Event
+	Telemetry telemetry.Recorder
+	TraceID   string
+	TurnID    string
 }
 
 type ExecuteResult struct {
@@ -69,10 +74,17 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 	if req.Name == "" {
 		return ExecuteResult{}, fmt.Errorf("%w: tool name is required", ErrInvalidToolRequest)
 	}
+	recorder := req.Telemetry
+	if recorder == nil {
+		recorder = telemetry.Noop()
+	}
+	started := time.Now()
 
 	runner, ok := e.tools[req.Name]
 	if !ok {
-		return ExecuteResult{}, fmt.Errorf("%w: %s", ErrUnknownTool, req.Name)
+		err := fmt.Errorf("%w: %s", ErrUnknownTool, req.Name)
+		recordToolError(ctx, recorder, req, started, err)
+		return ExecuteResult{}, err
 	}
 
 	tctx := req.Context
@@ -83,10 +95,56 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		tctx.ToolUseID = req.ToolUseID
 	}
 
+	recorder.Record(ctx, telemetry.Event{
+		Time:      started.UTC(),
+		Name:      telemetry.EventToolStart,
+		TraceID:   req.TraceID,
+		TurnID:    req.TurnID,
+		ToolUseID: tctx.ToolUseID,
+		Attributes: telemetry.Attrs{
+			string(telemetry.AttrToolName):   req.Name,
+			string(telemetry.AttrInputBytes): len(req.Input),
+			string(telemetry.AttrHasContext): req.Context != nil,
+		},
+	})
+
 	result, err := runner.Run(ctx, req.Input, tctx, req.Events)
 	if err != nil {
-		return ExecuteResult{}, fmt.Errorf("run tool %q: %w", req.Name, err)
+		err = fmt.Errorf("run tool %q: %w", req.Name, err)
+		recordToolError(ctx, recorder, req, started, err)
+		return ExecuteResult{}, err
 	}
 
+	recorder.Record(ctx, telemetry.Event{
+		Time:      time.Now().UTC(),
+		Name:      telemetry.EventToolEnd,
+		TraceID:   req.TraceID,
+		TurnID:    req.TurnID,
+		ToolUseID: tctx.ToolUseID,
+		Attributes: telemetry.Attrs{
+			string(telemetry.AttrToolName):          req.Name,
+			string(telemetry.AttrInputBytes):        len(req.Input),
+			string(telemetry.AttrHasContext):        req.Context != nil,
+			string(telemetry.AttrContentBlockCount): len(result.Content),
+			string(telemetry.AttrDurationMS):        telemetry.DurationMS(time.Since(started)),
+		},
+	})
+
 	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result}, nil
+}
+
+func recordToolError(ctx context.Context, recorder telemetry.Recorder, req ExecuteRequest, started time.Time, err error) {
+	recorder.Record(ctx, telemetry.Event{
+		Time:      time.Now().UTC(),
+		Name:      telemetry.EventToolError,
+		TraceID:   req.TraceID,
+		TurnID:    req.TurnID,
+		ToolUseID: req.ToolUseID,
+		Attributes: telemetry.Attrs{
+			string(telemetry.AttrToolName):   req.Name,
+			string(telemetry.AttrInputBytes): len(req.Input),
+			string(telemetry.AttrError):      err.Error(),
+			string(telemetry.AttrDurationMS): telemetry.DurationMS(time.Since(started)),
+		},
+	})
 }
