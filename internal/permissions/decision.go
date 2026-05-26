@@ -17,6 +17,9 @@ const (
 	ReasonOutsideWorkspace    Reason = "outside_workspace"
 	ReasonUnknownTool         Reason = "unknown_tool"
 	ReasonInvalidInput        Reason = "invalid_input"
+	ReasonInvalidTarget       Reason = "invalid_target"
+	ReasonReadRequired        Reason = "read_required"
+	ReasonReadStale           Reason = "read_stale"
 	ReasonPolicyDenied        Reason = "policy_denied"
 )
 

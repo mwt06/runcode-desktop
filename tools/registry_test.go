@@ -6,24 +6,29 @@ import (
 	"github.com/wt68/runcode/tools"
 )
 
-func TestBuiltinsContainsOnlyRead(t *testing.T) {
+func TestBuiltinsContainsReadWriteAndEdit(t *testing.T) {
 	t.Parallel()
 
 	builtins := tools.Builtins()
-	if len(builtins) != 1 {
-		t.Fatalf("expected 1 builtin tool, got %d", len(builtins))
+	if len(builtins) != 3 {
+		t.Fatalf("expected 3 builtin tools, got %d", len(builtins))
 	}
-	if builtins[0].Name() != "Read" {
-		t.Fatalf("unexpected builtin tool: %q", builtins[0].Name())
+	wantNames := []string{"Read", "Write", "Edit"}
+	for i, want := range wantNames {
+		if builtins[i].Name() != want {
+			t.Fatalf("builtin[%d] = %q, want %q", i, builtins[i].Name(), want)
+		}
+		if builtins[i].Description() == "" {
+			t.Fatalf("expected non-empty description for %s", want)
+		}
+		if builtins[i].InputSchema().Type == "" {
+			t.Fatalf("expected non-empty input schema for %s", want)
+		}
 	}
-	if builtins[0].Description() == "" {
-		t.Fatal("expected non-empty description")
-	}
-	if builtins[0].InputSchema().Type == "" {
-		t.Fatal("expected non-empty input schema")
-	}
-	if !builtins[0].IsConcurrencySafe() {
-		t.Fatal("expected Read to be concurrency safe")
+	for _, builtin := range builtins {
+		if builtin.IsConcurrencySafe() {
+			t.Fatalf("expected %s not to be concurrency safe while tools share mutable context", builtin.Name())
+		}
 	}
 }
 

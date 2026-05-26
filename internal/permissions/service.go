@@ -72,7 +72,9 @@ func (s *Service) AuthorizeTool(ctx context.Context, req ResolveRequest) (Action
 			action.Risk = RiskHigh
 		}
 		reason := ReasonPolicyDenied
-		if errors.Is(err, ErrInvalidInput) {
+		if errors.Is(err, ErrInvalidTarget) {
+			reason = ReasonInvalidTarget
+		} else if errors.Is(err, ErrInvalidInput) {
 			reason = ReasonInvalidInput
 		}
 		return action, Deny(reason, "resolver.error")

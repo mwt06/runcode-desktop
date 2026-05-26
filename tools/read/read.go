@@ -65,7 +65,7 @@ func (Tool) InputSchema() tool.Schema {
 }
 
 func (Tool) IsConcurrencySafe() bool {
-	return true
+	return false
 }
 
 func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
@@ -102,7 +102,7 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	}
 	defer file.Close()
 
-	text, err := readLines(ctx, file, in.Offset, in.Limit)
+	readResult, err := readLines(ctx, file, in.Offset, in.Limit)
 	if err != nil {
 		return tool.Result{}, err
 	}
@@ -111,33 +111,40 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 		if tctx.ReadSet == nil {
 			tctx.ReadSet = make(map[string]tool.ReadFile)
 		}
-		tctx.ReadSet[path] = tool.ReadFile{Path: path, Size: info.Size(), ModTime: info.ModTime()}
+		tctx.ReadSet[path] = tool.ReadFile{Path: path, Size: info.Size(), ModTime: info.ModTime(), Complete: readResult.Complete}
 	}
 
 	return tool.Result{
-		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}},
+		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: readResult.Text}},
 	}, nil
 }
 
-func readLines(ctx context.Context, r io.Reader, offset int, limit int) (string, error) {
+type lineReadResult struct {
+	Text     string
+	Complete bool
+}
+
+func readLines(ctx context.Context, r io.Reader, offset int, limit int) (lineReadResult, error) {
 	reader := bufio.NewReader(r)
 	var builder strings.Builder
 	lineNumber := 0
 	written := 0
 	truncated := false
+	reachedEOF := false
 
 readLoop:
 	for written < limit {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return lineReadResult{}, err
 		}
 
 		fragment, isPrefix, err := reader.ReadLine()
 		if errors.Is(err, io.EOF) {
+			reachedEOF = true
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("read file: %w", err)
+			return lineReadResult{}, fmt.Errorf("read file: %w", err)
 		}
 
 		lineNumber++
@@ -167,14 +174,15 @@ readLoop:
 				break
 			}
 			if err := ctx.Err(); err != nil {
-				return "", err
+				return lineReadResult{}, err
 			}
 			fragment, isPrefix, err = reader.ReadLine()
 			if errors.Is(err, io.EOF) {
+				reachedEOF = true
 				break
 			}
 			if err != nil {
-				return "", fmt.Errorf("read file: %w", err)
+				return lineReadResult{}, fmt.Errorf("read file: %w", err)
 			}
 		}
 
@@ -186,7 +194,7 @@ readLoop:
 		builder.WriteString("\n[output truncated]")
 	}
 
-	return builder.String(), nil
+	return lineReadResult{Text: builder.String(), Complete: offset == 0 && reachedEOF && !truncated}, nil
 }
 
 func writeBounded(builder *strings.Builder, text []byte) bool {

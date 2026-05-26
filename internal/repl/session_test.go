@@ -69,8 +69,8 @@ func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	if got := req.Messages[0].Content[0].Text; got != "read the file" {
 		t.Fatalf("user text = %q, want %q", got, "read the file")
 	}
-	if len(req.Tools) != 1 || req.Tools[0].Name != "Read" {
-		t.Fatalf("expected Read tool spec, got %#v", req.Tools)
+	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit"}; !sameStrings(got, want) {
+		t.Fatalf("tool specs = %#v, want %#v", got, want)
 	}
 }
 
@@ -656,6 +656,14 @@ func rolesOf(messages []llm.Message) []llm.Role {
 	return roles
 }
 
+func toolSpecNames(specs []llm.ToolSpec) []string {
+	names := make([]string, len(specs))
+	for i, spec := range specs {
+		names[i] = spec.Name
+	}
+	return names
+}
+
 func requestSystemContains(req llm.Request, text string) bool {
 	for _, block := range req.System {
 		if strings.Contains(block.Text, text) {
@@ -666,6 +674,18 @@ func requestSystemContains(req llm.Request, text string) bool {
 }
 
 func sameRoles(a []llm.Role, b []llm.Role) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameStrings(a []string, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}

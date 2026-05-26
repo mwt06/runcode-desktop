@@ -15,7 +15,8 @@ type Context struct {
 
 // ReadFile records a file that has already been read in the session.
 type ReadFile struct {
-	Path    string    `json:"path"`
-	Size    int64     `json:"size,omitempty"`
-	ModTime time.Time `json:"modTime,omitempty"`
+	Path     string    `json:"path"`
+	Size     int64     `json:"size,omitempty"`
+	ModTime  time.Time `json:"modTime,omitempty"`
+	Complete bool      `json:"complete,omitempty"`
 }

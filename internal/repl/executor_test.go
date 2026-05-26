@@ -234,6 +234,48 @@ func TestExecutorDeniesDisallowedToolWithoutRunning(t *testing.T) {
 	}
 }
 
+func TestExecutorDeniesWriteInDefaultSafeModeWithoutRunning(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	executor := newBuiltinExecutor(t)
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:    "Write",
+		Input:   rawInput(t, map[string]any{"path": "new.txt", "content": "alpha"}),
+		Context: &tool.Context{WorkingDirectory: dir},
+	})
+	if err != nil {
+		t.Fatalf("execute denied write: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("expected denied error result, got %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("write tool ran unexpectedly, stat error=%v", err)
+	}
+}
+
+func TestExecutorAllowsWriteWithInjectedPolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	executor, err := newAllowAllExecutor(tools.Builtins())
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	_, err = executor.Execute(context.Background(), ExecuteRequest{
+		Name:    "Write",
+		Input:   rawInput(t, map[string]any{"path": "new.txt", "content": "alpha"}),
+		Context: &tool.Context{WorkingDirectory: dir},
+	})
+	if err != nil {
+		t.Fatalf("execute write: %v", err)
+	}
+	if got := readFile(t, filepath.Join(dir, "new.txt")); got != "alpha" {
+		t.Fatalf("written content = %q, want alpha", got)
+	}
+}
+
 func TestExecutorRecordsPermissionTelemetryWithoutInputLeak(t *testing.T) {
 	t.Parallel()
 
@@ -386,6 +428,15 @@ func writeFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read test file: %v", err)
+	}
+	return string(data)
 }
 
 func rawInput(t *testing.T, input map[string]any) json.RawMessage {

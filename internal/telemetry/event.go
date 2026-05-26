@@ -72,6 +72,10 @@ const (
 	AttrResourceTypes            AttrKey = "resource_types"
 	AttrResourceScope            AttrKey = "resource_scope"
 	AttrApprovalAvailable        AttrKey = "approval_available"
+	AttrMutationKind             AttrKey = "mutation_kind"
+	AttrReadState                AttrKey = "read_state"
+	AttrReadRequirement          AttrKey = "read_requirement"
+	AttrTargetExists             AttrKey = "target_exists"
 )
 
 func NewEvent(name EventName) Event {

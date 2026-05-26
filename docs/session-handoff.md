@@ -929,3 +929,49 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 ### 当前状态一句话总结
 
 `runcode` 现在具备 executor 前统一权限边界，默认安全策略会允许 workspace 内 Read、拒绝越界或未知工具，并把权限拒绝作为 `is_error` tool result 回传模型，同时通过脱敏 telemetry 记录 decision。
+
+## 2026-05-26 续作：Write/Edit mutation boundary 已完成
+
+本节记录当前最新进展。若与上文较早的“当前仍未实现”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- `pkg/tool.ReadFile` 新增 `Complete bool`，用于区分完整读取和部分读取。
+- `tools/read` 更新 `ReadSet` 语义：完整读取标记 `Complete=true`，offset/limit 或截断导致的部分读取标记 `Complete=false`。
+- `internal/toolpath` 新增 mutation target 解析：
+  - 目标存在时检查真实 target 是否在 workspace 内。
+  - 目标不存在时要求父目录存在，并检查真实父目录在 workspace 内。
+  - workspace 内 symlink/junction 指向 workspace 外会被识别为 outside。
+  - 不自动创建父目录。
+- `internal/toolpath.RequireFreshRead` 新增运行期 read gate：overwrite/edit 前必须有完整 `ReadSet`，且当前文件 size/modtime 与读取记录一致。
+- `internal/permissions` 扩展 Write/Edit mutation 语义：
+  - `Write` 区分 `create` 和 `overwrite`。
+  - `Edit` 第一版只支持 exact `replace` 语义。
+  - metadata 记录 `mutation_kind`、`read_requirement`、`read_state`、`target_exists`，不记录 raw path 或内容。
+  - default policy 对 workspace 内 create/fresh overwrite/fresh replace 返回 ask；当前 safe non-interactive authorizer 仍会最终 deny。
+  - missing/partial/stale read、invalid target、outside workspace 都会 deny。
+- 新增 `tools/write`：
+  - 创建新文件。
+  - 覆盖已有文件前要求 fresh complete read。
+  - 工具运行阶段重复 mutation target 和 read gate 检查。
+- 新增 `tools/edit`：
+  - exact `old_string` -> `new_string` 替换。
+  - 默认要求 `old_string` 唯一。
+  - `replace_all=true` 时替换全部。
+  - old_string 缺失、多处未声明 replace_all、old==new、未读/部分读/stale 都会拒绝且不写文件。
+- `tools.Builtins()` 现在注册 `Read`、`Write`、`Edit`，因此 prompt/tool specs/executor 继续同源。
+- `internal/repl` 测试覆盖 default safe 下 Write 不会实际运行，以及测试注入 allow policy 时 Write 可执行。
+
+### 当前仍未实现
+
+- 交互式权限审批 UI；当前 safe non-interactive 下 Write/Edit 会被建模为 ask 后最终 deny。
+- 持久化 allowlist / denylist。
+- session 级权限记忆。
+- Bash/Glob/Grep/TodoWrite/MCP/hooks/sub-agents/skills。
+- 多轮持久 conversation history。
+- Edit append/insert/regex patch/line patch。
+- hash-based stale check。
+
+### 当前状态一句话总结
+
+`runcode` 现在已有真实 Read/Write/Edit 内置工具和统一 mutation 权限语义；默认 safe CLI 仍不会无审批写文件，但路径解析、写前必须完整读取、stale read 检查和脱敏 telemetry 边界已经落位。

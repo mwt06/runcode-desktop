@@ -112,8 +112,34 @@ func TestReadToolUpdatesReadSet(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected read set entry for %s", abs)
 	}
-	if entry.Path != abs || entry.Size == 0 || entry.ModTime.IsZero() {
+	if entry.Path != abs || entry.Size == 0 || entry.ModTime.IsZero() || !entry.Complete {
 		t.Fatalf("unexpected read set entry: %+v", entry)
+	}
+}
+
+func TestReadToolMarksPartialReadSetEntryIncomplete(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	writeFile(t, path, "alpha\nbeta\n")
+
+	tctx := &tool.Context{}
+	_, err := read.New().Run(context.Background(), rawInput(t, map[string]any{"path": path, "limit": 1}), tctx, nil)
+	if err != nil {
+		t.Fatalf("run read tool: %v", err)
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("resolve abs path: %v", err)
+	}
+	entry, ok := tctx.ReadSet[abs]
+	if !ok {
+		t.Fatalf("expected read set entry for %s", abs)
+	}
+	if entry.Complete {
+		t.Fatalf("expected partial read set entry to be incomplete: %+v", entry)
 	}
 }
 
