@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/tool"
 )
@@ -18,7 +19,13 @@ var (
 )
 
 type Executor struct {
-	tools map[string]tool.Tool
+	tools       map[string]tool.Tool
+	permissions *permissions.Service
+}
+
+type ExecutorOptions struct {
+	Tools       []tool.Tool
+	Permissions *permissions.Service
 }
 
 type ExecuteRequest struct {
@@ -39,8 +46,12 @@ type ExecuteResult struct {
 }
 
 func NewExecutor(toolList []tool.Tool) (*Executor, error) {
-	indexed := make(map[string]tool.Tool, len(toolList))
-	for _, candidate := range toolList {
+	return NewExecutorWithOptions(ExecutorOptions{Tools: toolList})
+}
+
+func NewExecutorWithOptions(opts ExecutorOptions) (*Executor, error) {
+	indexed := make(map[string]tool.Tool, len(opts.Tools))
+	for _, candidate := range opts.Tools {
 		if isNilTool(candidate) {
 			return nil, fmt.Errorf("%w: nil tool", ErrInvalidToolRequest)
 		}
@@ -54,7 +65,11 @@ func NewExecutor(toolList []tool.Tool) (*Executor, error) {
 		indexed[name] = candidate
 	}
 
-	return &Executor{tools: indexed}, nil
+	permissionService := opts.Permissions
+	if permissionService == nil {
+		permissionService = permissions.DefaultService()
+	}
+	return &Executor{tools: indexed, permissions: permissionService}, nil
 }
 
 func isNilTool(candidate tool.Tool) bool {
@@ -95,6 +110,20 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		tctx.ToolUseID = req.ToolUseID
 	}
 
+	action, decision := e.permissions.AuthorizeTool(ctx, permissions.ResolveRequest{ToolName: req.Name, Input: req.Input, Context: tctx})
+	permissions.RecordDecision(ctx, recorder, permissions.TelemetryRequest{
+		TraceID:           req.TraceID,
+		TurnID:            req.TurnID,
+		ToolUseID:         tctx.ToolUseID,
+		Mode:              e.permissions.Mode(),
+		ApprovalAvailable: e.permissions.ApprovalAvailable(),
+		Action:            action,
+		Decision:          decision,
+	})
+	if decision.FinalEffect != permissions.EffectAllow {
+		return permissionDeniedResult(req.Name, tctx.ToolUseID), nil
+	}
+
 	recorder.Record(ctx, telemetry.Event{
 		Time:      started.UTC(),
 		Name:      telemetry.EventToolStart,
@@ -126,11 +155,23 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 			string(telemetry.AttrInputBytes):        len(req.Input),
 			string(telemetry.AttrHasContext):        req.Context != nil,
 			string(telemetry.AttrContentBlockCount): len(result.Content),
+			string(telemetry.AttrIsErrorResult):     result.IsError,
 			string(telemetry.AttrDurationMS):        telemetry.DurationMS(time.Since(started)),
 		},
 	})
 
 	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result}, nil
+}
+
+func permissionDeniedResult(toolName string, toolUseID string) ExecuteResult {
+	return ExecuteResult{
+		ToolName:  toolName,
+		ToolUseID: toolUseID,
+		Result: tool.Result{
+			IsError: true,
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "Permission denied: this tool action is not allowed by the current policy."}},
+		},
+	}
 }
 
 func recordToolError(ctx context.Context, recorder telemetry.Recorder, req ExecuteRequest, started time.Time, err error) {
@@ -143,7 +184,7 @@ func recordToolError(ctx context.Context, recorder telemetry.Recorder, req Execu
 		Attributes: telemetry.Attrs{
 			string(telemetry.AttrToolName):   req.Name,
 			string(telemetry.AttrInputBytes): len(req.Input),
-			string(telemetry.AttrError):      err.Error(),
+			string(telemetry.AttrError):      "tool_execution_failed",
 			string(telemetry.AttrDurationMS): telemetry.DurationMS(time.Since(started)),
 		},
 	})

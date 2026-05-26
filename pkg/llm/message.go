@@ -54,6 +54,7 @@ type ContentBlock struct {
 	Source    *ImageSource
 	Signature string
 	Cache     CacheControl
+	IsError   bool
 }
 
 // TextContent returns the concatenated text blocks in a message.

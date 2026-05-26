@@ -46,6 +46,24 @@ func TestToolResultBlockConvertsJSONToText(t *testing.T) {
 	}
 }
 
+func TestToolResultBlockPropagatesErrorResult(t *testing.T) {
+	t.Parallel()
+
+	block, err := ToolResultBlock(ExecuteResult{
+		ToolUseID: "toolu_123",
+		Result: tool.Result{
+			IsError: true,
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "denied"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ToolResultBlock: %v", err)
+	}
+	if !block.IsError || len(block.Content) != 1 || block.Content[0].Text != "denied" {
+		t.Fatalf("unexpected error result block: %#v", block)
+	}
+}
+
 func TestToolResultBlockAllowsEmptyContent(t *testing.T) {
 	t.Parallel()
 

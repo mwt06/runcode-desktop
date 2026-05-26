@@ -9,7 +9,7 @@ import (
 )
 
 func ToolResultBlock(result ExecuteResult) (llm.ContentBlock, error) {
-	block := llm.ContentBlock{Type: llm.ContentBlockTypeToolResult, ToolUseID: result.ToolUseID}
+	block := llm.ContentBlock{Type: llm.ContentBlockTypeToolResult, ToolUseID: result.ToolUseID, IsError: result.Result.IsError}
 	if len(result.Result.Content) == 0 {
 		return block, nil
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/telemetry"
@@ -26,14 +27,15 @@ const anthropicProvider = "anthropic"
 var errEmptyPrompt = errors.New("prompt is required")
 
 type chatConfig struct {
-	Provider  string
-	Model     string
-	MaxTokens int
-	BaseURL   string
-	APIKey    string
-	AuthToken string
-	CWD       string
-	Telemetry string
+	Provider       string
+	Model          string
+	MaxTokens      int
+	BaseURL        string
+	APIKey         string
+	AuthToken      string
+	CWD            string
+	Telemetry      string
+	PermissionMode string
 }
 
 type chatRunner interface {
@@ -77,6 +79,7 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 	cmd.Flags().String("auth-token", "", "Anthropic bearer auth token")
 	cmd.Flags().String("cwd", "", "Working directory for tools")
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
+	cmd.Flags().String("permission-mode", "", "Permission mode: safe")
 	return cmd
 }
 
@@ -124,16 +127,25 @@ func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
 	if err != nil {
 		return chatConfig{}, err
 	}
+	permissionMode, err := stringFlagOrEnv(cmd, "permission-mode", "RUNCODE_PERMISSION_MODE", "safe")
+	if err != nil {
+		return chatConfig{}, err
+	}
+	permissionMode, err = normalizePermissionMode(permissionMode)
+	if err != nil {
+		return chatConfig{}, err
+	}
 
 	return chatConfig{
-		Provider:  provider,
-		Model:     strings.TrimSpace(model),
-		MaxTokens: maxTokens,
-		BaseURL:   strings.TrimSpace(baseURL),
-		APIKey:    apiKey,
-		AuthToken: authToken,
-		CWD:       cwd,
-		Telemetry: telemetryMode,
+		Provider:       provider,
+		Model:          strings.TrimSpace(model),
+		MaxTokens:      maxTokens,
+		BaseURL:        strings.TrimSpace(baseURL),
+		APIKey:         apiKey,
+		AuthToken:      authToken,
+		CWD:            cwd,
+		Telemetry:      telemetryMode,
+		PermissionMode: permissionMode,
 	}, nil
 }
 
@@ -202,6 +214,15 @@ func normalizeTelemetryMode(value string) (string, error) {
 	}
 }
 
+func normalizePermissionMode(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "safe":
+		return "safe", nil
+	default:
+		return "", fmt.Errorf("unsupported permission mode %q", value)
+	}
+}
+
 func telemetryRecorder(mode string) telemetry.Recorder {
 	if mode == "jsonl" {
 		return telemetry.NewAsync(telemetry.NewJSONL(os.Stderr), telemetry.AsyncOptions{BufferSize: 256})
@@ -255,7 +276,8 @@ func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, userPrompt str
 			WorkingDirectory: cfg.CWD,
 			ReadSet:          map[string]tool.ReadFile{},
 		},
-		Telemetry: recorder,
+		Telemetry:   recorder,
+		Permissions: permissions.NewService(permissions.Options{Mode: cfg.PermissionMode}),
 	})
 	if err != nil {
 		return "", err

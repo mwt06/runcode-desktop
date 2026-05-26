@@ -4,6 +4,7 @@ package tool
 type Result struct {
 	Content  []ResultContent `json:"content,omitempty"`
 	Metadata map[string]any  `json:"metadata,omitempty"`
+	IsError  bool            `json:"is_error,omitempty"`
 }
 
 // ResultContentType identifies a tool result content block.

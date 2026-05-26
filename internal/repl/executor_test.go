@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
@@ -138,10 +139,12 @@ func TestExecutorRequiresToolName(t *testing.T) {
 func TestExecutorPropagatesToolErrors(t *testing.T) {
 	t.Parallel()
 
+	dir := t.TempDir()
 	executor := newBuiltinExecutor(t)
 	_, err := executor.Execute(context.Background(), ExecuteRequest{
-		Name:  "Read",
-		Input: rawInput(t, map[string]any{"path": filepath.Join(t.TempDir(), "missing.txt")}),
+		Name:    "Read",
+		Input:   rawInput(t, map[string]any{"path": "missing.txt"}),
+		Context: &tool.Context{WorkingDirectory: dir},
 	})
 	if err == nil {
 		t.Fatal("expected tool error")
@@ -155,7 +158,7 @@ func TestExecutorRecordsTelemetry(t *testing.T) {
 	t.Parallel()
 
 	recorder := telemetry.NewMemory()
-	executor, err := NewExecutor([]tool.Tool{fakeTool{name: "Fake"}})
+	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Fake"}})
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
@@ -171,7 +174,7 @@ func TestExecutorRecordsTelemetry(t *testing.T) {
 		t.Fatalf("execute fake: %v", err)
 	}
 	events := recorder.Events()
-	if len(events) != 2 || events[0].Name != telemetry.EventToolStart || events[1].Name != telemetry.EventToolEnd {
+	if len(events) != 3 || events[0].Name != telemetry.EventPermissionDecision || events[1].Name != telemetry.EventToolStart || events[2].Name != telemetry.EventToolEnd {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 	for _, event := range events {
@@ -182,8 +185,8 @@ func TestExecutorRecordsTelemetry(t *testing.T) {
 			t.Fatalf("tool input content leaked into telemetry: %#v", event.Attributes)
 		}
 	}
-	if events[0].Attributes[string(telemetry.AttrInputBytes)] != len(json.RawMessage(`{"secret":"not recorded"}`)) {
-		t.Fatalf("unexpected input bytes attr: %#v", events[0].Attributes)
+	if events[1].Attributes[string(telemetry.AttrInputBytes)] != len(json.RawMessage(`{"secret":"not recorded"}`)) {
+		t.Fatalf("unexpected input bytes attr: %#v", events[1].Attributes)
 	}
 }
 
@@ -191,18 +194,76 @@ func TestExecutorRecordsTelemetryOnToolError(t *testing.T) {
 	t.Parallel()
 
 	recorder := telemetry.NewMemory()
+	dir := t.TempDir()
 	executor := newBuiltinExecutor(t)
 	_, err := executor.Execute(context.Background(), ExecuteRequest{
 		Name:      "Read",
-		Input:     rawInput(t, map[string]any{"path": filepath.Join(t.TempDir(), "missing.txt")}),
+		Input:     rawInput(t, map[string]any{"path": "missing.txt"}),
+		Context:   &tool.Context{WorkingDirectory: dir},
 		Telemetry: recorder,
 	})
 	if err == nil {
 		t.Fatal("expected tool error")
 	}
 	events := recorder.Events()
-	if len(events) != 2 || events[0].Name != telemetry.EventToolStart || events[1].Name != telemetry.EventToolError {
+	if len(events) != 3 || events[0].Name != telemetry.EventPermissionDecision || events[1].Name != telemetry.EventToolStart || events[2].Name != telemetry.EventToolError {
 		t.Fatalf("unexpected events: %#v", events)
+	}
+	if events[2].Attributes[string(telemetry.AttrError)] != "tool_execution_failed" {
+		t.Fatalf("tool error leaked raw error: %#v", events[2].Attributes)
+	}
+}
+
+func TestExecutorDeniesDisallowedToolWithoutRunning(t *testing.T) {
+	t.Parallel()
+
+	runner := fakeTool{name: "Fake"}
+	executor, err := NewExecutor([]tool.Tool{runner})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	result, err := executor.Execute(context.Background(), ExecuteRequest{Name: "Fake", ToolUseID: "toolu_123"})
+	if err != nil {
+		t.Fatalf("execute denied fake: %v", err)
+	}
+	if !result.Result.IsError || result.ToolUseID != "toolu_123" {
+		t.Fatalf("expected denied error result, got %#v", result)
+	}
+	if len(result.Result.Content) != 1 || result.Result.Content[0].Text == "ok" {
+		t.Fatalf("expected permission denial content, got %#v", result.Result.Content)
+	}
+}
+
+func TestExecutorRecordsPermissionTelemetryWithoutInputLeak(t *testing.T) {
+	t.Parallel()
+
+	recorder := telemetry.NewMemory()
+	executor, err := NewExecutor([]tool.Tool{fakeTool{name: "Fake"}})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	_, err = executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Fake",
+		Input:     json.RawMessage(`{"path":"secret.txt"}`),
+		ToolUseID: "toolu_123",
+		Telemetry: recorder,
+		TraceID:   "trace_test",
+		TurnID:    "turn_test",
+	})
+	if err != nil {
+		t.Fatalf("execute fake: %v", err)
+	}
+	events := recorder.Events()
+	if len(events) != 1 || events[0].Name != telemetry.EventPermissionDecision {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	if events[0].TraceID != "trace_test" || events[0].TurnID != "turn_test" || events[0].ToolUseID != "toolu_123" {
+		t.Fatalf("missing correlation ids: %#v", events[0])
+	}
+	for _, forbidden := range []string{"path", "secret.txt"} {
+		if _, ok := events[0].Attributes[forbidden]; ok {
+			t.Fatalf("permission telemetry leaked input: %#v", events[0].Attributes)
+		}
 	}
 }
 
@@ -258,7 +319,7 @@ func TestExecutorPassesEventChannel(t *testing.T) {
 	t.Parallel()
 
 	events := make(chan tool.Event, 1)
-	executor, err := NewExecutor([]tool.Tool{fakeTool{name: "Fake", emitEvent: true}})
+	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Fake", emitEvent: true}})
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
@@ -281,7 +342,7 @@ func TestExecutorPassesEventChannel(t *testing.T) {
 func TestExecutorSetsToolUseID(t *testing.T) {
 	t.Parallel()
 
-	executor, err := NewExecutor([]tool.Tool{fakeTool{name: "Fake"}})
+	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Fake"}})
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
@@ -303,6 +364,21 @@ func newBuiltinExecutor(t *testing.T) *Executor {
 		t.Fatalf("new executor: %v", err)
 	}
 	return executor
+}
+
+func newAllowAllExecutor(toolList []tool.Tool) (*Executor, error) {
+	return NewExecutorWithOptions(ExecutorOptions{
+		Tools: toolList,
+		Permissions: permissions.NewService(permissions.Options{
+			Policy: allowAllPolicy{},
+		}),
+	})
+}
+
+type allowAllPolicy struct{}
+
+func (allowAllPolicy) Decide(context.Context, permissions.Action) permissions.Decision {
+	return permissions.Allow(permissions.ReasonPolicyDenied, "test.allow_all")
 }
 
 func writeFile(t *testing.T, path string, content string) {

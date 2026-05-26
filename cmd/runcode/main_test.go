@@ -207,6 +207,60 @@ func TestChatCommandRejectsUnsupportedTelemetryMode(t *testing.T) {
 	}
 }
 
+func TestChatCommandDefaultsPermissionModeSafe(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.PermissionMode != "safe" {
+		t.Fatalf("permission mode = %q, want safe", runner.cfg.PermissionMode)
+	}
+}
+
+func TestChatCommandReadsPermissionModeFromEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	t.Setenv("RUNCODE_PERMISSION_MODE", "safe")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.PermissionMode != "safe" {
+		t.Fatalf("permission mode = %q, want safe", runner.cfg.PermissionMode)
+	}
+}
+
+func TestChatCommandPermissionModeFlagOverridesEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	t.Setenv("RUNCODE_PERMISSION_MODE", "safe")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--permission-mode", "safe", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.PermissionMode != "safe" {
+		t.Fatalf("permission mode = %q, want safe", runner.cfg.PermissionMode)
+	}
+}
+
+func TestChatCommandRejectsUnsupportedPermissionMode(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	cmd := newChatCmd(&fakeChatRunner{})
+	cmd.SetArgs([]string{"--model", "claude-test", "--permission-mode", "allow-all", "hello"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported permission mode") {
+		t.Fatalf("err = %v, want unsupported permission mode", err)
+	}
+}
+
 func TestChatCommandPropagatesRunnerError(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
 	expected := errors.New("runner failed")

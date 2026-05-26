@@ -116,6 +116,27 @@ func TestBuildMessageParamsConvertsToolUseAndResult(t *testing.T) {
 	}
 }
 
+func TestBuildMessageParamsConvertsToolResultError(t *testing.T) {
+	t.Parallel()
+
+	params, err := buildMessageParams(llm.Request{Messages: []llm.Message{{
+		Role: llm.RoleTool,
+		Content: []llm.ContentBlock{{
+			Type:      llm.ContentBlockTypeToolResult,
+			ToolUseID: "toolu_123",
+			IsError:   true,
+			Content:   []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "denied"}},
+		}},
+	}}}, 4096)
+	if err != nil {
+		t.Fatalf("build params: %v", err)
+	}
+	result := params.Messages[0].Content[0].OfToolResult
+	if result == nil || !result.IsError.Value || result.Content[0].OfText.Text != "denied" {
+		t.Fatalf("unexpected tool result error: %#v", result)
+	}
+}
+
 func TestBuildMessageParamsConvertsThinking(t *testing.T) {
 	t.Parallel()
 

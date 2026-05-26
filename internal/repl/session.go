@@ -10,6 +10,7 @@ import (
 
 	"time"
 
+	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/prompt/sections"
 	"github.com/wt68/runcode/internal/telemetry"
@@ -38,6 +39,7 @@ type SessionOptions struct {
 	Reasoning     ReasoningOptions
 	Telemetry     telemetry.Recorder
 	TraceID       string
+	Permissions   *permissions.Service
 }
 
 type Session struct {
@@ -84,7 +86,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	}
 
 	tools := cloneTools(opts.Tools)
-	executor, err := NewExecutor(tools)
+	executor, err := NewExecutorWithOptions(ExecutorOptions{Tools: tools, Permissions: opts.Permissions})
 	if err != nil {
 		return nil, err
 	}

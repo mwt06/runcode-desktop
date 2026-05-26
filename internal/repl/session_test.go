@@ -192,6 +192,32 @@ func TestSessionRunTurnExecutesReadToolUse(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnReturnsPermissionDeniedAsToolResult(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": filepath.Join(outside, "secret.txt")})})},
+		fakeProviderResponse{events: textEvents("permission denied")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), ToolContext: &tool.Context{WorkingDirectory: workspace}})
+
+	result, err := session.RunTurn(context.Background(), "read outside file")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if len(result.ToolResults) != 1 || !result.ToolResults[0].IsError {
+		t.Fatalf("expected error tool result, got %#v", result.ToolResults)
+	}
+	if got := result.ToolResults[0].Content[0].Text; !strings.Contains(got, "Permission denied") {
+		t.Fatalf("unexpected denial text: %q", got)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("expected provider to receive denied tool result and continue, got %d requests", len(provider.requests))
+	}
+}
+
 func TestSessionRunTurnCollectsToolUseInputDeltas(t *testing.T) {
 	t.Parallel()
 

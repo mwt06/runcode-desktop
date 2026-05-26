@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/wt68/runcode/internal/toolpath"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -83,7 +83,7 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 		in.Limit = defaultLimit
 	}
 
-	path, err := resolvePath(in.Path, tctx)
+	path, err := toolpath.Resolve(in.Path, tctx)
 	if err != nil {
 		return tool.Result{}, err
 	}
@@ -117,28 +117,6 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	return tool.Result{
 		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}},
 	}, nil
-}
-
-func resolvePath(path string, tctx *tool.Context) (string, error) {
-	if !filepath.IsAbs(path) {
-		base := ""
-		if tctx != nil {
-			base = tctx.WorkingDirectory
-		}
-		if base == "" {
-			var err error
-			base, err = os.Getwd()
-			if err != nil {
-				return "", fmt.Errorf("get working directory: %w", err)
-			}
-		}
-		path = filepath.Join(base, path)
-	}
-	abs, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
-	return abs, nil
 }
 
 func readLines(ctx context.Context, r io.Reader, offset int, limit int) (string, error) {

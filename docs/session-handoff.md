@@ -883,3 +883,49 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 ### 当前状态一句话总结
 
 `runcode` 现在具备一套内部统一 telemetry 事件模型和非阻塞本地 JSONL 输出能力，可用于验证 chat/session/provider/tool 主链路，并为后续数字飞轮预留低耦合扩展点。
+
+## 2026-05-25 续作：权限策略基础层已完成
+
+本节记录当前最新进展。若与上文较早的“下一步推荐”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- 新增 `internal/permissions` 内部权限基础层：
+  - action / operation / risk 模型。
+  - resource type / scope 模型。
+  - allow / ask / deny decision 模型。
+  - default resolver，可解析当前 `Read` 工具输入。
+  - default policy：workspace 内 `Read` allow，workspace 外 `Read` deny，unknown deny，未来高风险操作按 ask/deny 建模。
+  - non-interactive authorizer：`ask` 在当前 CLI 环境中转为 deny。
+  - service facade，供 executor 统一调用。
+  - permission telemetry helper，只记录脱敏结构化元数据。
+  - 路径解析通过 `internal/toolpath` 共享，权限层会解析已存在 symlink 目标后判断 workspace containment。
+- `internal/repl.Executor` 已接入权限检查：
+  - tool run 前统一 authorize。
+  - allow 才调用真实工具。
+  - deny 不调用工具，返回 `tool.Result{IsError: true}`。
+  - permission denial 不作为 Go error 中断 turn。
+- `internal/repl.Session` 已支持注入 `Permissions *permissions.Service`，并通过 executor 统一执行权限边界。
+- `pkg/tool.Result` 新增 `IsError`。
+- `pkg/llm.ContentBlock` 新增 `IsError`。
+- `ToolResultBlock` 会把 tool result error 语义传给 LLM neutral content block。
+- Anthropic provider conversion 已把 neutral tool_result `IsError` 映射到 SDK `tool_result.is_error`。
+- `internal/telemetry` 新增 `permission.decision` 事件和相关 attrs；tool error telemetry 改为记录受控错误类别，避免泄露真实路径。
+- `cmd/runcode chat` 新增权限配置：
+  - `--permission-mode safe`
+  - `RUNCODE_PERMISSION_MODE=safe`
+  - 当前只支持 `safe`，不提供默认 allow-all。
+- `docs/architecture.md` 已更新 permission boundary。
+
+### 当前仍未实现
+
+- Write/Edit/Bash 工具。
+- 交互式权限审批 UI。
+- 持久化 allowlist / denylist。
+- MCP 权限策略。
+- session 级权限记忆。
+- allow-all / dangerously allow 模式。
+
+### 当前状态一句话总结
+
+`runcode` 现在具备 executor 前统一权限边界，默认安全策略会允许 workspace 内 Read、拒绝越界或未知工具，并把权限拒绝作为 `is_error` tool result 回传模型，同时通过脱敏 telemetry 记录 decision。

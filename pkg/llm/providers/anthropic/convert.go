@@ -126,10 +126,14 @@ func convertToolResult(block llm.ContentBlock) (sdk.ContentBlockParamUnion, erro
 		}
 		content = append(content, sdk.ToolResultBlockParamContentUnion{OfText: &sdk.TextBlockParam{Text: nested.Text}})
 	}
-	return sdk.ContentBlockParamUnion{OfToolResult: &sdk.ToolResultBlockParam{
+	result := sdk.ToolResultBlockParam{
 		ToolUseID: block.ToolUseID,
 		Content:   content,
-	}}, nil
+	}
+	if block.IsError {
+		result.IsError = sdk.Bool(true)
+	}
+	return sdk.ContentBlockParamUnion{OfToolResult: &result}, nil
 }
 
 func convertTools(tools []llm.ToolSpec) ([]sdk.ToolUnionParam, error) {

@@ -23,15 +23,16 @@ type Event struct {
 }
 
 const (
-	EventTurnStart       EventName = "turn.start"
-	EventTurnEnd         EventName = "turn.end"
-	EventTurnError       EventName = "turn.error"
-	EventLLMRequestStart EventName = "llm.request.start"
-	EventLLMRequestEnd   EventName = "llm.request.end"
-	EventLLMRequestError EventName = "llm.request.error"
-	EventToolStart       EventName = "tool.execute.start"
-	EventToolEnd         EventName = "tool.execute.end"
-	EventToolError       EventName = "tool.execute.error"
+	EventTurnStart          EventName = "turn.start"
+	EventTurnEnd            EventName = "turn.end"
+	EventTurnError          EventName = "turn.error"
+	EventLLMRequestStart    EventName = "llm.request.start"
+	EventLLMRequestEnd      EventName = "llm.request.end"
+	EventLLMRequestError    EventName = "llm.request.error"
+	EventToolStart          EventName = "tool.execute.start"
+	EventToolEnd            EventName = "tool.execute.end"
+	EventToolError          EventName = "tool.execute.error"
+	EventPermissionDecision EventName = "permission.decision"
 )
 
 const (
@@ -60,6 +61,17 @@ const (
 	AttrHasContext               AttrKey = "has_context"
 	AttrContentBlockCount        AttrKey = "content_block_count"
 	AttrIsErrorResult            AttrKey = "is_error_result"
+	AttrPermissionEffect         AttrKey = "permission_effect"
+	AttrPermissionFinalEffect    AttrKey = "permission_final_effect"
+	AttrPermissionReason         AttrKey = "permission_reason"
+	AttrPermissionMode           AttrKey = "permission_mode"
+	AttrPermissionRule           AttrKey = "permission_rule"
+	AttrActionOperation          AttrKey = "action_operation"
+	AttrRisk                     AttrKey = "risk"
+	AttrResourceCount            AttrKey = "resource_count"
+	AttrResourceTypes            AttrKey = "resource_types"
+	AttrResourceScope            AttrKey = "resource_scope"
+	AttrApprovalAvailable        AttrKey = "approval_available"
 )
 
 func NewEvent(name EventName) Event {
