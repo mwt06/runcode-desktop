@@ -251,6 +251,94 @@ func TestChatCommandPermissionModeFlagOverridesEnv(t *testing.T) {
 	}
 }
 
+func TestChatCommandLoopReadsPromptsUntilExit(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--loop"})
+	cmd.SetIn(strings.NewReader("one\ntwo\n/exit\n"))
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat loop: %v", err)
+	}
+	if got, want := runner.prompts, []string{"one", "two"}; !sameStringSlices(got, want) {
+		t.Fatalf("prompts = %#v, want %#v", got, want)
+	}
+	if out.String() != "done\ndone\n" {
+		t.Fatalf("stdout = %q, want two responses", out.String())
+	}
+	if !strings.Contains(errOut.String(), "> ") {
+		t.Fatalf("stderr missing prompt marker: %q", errOut.String())
+	}
+}
+
+func TestChatCommandLoopUsesArgsAsFirstPrompt(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--loop", "first prompt"})
+	cmd.SetIn(strings.NewReader("second\nquit\n"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat loop: %v", err)
+	}
+	if got, want := runner.prompts, []string{"first prompt", "second"}; !sameStringSlices(got, want) {
+		t.Fatalf("prompts = %#v, want %#v", got, want)
+	}
+	if out.String() != "done\ndone\n" {
+		t.Fatalf("stdout = %q, want two responses", out.String())
+	}
+}
+
+func TestChatCommandLoopSkipsEmptyLinesAndStopsOnEOF(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--loop"})
+	cmd.SetIn(strings.NewReader("\n  \nonly\n"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat loop: %v", err)
+	}
+	if got, want := runner.prompts, []string{"only"}; !sameStringSlices(got, want) {
+		t.Fatalf("prompts = %#v, want %#v", got, want)
+	}
+	if out.String() != "done\n" {
+		t.Fatalf("stdout = %q, want one response", out.String())
+	}
+}
+
+func TestChatCommandLoopRunsFinalLineWithoutTrailingNewline(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--loop"})
+	cmd.SetIn(strings.NewReader("only"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat loop: %v", err)
+	}
+	if got, want := runner.prompts, []string{"only"}; !sameStringSlices(got, want) {
+		t.Fatalf("prompts = %#v, want %#v", got, want)
+	}
+	if out.String() != "done\n" {
+		t.Fatalf("stdout = %q, want one response", out.String())
+	}
+}
+
 func TestChatCommandPassesRuntimeIOToRunner(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
 	runner := &fakeChatRunner{text: "done"}
@@ -263,8 +351,23 @@ func TestChatCommandPassesRuntimeIOToRunner(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute chat: %v", err)
 	}
-	if runner.runtime.In == nil || runner.runtime.Err != &errOut {
+	if runner.runtime.In == nil || runner.runtime.Lines != nil || runner.runtime.Err != &errOut {
 		t.Fatalf("runtime IO was not propagated: %#v", runner.runtime)
+	}
+}
+
+func TestChatCommandPassesLineReaderForInteractiveMode(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--permission-mode", "interactive", "hello"})
+	cmd.SetIn(strings.NewReader("approval\n"))
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.runtime.Lines == nil {
+		t.Fatal("interactive runtime missing line reader")
 	}
 }
 
@@ -293,6 +396,7 @@ type fakeChatRunner struct {
 	cfg     chatConfig
 	runtime chatIO
 	prompt  string
+	prompts []string
 	text    string
 	err     error
 }
@@ -301,5 +405,18 @@ func (r *fakeChatRunner) Run(_ context.Context, cfg chatConfig, runtime chatIO, 
 	r.cfg = cfg
 	r.runtime = runtime
 	r.prompt = prompt
+	r.prompts = append(r.prompts, prompt)
 	return r.text, r.err
+}
+
+func sameStringSlices(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

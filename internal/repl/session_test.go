@@ -69,7 +69,7 @@ func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	if got := req.Messages[0].Content[0].Text; got != "read the file" {
 		t.Fatalf("user text = %q, want %q", got, "read the file")
 	}
-	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit"}; !sameStrings(got, want) {
+	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Glob", "Grep"}; !sameStrings(got, want) {
 		t.Fatalf("tool specs = %#v, want %#v", got, want)
 	}
 }
@@ -144,6 +144,137 @@ func TestSessionRunTurnLoopsToolUseToFinalAssistant(t *testing.T) {
 		if !stream.closed {
 			t.Fatalf("expected stream %d to be closed", i)
 		}
+	}
+}
+
+func TestSessionRunTurnPersistsHistoryAcrossTurns(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents("first")},
+		fakeProviderResponse{events: textEvents("second")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider})
+	if _, err := session.RunTurn(context.Background(), "one"); err != nil {
+		t.Fatalf("first RunTurn: %v", err)
+	}
+	if _, err := session.RunTurn(context.Background(), "two"); err != nil {
+		t.Fatalf("second RunTurn: %v", err)
+	}
+
+	if len(provider.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(provider.requests))
+	}
+	messages := provider.requests[1].Messages
+	if got, want := rolesOf(messages), []llm.Role{llm.RoleUser, llm.RoleAssistant, llm.RoleUser}; !sameRoles(got, want) {
+		t.Fatalf("second request roles = %#v, want %#v", got, want)
+	}
+	if messageText(messages[0]) != "one" || messageText(messages[1]) != "first" || messageText(messages[2]) != "two" {
+		t.Fatalf("unexpected second request messages: %#v", messages)
+	}
+}
+
+func TestSessionRunTurnPersistsToolHistoryAcrossTurns(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+		fakeProviderResponse{events: textEvents("read complete")},
+		fakeProviderResponse{events: textEvents("follow up")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), ToolContext: &tool.Context{WorkingDirectory: dir}})
+	if _, err := session.RunTurn(context.Background(), "read sample.txt"); err != nil {
+		t.Fatalf("first RunTurn: %v", err)
+	}
+	if _, err := session.RunTurn(context.Background(), "summarize again"); err != nil {
+		t.Fatalf("second RunTurn: %v", err)
+	}
+
+	if len(provider.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(provider.requests))
+	}
+	messages := provider.requests[2].Messages
+	if got, want := rolesOf(messages), []llm.Role{llm.RoleUser, llm.RoleAssistant, llm.RoleTool, llm.RoleAssistant, llm.RoleUser}; !sameRoles(got, want) {
+		t.Fatalf("third request roles = %#v, want %#v", got, want)
+	}
+	if messages[2].Content[0].ToolUseID != "toolu_123" {
+		t.Fatalf("history missing tool result: %#v", messages[2])
+	}
+}
+
+func TestSessionHistoryReturnsClone(t *testing.T) {
+	t.Parallel()
+
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(textEvents("first"), nil)})
+	if _, err := session.RunTurn(context.Background(), "one"); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	history := session.History()
+	history[0].Content[0].Text = "mutated"
+	if got := messageText(session.History()[0]); got != "one" {
+		t.Fatalf("history was mutated through clone: %q", got)
+	}
+}
+
+func TestSessionHistoryClonesToolInput(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+		fakeProviderResponse{events: textEvents("done")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), ToolContext: &tool.Context{WorkingDirectory: dir}})
+	if _, err := session.RunTurn(context.Background(), "read sample.txt"); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	history := session.History()
+	history[1].Content[0].Input[0] = '['
+	if got := session.History()[1].Content[0].Input[0]; got != '{' {
+		t.Fatalf("history tool input was mutated through clone: %q", got)
+	}
+}
+
+func TestSessionResetHistory(t *testing.T) {
+	t.Parallel()
+
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(textEvents("first"), nil)})
+	if _, err := session.RunTurn(context.Background(), "one"); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if len(session.History()) == 0 {
+		t.Fatal("expected history")
+	}
+	session.ResetHistory()
+	if len(session.History()) != 0 {
+		t.Fatalf("history was not reset: %#v", session.History())
+	}
+}
+
+func TestSessionDoesNotPersistFailedTurn(t *testing.T) {
+	t.Parallel()
+
+	streamErr := errors.New("stream failed")
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents("first")},
+		fakeProviderResponse{err: streamErr},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider})
+	if _, err := session.RunTurn(context.Background(), "one"); err != nil {
+		t.Fatalf("first RunTurn: %v", err)
+	}
+	if _, err := session.RunTurn(context.Background(), "two"); !errors.Is(err, streamErr) {
+		t.Fatalf("second err = %v, want stream error", err)
+	}
+	history := session.History()
+	if got, want := rolesOf(history), []llm.Role{llm.RoleUser, llm.RoleAssistant}; !sameRoles(got, want) {
+		t.Fatalf("history roles = %#v, want %#v", got, want)
+	}
+	if messageText(history[0]) != "one" || messageText(history[1]) != "first" {
+		t.Fatalf("unexpected history after failed turn: %#v", history)
 	}
 }
 
@@ -646,6 +777,13 @@ func (s *fakeStream) Err() error {
 func (s *fakeStream) Close() error {
 	s.closed = true
 	return nil
+}
+
+func messageText(message llm.Message) string {
+	if len(message.Content) == 0 {
+		return ""
+	}
+	return message.Content[0].Text
 }
 
 func rolesOf(messages []llm.Message) []llm.Role {

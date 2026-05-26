@@ -16,7 +16,7 @@ func TestApprovalPrompterAllowsYes(t *testing.T) {
 	t.Parallel()
 
 	var errOut bytes.Buffer
-	response, err := newApprovalPrompter(strings.NewReader("y\n"), &errOut).Prompt(context.Background(), approvalRequest())
+	response, err := newApprovalPrompter(newLineInput(strings.NewReader("y\n")), &errOut).Prompt(context.Background(), approvalRequest())
 	if err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestApprovalPrompterDeniesNoAndDefault(t *testing.T) {
 	t.Parallel()
 
 	for _, input := range []string{"n\n", "\n"} {
-		response, err := newApprovalPrompter(strings.NewReader(input), &bytes.Buffer{}).Prompt(context.Background(), approvalRequest())
+		response, err := newApprovalPrompter(newLineInput(strings.NewReader(input)), &bytes.Buffer{}).Prompt(context.Background(), approvalRequest())
 		if err != nil {
 			t.Fatalf("prompt: %v", err)
 		}
@@ -45,7 +45,7 @@ func TestApprovalPrompterDeniesNoAndDefault(t *testing.T) {
 func TestApprovalPrompterKeepsBufferedInputAcrossPrompts(t *testing.T) {
 	t.Parallel()
 
-	prompter := newApprovalPrompter(strings.NewReader("y\nn\n"), &bytes.Buffer{})
+	prompter := newApprovalPrompter(newLineInput(strings.NewReader("y\nn\n")), &bytes.Buffer{})
 	first, err := prompter.Prompt(context.Background(), approvalRequest())
 	if err != nil {
 		t.Fatalf("first prompt: %v", err)
@@ -62,7 +62,7 @@ func TestApprovalPrompterKeepsBufferedInputAcrossPrompts(t *testing.T) {
 func TestApprovalPrompterDeniesEOF(t *testing.T) {
 	t.Parallel()
 
-	response, err := newApprovalPrompter(strings.NewReader(""), &bytes.Buffer{}).Prompt(context.Background(), approvalRequest())
+	response, err := newApprovalPrompter(newLineInput(strings.NewReader("")), &bytes.Buffer{}).Prompt(context.Background(), approvalRequest())
 	if err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestApprovalPrompterReturnsOnContextCancelWhileReading(t *testing.T) {
 	reader := newBlockingReader()
 	defer reader.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	prompter := newApprovalPrompter(reader, &bytes.Buffer{})
+	prompter := newApprovalPrompter(newLineInput(reader), &bytes.Buffer{})
 	cancel()
 	_, err := prompter.Prompt(ctx, approvalRequest())
 	if !errors.Is(err, context.Canceled) {
@@ -89,7 +89,7 @@ func TestApprovalPrompterDeniesAfterInvalidAttempts(t *testing.T) {
 	t.Parallel()
 
 	var errOut bytes.Buffer
-	response, err := newApprovalPrompter(strings.NewReader("maybe\nwhat\n?\n"), &errOut).Prompt(context.Background(), approvalRequest())
+	response, err := newApprovalPrompter(newLineInput(strings.NewReader("maybe\nwhat\n?\n")), &errOut).Prompt(context.Background(), approvalRequest())
 	if err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestApprovalPrompterDoesNotPrintRawPath(t *testing.T) {
 	t.Parallel()
 
 	var errOut bytes.Buffer
-	_, err := newApprovalPrompter(strings.NewReader("n\n"), &errOut).Prompt(context.Background(), approvalRequest())
+	_, err := newApprovalPrompter(newLineInput(strings.NewReader("n\n")), &errOut).Prompt(context.Background(), approvalRequest())
 	if err != nil {
 		t.Fatalf("prompt: %v", err)
 	}

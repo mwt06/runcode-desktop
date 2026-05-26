@@ -25,6 +25,11 @@ type readInput struct {
 	Path string `json:"path"`
 }
 
+type searchInput struct {
+	Pattern string `json:"pattern"`
+	Path    string `json:"path"`
+}
+
 type writeInput struct {
 	Path string `json:"path"`
 }
@@ -37,6 +42,8 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 	switch req.ToolName {
 	case "Read":
 		return resolveRead(req)
+	case "Glob", "Grep":
+		return resolveSearch(req)
 	case "Write":
 		return resolveWrite(req)
 	case "Edit":
@@ -51,25 +58,47 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 func resolveRead(req ResolveRequest) (Action, error) {
 	var input readInput
 	if err := json.Unmarshal(req.Input, &input); err != nil {
-		return Action{ToolName: req.ToolName, Operation: OperationRead, Risk: RiskLow, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeUnknown}}}, fmt.Errorf("%w: parse read input", ErrInvalidInput)
+		return readFallback(req.ToolName), fmt.Errorf("%w: parse read input", ErrInvalidInput)
 	}
 	if input.Path == "" {
-		return Action{ToolName: req.ToolName, Operation: OperationRead, Risk: RiskLow, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeUnknown}}}, fmt.Errorf("%w: path is required", ErrInvalidInput)
+		return readFallback(req.ToolName), fmt.Errorf("%w: path is required", ErrInvalidInput)
 	}
-	workspace, err := toolpath.WorkspaceRoot(req.Context)
-	if err != nil {
-		return Action{ToolName: req.ToolName, Operation: OperationRead, Risk: RiskLow, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeUnknown}}}, fmt.Errorf("%w: resolve workspace", ErrInvalidInput)
+	return readActionForPath(req.ToolName, input.Path, req.Context)
+}
+
+func resolveSearch(req ResolveRequest) (Action, error) {
+	var input searchInput
+	if err := json.Unmarshal(req.Input, &input); err != nil {
+		return readFallback(req.ToolName), fmt.Errorf("%w: parse search input", ErrInvalidInput)
 	}
-	path, err := toolpath.Resolve(input.Path, req.Context)
+	if input.Pattern == "" {
+		return readFallback(req.ToolName), fmt.Errorf("%w: pattern is required", ErrInvalidInput)
+	}
+	return readActionForPath(req.ToolName, input.Path, req.Context)
+}
+
+func readActionForPath(toolName string, inputPath string, tctx *tool.Context) (Action, error) {
+	workspace, err := toolpath.WorkspaceRoot(tctx)
 	if err != nil {
-		return Action{ToolName: req.ToolName, Operation: OperationRead, Risk: RiskLow, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeUnknown}}}, fmt.Errorf("%w: resolve path", ErrInvalidInput)
+		return readFallback(toolName), fmt.Errorf("%w: resolve workspace", ErrInvalidInput)
+	}
+	path := workspace
+	if inputPath != "" {
+		path, err = toolpath.Resolve(inputPath, tctx)
+		if err != nil {
+			return readFallback(toolName), fmt.Errorf("%w: resolve path", ErrInvalidInput)
+		}
 	}
 	return Action{
-		ToolName:  req.ToolName,
+		ToolName:  toolName,
 		Operation: OperationRead,
 		Risk:      RiskLow,
 		Resources: []Resource{{Type: ResourceFile, Scope: resourceScope(workspace, path), Path: path}},
 	}, nil
+}
+
+func readFallback(toolName string) Action {
+	return Action{ToolName: toolName, Operation: OperationRead, Risk: RiskLow, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeUnknown}}}
 }
 
 func resolveWrite(req ResolveRequest) (Action, error) {

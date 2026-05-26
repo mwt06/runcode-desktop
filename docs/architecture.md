@@ -4,17 +4,19 @@ This document tracks the architecture that is currently implemented in runcode.
 
 ## Current status
 
-runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for an AI coding companion, and the provider-neutral session controller now supports a finite ReAct loop. The CLI chat command is wired as a minimal single-turn provider-backed command; the full interactive TUI is intentionally not wired yet.
+runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for an AI coding companion, and the provider-neutral session controller now supports a finite ReAct loop with in-memory multi-turn history. The CLI chat command is wired as a minimal provider-backed command with an optional loop mode; the full interactive TUI is intentionally not wired yet.
 
 Implemented:
 
-- `cmd/runcode`: Cobra CLI entry point with `version` and a minimal single-turn `chat` command.
+- `cmd/runcode`: Cobra CLI entry point with `version` and a minimal provider-backed `chat` command, including optional in-memory `--loop` mode.
 - `pkg/tool`: public tool SDK boundary, including tool context, schema, events, and result types.
 - `pkg/llm`: provider-neutral LLM request, message, stream, content block, cache, and tool spec types.
 - `tools/registry.go`: single registration point for built-in tools.
 - `tools/read`: built-in read tool, returning line-numbered file content and updating `tool.Context.ReadSet` with complete/partial read metadata.
 - `tools/write`: built-in whole-file write tool, supporting create and overwrite while requiring a fresh complete read before overwriting existing files.
 - `tools/edit`: built-in exact replace tool, requiring a fresh complete read and unique `old_string` unless `replace_all` is set.
+- `tools/glob`: built-in workspace file discovery tool with cross-platform slash glob semantics and `**` support.
+- `tools/grep`: built-in workspace text search tool using Go regexp patterns, optional slash glob filtering, and bounded output.
 - `internal/repl`: finite ReAct session controller, permission-aware tool executor, tool result conversion, and tool-spec conversion for future model tool exposure.
 - `internal/permissions`: internal permission boundary with action/resource/risk modeling, default safe policy, non-interactive and interactive authorizers, approval model, and permission telemetry helpers.
 - `internal/telemetry`: internal observability foundation with event model, no-op recorder, bounded async recorder, memory recorder, stderr JSONL support, and permission decision events.
@@ -23,11 +25,10 @@ Implemented:
 
 Not implemented yet:
 
-- Multi-turn interactive chat loop.
 - Bubble Tea TUI.
 - Persistent permission policy configuration.
 - MCP, hooks, sub-agents, skills, compaction, and persistence.
-- Built-in tools beyond `Read`, `Write`, and `Edit`.
+- Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, and `Grep`.
 
 ## Current data flow
 
@@ -40,6 +41,7 @@ tools.Builtins()
   └─> prompt.BuildSystemPrompt() -> sections.UsingTools()
 
 Session.RunTurn()
+  ├─> clone in-memory history + append current user message
   ├─> prompt.BuildSystemPrompt()
   ├─> repl.ToolSpecs()
   ├─> llm.Provider.Stream()
@@ -48,16 +50,19 @@ Session.RunTurn()
   │   ├─> allowed -> Tool.Run()
   │   └─> denied -> error tool.Result without running tool
   ├─> ToolResultBlock()
-  └─> repeat provider/tool steps until no tool_use or max iterations
+  ├─> repeat provider/tool steps until no tool_use or max iterations
+  └─> successful turn commits messages back to in-memory history
 ```
 
-This keeps tool implementation, tool execution, model-facing tool schemas, and prompt-visible tool descriptions aligned without coupling those consumers to concrete tool packages. The current session controller runs a bounded provider/tool loop within one user turn: it appends assistant `tool_use` messages and tool result messages back into the next provider request until the assistant stops requesting tools or the maximum iteration count is reached.
+This keeps tool implementation, tool execution, model-facing tool schemas, and prompt-visible tool descriptions aligned without coupling those consumers to concrete tool packages. The current session controller runs a bounded provider/tool loop within one user turn: it appends assistant `tool_use` messages and tool result messages back into the next provider request until the assistant stops requesting tools or the maximum iteration count is reached. Successful turns are stored as in-memory `llm.Message` history on the session; failed turns are not committed.
 
 ## CLI boundary
 
-`runcode chat` is wired as a minimal non-TUI command. It accepts a single prompt from args or stdin, constructs the Anthropic provider, built-in tools, prompt assembler inputs, telemetry recorder, and `internal/repl.Session`, then prints the final assistant text to stdout.
+`runcode chat` is wired as a minimal non-TUI command. By default it accepts a single prompt from args or stdin, constructs the Anthropic provider, built-in tools, prompt assembler inputs, telemetry recorder, and `internal/repl.Session`, then prints the final assistant text to stdout.
 
-The command is intentionally single-turn and shell-friendly. It does not preserve cross-turn conversation history, stream partial output to the terminal, start a Bubble Tea UI, or write transcripts. Telemetry is disabled by default; `RUNCODE_TELEMETRY=jsonl` or `--telemetry jsonl` writes structured events to stderr while stdout remains assistant text only. Interactive permission approval also writes prompts to stderr and reads decisions from stdin, so stdout remains reserved for final assistant text.
+`runcode chat --loop` keeps one process-local session alive across prompts. Args become the first prompt, subsequent prompts are read line-by-line from stdin, and EOF or `/exit` / `/quit` / `exit` / `quit` exits cleanly. This loop is in-memory only: it does not stream partial output, start a Bubble Tea UI, write transcripts, persist history, or compact history.
+
+The command remains shell-friendly. Assistant final text is written to stdout. Loop prompt markers, interactive permission approval, and `RUNCODE_TELEMETRY=jsonl` / `--telemetry jsonl` output are written to stderr. Loop prompt input and approval input share the same line reader so they do not lose buffered stdin data.
 
 ## Prompt cache boundary
 
@@ -89,8 +94,8 @@ The selected reasoning guidance is non-cacheable because it is chosen per user t
 
 Current default mode is `safe` and non-interactive:
 
-- workspace-scoped `Read` is allowed.
-- `Read` outside the configured working directory is denied.
+- workspace-scoped `Read`, `Glob`, and `Grep` are allowed.
+- `Read`, `Glob`, and `Grep` outside the configured working directory are denied.
 - `Write` create and fresh-read overwrite inside the workspace are modeled as approval-requiring; in `safe` mode they resolve to denial.
 - `Edit` exact replace inside the workspace is modeled as approval-requiring only when the target has a fresh complete read; in `safe` mode it resolves to denial.
 - `Write`/`Edit` outside the workspace, missing read state, partial reads, stale reads, invalid targets, unknown tools, and unknown operations are denied.
@@ -138,18 +143,20 @@ The current scaffold should be validated through tests rather than through a rea
 
 | Area | What is verified |
 |------|------------------|
-| `tools` | built-in tool list, unique names, tool metadata, and current `Read`/`Write`/`Edit` registration |
+| `tools` | built-in tool list, unique names, tool metadata, and current `Read`/`Write`/`Edit`/`Glob`/`Grep` registration |
 | `tools/read` | file reading, line numbering, offset/limit behavior, relative paths, complete/partial `ReadSet`, errors, CRLF, cancellation, and output bounds |
 | `tools/write` | file creation, fresh-read overwrite, missing/partial/stale read rejection, workspace containment, and missing parent rejection |
 | `tools/edit` | exact replace, replace-all behavior, unique match enforcement, invalid input rejection, fresh-read requirement, and workspace containment |
+| `tools/glob` | slash glob matching, recursive `**`, stable workspace-relative output, limit truncation, cancellation, and workspace containment |
+| `tools/grep` | regexp search, case-insensitive mode, slash glob filtering, file/directory search, binary skip, limit truncation, cancellation, and workspace containment |
 | `internal/toolpath` | shared path resolution, workspace containment, symlink handling, mutation target resolution, and read freshness checks |
-| `internal/repl` | session request construction, stream collection, permission-aware executor behavior, interactive approval allow/deny execution paths, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
+| `internal/repl` | session request construction, in-memory history commit/reset behavior, stream collection, permission-aware executor behavior, interactive approval allow/deny execution paths, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
 | `internal/permissions` | action/resource resolution, workspace containment, default safe policy, non-interactive and interactive authorization, approval fallback behavior, and sanitized decision data |
 | `internal/prompt` | boundary behavior, static/dynamic ordering, cache policy, environment isolation, and tool description injection |
 | `internal/telemetry` | event model, JSONL output, async flush/drop behavior, memory recorder, and ID generation |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |
-| `cmd/runcode` | `version` output, chat prompt input, config parsing, fake-runner output, approval prompt behavior, runtime IO propagation, and error propagation |
+| `cmd/runcode` | `version` output, chat prompt input, `chat --loop` behavior, config parsing, fake-runner output, approval prompt behavior, shared line input, runtime IO propagation, and error propagation |
 
 Recommended validation commands:
 

@@ -6,14 +6,14 @@ import (
 	"github.com/wt68/runcode/tools"
 )
 
-func TestBuiltinsContainsReadWriteAndEdit(t *testing.T) {
+func TestBuiltinsContainsReadWriteEditGlobAndGrep(t *testing.T) {
 	t.Parallel()
 
 	builtins := tools.Builtins()
-	if len(builtins) != 3 {
-		t.Fatalf("expected 3 builtin tools, got %d", len(builtins))
+	if len(builtins) != 5 {
+		t.Fatalf("expected 5 builtin tools, got %d", len(builtins))
 	}
-	wantNames := []string{"Read", "Write", "Edit"}
+	wantNames := []string{"Read", "Write", "Edit", "Glob", "Grep"}
 	for i, want := range wantNames {
 		if builtins[i].Name() != want {
 			t.Fatalf("builtin[%d] = %q, want %q", i, builtins[i].Name(), want)

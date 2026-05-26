@@ -967,7 +967,7 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 - 交互式权限审批 UI；当前 safe non-interactive 下 Write/Edit 会被建模为 ask 后最终 deny。
 - 持久化 allowlist / denylist。
 - session 级权限记忆。
-- Bash/Glob/Grep/TodoWrite/MCP/hooks/sub-agents/skills。
+- Bash/TodoWrite/MCP/hooks/sub-agents/skills。
 - 多轮持久 conversation history。
 - Edit append/insert/regex patch/line patch。
 - hash-based stale check。
@@ -1015,7 +1015,7 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 - 持久化 allowlist / denylist。
 - session 级 permission memory。
 - TUI / 远程审批 UI。
-- Bash/Glob/Grep/TodoWrite/MCP/hooks/sub-agents/skills。
+- Bash/TodoWrite/MCP/hooks/sub-agents/skills。
 - 多轮持久 conversation history。
 - Edit append/insert/regex patch/line patch。
 - hash-based stale check。
@@ -1023,3 +1023,90 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 ### 当前状态一句话总结
 
 `runcode` 现在已经具备 safe 与 interactive 两种权限模式；interactive 模式可对 workspace 内合规 mutation 做一次性审批，拒绝、EOF、取消和异常都会安全失败，同时 stdout/stderr 与 telemetry 脱敏边界保持清晰。
+
+## 2026-05-26 续作：内存多轮会话历史与 chat loop 已完成
+
+本节记录当前最新进展。若与上文较早的“当前仍未实现”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- `internal/repl.Session` 新增进程内 `llm.Message` 历史：
+  - 每轮 `RunTurn` 会 clone 当前 history，再追加本轮 user message。
+  - 同一 turn 内的 assistant `tool_use` message 和 tool result message 会继续进入下一次 provider request。
+  - turn 正常完成后提交完整消息链到 session history。
+  - turn 出错时不提交失败轮次，避免半截 tool call 污染后续上下文。
+- `Session` 新增历史管理 API：
+  - `History()` 返回 clone，防止外部修改内部历史。
+  - `ResetHistory()` 清空进程内历史，供后续 TUI、命令和测试复用。
+- `cmd/runcode chat` 新增 `--loop`：
+  - args 会作为第一轮 prompt。
+  - 后续从 stdin 按行读取 prompt。
+  - EOF、`/exit`、`/quit`、`exit`、`quit` 会正常退出。
+  - 空行会跳过。
+  - 每轮 assistant final text 仍写 stdout。
+  - prompt marker 写 stderr。
+- CLI default runner 现在在同一个 command 生命周期内复用同一个 `repl.Session`，因此 `chat --loop` 可保留进程内上下文。
+- 新增共享 stdin line reader：
+  - `chat --loop` 和 interactive approval 复用同一个 line reader。
+  - 避免 loop prompt 和 approval prompt 各自包 `bufio.Reader` 导致 buffered stdin 被预读丢失。
+  - context cancel 可让读取方及时返回。
+- approval prompter 已改为依赖共享 `lineReader`，连续审批不会丢失已缓冲输入。
+- `docs/architecture.md` 已同步当前架构：Session 内存 history、`chat --loop`、stdout/stderr 边界和验证矩阵。
+
+### 当前仍未实现
+
+- SQLite transcript / 持久化 conversation history。
+- history compaction / token budget trimming。
+- Bubble Tea TUI。
+- streaming terminal output。
+- slash command 系统。
+- 持久化 permission allowlist / denylist。
+- session 级 permission memory。
+- Bash/TodoWrite/MCP/hooks/sub-agents/skills。
+
+### 当前状态一句话总结
+
+`runcode` 现在已经支持 provider-neutral Session 的进程内多轮历史，并提供最小 `runcode chat --loop` 入口复用同一个 session；它仍不持久化 transcript，也暂未实现 TUI、streaming 输出或压缩。
+
+## 2026-05-26 续作：Glob/Grep 只读搜索工具已完成
+
+本节记录当前最新进展。若与上文较早的“当前仍未实现”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- 新增 `tools/glob`：
+  - 支持 workspace 内文件发现。
+  - 支持 slash-separated glob pattern，包括 `**` recursive segment。
+  - Win11/Linux/macOS 行为保持一致：输出 workspace-relative slash 路径。
+  - 支持 `path` 搜索根、`limit` 截断、context cancellation。
+  - 只返回文件，不返回目录，不更新 `ReadSet`。
+- 新增 `tools/grep`：
+  - 使用 Go regexp 搜索 workspace 内文本文件。
+  - 支持 `path` 文件/目录搜索、`glob` 文件过滤、`case_insensitive`、`limit` 截断。
+  - 输出格式为 `relative/path:line:content`。
+  - 跳过二进制文件，不更新 `ReadSet`。
+- `tools.Builtins()` 现在注册：
+  - `Read`
+  - `Write`
+  - `Edit`
+  - `Glob`
+  - `Grep`
+- `internal/permissions` 已接入只读搜索权限：
+  - workspace 内 `Glob` / `Grep` allow。
+  - outside workspace、symlink escape、invalid input、missing pattern deny。
+  - 不影响 Write/Edit 的 fresh-read gate。
+- `docs/architecture.md` 已同步工具清单、权限边界和验证矩阵。
+
+### 当前仍未实现
+
+- Bash/TodoWrite/MCP/hooks/sub-agents/skills。
+- Bubble Tea TUI。
+- SQLite transcript / 持久化 conversation history。
+- history compaction / token budget trimming。
+- 持久化 permission allowlist / denylist。
+- Grep context-before/context-after 输出。
+- `.gitignore` 完整语义。
+
+### 当前状态一句话总结
+
+`runcode` 现在已有 Read/Write/Edit/Glob/Grep 五个内置工具，模型可以先用 Glob/Grep 在 workspace 内发现和搜索代码，再用 Read 查看完整文件、用 Edit/Write 在审批边界内修改文件。

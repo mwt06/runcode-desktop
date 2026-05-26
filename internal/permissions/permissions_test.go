@@ -50,6 +50,109 @@ func TestDefaultServiceDeniesOutsideWorkspaceRead(t *testing.T) {
 	}
 }
 
+func TestDefaultServiceAllowsWorkspaceSearchTools(t *testing.T) {
+	t.Parallel()
+
+	for _, toolName := range []string{"Glob", "Grep"} {
+		toolName := toolName
+		t.Run(toolName, func(t *testing.T) {
+			t.Parallel()
+			action, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: toolName,
+				Input:    rawInput(t, map[string]any{"pattern": "needle"}),
+				Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+			})
+			if decision.FinalEffect != EffectAllow || decision.Reason != ReasonAllowedRead {
+				t.Fatalf("decision = %#v, want allowed read", decision)
+			}
+			if action.Operation != OperationRead || action.Risk != RiskLow {
+				t.Fatalf("action = %#v, want read low risk", action)
+			}
+			if len(action.Resources) != 1 || action.Resources[0].Scope != ResourceScopeWorkspace || action.Resources[0].Type != ResourceFile {
+				t.Fatalf("resources = %#v, want workspace file", action.Resources)
+			}
+		})
+	}
+}
+
+func TestDefaultServiceDeniesOutsideWorkspaceSearchTools(t *testing.T) {
+	t.Parallel()
+
+	for _, toolName := range []string{"Glob", "Grep"} {
+		toolName := toolName
+		t.Run(toolName, func(t *testing.T) {
+			t.Parallel()
+			workspace := t.TempDir()
+			outside := t.TempDir()
+			_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: toolName,
+				Input:    rawInput(t, map[string]any{"pattern": "needle", "path": outside}),
+				Context:  &tool.Context{WorkingDirectory: workspace},
+			})
+			if decision.FinalEffect != EffectDeny || decision.Reason != ReasonOutsideWorkspace {
+				t.Fatalf("decision = %#v, want outside workspace deny", decision)
+			}
+		})
+	}
+}
+
+func TestDefaultServiceDeniesInvalidSearchInput(t *testing.T) {
+	t.Parallel()
+
+	for _, toolName := range []string{"Glob", "Grep"} {
+		toolName := toolName
+		t.Run(toolName, func(t *testing.T) {
+			t.Parallel()
+			_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: toolName,
+				Input:    json.RawMessage(`{"pattern":`),
+				Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+			})
+			if decision.FinalEffect != EffectDeny || decision.Reason != ReasonInvalidInput {
+				t.Fatalf("decision = %#v, want invalid input deny", decision)
+			}
+
+			_, decision = DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: toolName,
+				Input:    rawInput(t, map[string]any{}),
+				Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+			})
+			if decision.FinalEffect != EffectDeny || decision.Reason != ReasonInvalidInput {
+				t.Fatalf("decision = %#v, want missing pattern deny", decision)
+			}
+		})
+	}
+}
+
+func TestDefaultServiceDeniesWorkspaceSymlinkToOutsideSearch(t *testing.T) {
+	t.Parallel()
+
+	for _, toolName := range []string{"Glob", "Grep"} {
+		toolName := toolName
+		t.Run(toolName, func(t *testing.T) {
+			t.Parallel()
+			workspace := t.TempDir()
+			outside := t.TempDir()
+			linkPath := filepath.Join(workspace, "outside-link")
+			if err := symlinkDir(outside, linkPath); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+
+			action, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: toolName,
+				Input:    rawInput(t, map[string]any{"pattern": "needle", "path": "outside-link"}),
+				Context:  &tool.Context{WorkingDirectory: workspace},
+			})
+			if len(action.Resources) != 1 || action.Resources[0].Scope != ResourceScopeOutside {
+				t.Fatalf("resources = %#v, want symlink target outside", action.Resources)
+			}
+			if decision.FinalEffect != EffectDeny || decision.Reason != ReasonOutsideWorkspace {
+				t.Fatalf("decision = %#v, want outside workspace deny", decision)
+			}
+		})
+	}
+}
+
 func TestDefaultServiceDeniesUnknownTool(t *testing.T) {
 	t.Parallel()
 
@@ -346,6 +449,10 @@ func writeFile(t *testing.T, path string, content string) {
 }
 
 func symlinkFile(oldname string, newname string) error {
+	return os.Symlink(oldname, newname)
+}
+
+func symlinkDir(oldname string, newname string) error {
 	return os.Symlink(oldname, newname)
 }
 

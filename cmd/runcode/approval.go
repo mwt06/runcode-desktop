@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 
 	"github.com/wt68/runcode/internal/permissions"
 )
@@ -14,37 +12,12 @@ import (
 const maxApprovalAttempts = 3
 
 type approvalPrompter struct {
-	in     io.Reader
-	err    io.Writer
-	once   sync.Once
-	lines  chan approvalLine
-	closed chan struct{}
+	lines lineReader
+	err   io.Writer
 }
 
-type approvalLine struct {
-	text string
-	err  error
-}
-
-func newApprovalPrompter(in io.Reader, err io.Writer) *approvalPrompter {
-	return &approvalPrompter{
-		in:     in,
-		err:    err,
-		lines:  make(chan approvalLine, 1),
-		closed: make(chan struct{}),
-	}
-}
-
-func readApprovalLines(reader *bufio.Reader, lines chan<- approvalLine, closed chan<- struct{}) {
-	defer close(lines)
-	defer close(closed)
-	for {
-		line, err := reader.ReadString('\n')
-		lines <- approvalLine{text: line, err: err}
-		if err != nil {
-			return
-		}
-	}
+func newApprovalPrompter(lines lineReader, err io.Writer) *approvalPrompter {
+	return &approvalPrompter{lines: lines, err: err}
 }
 
 func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalRequest) (permissions.ApprovalResponse, error) {
@@ -79,18 +52,7 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 }
 
 func (p *approvalPrompter) readLine(ctx context.Context) (string, error) {
-	p.once.Do(func() {
-		go readApprovalLines(bufio.NewReader(p.in), p.lines, p.closed)
-	})
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case line, ok := <-p.lines:
-		if !ok {
-			return "", io.EOF
-		}
-		return line.text, line.err
-	}
+	return p.lines.ReadLine(ctx)
 }
 
 func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {

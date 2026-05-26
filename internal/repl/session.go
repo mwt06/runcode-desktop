@@ -57,6 +57,7 @@ type Session struct {
 	reasoning     ReasoningOptions
 	telemetry     telemetry.Recorder
 	traceID       string
+	history       []llm.Message
 }
 
 type TurnResult struct {
@@ -118,7 +119,8 @@ func NewSession(opts SessionOptions) (*Session, error) {
 }
 
 func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, error) {
-	messages := []llm.Message{userMessage(userText)}
+	messages := cloneMessages(s.history)
+	messages = append(messages, userMessage(userText))
 	promptOpts := s.prompt
 	var result TurnResult
 	turn := s.startTurn(ctx, userText)
@@ -167,6 +169,7 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 
 		messages = append(messages, assistant)
 		if !hasToolUse(assistant) {
+			s.history = cloneMessages(messages)
 			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
@@ -185,6 +188,14 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 	}
 
 	return result, turn.error(ctx, result, ErrMaxIterations)
+}
+
+func (s *Session) History() []llm.Message {
+	return cloneMessages(s.history)
+}
+
+func (s *Session) ResetHistory() {
+	s.history = nil
 }
 
 func (s *Session) buildRequest(userText string) (llm.Request, error) {
@@ -367,7 +378,13 @@ func cloneContentBlocks(blocks []llm.ContentBlock) []llm.ContentBlock {
 	cloned := make([]llm.ContentBlock, len(blocks))
 	copy(cloned, blocks)
 	for i := range cloned {
+		cloned[i].Input = append(json.RawMessage(nil), cloned[i].Input...)
 		cloned[i].Content = cloneContentBlocks(cloned[i].Content)
+		if cloned[i].Source != nil {
+			source := *cloned[i].Source
+			source.Data = append([]byte(nil), cloned[i].Source.Data...)
+			cloned[i].Source = &source
+		}
 	}
 	return cloned
 }

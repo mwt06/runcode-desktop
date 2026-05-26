@@ -39,18 +39,22 @@ type chatConfig struct {
 }
 
 type chatIO struct {
-	In  io.Reader
-	Err io.Writer
+	In    io.Reader
+	Lines lineReader
+	Err   io.Writer
 }
 
 type chatRunner interface {
 	Run(ctx context.Context, cfg chatConfig, io chatIO, prompt string) (string, error)
 }
 
-type defaultChatRunner struct{}
+type defaultChatRunner struct {
+	session  *repl.Session
+	recorder telemetry.Recorder
+}
 
 func chatCmd() *cobra.Command {
-	return newChatCmd(defaultChatRunner{})
+	return newChatCmd(&defaultChatRunner{})
 }
 
 func newChatCmd(runner chatRunner) *cobra.Command {
@@ -64,11 +68,26 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer closeChatRunner(cmd.Context(), runner)
+			loop, err := cmd.Flags().GetBool("loop")
+			if err != nil {
+				return err
+			}
+			if loop {
+				lines := newLineInput(cmd.InOrStdin())
+				defer lines.Close()
+				runtime := chatIO{In: cmd.InOrStdin(), Lines: lines, Err: cmd.ErrOrStderr()}
+				return runChatLoop(cmd, runner, cfg, runtime, args)
+			}
 			promptText, err := chatPrompt(cmd, args)
 			if err != nil {
 				return err
 			}
-			text, err := runner.Run(cmd.Context(), cfg, chatIO{In: cmd.InOrStdin(), Err: cmd.ErrOrStderr()}, promptText)
+			runtime := chatIO{In: cmd.InOrStdin(), Lines: lineReaderForConfig(cfg, cmd.InOrStdin()), Err: cmd.ErrOrStderr()}
+			if closer, ok := runtime.Lines.(interface{ Close() }); ok {
+				defer closer.Close()
+			}
+			text, err := runner.Run(cmd.Context(), cfg, runtime, promptText)
 			if err != nil {
 				return err
 			}
@@ -85,7 +104,73 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 	cmd.Flags().String("cwd", "", "Working directory for tools")
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
 	cmd.Flags().String("permission-mode", "", "Permission mode: safe or interactive")
+	cmd.Flags().Bool("loop", false, "Run an in-memory multi-turn chat loop")
 	return cmd
+}
+
+func closeChatRunner(ctx context.Context, runner chatRunner) error {
+	closer, ok := runner.(interface{ Close(context.Context) error })
+	if !ok {
+		return nil
+	}
+	return closer.Close(ctx)
+}
+
+func lineReaderForConfig(cfg chatConfig, in io.Reader) lineReader {
+	if cfg.PermissionMode != "interactive" {
+		return nil
+	}
+	return newLineInput(in)
+}
+
+func runChatLoop(cmd *cobra.Command, runner chatRunner, cfg chatConfig, runtime chatIO, args []string) error {
+	prompts := initialLoopPrompts(args)
+	for {
+		if len(prompts) == 0 {
+			if _, err := fmt.Fprint(cmd.ErrOrStderr(), "> "); err != nil {
+				return err
+			}
+			line, err := runtime.Lines.ReadLine(cmd.Context())
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			prompts = append(prompts, strings.TrimSpace(line))
+		}
+		promptText := prompts[0]
+		prompts = prompts[1:]
+		if shouldExitChatLoop(promptText) {
+			return nil
+		}
+		if promptText == "" {
+			continue
+		}
+		text, err := runner.Run(cmd.Context(), cfg, runtime, promptText)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), text); err != nil {
+			return err
+		}
+	}
+}
+
+func initialLoopPrompts(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	return []string{strings.TrimSpace(strings.Join(args, " "))}
+}
+
+func shouldExitChatLoop(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "/exit", "/quit", "exit", "quit":
+		return true
+	default:
+		return false
+	}
 }
 
 func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
@@ -256,9 +341,23 @@ func chatPrompt(cmd *cobra.Command, args []string) (string, error) {
 	return text, nil
 }
 
-func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime chatIO, userPrompt string) (string, error) {
+func (r *defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime chatIO, userPrompt string) (string, error) {
+	session, err := r.sessionFor(cfg, runtime)
+	if err != nil {
+		return "", err
+	}
+	result, err := session.RunTurn(ctx, userPrompt)
+	if err != nil {
+		return "", err
+	}
+	return llm.TextContent(result.FinalAssistant), nil
+}
+
+func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Session, error) {
+	if r.session != nil {
+		return r.session, nil
+	}
 	recorder := telemetryRecorder(cfg.Telemetry)
-	defer recorder.Close(context.Background())
 	provider, err := anthropic.New(anthropic.Options{
 		APIKey:           cfg.APIKey,
 		AuthToken:        cfg.AuthToken,
@@ -266,7 +365,8 @@ func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime chatIO
 		DefaultMaxTokens: cfg.MaxTokens,
 	})
 	if err != nil {
-		return "", err
+		recorder.Close(context.Background())
+		return nil, err
 	}
 	builtins := tools.Builtins()
 	permissionService := permissionServiceForMode(cfg.PermissionMode, runtime)
@@ -288,13 +388,19 @@ func (defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime chatIO
 		Permissions: permissionService,
 	})
 	if err != nil {
-		return "", err
+		recorder.Close(context.Background())
+		return nil, err
 	}
-	result, err := session.RunTurn(ctx, userPrompt)
-	if err != nil {
-		return "", err
+	r.recorder = recorder
+	r.session = session
+	return session, nil
+}
+
+func (r *defaultChatRunner) Close(ctx context.Context) error {
+	if r.recorder == nil {
+		return nil
 	}
-	return llm.TextContent(result.FinalAssistant), nil
+	return r.recorder.Close(ctx)
 }
 
 func permissionServiceForMode(mode string, runtime chatIO) *permissions.Service {
@@ -302,7 +408,7 @@ func permissionServiceForMode(mode string, runtime chatIO) *permissions.Service 
 		return permissions.NewService(permissions.Options{
 			Mode:              mode,
 			ApprovalAvailable: true,
-			Authorizer:        permissions.InteractiveAuthorizer{Approver: newApprovalPrompter(runtime.In, runtime.Err)},
+			Authorizer:        permissions.InteractiveAuthorizer{Approver: newApprovalPrompter(runtime.Lines, runtime.Err)},
 		})
 	}
 	return permissions.NewService(permissions.Options{Mode: mode})
