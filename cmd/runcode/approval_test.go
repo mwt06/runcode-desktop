@@ -116,6 +116,27 @@ func TestApprovalPrompterDoesNotPrintRawPath(t *testing.T) {
 	}
 }
 
+func TestApprovalPrompterPrintsCommandClassification(t *testing.T) {
+	t.Parallel()
+
+	var errOut bytes.Buffer
+	_, err := newApprovalPrompter(newLineInput(strings.NewReader("n\n")), &errOut).Prompt(context.Background(), commandApprovalRequest())
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	output := errOut.String()
+	for _, want := range []string{"Command category: network", "Command capabilities: uses_network", "Command risk reasons: network_access", "Command summary: network command"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("prompt output missing %q: %q", want, output)
+		}
+	}
+	for _, forbidden := range []string{"curl", "secret.example.invalid", "token"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("prompt leaked %q: %q", forbidden, output)
+		}
+	}
+}
+
 type blockingReader struct {
 	done chan struct{}
 	once sync.Once
@@ -148,4 +169,19 @@ func approvalRequest() permissions.ApprovalRequest {
 			permissions.MetadataTargetExists: true,
 		},
 	}, permissions.Ask(permissions.ReasonRequiresApproval, "default.mutate.workspace"))}
+}
+
+func commandApprovalRequest() permissions.ApprovalRequest {
+	return permissions.ApprovalRequest{Summary: permissions.NewApprovalSummary(permissions.Action{
+		ToolName:  "Bash",
+		Operation: permissions.OperationExecute,
+		Risk:      permissions.RiskHigh,
+		Resources: []permissions.Resource{{Type: permissions.ResourceCommand, Scope: permissions.ResourceScopeWorkspace}},
+		Metadata: map[string]any{
+			permissions.MetadataCommandCategory:     "network",
+			permissions.MetadataCommandCapabilities: []string{"uses_network"},
+			permissions.MetadataCommandRiskReasons:  []string{"network_access"},
+			permissions.MetadataCommandSummary:      "network command",
+		},
+	}, permissions.Ask(permissions.ReasonRequiresApproval, "default.execute.requires_approval"))}
 }

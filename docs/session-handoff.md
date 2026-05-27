@@ -1110,3 +1110,95 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 ### 当前状态一句话总结
 
 `runcode` 现在已有 Read/Write/Edit/Glob/Grep 五个内置工具，模型可以先用 Glob/Grep 在 workspace 内发现和搜索代码，再用 Read 查看完整文件、用 Edit/Write 在审批边界内修改文件。
+
+## 2026-05-27 续作：Bash 前命令权限分类已完成
+
+本节记录当前最新进展。若与上文较早的“当前仍未实现”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- `internal/permissions` 新增命令分类模型：
+  - command category：read-only、test、build、package manager、network、VCS、destructive VCS、workspace write、outside write、privileged、unknown。
+  - command capabilities：reads workspace、writes workspace、writes outside、uses network、modifies VCS、destructive VCS、requires privilege、unknown effects。
+  - command risk reasons：unknown command、shell control operator、redirect output、package manager、network access、destructive VCS、outside workspace write、privileged command、workspace write。
+  - 分类结果只包含受控标签和 bounded summary，不保存 raw command 或 raw args。
+- `Bash` resolver 预留已接入权限层，但仍未实现或注册真实 Bash 工具：
+  - `command` 必填。
+  - invalid/missing command deny。
+  - 解析后生成 `OperationExecute` action、`ResourceCommand` resource 和脱敏 command metadata。
+- default execute policy 已从统一 ask 改为分类决策：
+  - 低/中/高风险的已分类非硬拒绝命令需要 approval。
+  - safe non-interactive 模式仍把 ask 转为 deny。
+  - critical、unknown effects、requires privilege、writes outside、destructive VCS 直接 deny，interactive approval 也不能绕过。
+  - 当前没有任何 Bash 命令会自动 allow。
+- approval summary / CLI prompt 已显示脱敏命令信息：
+  - command category。
+  - command capabilities。
+  - command risk reasons。
+  - command summary。
+  - 不显示 raw command、URL、env、credential、路径或完整参数。
+- permission telemetry 已新增脱敏 command attrs：
+  - `command_category`
+  - `command_capabilities`
+  - `command_risk_reasons`
+  - `command_summary`
+  - 仍不记录 raw command、URL、路径、tool input/output 或文件内容。
+- `docs/architecture.md` 已同步 Bash 前命令权限分类边界。
+
+### 当前仍未实现
+
+- 真实 `tools/bash`。
+- 将 Bash 注册到 `tools.Builtins()`。
+- shell 执行器、timeout、background task、stdout/stderr streaming。
+- 持久化 permission allowlist / denylist。
+- session 级 permission memory。
+- TodoWrite/MCP/hooks/sub-agents/skills。
+- Bubble Tea TUI。
+
+### 当前状态一句话总结
+
+`runcode` 现在还不会执行 Bash，但权限系统已经能对未来 Bash 输入做保守分类、硬拒绝高危命令，并为审批提示和 telemetry 提供脱敏摘要，为后续接入真实 Bash 工具打好了安全边界。
+
+## 2026-05-27 续作：最小安全 Bash 工具已完成
+
+本节记录当前最新进展。若与上文较早的“当前仍未实现”冲突，以本节为准。
+
+### 本轮已完成内容
+
+- 新增 `tools/bash` 内置工具：
+  - Tool name 为 `Bash`。
+  - input schema 支持 `command` 和可选 `timeout_ms`。
+  - 固定在 workspace root 执行，不支持自定义 cwd。
+  - 不接 stdin，避免交互式命令挂起等待输入。
+  - 使用 context/timeout 控制命令生命周期。
+  - 捕获 stdout/stderr，输出总量有上限，超过会截断并标记。
+  - 非零 exit code、timeout、cancel 返回 `tool.Result{IsError: true}`，不把普通命令失败升级为 executor Go error。
+  - result metadata 只包含 `exit_code`、`timed_out`、`duration_ms`、`truncated` 这类受控字段。
+- `tools.Builtins()` 已注册 `Bash`，现在内置工具为：
+  - `Read`
+  - `Write`
+  - `Edit`
+  - `Glob`
+  - `Grep`
+  - `Bash`
+- `internal/repl.Executor` 仍是执行前唯一授权入口：
+  - safe 模式下 Bash ask 会最终 deny，不会运行。
+  - interactive approval allow 后，非硬拒绝 Bash 命令可以运行。
+  - hard deny 命令即使 interactive allow 也不会运行。
+- session tool spec 测试已同步包含 `Bash`。
+- `docs/architecture.md` 已同步 Bash MVP runtime 限制和验证矩阵。
+
+### 当前仍未实现
+
+- Bash background task。
+- streaming stdout/stderr UI。
+- 自定义 cwd/env。
+- 交互式 stdin。
+- 持久化 command allowlist / denylist。
+- session 级 permission memory。
+- TodoWrite/MCP/hooks/sub-agents/skills。
+- Bubble Tea TUI。
+
+### 当前状态一句话总结
+
+`runcode` 现在已经有真实 Bash 内置工具，但它仍被权限系统默认安全地包住：safe 模式不会执行，interactive 只能审批非硬拒绝命令，运行期也限制在 workspace cwd、无 stdin、timeout 和输出截断边界内。

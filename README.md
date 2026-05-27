@@ -7,13 +7,13 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **Status: v0.1-alpha scaffold.** The CLI builds and prints help, but the `chat` command is not wired yet. See the roadmap below.
+> **Status: v0.1-alpha.** The project has a minimal provider-backed `chat` command, an in-memory ReAct loop, safe/interactive permissions, telemetry, and built-in `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` tools. It is not a full TUI product yet.
 
 ## What is runcode?
 
-`runcode` is an AI coding companion that lives in your terminal. It runs as a full-screen TUI (Bubble Tea) and drives a ReAct + Tool Use loop against an LLM provider — Anthropic Claude or OpenAI GPT — to read, write, edit, search, and execute code on your behalf, with explicit permission gates.
+`runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
 
-It is **inspired by** Anthropic's Claude Code (the official TS CLI), but is a clean-room Go reimplementation of the core ideas: streaming tool execution with concurrency partitioning, a cacheable system-prompt boundary, four-level permission modes, lifecycle hooks, MCP integration, and sub-agents.
+The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. Many planned systems — Bubble Tea TUI, MCP, hooks, sub-agents, skills, SQLite transcripts, context compaction, and multi-provider support — are still scaffolds or deferred work.
 
 ## Quick start
 
@@ -27,64 +27,98 @@ go build ./cmd/runcode
 
 > Requires Go 1.26+.
 
-## Roadmap
+## Current CLI
 
-| Version | Target | Focus |
-|---------|--------|-------|
-| **v0.1** | 4-6 weeks | TUI + Anthropic + 7 tools (Read/Write/Edit/Glob/Grep/Bash/TodoWrite) + default permissions + cacheable prompt boundary + SQLite transcript |
-| v0.2 | +3 weeks | OpenAI provider + 4-level permissions + Hook system + slash commands + WebFetch/WebSearch |
-| v0.3 | +4 weeks | Sub-agents (Explore / Plan / Verification) + context compaction + Skills + `runcode print` |
-| v0.4 | +5 weeks | MCP integration + Coordinator multi-worker + plugin manifest |
-| v1.0 | +4 weeks | Performance + i18n + GoReleaser multi-platform release + Homebrew/scoop/AUR |
+```bash
+ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_API_KEY=... \
+./runcode chat "summarize this repository"
+```
 
-See [docs/architecture.md](./docs/architecture.md) (when populated) for the full design.
+Useful flags and environment variables:
+
+- `--provider` / `RUNCODE_PROVIDER`: currently only `anthropic`.
+- `--model` / `ANTHROPIC_MODEL`: required unless provided by environment.
+- `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
+- `--base-url` / `ANTHROPIC_BASE_URL`.
+- `--cwd` / `RUNCODE_CWD`: workspace for tools.
+- `--loop`: keep one in-memory session alive across stdin prompts.
+- `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`.
+- `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`.
+
+Current limitations:
+
+- No Bubble Tea TUI.
+- No persistent transcript or session resume.
+- No streaming terminal rendering; final assistant text is printed after each turn.
+- No slash commands, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
+
+## Implemented tools
+
+Built-in tools are registered in `tools.Builtins()` and exposed to both the model tool spec and prompt tool summary:
+
+| Tool | Current effect |
+|------|----------------|
+| `Read` | Reads workspace files with line numbers and records complete/partial read metadata. |
+| `Write` | Creates files or overwrites fresh-read files inside the workspace. |
+| `Edit` | Performs exact string replacement on fresh-read files inside the workspace. |
+| `Glob` | Finds workspace files with slash glob patterns and `**`. |
+| `Grep` | Searches workspace text files with Go regular expressions. |
+| `Bash` | Runs a single-line non-interactive bash command in the workspace after permission approval. |
+
+`TodoWrite`, WebFetch/WebSearch, MCP tools, and plugin tools are not implemented yet.
+
+## Permissions and safety
+
+The executor calls `internal/permissions` before running every tool:
+
+- Workspace `Read`/`Glob`/`Grep` are allowed by default.
+- `Write`/`Edit` mutations require approval and fresh-read checks.
+- `Bash` commands are classified before execution; unknown, privileged, destructive, outside-write, and complex shell-control commands are denied before approval.
+- `safe` mode is non-interactive, so approval-requiring actions resolve to denial.
+- `interactive` mode asks once on stderr and only for actions already classified as approvable.
+
+Telemetry records bounded metadata such as operation, risk, resource scope, permission effect, and command classification. It does not record raw paths, raw commands, tool inputs, tool outputs, file contents, credentials, or URLs.
 
 ## Architecture at a glance
 
-```
-User → Bubble Tea TUI → REPL Controller → ReAct loop ─┬─→ LLM Provider (Anthropic | OpenAI)
-                              │                       │
-                              │              ┌────────┴────────┐
-                              ↓              │ Streaming Tool  │
-                        Permission Engine ←──┤ Executor        │
-                              │              │ (concurrent /   │
-                              ↓              │  serial groups) │
-                        Hook Chain          └─────────────────┘
+```text
+User input
+  -> cmd/runcode chat
+  -> Anthropic provider
+  -> internal/repl.Session
+  -> prompt.BuildSystemPrompt + tools.Builtins tool specs
+  -> model stream
+  -> tool_use
+  -> internal/repl.Executor
+  -> internal/permissions.Service
+  -> Tool.Run
+  -> tool_result
+  -> model final text
 ```
 
-Key Go-idiomatic translations of the TS source:
+See:
 
-- `AsyncGenerator<Event>` → `chan<- Event` + goroutine
-- `DeepImmutable AppState` → `atomic.Pointer[AppState]` + COW
-- `useSyncExternalStore` → Store notify channel → `tea.Cmd` → `tea.Msg`
-- `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` → string constant + provider-side `cache_control` injection
-- Feature-flag DCE → runtime config + interface injection (single binary, no build-tag matrix)
+- [docs/architecture.md](./docs/architecture.md) for the implemented architecture.
+- [docs/data-flow-and-prompt.md](./docs/data-flow-and-prompt.md) for the request/tool/prompt data flow.
+- [docs/implementation-status.md](./docs/implementation-status.md) for current gaps and intentionally minimal areas.
 
 ## Project layout
 
-```
-cmd/runcode/           CLI entry (cobra)
-internal/              Implementation details (not importable)
-  app/                 Bubble Tea Model/Update/View
-  repl/                ReAct controller + executor
-  permissions/         4-level mode + rule engine
-  prompt/              System-prompt assembler + boundary
-  hooks/               Lifecycle hook chain
-  mcp/                 MCP connection pool
-  persistence/         SQLite + RUNCODE.md loader + settings
-  session/  cost/  telemetry/  ui/
-pkg/                   Stable SDK (semver-promised)
-  tool/                Tool interface + Context
-  llm/                 Provider abstraction + neutral message types
-    providers/         anthropic/, openai/
-  agent/  skill/  command/  plugin/
-tools/                 Built-in tool implementations + registry
-prompts/               //go:embed templates
+```text
+cmd/runcode/           Cobra CLI: version and minimal chat
+internal/repl/         ReAct session, executor, tool result conversion, telemetry
+internal/permissions/  action/resource/risk model, policy, approval, command classification
+internal/prompt/       system prompt assembler and cache boundary
+internal/telemetry/    event model, JSONL, async, memory recorders
+internal/toolpath/     workspace path resolution and fresh-read gates
+pkg/tool/              public tool interface, schema, context, result types
+pkg/llm/               provider-neutral LLM DTOs and stream interfaces
+tools/                 built-in tools and registry
+docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-## Configuration
-
-Per-project context goes in `RUNCODE.md` at the repo root (legacy `CLAUDE.md` is also read for compatibility). Schema and details will land in v0.2.
+Scaffolded but not implemented yet: `internal/ui`, `internal/mcp`, `internal/hooks`, `internal/persistence`, `internal/compaction`, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `pkg/llm/providers/openai`, `tools/todo`, and `prompts/*`.
 
 ## Contributing
 
@@ -96,4 +130,4 @@ Apache-2.0 — see [LICENSE](./LICENSE).
 
 ## Acknowledgements
 
-Architecture concepts derived from Anthropic's Claude Code CLI (TypeScript). All Go code is original.
+Architecture concepts are inspired by Anthropic's Claude Code CLI. All Go code in this repository is original.

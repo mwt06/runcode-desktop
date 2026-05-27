@@ -3,18 +3,22 @@ package permissions
 import "context"
 
 type ApprovalSummary struct {
-	ToolName        string
-	Operation       Operation
-	Risk            Risk
-	ResourceTypes   []string
-	ResourceScope   string
-	ResourceCount   int
-	MutationKind    string
-	ReadRequirement string
-	ReadState       string
-	TargetExists    bool
-	HasTargetExists bool
-	PolicyRule      string
+	ToolName            string
+	Operation           Operation
+	Risk                Risk
+	ResourceTypes       []string
+	ResourceScope       string
+	ResourceCount       int
+	MutationKind        string
+	ReadRequirement     string
+	ReadState           string
+	TargetExists        bool
+	HasTargetExists     bool
+	CommandCategory     string
+	CommandCapabilities []string
+	CommandRiskReasons  []string
+	CommandSummary      string
+	PolicyRule          string
 }
 
 type ApprovalRequest struct {
@@ -36,18 +40,22 @@ type InteractiveAuthorizer struct {
 
 func NewApprovalSummary(action Action, decision Decision) ApprovalSummary {
 	return ApprovalSummary{
-		ToolName:        action.ToolName,
-		Operation:       action.Operation,
-		Risk:            action.Risk,
-		ResourceTypes:   summaryResourceTypes(action.Resources),
-		ResourceScope:   summaryResourceScope(action.Resources),
-		ResourceCount:   len(action.Resources),
-		MutationKind:    metadataString(action.Metadata, MetadataMutationKind),
-		ReadRequirement: metadataString(action.Metadata, MetadataReadRequirement),
-		ReadState:       metadataString(action.Metadata, MetadataReadState),
-		TargetExists:    metadataBool(action.Metadata, MetadataTargetExists),
-		HasTargetExists: hasMetadata(action.Metadata, MetadataTargetExists),
-		PolicyRule:      decision.Rule,
+		ToolName:            action.ToolName,
+		Operation:           action.Operation,
+		Risk:                action.Risk,
+		ResourceTypes:       summaryResourceTypes(action.Resources),
+		ResourceScope:       summaryResourceScope(action.Resources),
+		ResourceCount:       len(action.Resources),
+		MutationKind:        metadataString(action.Metadata, MetadataMutationKind),
+		ReadRequirement:     metadataString(action.Metadata, MetadataReadRequirement),
+		ReadState:           metadataString(action.Metadata, MetadataReadState),
+		TargetExists:        metadataBool(action.Metadata, MetadataTargetExists),
+		HasTargetExists:     hasMetadata(action.Metadata, MetadataTargetExists),
+		CommandCategory:     metadataString(action.Metadata, MetadataCommandCategory),
+		CommandCapabilities: metadataStrings(action.Metadata, MetadataCommandCapabilities),
+		CommandRiskReasons:  metadataStrings(action.Metadata, MetadataCommandRiskReasons),
+		CommandSummary:      metadataString(action.Metadata, MetadataCommandSummary),
+		PolicyRule:          decision.Rule,
 	}
 }
 
@@ -85,6 +93,25 @@ func metadataString(metadata map[string]any, key string) string {
 func metadataBool(metadata map[string]any, key string) bool {
 	value, _ := metadata[key].(bool)
 	return value
+}
+
+func metadataStrings(metadata map[string]any, key string) []string {
+	values, ok := metadata[key].([]string)
+	if ok {
+		return append([]string(nil), values...)
+	}
+	anyValues, ok := metadata[key].([]any)
+	if !ok {
+		return nil
+	}
+	items := make([]string, 0, len(anyValues))
+	for _, value := range anyValues {
+		item, ok := value.(string)
+		if ok {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func hasMetadata(metadata map[string]any, key string) bool {

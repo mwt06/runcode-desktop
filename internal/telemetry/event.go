@@ -76,6 +76,10 @@ const (
 	AttrReadState                AttrKey = "read_state"
 	AttrReadRequirement          AttrKey = "read_requirement"
 	AttrTargetExists             AttrKey = "target_exists"
+	AttrCommandCategory          AttrKey = "command_category"
+	AttrCommandCapabilities      AttrKey = "command_capabilities"
+	AttrCommandRiskReasons       AttrKey = "command_risk_reasons"
+	AttrCommandSummary           AttrKey = "command_summary"
 )
 
 func NewEvent(name EventName) Event {

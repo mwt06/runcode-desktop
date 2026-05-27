@@ -26,6 +26,7 @@ func RecordDecision(ctx context.Context, recorder telemetry.Recorder, req Teleme
 		string(telemetry.AttrResourceScope):         summary.ResourceScope,
 	}
 	addMutationAttrs(attrs, summary)
+	addCommandAttrs(attrs, summary)
 	recorder.Record(ctx, telemetry.Event{
 		Time:       telemetry.NewEvent(telemetry.EventPermissionDecision).Time,
 		Name:       telemetry.EventPermissionDecision,
@@ -58,5 +59,20 @@ func addMutationAttrs(attrs telemetry.Attrs, summary ApprovalSummary) {
 	}
 	if summary.HasTargetExists {
 		attrs[string(telemetry.AttrTargetExists)] = summary.TargetExists
+	}
+}
+
+func addCommandAttrs(attrs telemetry.Attrs, summary ApprovalSummary) {
+	if summary.CommandCategory != "" {
+		attrs[string(telemetry.AttrCommandCategory)] = summary.CommandCategory
+	}
+	if len(summary.CommandCapabilities) > 0 {
+		attrs[string(telemetry.AttrCommandCapabilities)] = summary.CommandCapabilities
+	}
+	if len(summary.CommandRiskReasons) > 0 {
+		attrs[string(telemetry.AttrCommandRiskReasons)] = summary.CommandRiskReasons
+	}
+	if summary.CommandSummary != "" {
+		attrs[string(telemetry.AttrCommandSummary)] = summary.CommandSummary
 	}
 }

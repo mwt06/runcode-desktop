@@ -57,7 +57,7 @@ func (p *approvalPrompter) readLine(ctx context.Context) (string, error) {
 
 func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 	summary := req.Summary
-	_, err := fmt.Fprintf(p.err, "Permission request\nTool: %s\nOperation: %s\nRisk: %s\nResources: %s/%s (%d)\nMutation: %s\nRead state: %s\nTarget exists: %v\nPolicy: %s\nAllow once? [y/N]: ",
+	if _, err := fmt.Fprintf(p.err, "Permission request\nTool: %s\nOperation: %s\nRisk: %s\nResources: %s/%s (%d)\nMutation: %s\nRead state: %s\nTarget exists: %v\n",
 		summary.ToolName,
 		summary.Operation,
 		summary.Risk,
@@ -67,8 +67,20 @@ func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 		fallbackString(summary.MutationKind, "n/a"),
 		fallbackString(summary.ReadState, "n/a"),
 		summary.TargetExists,
-		summary.PolicyRule,
-	)
+	); err != nil {
+		return err
+	}
+	if summary.CommandSummary != "" {
+		if _, err := fmt.Fprintf(p.err, "Command category: %s\nCommand capabilities: %s\nCommand risk reasons: %s\nCommand summary: %s\n",
+			fallbackString(summary.CommandCategory, "n/a"),
+			fallbackString(strings.Join(summary.CommandCapabilities, ","), "n/a"),
+			fallbackString(strings.Join(summary.CommandRiskReasons, ","), "n/a"),
+			summary.CommandSummary,
+		); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(p.err, "Policy: %s\nAllow once? [y/N]: ", summary.PolicyRule)
 	return err
 }
 

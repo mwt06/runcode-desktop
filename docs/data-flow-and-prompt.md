@@ -1,641 +1,383 @@
 # runcode 执行数据流与提示词拼接结构
 
-本文档基于当前代码实现整理，用于快速理解 `runcode` 现在的执行链路、工具数据流，以及 system prompt 的拼接方式。
+本文档基于当前代码实现整理，用于快速理解 `runcode` 的 CLI 执行链路、ReAct 工具数据流、权限边界、telemetry 和 system prompt 拼接方式。
 
-当前范围仍是 provider-neutral scaffold：`internal/repl.Session` 已能运行有限多轮 ReAct loop，并可在主请求前通过 provider 预判定本轮适合的思维模型；但 `cmd/runcode chat` 还没有接入真实 LLM provider、TUI 或交互会话。
+当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic provider、`internal/repl.Session`、内置工具、权限系统和 telemetry；但还没有 Bubble Tea TUI、持久 transcript、context compaction、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 
-## 1. 当前执行数据流总览
-
-```text
-┌────────────────────────────────────────────────────────────────────┐
-│ 用户输入 userText                                                  │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ internal/repl.Session.RunTurn(ctx, userText)                       │
-│                                                                    │
-│ 初始化：                                                            │
-│   messages   = [ RoleUser: userText ]                              │
-│   promptOpts = s.prompt                                            │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ 可选：AI reasoning classification                                  │
-│                                                                    │
-│ 条件：s.reasoning.Enabled == true                                  │
-│ 请求：                                                             │
-│   System   = sections.ReasoningClassifier()                        │
-│   Messages = [ RoleUser: userText ]                                │
-│   Tools    = nil                                                   │
-│                                                                    │
-│ provider 返回 JSON：                                                │
-│   {"scenario":"architecture","confidence":"medium"}           │
-│                                                                    │
-│ 解析后：                                                            │
-│   promptOpts.Reasoning =                                           │
-│     sections.ReasoningGuidance(classification.Scenario)            │
-│                                                                    │
-│ 注意：分类请求不计入 MaxIterations，                                │
-│      不进入 TurnResult.Requests，                                  │
-│      不进入主 conversation messages。                              │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ for iteration < maxIterations                                      │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ buildRequestWithMessagesAndPrompt(messages, promptOpts)            │
-│                                                                    │
-│ 1. promptOpts.Tools = s.tools                                      │
-│ 2. prompt.BuildSystemPrompt(promptOpts)                            │
-│ 3. ToolSpecs(s.tools)                                              │
-│ 4. cloneMessages(messages)                                         │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ llm.Request                                                        │
-│                                                                    │
-│ Model       = s.model                                              │
-│ System      = []llm.ContentBlock                                   │
-│ Messages    = cloned conversation messages                         │
-│ Tools       = []llm.ToolSpec                                       │
-│ MaxTokens   = s.maxTokens                                          │
-│ Temperature = s.temperature                                        │
-│ Metadata    = s.metadata                                           │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ s.provider.Stream(ctx, req)                                        │
-│                                                                    │
-│ 返回 llm.Stream：                                                   │
-│   Events() <-chan llm.StreamEvent                                  │
-│   Err() error                                                      │
-│   Close() error                                                    │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ collectAssistantMessage(ctx, stream)                               │
-│                                                                    │
-│ 消费 StreamEvent：                                                  │
-│   message_start         -> 忽略                                    │
-│   content_block_start   -> 建立 blockAccumulator                   │
-│   content_block_delta   -> 累积 Text / Thinking / Signature / JSON │
-│   content_block_stop    -> materialize block                       │
-│   message_stop          -> 返回 RoleAssistant message              │
-│                                                                    │
-│ streamAssistant defer stream.Close()                               │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ assistant message                                                  │
-│                                                                    │
-│ 如果没有 tool_use：                                                 │
-│   返回 TurnResult                                                  │
-│                                                                    │
-│ 如果包含 tool_use：                                                 │
-│   检查是否达到 MaxIterations                                       │
-│   未达到则进入工具执行                                             │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ executeToolUses(ctx, assistant)                                    │
-│                                                                    │
-│ 遍历 assistant.Content：                                            │
-│   只处理 Type == tool_use 的 block                                 │
-│                                                                    │
-│ 对每个 tool_use 构造 ExecuteRequest：                               │
-│   Name      = block.Name                                           │
-│   Input     = block.Input                                          │
-│   ToolUseID = block.ID                                             │
-│   Context   = s.toolContext                                        │
-│   Events    = s.toolEvents                                         │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ Executor.Execute(ctx, ExecuteRequest)                              │
-│                                                                    │
-│ 1. 校验工具名                                                       │
-│ 2. 从 map[string]tool.Tool 查找 runner                             │
-│ 3. 设置 tool.Context.ToolUseID                                     │
-│ 4. runner.Run(ctx, input, tctx, events)                            │
-│ 5. 返回 ExecuteResult                                              │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ ToolResultBlock(ExecuteResult)                                     │
-│                                                                    │
-│ tool.Result                                                        │
-│   └─ []tool.ResultContent                                          │
-│                                                                    │
-│ 转换为：                                                            │
-│   llm.ContentBlock{                                                │
-│     Type:      tool_result,                                        │
-│     ToolUseID: original tool_use ID,                               │
-│     Content:   []llm.ContentBlock{text/json-as-text},              │
-│   }                                                               │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ RoleTool message                                                   │
-│                                                                    │
-│ llm.Message{                                                       │
-│   Role:    llm.RoleTool,                                           │
-│   Content: []tool_result blocks,                                   │
-│ }                                                                  │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ append messages                                                    │
-│                                                                    │
-│ messages = append(messages, assistant)                             │
-│ messages = append(messages, toolMessage)                           │
-│                                                                    │
-│ 下一轮 provider request 会携带：                                    │
-│   user -> assistant(tool_use) -> tool(tool_result) -> ...          │
-└──────────────────────────────┬─────────────────────────────────────┘
-                               │
-                               └─────────────── 回到下一次 iteration
-```
-
-## 2. 当前工具注册与工具执行数据流
+## 1. CLI 到 Session 的数据流
 
 ```text
-┌──────────────────────────────┐
-│ tools.Builtins()             │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│ []tool.Tool                  │
-│                              │
-│ 当前只有：                    │
-│   read.New() -> Read         │
-└───────┬──────────────┬───────┘
-        │              │
-        │              │
-        ▼              ▼
-┌──────────────────┐  ┌──────────────────────────────┐
-│ NewExecutor()    │  │ ToolSpecs()                   │
-│                  │  │                              │
-│ 建立执行索引：    │  │ 暴露给 provider 的工具 schema │
-│ map[name]Tool    │  │ []llm.ToolSpec                │
-└────────┬─────────┘  └──────────────┬───────────────┘
-         │                           │
-         ▼                           ▼
-┌──────────────────┐  ┌──────────────────────────────┐
-│ Executor.Execute │  │ llm.Request.Tools            │
-└────────┬─────────┘  └──────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────────────────────────┐
-│ Read.Run(ctx, rawInput, tool.Context, events)      │
-│                                                    │
-│ 输入 JSON：                                        │
-│   {                                                │
-│     "path": "sample.txt",                       │
-│     "offset": 0,                                 │
-│     "limit": 2000                                │
-│   }                                                │
-│                                                    │
-│ 输出 tool.Result：                                 │
-│   Content[0].Type = text                           │
-│   Content[0].Text = "1\t...\n2\t..."             │
-│                                                    │
-│ 副作用：                                           │
-│   tool.Context.ReadSet[absPath] = ReadFile metadata│
-└────────────────────────────────────────────────────┘
+用户输入
+  -> cmd/runcode chat
+  -> defaultChatRunner.Run
+  -> defaultChatRunner.sessionFor
+  -> anthropic.New(provider options)
+  -> tools.Builtins()
+  -> permissions.Service
+  -> repl.NewSession
+  -> Session.RunTurn
 ```
 
-## 3. 多轮 ReAct message 形态
+当前 CLI 入口：
 
-### 3.1 无工具调用
+- `cmd/runcode/main.go`
+- `cmd/runcode/chat.go`
+- `cmd/runcode/line_input.go`
+- `cmd/runcode/approval.go`
+
+实际效果：
+
+- `runcode chat [prompt]` 从 args 或 stdin 读取 prompt。
+- `runcode chat --loop` 逐行读取 stdin，并复用同一个内存 session。
+- `--provider` 当前只支持 `anthropic`。
+- `--model` / `ANTHROPIC_MODEL` 必填。
+- `--api-key` / `ANTHROPIC_API_KEY` 或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN` 必填其一。
+- `--cwd` / `RUNCODE_CWD` 决定工具工作目录。
+- `--permission-mode safe|interactive` 控制审批模式。
+- `--telemetry off|jsonl` 控制 telemetry 输出。
+
+当前限制：
+
+- CLI 不做 token 实时渲染；每轮完成后输出 final assistant text。
+- `--loop` 不是完整 REPL，没有 readline、slash commands、多行输入或 session persistence。
+- 没有 TUI。
+
+## 2. Session RunTurn 数据流
 
 ```text
-可选 classification request:
-┌──────────────┐
-│ user         │  "解释这个文件"
-└──────┬───────┘
-       ▼
-Provider returns:
-┌──────────────┐
-│ assistant    │  {"scenario":"general","confidence":"medium"}
-└──────┬───────┘
-       ▼
-主 Request #1 messages:
-┌──────────────┐
-│ user         │  "解释这个文件"
-└──────┬───────┘
-       ▼
-Provider returns:
-┌──────────────┐
-│ assistant    │  text: "..."
-└──────────────┘
-
-RunTurn 返回。
+Session.RunTurn(ctx, userText)
+  -> clone in-memory history
+  -> append current user message
+  -> optional reasoning classification
+  -> buildRequestWithMessagesAndPrompt
+  -> provider.Stream
+  -> collectAssistantMessage
+  -> if no tool_use: commit history and return final text
+  -> if tool_use: executeToolUses
+  -> append assistant + tool_result messages
+  -> repeat until no tool_use or max iterations
 ```
 
-### 3.2 一次工具调用
+关键文件：
+
+- `internal/repl/session.go`
+- `internal/repl/reasoning.go`
+- `internal/repl/tool_result.go`
+- `internal/repl/toolspec.go`
+- `internal/repl/telemetry.go`
+
+核心行为：
+
+- Session 持有进程内 `[]llm.Message` history。
+- 成功 turn 会提交 history；失败 turn 不提交。
+- `History()` 返回 clone，避免外部修改内部状态。
+- `ResetHistory()` 清空当前进程内 history。
+- 每个 turn 最多执行 `MaxIterations` 次 provider/tool 循环，默认 8。
+- 可选 reasoning classification 会在主请求前发一次小请求，用受控 scenario 选择 reasoning guidance。
+- classification 请求不进入主 conversation history。
+
+当前限制：
+
+- history 不持久化。
+- 没有 context compaction 或 token budget trimming。
+- tool_use 顺序执行，不做并发工具调度。
+- 工具 runtime error 和 unknown tool 会中断 turn；permission denied 则作为 tool_result 回灌模型。
+
+## 3. Prompt 拼接结构
+
+入口：
+
+- `internal/prompt/assembler.go`
+
+相关文件：
+
+- `internal/prompt/boundary.go`
+- `internal/prompt/sections/static.go`
+- `internal/prompt/sections/dynamic.go`
+
+`BuildSystemPrompt(opts)` 输出 `[]llm.ContentBlock`，而不是单个字符串。
+
+静态 section：
+
+1. intro
+2. system behavior
+3. built-in tool descriptions
+4. action guidance
+5. tone/style guidance
+6. `__RUNCODE_DYNAMIC_BOUNDARY__`
+
+动态 section：
+
+1. optional reasoning guidance
+2. current working directory
+3. current date
+4. shell info
+5. memory text
+6. project context text
+
+Cache 策略：
+
+- 静态 section 使用 `llm.CacheControlEphemeral`。
+- 动态 section 使用 `llm.CacheControlNone`。
+- 当前工具集来自静态 `tools.Builtins()`，因此工具描述仍放在静态缓存区。
+
+当前限制：
+
+- `Memory` 和 `ProjectCtx` 只是调用方传入字符串。
+- 还没有磁盘上的 `RUNCODE.md` / `CLAUDE.md` loader。
+- 没有 settings loader。
+- 没有 prompt template embed。
+- 没有 agent/skill prompt。
+- 没有把当前 permission mode 明确注入 prompt。
+- 未来 MCP/plugin 动态工具接入后，需要重新评估工具描述的 cache boundary。
+
+## 4. 工具注册与 tool spec 数据流
+
+注册源：
+
+- `tools/registry.go`
+
+当前 `tools.Builtins()` 返回：
 
 ```text
-classification request 先选择本轮 reasoning guidance
-       │
-       ▼
-主 Request #1 messages:
-┌──────────────┐
-│ user         │  "读取 sample.txt"
-└──────┬───────┘
-       ▼
-Provider returns:
-┌──────────────┐
-│ assistant    │  tool_use: Read({"path":"sample.txt"})
-└──────┬───────┘
-       ▼
-Executor executes Read
-       ▼
-┌──────────────┐
-│ tool         │  tool_result for toolu_xxx
-└──────┬───────┘
-       ▼
-主 Request #2 messages:
-┌──────────────┐
-│ user         │
-├──────────────┤
-│ assistant    │  tool_use
-├──────────────┤
-│ tool         │  tool_result
-└──────┬───────┘
-       ▼
-Provider returns:
-┌──────────────┐
-│ assistant    │  final text
-└──────────────┘
+Read
+Write
+Edit
+Glob
+Grep
+Bash
 ```
 
-`MaxIterations` 限制主 ReAct provider 调用次数，默认值是 `8`。Reasoning classification request 不计入该次数。如果最后一次主 provider 请求仍返回 `tool_use`，`RunTurn` 返回 `ErrMaxIterations`，并且不会执行这一轮工具，避免产生无法回传给 provider 的悬空 tool result 或额外副作用。
-
-## 4. system prompt 拼接结构
-
-当前入口：`internal/prompt.BuildSystemPrompt(opts AssemblerOpts)`。
-
-### 4.1 输入结构
-
-```go
-type AssemblerOpts struct {
-    CWD        string
-    Date       string
-    Tools      []tool.Tool
-    ProjectCtx string
-    Memory     string
-    ShellInfo  string
-    Reasoning  string
-}
-```
-
-### 4.2 拼接顺序线框图
+这些工具同时流向三个地方：
 
 ```text
-BuildSystemPrompt(opts)
-│
-├─ static sections，CacheControlEphemeral
-│
-│  ┌──────────────────────────────────────────────┐
-│  │ 1. sections.Intro()                          │
-│  ├──────────────────────────────────────────────┤
-│  │ 2. sections.System()                         │
-│  ├──────────────────────────────────────────────┤
-│  │ 3. sections.UsingTools(opts.Tools)           │
-│  ├──────────────────────────────────────────────┤
-│  │ 4. sections.Actions()                        │
-│  ├──────────────────────────────────────────────┤
-│  │ 5. sections.ToneAndStyle()                   │
-│  └──────────────────────────────────────────────┘
-│
-├─ boundary block，CacheControlEphemeral
-│
-│  ┌──────────────────────────────────────────────┐
-│  │ __RUNCODE_DYNAMIC_BOUNDARY__                 │
-│  └──────────────────────────────────────────────┘
-│
-└─ dynamic sections，CacheControlNone
-
-   ┌──────────────────────────────────────────────┐
-   │ 6. opts.Reasoning                            │
-   ├──────────────────────────────────────────────┤
-   │ 7. sections.EnvInfo(CWD, Date, ShellInfo)    │
-   ├──────────────────────────────────────────────┤
-   │ 8. opts.Memory                               │
-   ├──────────────────────────────────────────────┤
-   │ 9. opts.ProjectCtx                           │
-   └──────────────────────────────────────────────┘
+tools.Builtins()
+  -> repl.NewExecutor -> Executor.Execute -> Tool.Run
+  -> repl.ToolSpecs -> llm.Request.Tools -> provider tool schema
+  -> prompt.BuildSystemPrompt -> sections.UsingTools -> system prompt text
 ```
 
-### 4.3 输出结构
+这样能保持 prompt 可见工具、provider tool spec 和 executor 实际工具列表来自同一个注册源。
 
-输出不是单个字符串，而是多个 `llm.ContentBlock`：
+当前限制：
+
+- 工具是静态注册，没有 MCP、plugin 或配置驱动的动态工具。
+- Prompt 中只列 tool name 和 description，不列完整 schema 或详细 usage notes。
+- 工具不会根据 permission mode 动态隐藏；safe 模式下 Write/Edit/Bash 仍暴露给模型，但执行时会被权限拒绝。
+
+## 5. 工具执行与权限数据流
+
+执行入口：
+
+- `internal/repl/executor.go`
+
+数据流：
 
 ```text
-[]llm.ContentBlock{
-  {Type: text, Text: Intro,          Cache: ephemeral},
-  {Type: text, Text: System,         Cache: ephemeral},
-  {Type: text, Text: UsingTools,     Cache: ephemeral},
-  {Type: text, Text: Actions,        Cache: ephemeral},
-  {Type: text, Text: ToneAndStyle,   Cache: ephemeral},
-  {Type: text, Text: Boundary,       Cache: ephemeral},
-  {Type: text, Text: Reasoning,      Cache: none},
-  {Type: text, Text: EnvInfo,        Cache: none},
-  {Type: text, Text: Memory,         Cache: none},
-  {Type: text, Text: ProjectCtx,     Cache: none},
-}
+Executor.Execute(ctx, req)
+  -> find tool runner by req.Name
+  -> prepare tool.Context and ToolUseID
+  -> permissions.Service.AuthorizeTool
+  -> permissions.RecordDecision
+  -> if denied: return is_error tool result without running tool
+  -> record tool.execute.start
+  -> runner.Run
+  -> record tool.execute.end or tool.execute.error
 ```
 
-空字符串 section 会被跳过。
+权限层：
 
-## 5. 当前原始提示词文本
+- `internal/permissions/resolver.go`
+- `internal/permissions/policy.go`
+- `internal/permissions/authorizer.go`
+- `internal/permissions/approval.go`
+- `internal/permissions/command.go`
+- `internal/permissions/telemetry.go`
 
-以下内容来自 `internal/prompt/sections` 当前实现。
+当前 policy 行为：
 
-### 5.1 Intro
+- `Read` / `Glob` / `Grep`：workspace 内 allow，workspace 外 deny。
+- `Write`：workspace 内 create/fresh overwrite ask；safe 下最终 deny；interactive 可审批。
+- `Edit`：workspace 内 fresh exact replace ask；safe 下最终 deny；interactive 可审批。
+- `Bash`：先做命令分类；非硬拒绝命令 ask；safe 下最终 deny；interactive 可审批；unknown/privileged/destructive/outside-write/complex shell-control hard deny。
+
+审批与 telemetry：
+
+- `interactive` 模式通过 CLI stderr prompt 询问 allow once / deny。
+- hard deny 不会进入审批。
+- Permission telemetry 只记录受控摘要，不记录 raw path、raw command、tool input/output、file content、credential 或 URL。
+
+## 6. 内置工具效果
+
+### Read
+
+文件：`tools/read/read.go`
+
+效果：读取 workspace 文件，返回带行号文本，并更新 `tool.Context.ReadSet`。支持 offset/limit 和输出截断。
+
+缺口：不支持图片、PDF、Notebook、多模态读取或目录读取。
+
+### Write
+
+文件：`tools/write/write.go`
+
+效果：创建文件；覆盖已有文件前要求 fresh complete read；目标必须在 workspace 内。
+
+缺口：非原子写入，不保留原文件权限位，不创建父目录，没有 diff preview。
+
+### Edit
+
+文件：`tools/edit/edit.go`
+
+效果：对 fresh-read 文件做 exact string replacement；默认要求唯一匹配，`replace_all=true` 替换全部。
+
+缺口：不支持 append、insert、regex patch、line patch、unified diff patch 或批量 edit transaction。
+
+### Glob
+
+文件：`tools/glob/glob.go`
+
+效果：用 slash glob 和 `**` 搜索 workspace 文件，输出 workspace-relative slash path。
+
+缺口：不读取 `.gitignore`，不支持 type filter、hidden filter、mtime sort。
+
+### Grep
+
+文件：`tools/grep/grep.go`
+
+效果：用 Go regexp 搜索 workspace 文本文件，支持 path、glob、case_insensitive、limit，输出 `relative/path:line:content`。
+
+缺口：不支持 ripgrep 完整语义、context lines、files-only、count、JSON output、multiline 或 type filter。
+
+### Bash
+
+文件：`tools/bash/bash.go`
+
+效果：在 workspace root 执行单行非交互 Bash 命令；有 timeout、stdout/stderr 捕获、输出截断；非零 exit/timeout/cancel 返回 `IsError` tool result。
+
+缺口：不支持 background task、streaming output、stdin、自定义 cwd/env、shell session、sandbox 或完整 shell parser。
+
+## 7. LLM provider 数据流
+
+中立层：
+
+- `pkg/llm/provider.go`
+- `pkg/llm/message.go`
+- `pkg/llm/stream.go`
+
+Anthropic provider：
+
+- `pkg/llm/providers/anthropic/provider.go`
+- `pkg/llm/providers/anthropic/sdk.go`
+- `pkg/llm/providers/anthropic/convert.go`
+- `pkg/llm/providers/anthropic/stream.go`
+
+当前效果：
+
+- 使用官方 Anthropic Go SDK streaming API。
+- 转换 system/messages/tools/max tokens/temperature。
+- 转换 text、tool_use、tool_result、thinking block。
+- 转换 text delta、partial JSON delta、thinking delta、signature delta、usage、stop reason。
+- 支持 API key、auth token、base URL。
+
+当前限制：
+
+- 只实现 Anthropic provider。
+- OpenAI provider 仍为空壳。
+- 不支持 image block 转换。
+- 不支持 stop sequences、tool choice、top_p/top_k、thinking budget、metadata 透传、retry/backoff 或 non-streaming API。
+
+## 8. Telemetry 数据流
+
+关键文件：
+
+- `internal/telemetry/event.go`
+- `internal/telemetry/recorder.go`
+- `internal/telemetry/jsonl.go`
+- `internal/telemetry/async.go`
+- `internal/telemetry/memory.go`
+- `internal/telemetry/id.go`
+- `internal/repl/telemetry.go`
+- `internal/permissions/telemetry.go`
+
+事件类型：
+
+- `turn.start`
+- `turn.end`
+- `turn.error`
+- `llm.request.start`
+- `llm.request.end`
+- `llm.request.error`
+- `tool.execute.start`
+- `tool.execute.end`
+- `tool.execute.error`
+- `permission.decision`
+
+当前效果：
+
+- 默认 noop recorder。
+- `--telemetry jsonl` 使用 bounded async recorder 输出到 stderr。
+- 事件带 trace/turn/request/tool_use IDs。
+- Permission telemetry 和 tool error telemetry 避免记录 raw input/output/path。
+
+缺口：
+
+- 没有 OpenTelemetry exporter。
+- 没有 telemetry persistence。
+- 没有 sampling。
+- 没有 schema version。
+- `llm.request.error` 仍可能包含 provider error string，后续需要错误分类/脱敏。
+
+## 9. 仍未实现的大模块
+
+主要空壳或未实现目录：
 
 ```text
-You are an AI coding companion that helps users with programming tasks.
+internal/app/components
+internal/ui
+internal/persistence/*
+internal/coordinator
+internal/session
+internal/compaction
+internal/cost
+internal/hooks
+internal/mcp
+pkg/llm/providers/openai
+pkg/agent
+pkg/command
+pkg/plugin
+pkg/skill
+tools/todo
+prompts/templates
+prompts/agents
+prompts/skills
+examples/custom-tool
 ```
 
-### 5.2 System
-
-```text
-You are a capable, terminal-native coding agent that reads, writes, edits, and reasons about code.
-You run tools, receive results, and iterate on a ReAct loop to complete the user's task.
-Always prioritize correctness, security, and the user's instructions.
-```
-
-### 5.3 UsingTools 模板
-
-当工具列表为空时，该 section 返回空字符串。
-
-当存在工具时，开头固定为：
-
-```text
-You have the following tools available:
-```
-
-随后每个工具追加：
-
-```text
-
-Tool: <tool.Name()>
-Description: <tool.Description()>
-```
-
-当前 `tools.Builtins()` 只有 `Read`，因此实际文本为：
-
-```text
-You have the following tools available:
-
-Tool: Read
-Description: Read a text file and return line-numbered content.
-```
-
-注意：当前 prompt 中只列出工具名称和描述；完整 JSON schema 是通过 `llm.Request.Tools` 传给 provider，而不是拼在 prompt 文本里。
-
-### 5.4 Actions
-
-```text
-When given a task:
-1. Analyze what the user is asking for
-2. Use available tools to gather context
-3. Plan and execute the needed changes step by step
-4. Verify results before completing
-```
-
-### 5.5 ToneAndStyle
-
-```text
-Response guidelines:
-- Be concise and direct
-- Use bullet points for lists
-- Explain reasoning when decisions are non-obvious
-- Show diffs or outputs instead of vague descriptions
-```
-
-### 5.6 ReasoningClassifier
-
-分类请求使用独立 system prompt，不带 tools，不进入主 conversation messages：
-
-```text
-Classify the user's task into exactly one reasoning scenario.
-Return only compact JSON with this shape: {"scenario":"<scenario>","confidence":"low|medium|high"}.
-Allowed scenarios:
-- troubleshooting: debugging, failure analysis, regressions, flaky behavior, broken tests, unexpected output
-- proposal: writing implementation plans, comparing approaches, product or technical proposals
-- architecture: system design, boundaries, data flow, abstractions, long-term structure
-- project_management: sequencing work, prioritization, delivery tracking, coordination
-- incident_response: urgent mitigation, production incidents, time-sensitive recovery
-- general: simple tasks or tasks that do not clearly match another scenario
-```
-
-### 5.7 ReasoningGuidance 模板
-
-主请求使用受控模板，不把 AI 分类输出的自由文本原样注入。示例：
-
-```text
-Selected reasoning mode: architecture
-Recommended reasoning model: first principles + systems thinking + inversion
-
-Use this checklist to guide the turn when it helps:
-1. What is the problem?
-2. What is the goal?
-3. What facts are known?
-4. What assumptions exist?
-5. How can the assumptions be verified?
-6. What options are available?
-7. What are each option's costs, benefits, and risks?
-8. Which option is recommended?
-9. How should it be executed?
-10. How will the result be verified?
-
-Keep simple tasks concise. Do not force every response into all ten steps; surface only the analysis that materially helps the user.
-```
-
-场景与模型映射：
-
-```text
-troubleshooting   -> 5 Whys + hypothesis validation + Occam's razor
-proposal          -> Pyramid principle + MECE + cost-benefit analysis
-architecture      -> first principles + systems thinking + inversion
-project_management-> closed-loop thinking + 80/20 rule
-incident_response -> OODA + hypothesis validation
-general           -> the general analysis checklist
-```
-
-### 5.8 DynamicBoundary
-
-```text
-__RUNCODE_DYNAMIC_BOUNDARY__
-```
-
-### 5.9 EnvInfo 模板
-
-`EnvInfo` 按非空字段拼接，每项一行：
-
-```text
-Current working directory: <CWD>
-Current date: <Date>
-Shell: <ShellInfo>
-```
-
-如果某个字段为空，则跳过对应行。
-
-### 5.10 Memory
-
-`opts.Memory` 由调用方传入。当前 prompt assembler 不解析、不改写，只作为 dynamic section 追加。
-
-```text
-<opts.Memory>
-```
-
-### 5.11 ProjectCtx
-
-`opts.ProjectCtx` 由调用方传入。当前 prompt assembler 不解析、不改写，只作为 dynamic section 追加。
-
-```text
-<opts.ProjectCtx>
-```
-
-## 6. 示例：当前默认工具集下的 system prompt blocks
-
-假设：
-
-```text
-CWD       = D:/我的AI/runcode
-Date      = 2026-05-21
-ShellInfo = bash on Windows
-Reasoning = sections.ReasoningGuidance("architecture")
-Memory    = <empty>
-ProjectCtx= <empty>
-Tools     = tools.Builtins() // Read
-```
-
-则 provider request 中的 `System` 大致为：
-
-```text
-[block 1 | cache: ephemeral]
-You are an AI coding companion that helps users with programming tasks.
-
-[block 2 | cache: ephemeral]
-You are a capable, terminal-native coding agent that reads, writes, edits, and reasons about code.
-You run tools, receive results, and iterate on a ReAct loop to complete the user's task.
-Always prioritize correctness, security, and the user's instructions.
-
-[block 3 | cache: ephemeral]
-You have the following tools available:
-
-Tool: Read
-Description: Read a text file and return line-numbered content.
-
-[block 4 | cache: ephemeral]
-When given a task:
-1. Analyze what the user is asking for
-2. Use available tools to gather context
-3. Plan and execute the needed changes step by step
-4. Verify results before completing
-
-[block 5 | cache: ephemeral]
-Response guidelines:
-- Be concise and direct
-- Use bullet points for lists
-- Explain reasoning when decisions are non-obvious
-- Show diffs or outputs instead of vague descriptions
-
-[block 6 | cache: ephemeral]
-__RUNCODE_DYNAMIC_BOUNDARY__
-
-[block 7 | cache: none]
-Selected reasoning mode: architecture
-Recommended reasoning model: first principles + systems thinking + inversion
-...
-
-[block 8 | cache: none]
-Current working directory: D:/我的AI/runcode
-Current date: 2026-05-21
-Shell: bash on Windows
-```
-
-## 7. 关键边界说明
-
-### 7.1 prompt 文本与 tool schema 分离
-
-```text
-Prompt text:
-  sections.UsingTools(opts.Tools)
-  -> 给模型读的人类可理解工具说明
-
-Tool schema:
-  repl.ToolSpecs(s.tools)
-  -> 给 provider 的结构化 tool definitions
-```
-
-两者都来自同一个 `s.tools` 快照，避免 prompt 可见工具与实际可执行工具分叉。
-
-### 7.2 reasoning 分类与主请求分离
-
-```text
-classification request:
-  System   = sections.ReasoningClassifier()
-  Messages = [userText]
-  Tools    = nil
-  Result   = JSON scenario
-
-main request:
-  System   = BuildSystemPrompt(promptOpts with ReasoningGuidance)
-  Messages = ReAct conversation messages
-  Tools    = ToolSpecs(s.tools)
-```
-
-分类请求失败时默认 fallback 到配置的默认场景；`Strict` 模式下返回错误并不发送主请求。
-
-### 7.3 static 与 dynamic cache 边界
-
-```text
-static / cacheable:
-  Intro
-  System
-  UsingTools
-  Actions
-  ToneAndStyle
-  DynamicBoundary
-
-dynamic / non-cacheable:
-  Reasoning
-  EnvInfo
-  Memory
-  ProjectCtx
-```
-
-`Reasoning` 是本轮 AI classification 的结果，属于 per-turn dynamic prompt，因此不可缓存。当前内置工具集固定，因此 `UsingTools` 被放在 static/cacheable 区域。若未来工具集会被 MCP、插件、权限、workspace 配置或 session state 动态改变，需要重新评估缓存边界。
-
-### 7.4 CLI 尚未接入 Session
-
-```text
-cmd/runcode chat
-  └─ 当前只打印 banner 和 not implemented 消息
-
-internal/repl.Session
-  └─ 已有 provider-neutral ReAct loop 和 reasoning 预判定能力，
-     但还没有被 chat 命令调用
-```
-
-也就是说，当前这些数据流主要由测试验证，并不是用户运行 `runcode chat` 时实际触发的交互链路。
+对应未实现能力：
+
+- Bubble Tea TUI。
+- SQLite transcript 和 session persistence。
+- `RUNCODE.md` / `CLAUDE.md` loader。
+- settings persistence。
+- context compaction。
+- cost tracking。
+- hooks。
+- MCP。
+- sub-agents。
+- slash commands。
+- plugins。
+- skills。
+- OpenAI provider。
+- TodoWrite。
+- custom tool example。
+
+## 10. 当前最应该补的缺口
+
+如果目标是减少半成品感，而不是继续扩新功能，建议顺序是：
+
+1. 让工具 runtime error / unknown tool 也能以 `is_error=true` tool result 回灌模型。
+2. 实现 `RUNCODE.md` / `CLAUDE.md` loader，让 prompt 的 project context 真正落地。
+3. 把 permission mode 和常见权限拒绝原因注入 prompt 或 tool result，帮助模型自我修正。
+4. 增加 `/clear` 或最小 history reset 入口。
+5. 再考虑 TodoWrite、streaming output、持久 transcript、TUI、MCP 等更大功能。

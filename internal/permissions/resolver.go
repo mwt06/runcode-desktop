@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wt68/runcode/internal/toolpath"
 	"github.com/wt68/runcode/pkg/tool"
@@ -38,6 +39,10 @@ type editInput struct {
 	Path string `json:"path"`
 }
 
+type bashInput struct {
+	Command string `json:"command"`
+}
+
 func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, error) {
 	switch req.ToolName {
 	case "Read":
@@ -49,7 +54,7 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 	case "Edit":
 		return resolveEdit(req)
 	case "Bash":
-		return Action{ToolName: req.ToolName, Operation: OperationExecute, Risk: RiskCritical, Resources: []Resource{{Type: ResourceCommand, Scope: ResourceScopeUnknown}}}, nil
+		return resolveBash(req)
 	default:
 		return Action{ToolName: req.ToolName, Operation: OperationUnknown, Risk: RiskHigh, Resources: []Resource{{Type: ResourceUnknown, Scope: ResourceScopeUnknown}}}, nil
 	}
@@ -151,6 +156,37 @@ func resolveEdit(req ResolveRequest) (Action, error) {
 		MetadataReadState:       readState,
 		MetadataTargetExists:    target.Exists,
 	}), nil
+}
+
+func resolveBash(req ResolveRequest) (Action, error) {
+	var input bashInput
+	if err := json.Unmarshal(req.Input, &input); err != nil {
+		return commandFallback(req.ToolName), fmt.Errorf("%w: parse bash input", ErrInvalidInput)
+	}
+	if strings.TrimSpace(input.Command) == "" {
+		return commandFallback(req.ToolName), fmt.Errorf("%w: command is required", ErrInvalidInput)
+	}
+	classification := classifyCommand(input.Command)
+	scope := ResourceScopeWorkspace
+	if classification.Category == CommandCategoryUnknown {
+		scope = ResourceScopeUnknown
+	}
+	return Action{
+		ToolName:  req.ToolName,
+		Operation: OperationExecute,
+		Risk:      classification.Risk,
+		Resources: []Resource{{Type: ResourceCommand, Scope: scope}},
+		Metadata: map[string]any{
+			MetadataCommandCategory:     string(classification.Category),
+			MetadataCommandCapabilities: commandCapabilitiesStrings(classification.Capabilities),
+			MetadataCommandRiskReasons:  commandRiskReasonStrings(classification.Reasons),
+			MetadataCommandSummary:      classification.Summary,
+		},
+	}, nil
+}
+
+func commandFallback(toolName string) Action {
+	return Action{ToolName: toolName, Operation: OperationExecute, Risk: RiskCritical, Resources: []Resource{{Type: ResourceCommand, Scope: ResourceScopeUnknown}}}
 }
 
 func mutationFallback(toolName string, operation Operation) Action {

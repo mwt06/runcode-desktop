@@ -307,6 +307,88 @@ func TestExecutorAllowsWriteWithInteractiveApproval(t *testing.T) {
 	assertAttrsDoNotContain(t, attrs, dir, "new.txt", "alpha")
 }
 
+func TestExecutorDeniesBashInDefaultSafeModeWithoutRunning(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	executor := newBuiltinExecutor(t)
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:    "Bash",
+		Input:   rawInput(t, map[string]any{"command": "touch denied.txt"}),
+		Context: &tool.Context{WorkingDirectory: dir},
+	})
+	if err != nil {
+		t.Fatalf("execute denied bash: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("expected denied error result, got %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "denied.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("bash tool ran unexpectedly, stat error=%v", err)
+	}
+}
+
+func TestExecutorAllowsBashWithInteractiveApproval(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	recorder := telemetry.NewMemory()
+	executor := newInteractiveExecutor(t, permissions.ApprovalResponse{Effect: permissions.EffectAllow})
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Bash",
+		Input:     rawInput(t, map[string]any{"command": "printf ok"}),
+		Context:   &tool.Context{WorkingDirectory: dir},
+		Telemetry: recorder,
+	})
+	if err != nil {
+		t.Fatalf("execute bash: %v", err)
+	}
+	if result.Result.IsError || len(result.Result.Content) != 1 || !strings.Contains(result.Result.Content[0].Text, "ok") {
+		t.Fatalf("result = %#v, want successful bash output", result.Result)
+	}
+
+	events := recorder.Events()
+	if len(events) != 3 || events[0].Name != telemetry.EventPermissionDecision || events[1].Name != telemetry.EventToolStart || events[2].Name != telemetry.EventToolEnd {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	attrs := events[0].Attributes
+	if attrs[string(telemetry.AttrPermissionEffect)] != string(permissions.EffectAsk) || attrs[string(telemetry.AttrPermissionFinalEffect)] != string(permissions.EffectAllow) {
+		t.Fatalf("unexpected permission attrs: %#v", attrs)
+	}
+	if attrs[string(telemetry.AttrCommandCategory)] != "read_only" {
+		t.Fatalf("unexpected command attrs: %#v", attrs)
+	}
+	assertAttrsDoNotContain(t, attrs, "printf ok")
+}
+
+func TestExecutorHardDeniesBashBeforeInteractiveApproval(t *testing.T) {
+	t.Parallel()
+
+	recorder := telemetry.NewMemory()
+	executor := newInteractiveExecutor(t, permissions.ApprovalResponse{Effect: permissions.EffectAllow})
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Bash",
+		Input:     rawInput(t, map[string]any{"command": "sudo go test"}),
+		Context:   &tool.Context{WorkingDirectory: t.TempDir()},
+		Telemetry: recorder,
+	})
+	if err != nil {
+		t.Fatalf("execute denied bash: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("expected denied error result, got %#v", result)
+	}
+	events := recorder.Events()
+	if len(events) != 1 || events[0].Name != telemetry.EventPermissionDecision {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	attrs := events[0].Attributes
+	if attrs[string(telemetry.AttrPermissionEffect)] != string(permissions.EffectDeny) || attrs[string(telemetry.AttrPermissionFinalEffect)] != string(permissions.EffectDeny) {
+		t.Fatalf("unexpected permission attrs: %#v", attrs)
+	}
+	assertAttrsDoNotContain(t, attrs, "sudo go test")
+}
+
 func TestExecutorDeniesWriteWithInteractiveRejection(t *testing.T) {
 	t.Parallel()
 

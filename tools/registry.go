@@ -2,6 +2,7 @@ package tools
 
 import (
 	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/tools/bash"
 	"github.com/wt68/runcode/tools/edit"
 	"github.com/wt68/runcode/tools/glob"
 	"github.com/wt68/runcode/tools/grep"
@@ -16,5 +17,6 @@ func Builtins() []tool.Tool {
 		edit.New(),
 		glob.New(),
 		grep.New(),
+		bash.New(),
 	}
 }

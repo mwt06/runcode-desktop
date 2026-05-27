@@ -17,6 +17,7 @@ Implemented:
 - `tools/edit`: built-in exact replace tool, requiring a fresh complete read and unique `old_string` unless `replace_all` is set.
 - `tools/glob`: built-in workspace file discovery tool with cross-platform slash glob semantics and `**` support.
 - `tools/grep`: built-in workspace text search tool using Go regexp patterns, optional slash glob filtering, and bounded output.
+- `tools/bash`: minimal non-interactive Bash executor, fixed to the workspace root with timeout and output bounds, gated by command permission classification before execution.
 - `internal/repl`: finite ReAct session controller, permission-aware tool executor, tool result conversion, and tool-spec conversion for future model tool exposure.
 - `internal/permissions`: internal permission boundary with action/resource/risk modeling, default safe policy, non-interactive and interactive authorizers, approval model, and permission telemetry helpers.
 - `internal/telemetry`: internal observability foundation with event model, no-op recorder, bounded async recorder, memory recorder, stderr JSONL support, and permission decision events.
@@ -28,7 +29,8 @@ Not implemented yet:
 - Bubble Tea TUI.
 - Persistent permission policy configuration.
 - MCP, hooks, sub-agents, skills, compaction, and persistence.
-- Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, and `Grep`.
+- Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.
+- Bash background tasks, streaming terminal output, custom cwd/env, interactive stdin, and persistent command approval policy.
 
 ## Current data flow
 
@@ -99,13 +101,15 @@ Current default mode is `safe` and non-interactive:
 - `Write` create and fresh-read overwrite inside the workspace are modeled as approval-requiring; in `safe` mode they resolve to denial.
 - `Edit` exact replace inside the workspace is modeled as approval-requiring only when the target has a fresh complete read; in `safe` mode it resolves to denial.
 - `Write`/`Edit` outside the workspace, missing read state, partial reads, stale reads, invalid targets, unknown tools, and unknown operations are denied.
-- future command execution operations are modeled as approval-requiring, but without an interactive authorizer they resolve to denial.
+- `Bash` command execution operations are pre-classified into controlled command categories, capabilities, risk reasons, and a bounded summary before policy evaluation.
+- `Bash` is not auto-allowed in any current default policy path; known non-critical commands require approval, while unknown, privileged, outside-write, destructive VCS, and complex shell-control commands are denied before approval.
+- The Bash runtime has a second safety boundary: fixed workspace cwd, no stdin, no custom env, bounded timeout, bounded stdout/stderr capture, and no background task management.
 
 `interactive` mode (`--permission-mode interactive` or `confirm`, or `RUNCODE_PERMISSION_MODE=interactive`) installs an `InteractiveAuthorizer`. It only handles policy decisions that are already `ask`, prompts for allow-once/deny-once on stderr, and safely denies on EOF, context cancellation, prompt errors, or too many invalid answers. Approval does not bypass resolver, policy, workspace containment, fresh-read, or tool runtime safety gates.
 
 Permission denial is returned to the model as a tool result with `is_error=true`; it does not interrupt the whole turn. This keeps tool success, tool failure, and permission denial on the same ReAct path while reserving Go errors for internal failures.
 
-Permission telemetry records only action metadata such as operation, risk, effect, reason, resource type/count/scope, and correlation IDs. It does not record raw paths, commands, tool input, tool output, prompt text, file contents, credentials, or base URLs. Tool execution error telemetry also uses a bounded error category instead of raw error text so file paths are not emitted.
+Permission telemetry records only action metadata such as operation, risk, effect, reason, resource type/count/scope, command category/capabilities/risk reasons/summary, and correlation IDs. It does not record raw paths, raw commands, raw command arguments, tool input, tool output, prompt text, file contents, credentials, URLs, or base URLs. Tool execution error telemetry also uses a bounded error category instead of raw error text so file paths are not emitted.
 
 Path resolution is shared through `internal/toolpath` so tool execution and permission resolution use the same base-directory semantics. Permission containment checks resolve existing symlink targets before deciding whether a read or mutation is inside the workspace. Mutation target resolution treats existing targets and missing targets differently: existing targets check the real target path, while missing targets require an existing real parent directory inside the workspace. Overwrite/edit operations also require `tool.Context.ReadSet` to contain a complete read whose size and modification time still match the current file.
 
@@ -143,15 +147,16 @@ The current scaffold should be validated through tests rather than through a rea
 
 | Area | What is verified |
 |------|------------------|
-| `tools` | built-in tool list, unique names, tool metadata, and current `Read`/`Write`/`Edit`/`Glob`/`Grep` registration |
+| `tools` | built-in tool list, unique names, tool metadata, and current `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` registration |
 | `tools/read` | file reading, line numbering, offset/limit behavior, relative paths, complete/partial `ReadSet`, errors, CRLF, cancellation, and output bounds |
 | `tools/write` | file creation, fresh-read overwrite, missing/partial/stale read rejection, workspace containment, and missing parent rejection |
 | `tools/edit` | exact replace, replace-all behavior, unique match enforcement, invalid input rejection, fresh-read requirement, and workspace containment |
 | `tools/glob` | slash glob matching, recursive `**`, stable workspace-relative output, limit truncation, cancellation, and workspace containment |
 | `tools/grep` | regexp search, case-insensitive mode, slash glob filtering, file/directory search, binary skip, limit truncation, cancellation, and workspace containment |
+| `tools/bash` | non-interactive execution, workspace cwd, stdout/stderr capture, non-zero exit error results, timeout/cancel handling, and output truncation |
 | `internal/toolpath` | shared path resolution, workspace containment, symlink handling, mutation target resolution, and read freshness checks |
 | `internal/repl` | session request construction, in-memory history commit/reset behavior, stream collection, permission-aware executor behavior, interactive approval allow/deny execution paths, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
-| `internal/permissions` | action/resource resolution, workspace containment, default safe policy, non-interactive and interactive authorization, approval fallback behavior, and sanitized decision data |
+| `internal/permissions` | action/resource resolution, workspace containment, command classification, default safe policy, non-interactive and interactive authorization, approval fallback behavior, and sanitized decision data |
 | `internal/prompt` | boundary behavior, static/dynamic ordering, cache policy, environment isolation, and tool description injection |
 | `internal/telemetry` | event model, JSONL output, async flush/drop behavior, memory recorder, and ID generation |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |

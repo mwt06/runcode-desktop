@@ -366,6 +366,86 @@ func TestDefaultServiceDeniesInvalidMutationTarget(t *testing.T) {
 	}
 }
 
+func TestDefaultServiceDeniesInvalidBashInput(t *testing.T) {
+	t.Parallel()
+
+	_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Bash",
+		Input:    json.RawMessage(`{"command":`),
+		Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+	})
+	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonInvalidInput {
+		t.Fatalf("decision = %#v, want invalid input deny", decision)
+	}
+
+	_, decision = DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Bash",
+		Input:    rawInput(t, map[string]any{}),
+		Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+	})
+	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonInvalidInput {
+		t.Fatalf("decision = %#v, want missing command deny", decision)
+	}
+}
+
+func TestDefaultServiceAsksForClassifiedBashThenNonInteractiveDeny(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"pwd", "go test ./...", "npm install left-pad", "curl https://example.invalid"} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			action, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: "Bash",
+				Input:    rawInput(t, map[string]any{"command": command}),
+				Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+			})
+			if action.Operation != OperationExecute || len(action.Resources) != 1 || action.Resources[0].Type != ResourceCommand {
+				t.Fatalf("action = %#v, want execute command action", action)
+			}
+			if action.Metadata[MetadataCommandCategory] == "" || action.Metadata[MetadataCommandSummary] == "" {
+				t.Fatalf("metadata = %#v, want command classification metadata", action.Metadata)
+			}
+			if decision.Effect != EffectAsk || decision.FinalEffect != EffectDeny || decision.Reason != ReasonApprovalUnavailable {
+				t.Fatalf("decision = %#v, want ask converted to deny", decision)
+			}
+		})
+	}
+}
+
+func TestDefaultServiceHardDeniesUnsafeBash(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"unknown-tool --flag", "sudo go test", "rm -rf build", "git reset --hard", "ls | wc"} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: "Bash",
+				Input:    rawInput(t, map[string]any{"command": command}),
+				Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+			})
+			if decision.Effect != EffectDeny || decision.FinalEffect != EffectDeny {
+				t.Fatalf("decision = %#v, want hard deny", decision)
+			}
+		})
+	}
+}
+
+func TestInteractiveAuthorizerCannotApproveHardDeniedBash(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(Options{Authorizer: InteractiveAuthorizer{Approver: allowApprover{}}, Mode: "interactive", ApprovalAvailable: true})
+	_, decision := service.AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Bash",
+		Input:    rawInput(t, map[string]any{"command": "sudo go test"}),
+		Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+	})
+	if decision.Effect != EffectDeny || decision.FinalEffect != EffectDeny || decision.Reason == ReasonApprovalGranted {
+		t.Fatalf("decision = %#v, want hard deny without approval", decision)
+	}
+}
+
 func TestPermissionTelemetryRecordsMutationMetadataWithoutPath(t *testing.T) {
 	t.Parallel()
 
@@ -388,6 +468,27 @@ func TestPermissionTelemetryRecordsMutationMetadataWithoutPath(t *testing.T) {
 	assertAttrsDoNotContain(t, attrs, workspace, "secret.txt")
 }
 
+func TestPermissionTelemetryRecordsCommandMetadataWithoutRawCommand(t *testing.T) {
+	t.Parallel()
+
+	action, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Bash",
+		Input:    rawInput(t, map[string]any{"command": "curl https://secret.example.invalid/token"}),
+		Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+	})
+	recorder := telemetry.NewMemory()
+	RecordDecision(context.Background(), recorder, TelemetryRequest{Action: action, Decision: decision, Mode: "safe"})
+	events := recorder.Events()
+	if len(events) != 1 {
+		t.Fatalf("expected one event, got %d", len(events))
+	}
+	attrs := events[0].Attributes
+	if attrs[string(telemetry.AttrCommandCategory)] != string(CommandCategoryNetwork) || attrs[string(telemetry.AttrCommandSummary)] != "network command" {
+		t.Fatalf("unexpected command attrs: %#v", attrs)
+	}
+	assertAttrsDoNotContain(t, attrs, "curl", "secret.example.invalid", "token")
+}
+
 func TestNonInteractiveAuthorizerTurnsAskIntoDeny(t *testing.T) {
 	t.Parallel()
 
@@ -395,6 +496,12 @@ func TestNonInteractiveAuthorizerTurnsAskIntoDeny(t *testing.T) {
 	if decision.Effect != EffectAsk || decision.FinalEffect != EffectDeny || decision.Reason != ReasonApprovalUnavailable {
 		t.Fatalf("decision = %#v, want ask converted to deny", decision)
 	}
+}
+
+type allowApprover struct{}
+
+func (allowApprover) Prompt(context.Context, ApprovalRequest) (ApprovalResponse, error) {
+	return ApprovalResponse{Effect: EffectAllow}, nil
 }
 
 func TestDecisionDoesNotExposeRawResourceValues(t *testing.T) {

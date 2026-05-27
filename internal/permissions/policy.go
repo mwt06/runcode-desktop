@@ -18,7 +18,7 @@ func (DefaultPolicy) Decide(_ context.Context, action Action) Decision {
 	case OperationWrite, OperationEdit:
 		return decideMutation(action)
 	case OperationExecute:
-		return Ask(ReasonRequiresApproval, "default.execute.requires_approval")
+		return decideExecute(action)
 	default:
 		return Deny(ReasonUnknownTool, "default.unknown")
 	}
@@ -41,6 +41,26 @@ func decideMutation(action Action) Decision {
 	}
 }
 
+func decideExecute(action Action) Decision {
+	if action.Risk == RiskCritical {
+		return Deny(ReasonPolicyDenied, "default.execute.critical")
+	}
+	capabilities := metadataStrings(action.Metadata, MetadataCommandCapabilities)
+	if containsString(capabilities, string(CommandCapabilityUnknownEffects)) {
+		return Deny(ReasonPolicyDenied, "default.execute.unknown_effects")
+	}
+	if containsString(capabilities, string(CommandCapabilityRequiresPrivilege)) {
+		return Deny(ReasonPolicyDenied, "default.execute.requires_privilege")
+	}
+	if containsString(capabilities, string(CommandCapabilityWritesOutside)) {
+		return Deny(ReasonOutsideWorkspace, "default.execute.outside_workspace")
+	}
+	if containsString(capabilities, string(CommandCapabilityDestructiveVCS)) {
+		return Deny(ReasonPolicyDenied, "default.execute.destructive_vcs")
+	}
+	return Ask(ReasonRequiresApproval, "default.execute.requires_approval")
+}
+
 func hasOnlyWorkspaceResources(resources []Resource) bool {
 	if len(resources) == 0 {
 		return false
@@ -51,4 +71,13 @@ func hasOnlyWorkspaceResources(resources []Resource) bool {
 		}
 	}
 	return true
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
