@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/projectctx"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/telemetry"
@@ -368,6 +369,11 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 		recorder.Close(context.Background())
 		return nil, err
 	}
+	projectContext, err := loadProjectContext(cfg.CWD)
+	if err != nil {
+		recorder.Close(context.Background())
+		return nil, err
+	}
 	builtins := tools.Builtins()
 	permissionService := permissionServiceForMode(cfg.PermissionMode, runtime)
 	session, err := repl.NewSession(repl.SessionOptions{
@@ -376,9 +382,10 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 		Tools:     builtins,
 		MaxTokens: cfg.MaxTokens,
 		Prompt: prompt.AssemblerOpts{
-			CWD:       cfg.CWD,
-			Date:      time.Now().Format("2006-01-02"),
-			ShellInfo: shellInfo(),
+			CWD:        cfg.CWD,
+			Date:       time.Now().Format("2006-01-02"),
+			ShellInfo:  shellInfo(),
+			ProjectCtx: projectContext,
 		},
 		ToolContext: &tool.Context{
 			WorkingDirectory: cfg.CWD,
@@ -401,6 +408,14 @@ func (r *defaultChatRunner) Close(ctx context.Context) error {
 		return nil
 	}
 	return r.recorder.Close(ctx)
+}
+
+func loadProjectContext(cwd string) (string, error) {
+	result, err := projectctx.Load(projectctx.LoadOptions{CWD: cwd})
+	if err != nil {
+		return "", fmt.Errorf("load project context: %w", err)
+	}
+	return projectctx.Format(result), nil
 }
 
 func permissionServiceForMode(mode string, runtime chatIO) *permissions.Service {

@@ -99,7 +99,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 	if !ok {
 		err := fmt.Errorf("%w: %s", ErrUnknownTool, req.Name)
 		recordToolError(ctx, recorder, req, started, err)
-		return ExecuteResult{}, err
+		return unknownToolResult(req), nil
 	}
 
 	tctx := req.Context
@@ -121,7 +121,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		Decision:          decision,
 	})
 	if decision.FinalEffect != permissions.EffectAllow {
-		return permissionDeniedResult(req.Name, tctx.ToolUseID), nil
+		return permissionDeniedResult(req.Name, tctx.ToolUseID, decision), nil
 	}
 
 	recorder.Record(ctx, telemetry.Event{
@@ -139,9 +139,11 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 
 	result, err := runner.Run(ctx, req.Input, tctx, req.Events)
 	if err != nil {
-		err = fmt.Errorf("run tool %q: %w", req.Name, err)
-		recordToolError(ctx, recorder, req, started, err)
-		return ExecuteResult{}, err
+		if isUnrecoverableToolError(err) {
+			return ExecuteResult{}, err
+		}
+		recordToolError(ctx, recorder, req, started, fmt.Errorf("run tool %q: %w", req.Name, err))
+		return toolRunErrorResult(req, tctx, err), nil
 	}
 
 	recorder.Record(ctx, telemetry.Event{
@@ -163,13 +165,39 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result}, nil
 }
 
-func permissionDeniedResult(toolName string, toolUseID string) ExecuteResult {
+func unknownToolResult(req ExecuteRequest) ExecuteResult {
+	return ExecuteResult{
+		ToolName:  req.Name,
+		ToolUseID: req.ToolUseID,
+		Result: tool.Result{
+			IsError: true,
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("Tool error: unknown tool %q.", req.Name)}},
+		},
+	}
+}
+
+func toolRunErrorResult(req ExecuteRequest, tctx *tool.Context, err error) ExecuteResult {
+	return ExecuteResult{
+		ToolName:  req.Name,
+		ToolUseID: tctx.ToolUseID,
+		Result: tool.Result{
+			IsError: true,
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("Tool error in %s: %v", req.Name, err)}},
+		},
+	}
+}
+
+func isUnrecoverableToolError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func permissionDeniedResult(toolName string, toolUseID string, decision permissions.Decision) ExecuteResult {
 	return ExecuteResult{
 		ToolName:  toolName,
 		ToolUseID: toolUseID,
 		Result: tool.Result{
 			IsError: true,
-			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "Permission denied: this tool action is not allowed by the current policy."}},
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("Permission denied: this tool action is not allowed by the current policy. reason=%s final_effect=%s", decision.Reason, decision.FinalEffect)}},
 		},
 	}
 }

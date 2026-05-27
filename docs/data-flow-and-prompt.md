@@ -81,7 +81,7 @@ Session.RunTurn(ctx, userText)
 - history 不持久化。
 - 没有 context compaction 或 token budget trimming。
 - tool_use 顺序执行，不做并发工具调度。
-- 工具 runtime error 和 unknown tool 会中断 turn；permission denied 则作为 tool_result 回灌模型。
+- permission denied、unknown tool 和普通工具 runtime error 会作为 `is_error=true` tool_result 回灌模型；provider/stream/context/max-iteration 等仍会中断 turn。
 
 ## 3. Prompt 拼接结构
 
@@ -123,8 +123,8 @@ Cache 策略：
 
 当前限制：
 
-- `Memory` 和 `ProjectCtx` 只是调用方传入字符串。
-- 还没有磁盘上的 `RUNCODE.md` / `CLAUDE.md` loader。
+- `ProjectCtx` 由 `cmd/runcode chat` 从 workspace 中首个命中的 `RUNCODE.md` / `CLAUDE.md` 加载，读取上限 64 KiB，超出会截断。
+- `Memory` 仍只是调用方传入字符串。
 - 没有 settings loader。
 - 没有 prompt template embed。
 - 没有 agent/skill prompt。
@@ -179,9 +179,11 @@ Executor.Execute(ctx, req)
   -> prepare tool.Context and ToolUseID
   -> permissions.Service.AuthorizeTool
   -> permissions.RecordDecision
-  -> if denied: return is_error tool result without running tool
+  -> if denied: return is_error tool result with sanitized reason without running tool
+  -> if unknown tool: return is_error tool result
   -> record tool.execute.start
   -> runner.Run
+  -> if recoverable tool error: return is_error tool result
   -> record tool.execute.end or tool.execute.error
 ```
 
@@ -358,7 +360,6 @@ examples/custom-tool
 
 - Bubble Tea TUI。
 - SQLite transcript 和 session persistence。
-- `RUNCODE.md` / `CLAUDE.md` loader。
 - settings persistence。
 - context compaction。
 - cost tracking。
@@ -376,8 +377,6 @@ examples/custom-tool
 
 如果目标是减少半成品感，而不是继续扩新功能，建议顺序是：
 
-1. 让工具 runtime error / unknown tool 也能以 `is_error=true` tool result 回灌模型。
-2. 实现 `RUNCODE.md` / `CLAUDE.md` loader，让 prompt 的 project context 真正落地。
-3. 把 permission mode 和常见权限拒绝原因注入 prompt 或 tool result，帮助模型自我修正。
-4. 增加 `/clear` 或最小 history reset 入口。
-5. 再考虑 TodoWrite、streaming output、持久 transcript、TUI、MCP 等更大功能。
+1. 把 permission mode 和常见权限拒绝原因注入 prompt，帮助模型提前规避无效工具调用。
+2. 增加 `/clear` 或最小 history reset 入口。
+3. 再考虑 TodoWrite、streaming output、持久 transcript、TUI、MCP 等更大功能。

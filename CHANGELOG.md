@@ -28,11 +28,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Minimal `Bash` tool with workspace cwd, no stdin, timeout, stdout/stderr capture, output truncation, and `is_error` result semantics for non-zero exit or timeout.
 - Finite ReAct session controller in `internal/repl` with tool-use iteration, tool-result conversion, max-iteration protection, in-memory history, and optional reasoning classification.
 - Unified permission boundary in `internal/permissions`, including action/resource/risk modeling, resolver, policy, safe mode, interactive approval, command classification, and sanitized approval summaries.
-- Permission-aware executor that records permission decisions and returns permission denial as an error tool result without running the tool.
+- Permission-aware executor that records permission decisions and returns permission denial, unknown tools, and recoverable tool runtime errors as error tool results.
 - Shared path resolution and fresh-read gates in `internal/toolpath`.
 - Telemetry foundation in `internal/telemetry`, including event model, no-op recorder, JSONL recorder, bounded async recorder, memory recorder, and trace/turn/request IDs.
 - `--telemetry off|jsonl` and `RUNCODE_TELEMETRY` support for CLI chat.
 - System prompt assembler in `internal/prompt`, with static/dynamic cache boundary, tool descriptions, environment section, memory/project context slots, and reasoning guidance.
+- Project context loader for `RUNCODE.md` / `CLAUDE.md`, wired into `chat` prompt construction with bounded reads and truncation.
 - Interactive approval prompt on stderr for `--permission-mode interactive` / `confirm`.
 - Current implementation status document at `docs/implementation-status.md`.
 
@@ -44,7 +45,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Tool result conversion preserves `is_error` semantics for permission denials and Bash command failures.
+- Tool result conversion preserves `is_error` semantics for permission denials, unknown tools, recoverable tool runtime errors, and Bash command failures.
+- Permission denial tool results now include sanitized reason and final-effect details so the model can self-correct without exposing raw inputs.
 - Shared line input avoids buffered stdin loss between `chat --loop` prompts and interactive approval prompts.
 - Session history cloning deep-copies raw tool input and image data.
 

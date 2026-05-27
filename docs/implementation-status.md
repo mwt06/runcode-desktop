@@ -124,7 +124,8 @@ cmd/runcode chat
 - 支持 `History()` clone 和 `ResetHistory()`。
 - 支持 optional reasoning classification，将用户任务归类后注入动态 reasoning guidance。
 - `Executor` 在任何工具运行前统一调用 `permissions.Service.AuthorizeTool`。
-- permission denied 被转换成 `is_error=true` tool result 回传模型。
+- permission denied 被转换成带脱敏 reason/final effect 的 `is_error=true` tool result 回传模型。
+- unknown tool 和普通工具 runtime error 会转换成 `is_error=true` tool result，让模型有机会自我修正。
 - 工具执行 telemetry 和 permission telemetry 已接入。
 
 最小化缺口：
@@ -133,7 +134,7 @@ cmd/runcode chat
 - 没有 context compaction 或 token budget trimming。
 - 没有实时 streaming observer 给 CLI/UI 展示 token。
 - tool_use 当前顺序执行，没有并发工具执行策略。
-- tool runtime error 和 unknown tool 会作为 Go error 中断 turn，没有统一转成 tool_result 给模型自我修正。
+- provider/stream/context/max-iteration 等错误仍是 turn-level error。
 - 没有 session resume、session id、transcript store。
 - reasoning classification 是 prompt routing，不是 provider-native thinking。
 
@@ -343,7 +344,7 @@ cmd/runcode chat
 - 没有 allow once/session/project 的多级选择。
 - 没有 policy DSL。
 - 没有组织策略或审计日志存储。
-- permission denied 返回给模型的文本很通用，没有暴露具体 reason，模型较难自我修正。
+- permission denied 返回给模型的文本包含脱敏 reason/final effect，但还没有把更丰富的审批摘要注入 prompt。
 - Bash 分类是保守浅解析，不是 shell AST。
 
 ## Prompt 系统状态
@@ -360,6 +361,7 @@ cmd/runcode chat
 - `BuildSystemPrompt` 生成多个 `llm.ContentBlock`。
 - 静态段包含 intro/system/tool descriptions/actions/tone。
 - 动态段包含 reasoning guidance、cwd/date/shell info、memory、project context。
+- `cmd/runcode chat` 会从 workspace 中首个命中的 `RUNCODE.md` / `CLAUDE.md` 加载 project context，并注入 `ProjectCtx`。
 - 有 `__RUNCODE_DYNAMIC_BOUNDARY__` 作为静态/动态边界。
 - 静态 block 使用 ephemeral cache control。
 - 动态 block 不缓存。
@@ -368,8 +370,8 @@ cmd/runcode chat
 
 缺口：
 
-- 没有从磁盘加载 `RUNCODE.md` / `CLAUDE.md`。
-- `Memory` 和 `ProjectCtx` 只是调用方传入字符串。
+- project context loader 只读取第一个命中的 `RUNCODE.md` / `CLAUDE.md`，读取上限 64 KiB；不合并多个文件，也不支持 include。
+- `Memory` 仍只是调用方传入字符串。
 - 没有 settings loader。
 - 没有 prompt templates / go:embed。
 - 没有 agent/skill prompt。
@@ -459,7 +461,6 @@ cmd/runcode chat
 
 - Bubble Tea TUI。
 - SQLite transcript。
-- `RUNCODE.md` / `CLAUDE.md` loader。
 - settings 持久化。
 - session persistence。
 - compaction。
@@ -487,14 +488,14 @@ cmd/runcode chat
 
 ### 2. 模型可自我修正能力
 
-当前 permission denied 会作为 tool_result，但 tool runtime error / unknown tool 会中断 turn。建议后续把可恢复工具错误也转成 `is_error=true` tool_result，并把 permission denied reason 暴露给模型。
+当前 permission denied、unknown tool 和普通工具 runtime error 都会作为 `is_error=true` tool_result 回灌模型；provider/stream/context/max-iteration 等仍作为 turn-level error。
 
 ### 3. Prompt 上下文落地
 
-`ProjectCtx` / `Memory` 目前只是字段，还没有磁盘 loader。建议实现：
+`ProjectCtx` 已由 `RUNCODE.md` / `CLAUDE.md` loader 接入，但 prompt 上下文仍缺少：
 
-- `RUNCODE.md` / `CLAUDE.md` loader。
 - settings loader。
+- memory loader。
 - permission mode 注入 prompt。
 
 ### 4. 会话持久化与 compaction
@@ -549,7 +550,7 @@ cmd/runcode chat
 如果目标是减少“半成品感”，建议不要马上继续堆新大功能，而是先补三个基础缺口：
 
 1. 更新过期文档，让外部说明与代码一致。
-2. 让工具错误和 permission denied reason 更好地回灌模型，提高当前 ReAct loop 的可恢复性。
-3. 实现 `RUNCODE.md` / `CLAUDE.md` loader，让 prompt 的 project context 不再只是预留字段。
+2. 把 permission mode / 权限拒绝摘要等运行约束注入 prompt，减少无效工具调用。
+3. 再推进 session persistence、context compaction 或更完整的 CLI 交互体验。
 
 这三项不会显著扩大架构面，但能把当前最小闭环从“能跑”推进到“更像可用的开发助手”。

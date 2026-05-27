@@ -117,13 +117,19 @@ func TestToolUseToToolResultContractWithRead(t *testing.T) {
 	}
 }
 
-func TestExecutorReturnsUnknownToolError(t *testing.T) {
+func TestExecutorReturnsUnknownToolResult(t *testing.T) {
 	t.Parallel()
 
 	executor := newBuiltinExecutor(t)
-	_, err := executor.Execute(context.Background(), ExecuteRequest{Name: "MissingTool"})
-	if !errors.Is(err, ErrUnknownTool) {
-		t.Fatalf("expected unknown tool error, got %v", err)
+	result, err := executor.Execute(context.Background(), ExecuteRequest{Name: "MissingTool", ToolUseID: "toolu_missing"})
+	if err != nil {
+		t.Fatalf("execute unknown tool: %v", err)
+	}
+	if result.ToolName != "MissingTool" || result.ToolUseID != "toolu_missing" || !result.Result.IsError {
+		t.Fatalf("unexpected unknown tool result: %#v", result)
+	}
+	if len(result.Result.Content) != 1 || !strings.Contains(result.Result.Content[0].Text, "unknown tool") {
+		t.Fatalf("unexpected unknown tool content: %#v", result.Result.Content)
 	}
 }
 
@@ -137,21 +143,25 @@ func TestExecutorRequiresToolName(t *testing.T) {
 	}
 }
 
-func TestExecutorPropagatesToolErrors(t *testing.T) {
+func TestExecutorReturnsRecoverableToolErrorsAsResult(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	executor := newBuiltinExecutor(t)
-	_, err := executor.Execute(context.Background(), ExecuteRequest{
-		Name:    "Read",
-		Input:   rawInput(t, map[string]any{"path": "missing.txt"}),
-		Context: &tool.Context{WorkingDirectory: dir},
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Read",
+		Input:     rawInput(t, map[string]any{"path": "missing.txt"}),
+		Context:   &tool.Context{WorkingDirectory: dir},
+		ToolUseID: "toolu_read",
 	})
-	if err == nil {
-		t.Fatal("expected tool error")
+	if err != nil {
+		t.Fatalf("execute read: %v", err)
 	}
-	if errors.Is(err, ErrUnknownTool) || errors.Is(err, ErrInvalidToolRequest) {
-		t.Fatalf("expected tool execution error, got %v", err)
+	if result.ToolName != "Read" || result.ToolUseID != "toolu_read" || !result.Result.IsError {
+		t.Fatalf("unexpected recoverable tool error result: %#v", result)
+	}
+	if len(result.Result.Content) != 1 || !strings.Contains(result.Result.Content[0].Text, "Tool error in Read") {
+		t.Fatalf("unexpected recoverable tool error content: %#v", result.Result.Content)
 	}
 }
 
@@ -203,8 +213,8 @@ func TestExecutorRecordsTelemetryOnToolError(t *testing.T) {
 		Context:   &tool.Context{WorkingDirectory: dir},
 		Telemetry: recorder,
 	})
-	if err == nil {
-		t.Fatal("expected tool error")
+	if err != nil {
+		t.Fatalf("execute read: %v", err)
 	}
 	events := recorder.Events()
 	if len(events) != 3 || events[0].Name != telemetry.EventPermissionDecision || events[1].Name != telemetry.EventToolStart || events[2].Name != telemetry.EventToolError {
@@ -232,6 +242,10 @@ func TestExecutorDeniesDisallowedToolWithoutRunning(t *testing.T) {
 	}
 	if len(result.Result.Content) != 1 || result.Result.Content[0].Text == "ok" {
 		t.Fatalf("expected permission denial content, got %#v", result.Result.Content)
+	}
+	text := result.Result.Content[0].Text
+	if !strings.Contains(text, "reason=") || !strings.Contains(text, "final_effect=") {
+		t.Fatalf("permission denial missing reason details: %q", text)
 	}
 }
 
@@ -503,6 +517,19 @@ func TestExecutorPreservesContextCancellation(t *testing.T) {
 	}
 }
 
+func TestExecutorPreservesUnrecoverableToolErrors(t *testing.T) {
+	t.Parallel()
+
+	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Fake", runErr: context.DeadlineExceeded}})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	_, err = executor.Execute(context.Background(), ExecuteRequest{Name: "Fake"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
+}
+
 func TestExecutorPassesEventChannel(t *testing.T) {
 	t.Parallel()
 
@@ -639,6 +666,7 @@ func (a testApprover) Prompt(context.Context, permissions.ApprovalRequest) (perm
 type fakeTool struct {
 	name      string
 	emitEvent bool
+	runErr    error
 }
 
 type pointerFakeTool struct{}
@@ -662,6 +690,9 @@ func (f fakeTool) IsConcurrencySafe() bool {
 func (f fakeTool) Run(_ context.Context, _ json.RawMessage, _ *tool.Context, out chan<- tool.Event) (tool.Result, error) {
 	if f.emitEvent && out != nil {
 		out <- tool.Event{Type: tool.EventTypeProgress, ToolName: f.name}
+	}
+	if f.runErr != nil {
+		return tool.Result{}, f.runErr
 	}
 	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "ok"}}}, nil
 }

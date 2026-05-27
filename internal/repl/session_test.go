@@ -349,6 +349,34 @@ func TestSessionRunTurnReturnsPermissionDeniedAsToolResult(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnReturnsToolRuntimeErrorAsToolResult(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "missing.txt"})})},
+		fakeProviderResponse{events: textEvents("recovered")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), ToolContext: &tool.Context{WorkingDirectory: dir}})
+
+	result, err := session.RunTurn(context.Background(), "read missing file")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := result.FinalAssistant.Content[0].Text, "recovered"; got != want {
+		t.Fatalf("final assistant text = %q, want %q", got, want)
+	}
+	if len(result.ToolResults) != 1 || !result.ToolResults[0].IsError || result.ToolResults[0].ToolUseID != "toolu_123" {
+		t.Fatalf("unexpected tool error result: %#v", result.ToolResults)
+	}
+	if !strings.Contains(result.ToolResults[0].Content[0].Text, "Tool error in Read") {
+		t.Fatalf("unexpected tool error content: %#v", result.ToolResults[0].Content)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("expected provider to receive error tool result and continue, got %d requests", len(provider.requests))
+	}
+}
+
 func TestSessionRunTurnCollectsToolUseInputDeltas(t *testing.T) {
 	t.Parallel()
 
@@ -617,17 +645,30 @@ func TestSessionRunTurnReturnsMaxIterations(t *testing.T) {
 	}
 }
 
-func TestSessionRunTurnReturnsUnknownToolError(t *testing.T) {
+func TestSessionRunTurnReturnsUnknownToolAsToolResult(t *testing.T) {
 	t.Parallel()
 
-	session := newTestSession(t, SessionOptions{
-		Provider: newFakeProvider(toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "MissingTool", Input: rawInput(t, map[string]any{})}), nil),
-		Tools:    tools.Builtins(),
-	})
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "MissingTool", Input: rawInput(t, map[string]any{})})},
+		fakeProviderResponse{events: textEvents("recovered")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins()})
 
-	_, err := session.RunTurn(context.Background(), "use missing tool")
-	if !errors.Is(err, ErrUnknownTool) {
-		t.Fatalf("expected unknown tool error, got %v", err)
+	result, err := session.RunTurn(context.Background(), "use missing tool")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := result.FinalAssistant.Content[0].Text, "recovered"; got != want {
+		t.Fatalf("final assistant text = %q, want %q", got, want)
+	}
+	if len(result.ToolResults) != 1 || !result.ToolResults[0].IsError || result.ToolResults[0].ToolUseID != "toolu_123" {
+		t.Fatalf("unexpected unknown tool result: %#v", result.ToolResults)
+	}
+	if !strings.Contains(result.ToolResults[0].Content[0].Text, "unknown tool") {
+		t.Fatalf("unexpected unknown tool content: %#v", result.ToolResults[0].Content)
+	}
+	if got, want := rolesOf(provider.requests[1].Messages), []llm.Role{llm.RoleUser, llm.RoleAssistant, llm.RoleTool}; !sameRoles(got, want) {
+		t.Fatalf("second request roles = %#v, want %#v", got, want)
 	}
 }
 
