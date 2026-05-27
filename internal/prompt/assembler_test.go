@@ -171,6 +171,58 @@ func TestBuildSystemPromptOptionalDynamicSections(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesPermissionContextAsDynamic(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{PermissionMode: "safe"})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+
+	staticText, dynamicText := splitBlockText(t, blocks)
+	for _, value := range []string{"Permission mode: safe", "Write", "Edit", "Bash", "Read", "Glob", "Grep"} {
+		if strings.Contains(staticText, value) {
+			t.Fatalf("static cacheable prompt contains permission value %q", value)
+		}
+		if !strings.Contains(dynamicText, value) {
+			t.Fatalf("dynamic prompt missing permission value %q", value)
+		}
+	}
+}
+
+func TestBuildSystemPromptIncludesInteractivePermissionContext(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{PermissionMode: "interactive"})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+
+	_, dynamicText := splitBlockText(t, blocks)
+	for _, value := range []string{"Permission mode: interactive", "approval", "hard denied", "unknown", "privileged", "destructive", "outside-write", "complex shell-control"} {
+		if !strings.Contains(dynamicText, value) {
+			t.Fatalf("dynamic prompt missing permission value %q", value)
+		}
+	}
+}
+
+func TestBuildSystemPromptUsesExplicitPermissionContext(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{PermissionMode: "safe", PermissionContext: "custom permission context"})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+
+	_, dynamicText := splitBlockText(t, blocks)
+	if !strings.Contains(dynamicText, "custom permission context") {
+		t.Fatalf("dynamic prompt missing custom permission context: %q", dynamicText)
+	}
+	if strings.Contains(dynamicText, "Permission mode: safe") {
+		t.Fatalf("dynamic prompt should not include generated permission context: %q", dynamicText)
+	}
+}
+
 func TestBuildSystemPromptIncludesReasoningAsDynamic(t *testing.T) {
 	t.Parallel()
 
@@ -188,14 +240,15 @@ func TestBuildSystemPromptIncludesReasoningAsDynamic(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptDynamicSectionOrderWithReasoning(t *testing.T) {
+func TestBuildSystemPromptDynamicSectionOrderWithPermissionContext(t *testing.T) {
 	t.Parallel()
 
 	blocks, err := BuildSystemPrompt(AssemblerOpts{
-		Reasoning:  "selected reasoning",
-		CWD:        "/tmp/runcode",
-		Memory:     "memory content",
-		ProjectCtx: "project context",
+		Reasoning:         "selected reasoning",
+		CWD:               "/tmp/runcode",
+		PermissionContext: "permission context",
+		Memory:            "memory content",
+		ProjectCtx:        "project context",
 	})
 	if err != nil {
 		t.Fatalf("BuildSystemPrompt: %v", err)
@@ -211,7 +264,7 @@ func TestBuildSystemPromptDynamicSectionOrderWithReasoning(t *testing.T) {
 	if boundary < 0 {
 		t.Fatal("boundary block not found")
 	}
-	want := []string{"selected reasoning", "Current working directory: /tmp/runcode", "memory content", "project context"}
+	want := []string{"selected reasoning", "Current working directory: /tmp/runcode", "permission context", "memory content", "project context"}
 	if len(blocks[boundary+1:]) < len(want) {
 		t.Fatalf("expected at least %d dynamic blocks, got %d", len(want), len(blocks[boundary+1:]))
 	}

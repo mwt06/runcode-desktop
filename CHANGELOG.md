@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Cobra CLI entry point with `version` and a minimal provider-backed `chat` command.
-- `chat --loop` for process-local in-memory multi-turn sessions.
+- `chat --loop` for process-local in-memory multi-turn sessions, with `/clear` to reset loop history.
 - Provider-neutral LLM model in `pkg/llm`, including messages, content blocks, tool specs, streams, usage, and cache-control hints.
 - Anthropic streaming provider skeleton using the official Anthropic Go SDK.
 - Public tool SDK boundary in `pkg/tool`, including tool context, schema, events, result content, metadata, and `is_error` support.
@@ -32,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Shared path resolution and fresh-read gates in `internal/toolpath`.
 - Telemetry foundation in `internal/telemetry`, including event model, no-op recorder, JSONL recorder, bounded async recorder, memory recorder, and trace/turn/request IDs.
 - `--telemetry off|jsonl` and `RUNCODE_TELEMETRY` support for CLI chat.
-- System prompt assembler in `internal/prompt`, with static/dynamic cache boundary, tool descriptions, environment section, memory/project context slots, and reasoning guidance.
+- System prompt assembler in `internal/prompt`, with static/dynamic cache boundary, tool descriptions, environment section, permission-mode guidance, memory/project context slots, and reasoning guidance.
 - Project context loader for `RUNCODE.md` / `CLAUDE.md`, wired into `chat` prompt construction with bounded reads and truncation.
 - Interactive approval prompt on stderr for `--permission-mode interactive` / `confirm`.
 - Current implementation status document at `docs/implementation-status.md`.

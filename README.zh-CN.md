@@ -42,7 +42,7 @@ ANTHROPIC_API_KEY=... \
 - `--api-key` / `ANTHROPIC_API_KEY`，或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`。
 - `--base-url` / `ANTHROPIC_BASE_URL`。
 - `--cwd` / `RUNCODE_CWD`：工具工作目录。
-- `--loop`：在 stdin 多轮输入中复用同一个内存 session。
+- `--loop`：在 stdin 多轮输入中复用同一个内存 session；可用 `/clear` 清空该内存 history。
 - `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`。
 - `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`。
 
@@ -51,7 +51,7 @@ ANTHROPIC_API_KEY=... \
 - 没有 Bubble Tea TUI。
 - 没有 transcript 持久化或 session 恢复。
 - 没有终端流式渲染；每轮完成后输出 final assistant text。
-- 没有 slash commands、MCP、hooks、sub-agents、skills 或 OpenAI provider。
+- 没有完整 slash commands 系统、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 
 ## 已实现工具
 

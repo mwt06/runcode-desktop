@@ -28,7 +28,7 @@
 实际效果：
 
 - `runcode chat [prompt]` 从 args 或 stdin 读取 prompt。
-- `runcode chat --loop` 逐行读取 stdin，并复用同一个内存 session。
+- `runcode chat --loop` 逐行读取 stdin，并复用同一个内存 session；`/clear` 会清空该 session 的内存 history。
 - `--provider` 当前只支持 `anthropic`。
 - `--model` / `ANTHROPIC_MODEL` 必填。
 - `--api-key` / `ANTHROPIC_API_KEY` 或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN` 必填其一。
@@ -39,7 +39,7 @@
 当前限制：
 
 - CLI 不做 token 实时渲染；每轮完成后输出 final assistant text。
-- `--loop` 不是完整 REPL，没有 readline、slash commands、多行输入或 session persistence。
+- `--loop` 不是完整 REPL，除 `/clear` / exit aliases 外没有完整 slash command 系统、readline、多行输入或 session persistence。
 - 没有 TUI。
 
 ## 2. Session RunTurn 数据流
@@ -112,8 +112,9 @@ Session.RunTurn(ctx, userText)
 2. current working directory
 3. current date
 4. shell info
-5. memory text
-6. project context text
+5. permission mode guidance
+6. memory text
+7. project context text
 
 Cache 策略：
 
@@ -128,7 +129,7 @@ Cache 策略：
 - 没有 settings loader。
 - 没有 prompt template embed。
 - 没有 agent/skill prompt。
-- 没有把当前 permission mode 明确注入 prompt。
+- 当前 permission mode 和关键权限约束会注入动态 prompt，但工具 spec 仍不会按 permission mode 动态隐藏。
 - 未来 MCP/plugin 动态工具接入后，需要重新评估工具描述的 cache boundary。
 
 ## 4. 工具注册与 tool spec 数据流
@@ -163,7 +164,7 @@ tools.Builtins()
 
 - 工具是静态注册，没有 MCP、plugin 或配置驱动的动态工具。
 - Prompt 中只列 tool name 和 description，不列完整 schema 或详细 usage notes。
-- 工具不会根据 permission mode 动态隐藏；safe 模式下 Write/Edit/Bash 仍暴露给模型，但执行时会被权限拒绝。
+- 工具不会根据 permission mode 动态隐藏；safe 模式下 Write/Edit/Bash 仍暴露给模型，但动态 prompt 会提示这些动作会被拒绝，执行时仍由权限层兜底。
 
 ## 5. 工具执行与权限数据流
 
@@ -377,6 +378,5 @@ examples/custom-tool
 
 如果目标是减少半成品感，而不是继续扩新功能，建议顺序是：
 
-1. 把 permission mode 和常见权限拒绝原因注入 prompt，帮助模型提前规避无效工具调用。
-2. 增加 `/clear` 或最小 history reset 入口。
-3. 再考虑 TodoWrite、streaming output、持久 transcript、TUI、MCP 等更大功能。
+1. 增加 `/clear` 或最小 history reset 入口。
+2. 再考虑 TodoWrite、streaming output、持久 transcript、TUI、MCP 等更大功能。

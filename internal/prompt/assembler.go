@@ -9,13 +9,15 @@ import (
 )
 
 type AssemblerOpts struct {
-	CWD        string
-	Date       string
-	Tools      []tool.Tool
-	ProjectCtx string
-	Memory     string
-	ShellInfo  string
-	Reasoning  string
+	CWD               string
+	Date              string
+	Tools             []tool.Tool
+	ProjectCtx        string
+	Memory            string
+	ShellInfo         string
+	Reasoning         string
+	PermissionMode    string
+	PermissionContext string
 }
 
 func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
@@ -26,9 +28,14 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 		sections.Actions(),
 		sections.ToneAndStyle(),
 	}
+	permissionContext := opts.PermissionContext
+	if permissionContext == "" {
+		permissionContext = sections.PermissionContext(opts.PermissionMode)
+	}
 	dynamicSections := []string{
 		opts.Reasoning,
 		sections.EnvInfo(sections.EnvInfoInput{CWD: opts.CWD, Date: opts.Date, ShellInfo: opts.ShellInfo}),
+		permissionContext,
 		opts.Memory,
 		opts.ProjectCtx,
 	}

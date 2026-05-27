@@ -49,6 +49,10 @@ type chatRunner interface {
 	Run(ctx context.Context, cfg chatConfig, io chatIO, prompt string) (string, error)
 }
 
+type resettableChatRunner interface {
+	Reset(context.Context) error
+}
+
 type defaultChatRunner struct {
 	session  *repl.Session
 	recorder telemetry.Recorder
@@ -145,6 +149,15 @@ func runChatLoop(cmd *cobra.Command, runner chatRunner, cfg chatConfig, runtime 
 		if shouldExitChatLoop(promptText) {
 			return nil
 		}
+		if shouldClearChatLoop(promptText) {
+			if err := resetChatRunner(cmd.Context(), runner); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "history cleared"); err != nil {
+				return err
+			}
+			continue
+		}
 		if promptText == "" {
 			continue
 		}
@@ -172,6 +185,18 @@ func shouldExitChatLoop(text string) bool {
 	default:
 		return false
 	}
+}
+
+func shouldClearChatLoop(text string) bool {
+	return strings.EqualFold(strings.TrimSpace(text), "/clear")
+}
+
+func resetChatRunner(ctx context.Context, runner chatRunner) error {
+	resetter, ok := runner.(resettableChatRunner)
+	if !ok {
+		return nil
+	}
+	return resetter.Reset(ctx)
 }
 
 func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
@@ -382,10 +407,11 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 		Tools:     builtins,
 		MaxTokens: cfg.MaxTokens,
 		Prompt: prompt.AssemblerOpts{
-			CWD:        cfg.CWD,
-			Date:       time.Now().Format("2006-01-02"),
-			ShellInfo:  shellInfo(),
-			ProjectCtx: projectContext,
+			CWD:            cfg.CWD,
+			Date:           time.Now().Format("2006-01-02"),
+			ShellInfo:      shellInfo(),
+			ProjectCtx:     projectContext,
+			PermissionMode: cfg.PermissionMode,
 		},
 		ToolContext: &tool.Context{
 			WorkingDirectory: cfg.CWD,
@@ -401,6 +427,14 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	r.recorder = recorder
 	r.session = session
 	return session, nil
+}
+
+func (r *defaultChatRunner) Reset(context.Context) error {
+	if r.session == nil {
+		return nil
+	}
+	r.session.ResetHistory()
+	return nil
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {

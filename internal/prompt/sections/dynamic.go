@@ -25,6 +25,19 @@ func EnvInfo(input EnvInfoInput) string {
 	return strings.Join(parts, "\n")
 }
 
+func PermissionContext(mode string) string {
+	switch normalizeScenarioKey(mode) {
+	case "safe", "non_interactive":
+		return `Permission mode: safe
+Read, Glob, and Grep are available for workspace inspection. Write, Edit, and Bash actions require approval and will be denied in safe mode, so explain the limitation instead of retrying the same action. Bash commands with unknown, privileged, destructive, outside-write, or complex shell-control effects are hard denied.`
+	case "interactive", "confirm":
+		return `Permission mode: interactive
+Write, Edit, and approvable Bash actions will ask the user before running. Bash commands with unknown, privileged, destructive, outside-write, or complex shell-control effects are hard denied and will not be sent for approval.`
+	default:
+		return ""
+	}
+}
+
 func ReasoningClassifier() string {
 	return `Classify the user's task into exactly one reasoning scenario.
 Return only compact JSON with this shape: {"scenario":"<scenario>","confidence":"low|medium|high"}.

@@ -42,7 +42,7 @@ Useful flags and environment variables:
 - `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
 - `--base-url` / `ANTHROPIC_BASE_URL`.
 - `--cwd` / `RUNCODE_CWD`: workspace for tools.
-- `--loop`: keep one in-memory session alive across stdin prompts.
+- `--loop`: keep one in-memory session alive across stdin prompts; use `/clear` to reset that in-memory history.
 - `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`.
 - `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`.
 
@@ -51,7 +51,7 @@ Current limitations:
 - No Bubble Tea TUI.
 - No persistent transcript or session resume.
 - No streaming terminal rendering; final assistant text is printed after each turn.
-- No slash commands, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
+- No full slash command system, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
 
 ## Implemented tools
 

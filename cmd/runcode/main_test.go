@@ -276,6 +276,34 @@ func TestChatCommandLoopReadsPromptsUntilExit(t *testing.T) {
 	}
 }
 
+func TestChatCommandLoopClearsHistory(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--loop"})
+	cmd.SetIn(strings.NewReader("one\n/clear\ntwo\n/exit\n"))
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat loop: %v", err)
+	}
+	if got, want := runner.prompts, []string{"one", "two"}; !sameStringSlices(got, want) {
+		t.Fatalf("prompts = %#v, want %#v", got, want)
+	}
+	if runner.resetCount != 1 {
+		t.Fatalf("reset count = %d, want 1", runner.resetCount)
+	}
+	if out.String() != "done\ndone\n" {
+		t.Fatalf("stdout = %q, want two responses", out.String())
+	}
+	if !strings.Contains(errOut.String(), "history cleared") {
+		t.Fatalf("stderr missing clear confirmation: %q", errOut.String())
+	}
+}
+
 func TestChatCommandLoopUsesArgsAsFirstPrompt(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
 	runner := &fakeChatRunner{text: "done"}
@@ -393,12 +421,13 @@ func TestChatCommandPropagatesRunnerError(t *testing.T) {
 }
 
 type fakeChatRunner struct {
-	cfg     chatConfig
-	runtime chatIO
-	prompt  string
-	prompts []string
-	text    string
-	err     error
+	cfg        chatConfig
+	runtime    chatIO
+	prompt     string
+	prompts    []string
+	text       string
+	err        error
+	resetCount int
 }
 
 func (r *fakeChatRunner) Run(_ context.Context, cfg chatConfig, runtime chatIO, prompt string) (string, error) {
@@ -407,6 +436,11 @@ func (r *fakeChatRunner) Run(_ context.Context, cfg chatConfig, runtime chatIO, 
 	r.prompt = prompt
 	r.prompts = append(r.prompts, prompt)
 	return r.text, r.err
+}
+
+func (r *fakeChatRunner) Reset(context.Context) error {
+	r.resetCount++
+	return nil
 }
 
 func sameStringSlices(a []string, b []string) bool {

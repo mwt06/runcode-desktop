@@ -51,7 +51,7 @@ cmd/runcode chat
 
 - `runcode version` 输出版本、commit、build time、Go 平台信息。
 - `runcode chat [prompt]` 可从 args 或 stdin 读取 prompt。
-- `runcode chat --loop` 可在同一进程中逐行对话并复用一个 session。
+- `runcode chat --loop` 可在同一进程中逐行对话并复用一个 session，`/clear` 可清空该 session 的内存 history。
 - `--provider` 目前只支持 `anthropic`。
 - 支持 model、max tokens、base URL、API key、auth token、cwd、telemetry、permission mode 配置。
 - 支持环境变量：`RUNCODE_PROVIDER`、`ANTHROPIC_MODEL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MAX_TOKENS`、`RUNCODE_CWD`、`RUNCODE_TELEMETRY`、`RUNCODE_PERMISSION_MODE`。
@@ -63,7 +63,7 @@ cmd/runcode chat
 
 - `chat --loop` 只是逐行循环，不是完整 REPL/TUI。
 - 没有 readline、历史导航、多行输入、补全、快捷键。
-- 没有 slash commands，例如 `/help`、`/clear`、`/compact`、`/model`。
+- 没有完整 slash command 系统，例如 `/help`、`/compact`、`/model`。
 - 没有实时 token streaming 输出，当前只在一轮完成后打印 final text。
 - 没有 tool progress UI。
 - 没有配置文件系统。
@@ -168,7 +168,7 @@ cmd/runcode chat
 - 工具是静态注册，没有 MCP、plugin 或 workspace 配置动态工具。
 - tool event channel 基本没有被实际工具使用。
 - prompt 中只列工具 name 和 description，没有丰富 usage notes。
-- 工具不会根据权限模式动态隐藏；safe 模式下 Write/Edit/Bash 仍会暴露给模型，但运行时会被拒绝。
+- 工具不会根据权限模式动态隐藏；safe 模式下 Write/Edit/Bash 仍会暴露给模型，但 prompt 会提示限制，运行时仍会被权限层拒绝。
 
 ## 当前工具状态
 
@@ -344,7 +344,7 @@ cmd/runcode chat
 - 没有 allow once/session/project 的多级选择。
 - 没有 policy DSL。
 - 没有组织策略或审计日志存储。
-- permission denied 返回给模型的文本包含脱敏 reason/final effect，但还没有把更丰富的审批摘要注入 prompt。
+- permission denied 返回给模型的文本包含脱敏 reason/final effect；prompt 也会注入当前 permission mode 和关键权限约束。
 - Bash 分类是保守浅解析，不是 shell AST。
 
 ## Prompt 系统状态
@@ -360,7 +360,7 @@ cmd/runcode chat
 
 - `BuildSystemPrompt` 生成多个 `llm.ContentBlock`。
 - 静态段包含 intro/system/tool descriptions/actions/tone。
-- 动态段包含 reasoning guidance、cwd/date/shell info、memory、project context。
+- 动态段包含 reasoning guidance、cwd/date/shell info、permission mode guidance、memory、project context。
 - `cmd/runcode chat` 会从 workspace 中首个命中的 `RUNCODE.md` / `CLAUDE.md` 加载 project context，并注入 `ProjectCtx`。
 - 有 `__RUNCODE_DYNAMIC_BOUNDARY__` 作为静态/动态边界。
 - 静态 block 使用 ephemeral cache control。
@@ -375,7 +375,7 @@ cmd/runcode chat
 - 没有 settings loader。
 - 没有 prompt templates / go:embed。
 - 没有 agent/skill prompt。
-- 没有把当前 permission mode 明确注入 prompt。
+- 只注入固定 permission mode guidance，还没有更丰富的审批摘要或 settings-backed policy guidance。
 - 如果未来工具集动态变化，cache boundary 需要重审。
 - 没有 token budget / compaction。
 
@@ -496,7 +496,7 @@ cmd/runcode chat
 
 - settings loader。
 - memory loader。
-- permission mode 注入 prompt。
+- 更丰富的 permission summary 注入 prompt。
 
 ### 4. 会话持久化与 compaction
 
@@ -504,7 +504,7 @@ cmd/runcode chat
 
 - transcript store。
 - session id。
-- `/clear` 或 `ResetHistory` CLI 入口。
+- session resume 或 transcript-backed history 管理。
 - context compaction。
 
 ### 5. CLI 交互体验
@@ -550,7 +550,7 @@ cmd/runcode chat
 如果目标是减少“半成品感”，建议不要马上继续堆新大功能，而是先补三个基础缺口：
 
 1. 更新过期文档，让外部说明与代码一致。
-2. 把 permission mode / 权限拒绝摘要等运行约束注入 prompt，减少无效工具调用。
+2. 增加 `/clear` 或最小 history reset 入口，补齐当前内存会话的基础控制能力。
 3. 再推进 session persistence、context compaction 或更完整的 CLI 交互体验。
 
 这三项不会显著扩大架构面，但能把当前最小闭环从“能跑”推进到“更像可用的开发助手”。
