@@ -33,6 +33,7 @@ cmd/runcode chat
 - 统一权限系统：safe / interactive、approval、permission telemetry。
 - prompt assembler 与静态/动态 cache boundary。
 - telemetry event model、JSONL stderr 输出、async recorder。
+- opt-in JSONL transcript store。
 
 但整体仍是 `v0.1-alpha` 最小实现。很多目录仍是空壳，很多能力只做到安全可验证的第一版，没有产品级交互体验、持久化、配置系统、TUI、MCP、hooks、skills、sub-agents、context compaction 或完整多 provider 支持。
 
@@ -54,8 +55,10 @@ cmd/runcode chat
 - `runcode chat --loop` 可在同一进程中逐行对话并复用一个 session，`/clear` 可清空该 session 的内存 history。
 - `--provider` 目前只支持 `anthropic`。
 - 支持 model、max tokens、base URL、API key、auth token、cwd、telemetry、permission mode 配置。
-- 支持环境变量：`RUNCODE_PROVIDER`、`ANTHROPIC_MODEL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MAX_TOKENS`、`RUNCODE_CWD`、`RUNCODE_TELEMETRY`、`RUNCODE_PERMISSION_MODE`。
+- 支持环境变量：`RUNCODE_PROVIDER`、`ANTHROPIC_MODEL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MAX_TOKENS`、`RUNCODE_CWD`、`RUNCODE_TELEMETRY`、`RUNCODE_PERMISSION_MODE`、`RUNCODE_TRANSCRIPT`、`RUNCODE_SESSION_ID`、`RUNCODE_MAX_HISTORY_MESSAGES`。
+- `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES` 限制每轮发送给 provider 的内存 history 消息数；`0`（默认）表示不裁剪。
 - `--telemetry jsonl` 会把 telemetry event 以 JSONL 写到 stderr。
+- `--transcript jsonl` 会把成功 turn 的白名单摘要写到 `<workspace>/.runcode/transcripts/<session-id>.jsonl`。
 - `--permission-mode interactive` / `confirm` 会在 stderr 提示一次性审批。
 - approval prompt 只显示脱敏摘要，不显示 raw path、raw command、file content、credential 或 URL。
 
@@ -67,7 +70,7 @@ cmd/runcode chat
 - 没有实时 token streaming 输出，当前只在一轮完成后打印 final text。
 - 没有 tool progress UI。
 - 没有配置文件系统。
-- 没有 session 持久化或恢复。
+- 没有 transcript-backed session 恢复。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。
 - 只支持 Anthropic provider。
 
@@ -120,7 +123,8 @@ cmd/runcode chat
 - 支持有限 ReAct loop：assistant tool_use -> executor -> tool_result -> provider next request。
 - 支持 max iterations，默认 8。
 - 支持同一 session 内进程级 history。
-- 成功 turn 会提交 history；失败 turn 不提交，避免污染后续上下文。
+- 支持可选 `MaxHistoryMessages`：开启后裁剪发送给 provider 与提交回内存的旧历史，保留最新若干完整 turn，永不裁掉当前 turn，也不拆散 `tool_use`/`tool_result` 配对；`0`（默认）不裁剪；裁剪不触碰 transcript 文件。
+- 成功 turn 会提交 history；开启 transcript 时还会写一条 JSONL turn summary；失败 turn 不提交、不写 transcript，避免污染后续上下文。
 - 支持 `History()` clone 和 `ResetHistory()`。
 - 支持 optional reasoning classification，将用户任务归类后注入动态 reasoning guidance。
 - `Executor` 在任何工具运行前统一调用 `permissions.Service.AuthorizeTool`。
@@ -130,12 +134,12 @@ cmd/runcode chat
 
 最小化缺口：
 
-- session history 只在内存中，不持久化。
-- 没有 context compaction 或 token budget trimming。
+- transcript 只保存白名单摘要，不保存可恢复完整 history。
+- 已有按 message-count 的 history budget（默认关闭），但没有 token 精确预算、语义 context compaction 或 transcript-backed resume。
 - 没有实时 streaming observer 给 CLI/UI 展示 token。
 - tool_use 当前顺序执行，没有并发工具执行策略。
 - provider/stream/context/max-iteration 等错误仍是 turn-level error。
-- 没有 session resume、session id、transcript store。
+- 没有 session resume；session id 目前只用于 transcript 文件名。
 - reasoning classification 是 prompt routing，不是 provider-native thinking。
 
 ### 工具系统
@@ -379,6 +383,33 @@ cmd/runcode chat
 - 如果未来工具集动态变化，cache boundary 需要重审。
 - 没有 token budget / compaction。
 
+## Transcript 状态
+
+关键文件：
+
+- `internal/persistence/transcript/store.go`
+- `internal/persistence/transcript/jsonl.go`
+- `internal/persistence/transcript/sanitize.go`
+- `internal/persistence/transcript/session_id.go`
+- `internal/repl/session.go`
+- `cmd/runcode/chat.go`
+
+已实现效果：
+
+- 默认关闭，`--transcript jsonl` / `RUNCODE_TRANSCRIPT=jsonl` 显式开启。
+- 支持 `--session-id` / `RUNCODE_SESSION_ID` 指定 transcript 文件名；未指定时自动生成 `sess_*`。
+- 写入路径固定为 `<workspace>/.runcode/transcripts/<session-id>.jsonl`。
+- 每个成功 turn 同步追加一条 JSONL 记录；失败 turn 不写。
+- 记录 user text、final assistant text、stop reason、usage、iterations、tool call id/name、Bash command、tool result count/text byte summary。
+- 不记录 system prompt、provider request、credential、base URL、普通工具 raw input、完整工具输出、thinking 内容或 image data。
+- `/clear` 只清空内存 history，不删除或轮转 transcript。
+
+缺口：
+
+- transcript 不能用于 session resume。
+- 没有 SQLite backend、索引、查询命令、rotation、compaction 或 migration。
+- Bash command 字符串可能包含用户自己输入的 secret；后续可做 command redaction。
+
 ## Telemetry 状态
 
 关键文件：
@@ -438,7 +469,6 @@ cmd/runcode chat
 - `internal/persistence/claudemd`
 - `internal/persistence/settings`
 - `internal/persistence/sqlite`
-- `internal/persistence/transcript`
 - `internal/persistence/migrate`
 - `internal/coordinator`
 - `internal/session`
@@ -460,9 +490,9 @@ cmd/runcode chat
 对应未实现能力：
 
 - Bubble Tea TUI。
-- SQLite transcript。
+- SQLite transcript backend。
 - settings 持久化。
-- session persistence。
+- transcript-backed session resume。
 - compaction。
 - cost tracking。
 - hooks。
@@ -498,11 +528,11 @@ cmd/runcode chat
 - memory loader。
 - 更丰富的 permission summary 注入 prompt。
 
-### 4. 会话持久化与 compaction
+### 4. Session resume 与 compaction
 
-当前 `chat --loop` 有内存 history，但没有保存、恢复或压缩。建议实现：
+当前 `chat --loop` 有内存 history，且可选 JSONL transcript 会保存白名单摘要，但还没有从 transcript 恢复上下文或压缩。建议实现：
 
-- transcript store。
+- resume-capable transcript format 或独立 transcript-backed history store。
 - session id。
 - session resume 或 transcript-backed history 管理。
 - context compaction。
@@ -551,6 +581,6 @@ cmd/runcode chat
 
 1. 更新过期文档，让外部说明与代码一致。
 2. 增加 `/clear` 或最小 history reset 入口，补齐当前内存会话的基础控制能力。
-3. 再推进 session persistence、context compaction 或更完整的 CLI 交互体验。
+3. 再推进 session resume、context compaction 或更完整的 CLI 交互体验。
 
 这三项不会显著扩大架构面，但能把当前最小闭环从“能跑”推进到“更像可用的开发助手”。

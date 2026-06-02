@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/llm"
@@ -28,6 +29,15 @@ func TestNewSessionRejectsNegativeMaxIterations(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewSession(SessionOptions{Provider: newFakeProvider(textEvents("ok"), nil), MaxIterations: -1})
+	if !errors.Is(err, ErrInvalidSession) {
+		t.Fatalf("expected invalid session error, got %v", err)
+	}
+}
+
+func TestNewSessionRejectsNegativeMaxHistoryMessages(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewSession(SessionOptions{Provider: newFakeProvider(textEvents("ok"), nil), MaxHistoryMessages: -1})
 	if !errors.Is(err, ErrInvalidSession) {
 		t.Fatalf("expected invalid session error, got %v", err)
 	}
@@ -171,6 +181,43 @@ func TestSessionRunTurnPersistsHistoryAcrossTurns(t *testing.T) {
 	}
 	if messageText(messages[0]) != "one" || messageText(messages[1]) != "first" || messageText(messages[2]) != "two" {
 		t.Fatalf("unexpected second request messages: %#v", messages)
+	}
+}
+
+func TestSessionRunTurnTrimsHistoryToBudget(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents("first")},
+		fakeProviderResponse{events: textEvents("second")},
+		fakeProviderResponse{events: textEvents("third")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, MaxHistoryMessages: 4})
+	for _, p := range []string{"one", "two", "three"} {
+		if _, err := session.RunTurn(context.Background(), p); err != nil {
+			t.Fatalf("RunTurn %q: %v", p, err)
+		}
+	}
+
+	if len(provider.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(provider.requests))
+	}
+	// Budget 4: the third request keeps only the previous turn plus the
+	// current user message; the oldest "one"/"first" turn is dropped.
+	third := provider.requests[2].Messages
+	if got, want := rolesOf(third), []llm.Role{llm.RoleUser, llm.RoleAssistant, llm.RoleUser}; !sameRoles(got, want) {
+		t.Fatalf("third request roles = %#v, want %#v", got, want)
+	}
+	if messageText(third[0]) != "two" || messageText(third[1]) != "second" || messageText(third[2]) != "three" {
+		t.Fatalf("unexpected third request messages: %#v", third)
+	}
+
+	history := session.History()
+	if len(history) != 4 {
+		t.Fatalf("history len = %d, want 4", len(history))
+	}
+	if messageText(history[0]) != "two" {
+		t.Fatalf("history not trimmed to budget: %#v", history)
 	}
 }
 
@@ -475,6 +522,29 @@ func TestSessionRunTurnClassifiesReasoningBeforeMainRequest(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnDoesNotStreamReasoningClassification(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents(`{"scenario":"architecture","confidence":"high"}`)},
+		fakeProviderResponse{events: textEvents("done")},
+	)
+	var deltas []string
+	session := newTestSession(t, SessionOptions{
+		Provider:    provider,
+		Reasoning:   ReasoningOptions{Enabled: true},
+		StreamDelta: func(d string) { deltas = append(deltas, d) },
+	})
+
+	_, err := session.RunTurn(context.Background(), "design the session architecture")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := strings.Join(deltas, ""), "done"; got != want {
+		t.Fatalf("streamed text = %q, want %q", got, want)
+	}
+}
+
 func TestSessionRunTurnReasoningClassificationDoesNotCountTowardMaxIterations(t *testing.T) {
 	t.Parallel()
 
@@ -552,6 +622,103 @@ func TestSessionRunTurnStrictReasoningReturnsError(t *testing.T) {
 	}
 	if len(provider.requests) != 1 {
 		t.Fatalf("expected only classification request, got %d", len(provider.requests))
+	}
+}
+
+func TestSessionRunTurnRecordsTranscript(t *testing.T) {
+	t.Parallel()
+
+	recorder := &memoryTranscriptRecorder{}
+	session := newTestSession(t, SessionOptions{
+		Provider:    newFakeProvider(textEvents("hello"), nil),
+		Model:       "mock-model",
+		TraceID:     "trace_test",
+		SessionID:   "sess_test",
+		ToolContext: &tool.Context{WorkingDirectory: "/repo"},
+		Transcript:  recorder,
+	})
+
+	_, err := session.RunTurn(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := len(recorder.records), 1; got != want {
+		t.Fatalf("records = %d, want %d", got, want)
+	}
+	record := recorder.records[0]
+	if record.SessionID != "sess_test" || record.TraceID != "trace_test" || record.TurnID == "" || record.CWD != "/repo" || record.Model != "mock-model" {
+		t.Fatalf("unexpected transcript metadata: %#v", record)
+	}
+	if record.UserText != "hi" || record.AssistantText != "hello" || record.StopReason != string(llm.StopReasonEndTurn) || record.Iterations != 1 {
+		t.Fatalf("unexpected transcript content: %#v", record)
+	}
+}
+
+func TestSessionRunTurnRecordsTranscriptToolSummary(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	recorder := &memoryTranscriptRecorder{}
+	session := newTestSession(t, SessionOptions{
+		Provider: newFakeProviderSequence(
+			fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+			fakeProviderResponse{events: textEvents("done")},
+		),
+		Tools:       tools.Builtins(),
+		ToolContext: &tool.Context{WorkingDirectory: dir},
+		Transcript:  recorder,
+	})
+
+	_, err := session.RunTurn(context.Background(), "read sample.txt")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := len(recorder.records), 1; got != want {
+		t.Fatalf("records = %d, want %d", got, want)
+	}
+	record := recorder.records[0]
+	if len(record.ToolCalls) != 1 || record.ToolCalls[0].Name != "Read" || record.ToolCalls[0].Command != "" {
+		t.Fatalf("unexpected tool call summary: %#v", record.ToolCalls)
+	}
+	if len(record.ToolResults) != 1 || record.ToolResults[0].ToolUseID != "toolu_123" || record.ToolResults[0].ContentBlockCount != 1 {
+		t.Fatalf("unexpected tool result summary: %#v", record.ToolResults)
+	}
+}
+
+func TestSessionRunTurnDoesNotRecordTranscriptOnProviderError(t *testing.T) {
+	t.Parallel()
+
+	streamErr := errors.New("stream failed")
+	recorder := &memoryTranscriptRecorder{}
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(nil, streamErr), Transcript: recorder})
+
+	_, err := session.RunTurn(context.Background(), "hi")
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("expected stream error, got %v", err)
+	}
+	if len(recorder.records) != 0 {
+		t.Fatalf("unexpected transcript records: %#v", recorder.records)
+	}
+}
+
+func TestSessionRunTurnReturnsTranscriptWriteError(t *testing.T) {
+	t.Parallel()
+
+	recordErr := errors.New("transcript failed")
+	recorder := &memoryTranscriptRecorder{err: recordErr}
+	telemetryRecorder := telemetry.NewMemory()
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(textEvents("hello"), nil), Transcript: recorder, Telemetry: telemetryRecorder})
+
+	_, err := session.RunTurn(context.Background(), "hi")
+	if !errors.Is(err, recordErr) {
+		t.Fatalf("err = %v, want transcript error", err)
+	}
+	if !hasEvent(telemetryRecorder.Events(), telemetry.EventTurnError) {
+		t.Fatalf("missing turn error telemetry: %#v", eventNames(telemetryRecorder.Events()))
+	}
+	if len(session.History()) != 0 {
+		t.Fatalf("history was committed after transcript failure: %#v", session.History())
 	}
 }
 
@@ -719,6 +886,23 @@ func TestSessionRunTurnPropagatesContextCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context canceled error, got %v", err)
 	}
+}
+
+type memoryTranscriptRecorder struct {
+	records []transcript.TurnRecord
+	err     error
+}
+
+func (r *memoryTranscriptRecorder) RecordTurn(_ context.Context, record transcript.TurnRecord) error {
+	if r.err != nil {
+		return r.err
+	}
+	r.records = append(r.records, record)
+	return nil
+}
+
+func (r *memoryTranscriptRecorder) Close(context.Context) error {
+	return nil
 }
 
 func newTestSession(t *testing.T, opts SessionOptions) *Session {
@@ -903,4 +1087,63 @@ func hasEvent(events []telemetry.Event, name telemetry.EventName) bool {
 		}
 	}
 	return false
+}
+
+func TestSessionRunTurnStreamsDeltaToCallback(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProvider(textEvents("hello", " world"), nil)
+	var deltas []string
+	session := newTestSession(t, SessionOptions{
+		Provider:    provider,
+		StreamDelta: func(d string) { deltas = append(deltas, d) },
+	})
+
+	_, err := session.RunTurn(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := strings.Join(deltas, ""), "hello world"; got != want {
+		t.Fatalf("streamed text = %q, want %q", got, want)
+	}
+}
+
+func TestSessionRunTurnDoesNotStreamToolUseDeltas(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	var deltas []string
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_1", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+		fakeProviderResponse{events: textEvents("done")},
+	)
+	session := newTestSession(t, SessionOptions{
+		Provider:    provider,
+		Tools:       tools.Builtins(),
+		ToolContext: &tool.Context{WorkingDirectory: dir},
+		StreamDelta: func(d string) { deltas = append(deltas, d) },
+	})
+
+	_, err := session.RunTurn(context.Background(), "read it")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	// Only the final text assistant message should produce deltas.
+	if got, want := strings.Join(deltas, ""), "done"; got != want {
+		t.Fatalf("streamed text = %q, want %q", got, want)
+	}
+}
+
+func TestSessionRunTurnNilStreamDeltaIsNoop(t *testing.T) {
+	t.Parallel()
+
+	session := newTestSession(t, SessionOptions{
+		Provider:    newFakeProvider(textEvents("ok"), nil),
+		StreamDelta: nil,
+	})
+	_, err := session.RunTurn(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
 }

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -140,6 +142,50 @@ func TestChatCommandFlagsOverrideEnv(t *testing.T) {
 	}
 }
 
+func TestChatCommandReadsMaxHistoryMessagesFromEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "claude-env")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+	t.Setenv("RUNCODE_MAX_HISTORY_MESSAGES", "20")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.MaxHistoryMessages != 20 {
+		t.Fatalf("MaxHistoryMessages = %d, want 20", runner.cfg.MaxHistoryMessages)
+	}
+}
+
+func TestChatCommandMaxHistoryMessagesFlagOverridesEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "claude-env")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+	t.Setenv("RUNCODE_MAX_HISTORY_MESSAGES", "20")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--max-history-messages", "5", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.MaxHistoryMessages != 5 {
+		t.Fatalf("MaxHistoryMessages = %d, want 5", runner.cfg.MaxHistoryMessages)
+	}
+}
+
+func TestChatCommandRejectsInvalidMaxHistoryMessages(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "claude-env")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+	t.Setenv("RUNCODE_MAX_HISTORY_MESSAGES", "not-a-number")
+	cmd := newChatCmd(&fakeChatRunner{})
+	cmd.SetArgs([]string{"hello"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "RUNCODE_MAX_HISTORY_MESSAGES") {
+		t.Fatalf("err = %v, want parse error for RUNCODE_MAX_HISTORY_MESSAGES", err)
+	}
+}
+
 func TestChatCommandAuthTokenFlagOverridesAPIKeyFlag(t *testing.T) {
 	runner := &fakeChatRunner{text: "done"}
 	cmd := newChatCmd(runner)
@@ -204,6 +250,100 @@ func TestChatCommandRejectsUnsupportedTelemetryMode(t *testing.T) {
 
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported telemetry mode") {
 		t.Fatalf("err = %v, want unsupported telemetry mode", err)
+	}
+}
+
+func TestChatCommandDefaultsTranscriptOff(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.Transcript != "off" {
+		t.Fatalf("transcript = %q, want off", runner.cfg.Transcript)
+	}
+}
+
+func TestChatCommandReadsTranscriptFromEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	t.Setenv("RUNCODE_TRANSCRIPT", "jsonl")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.Transcript != "jsonl" {
+		t.Fatalf("transcript = %q, want jsonl", runner.cfg.Transcript)
+	}
+}
+
+func TestChatCommandTranscriptFlagOverridesEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	t.Setenv("RUNCODE_TRANSCRIPT", "jsonl")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--transcript", "off", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.Transcript != "off" {
+		t.Fatalf("transcript = %q, want off", runner.cfg.Transcript)
+	}
+}
+
+func TestChatCommandRejectsUnsupportedTranscriptMode(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	cmd := newChatCmd(&fakeChatRunner{})
+	cmd.SetArgs([]string{"--model", "claude-test", "--transcript", "sqlite", "hello"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported transcript mode") {
+		t.Fatalf("err = %v, want unsupported transcript mode", err)
+	}
+}
+
+func TestChatCommandReadsSessionIDFromEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	t.Setenv("RUNCODE_SESSION_ID", "sess_env")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.SessionID != "sess_env" {
+		t.Fatalf("session id = %q, want sess_env", runner.cfg.SessionID)
+	}
+}
+
+func TestChatCommandSessionIDFlagOverridesEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	t.Setenv("RUNCODE_SESSION_ID", "sess_env")
+	runner := &fakeChatRunner{text: "done"}
+	cmd := newChatCmd(runner)
+	cmd.SetArgs([]string{"--model", "claude-test", "--session-id", "sess_flag", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute chat: %v", err)
+	}
+	if runner.cfg.SessionID != "sess_flag" {
+		t.Fatalf("session id = %q, want sess_flag", runner.cfg.SessionID)
+	}
+}
+
+func TestChatCommandRejectsInvalidSessionID(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
+	cmd := newChatCmd(&fakeChatRunner{})
+	cmd.SetArgs([]string{"--model", "claude-test", "--session-id", "../bad", "hello"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "invalid session id") {
+		t.Fatalf("err = %v, want invalid session id", err)
 	}
 }
 
@@ -406,6 +546,24 @@ func TestChatCommandRejectsUnsupportedPermissionMode(t *testing.T) {
 
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported permission mode") {
 		t.Fatalf("err = %v, want unsupported permission mode", err)
+	}
+}
+
+func TestTranscriptRecorderCreatesWorkspaceFile(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	recorder, sessionID, err := transcriptRecorder(chatConfig{CWD: workspace, Transcript: "jsonl", SessionID: "sess_test"})
+	if err != nil {
+		t.Fatalf("transcriptRecorder: %v", err)
+	}
+	defer recorder.Close(context.Background())
+	if sessionID != "sess_test" {
+		t.Fatalf("session id = %q, want sess_test", sessionID)
+	}
+	path := filepath.Join(workspace, ".runcode", "transcripts", "sess_test.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stat transcript file: %v", err)
 	}
 }
 

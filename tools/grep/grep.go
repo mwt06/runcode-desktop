@@ -82,7 +82,7 @@ func (Tool) InputSchema() tool.Schema {
 }
 
 func (Tool) IsConcurrencySafe() bool {
-	return false
+	return true
 }
 
 func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {

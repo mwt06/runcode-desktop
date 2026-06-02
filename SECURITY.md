@@ -35,6 +35,10 @@ Security-sensitive areas include:
 - Transcript and SQLite persistence
 - Prompt injection paths from external content
 
+## Transcript privacy
+
+Transcript recording is disabled by default. When explicitly enabled, JSONL transcript files are written under the workspace `.runcode/transcripts` directory and may contain user prompts, final assistant text, and Bash command strings. Transcript records intentionally omit system prompts, provider credentials, base URLs, generic tool raw input, and full tool output.
+
 ## Disclosure process
 
 1. Maintainers acknowledge receipt as soon as possible.

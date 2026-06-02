@@ -29,17 +29,20 @@
 
 - `runcode chat [prompt]` 从 args 或 stdin 读取 prompt。
 - `runcode chat --loop` 逐行读取 stdin，并复用同一个内存 session；`/clear` 会清空该 session 的内存 history。
+- `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES` 限制每轮发送给 provider 的内存 history 消息数（`0` = 不限制，默认）。
 - `--provider` 当前只支持 `anthropic`。
 - `--model` / `ANTHROPIC_MODEL` 必填。
 - `--api-key` / `ANTHROPIC_API_KEY` 或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN` 必填其一。
 - `--cwd` / `RUNCODE_CWD` 决定工具工作目录。
 - `--permission-mode safe|interactive` 控制审批模式。
 - `--telemetry off|jsonl` 控制 telemetry 输出。
+- `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT` 控制是否写入 JSONL transcript。
+- `--session-id` / `RUNCODE_SESSION_ID` 可指定 transcript 文件名。
 
 当前限制：
 
 - CLI 不做 token 实时渲染；每轮完成后输出 final assistant text。
-- `--loop` 不是完整 REPL，除 `/clear` / exit aliases 外没有完整 slash command 系统、readline、多行输入或 session persistence。
+- `--loop` 不是完整 REPL，除 `/clear` / exit aliases 外没有完整 slash command 系统、readline、多行输入或 transcript-backed session resume。
 - 没有 TUI。
 
 ## 2. Session RunTurn 数据流
@@ -49,10 +52,11 @@ Session.RunTurn(ctx, userText)
   -> clone in-memory history
   -> append current user message
   -> optional reasoning classification
+  -> trimMessagesForHistoryBudget (按 message-count budget 裁剪旧历史)
   -> buildRequestWithMessagesAndPrompt
   -> provider.Stream
   -> collectAssistantMessage
-  -> if no tool_use: commit history and return final text
+  -> if no tool_use: commit history, optionally write transcript, and return final text
   -> if tool_use: executeToolUses
   -> append assistant + tool_result messages
   -> repeat until no tool_use or max iterations
@@ -69,7 +73,8 @@ Session.RunTurn(ctx, userText)
 核心行为：
 
 - Session 持有进程内 `[]llm.Message` history。
-- 成功 turn 会提交 history；失败 turn 不提交。
+- 成功 turn 会提交 history，并在开启 transcript 时写入一条 JSONL turn summary；失败 turn 不提交、不写 transcript。
+- 开启 `MaxHistoryMessages` 后，发送给 provider 和提交回内存的 history 都按 message-count budget 裁剪：保留最新若干完整 turn，永不裁掉当前 turn，也绝不拆散 `tool_use`/`tool_result` 配对；`0` 表示不裁剪。裁剪只作用于内存/请求 history，不触碰 transcript 文件。
 - `History()` 返回 clone，避免外部修改内部状态。
 - `ResetHistory()` 清空当前进程内 history。
 - 每个 turn 最多执行 `MaxIterations` 次 provider/tool 循环，默认 8。
@@ -78,8 +83,8 @@ Session.RunTurn(ctx, userText)
 
 当前限制：
 
-- history 不持久化。
-- 没有 context compaction 或 token budget trimming。
+- transcript 是 append-only 摘要记录，当前还不能恢复 session history。
+- 已有按 message-count 的 history budget（默认关闭），但没有 token 精确预算、语义 context compaction 或 transcript-backed resume。
 - tool_use 顺序执行，不做并发工具调度。
 - permission denied、unknown tool 和普通工具 runtime error 会作为 `is_error=true` tool_result 回灌模型；provider/stream/context/max-iteration 等仍会中断 turn。
 
@@ -290,7 +295,30 @@ Anthropic provider：
 - 不支持 image block 转换。
 - 不支持 stop sequences、tool choice、top_p/top_k、thinking budget、metadata 透传、retry/backoff 或 non-streaming API。
 
-## 8. Telemetry 数据流
+## 8. Transcript 数据流
+
+入口：
+
+- `internal/persistence/transcript`
+- `internal/repl.Session.RunTurn`
+- `cmd/runcode chat --transcript jsonl`
+
+当前效果：
+
+- 默认关闭，`--transcript jsonl` 或 `RUNCODE_TRANSCRIPT=jsonl` 开启。
+- 写入 `<workspace>/.runcode/transcripts/<session-id>.jsonl`。
+- `--session-id` / `RUNCODE_SESSION_ID` 可指定 session id；未指定时自动生成。
+- 每个成功 turn 写一条 JSONL 记录；失败 turn 不写。
+- 记录 user text、final assistant text、stop reason、usage、iterations、tool call id/name、Bash command、tool result 计数和 text bytes。
+- 不记录 system prompt、provider request、credential、base URL、普通工具 raw input、完整工具输出、thinking 内容或 image data。
+- `/clear` 只清空内存 history，不删除或轮转 transcript。
+
+当前限制：
+
+- transcript 不能用于 session resume。
+- 没有 SQLite、索引、查询命令、compaction 或 rotation。
+
+## 9. Telemetry 数据流
 
 关键文件：
 
@@ -331,14 +359,17 @@ Anthropic provider：
 - 没有 schema version。
 - `llm.request.error` 仍可能包含 provider error string，后续需要错误分类/脱敏。
 
-## 9. 仍未实现的大模块
+## 10. 仍未实现的大模块
 
 主要空壳或未实现目录：
 
 ```text
 internal/app/components
 internal/ui
-internal/persistence/*
+internal/persistence/claudemd
+internal/persistence/settings
+internal/persistence/sqlite
+internal/persistence/migrate
 internal/coordinator
 internal/session
 internal/compaction
@@ -360,7 +391,7 @@ examples/custom-tool
 对应未实现能力：
 
 - Bubble Tea TUI。
-- SQLite transcript 和 session persistence。
+- SQLite transcript backend 和 session resume。
 - settings persistence。
 - context compaction。
 - cost tracking。
@@ -374,9 +405,9 @@ examples/custom-tool
 - TodoWrite。
 - custom tool example。
 
-## 10. 当前最应该补的缺口
+## 11. 当前最应该补的缺口
 
 如果目标是减少半成品感，而不是继续扩新功能，建议顺序是：
 
-1. 增加 `/clear` 或最小 history reset 入口。
-2. 再考虑 TodoWrite、streaming output、持久 transcript、TUI、MCP 等更大功能。
+1. 实现 transcript-backed session resume 或 context compaction。
+2. 再考虑 TodoWrite、streaming output、TUI、MCP 等更大功能。

@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `--telemetry off|jsonl` and `RUNCODE_TELEMETRY` support for CLI chat.
 - System prompt assembler in `internal/prompt`, with static/dynamic cache boundary, tool descriptions, environment section, permission-mode guidance, memory/project context slots, and reasoning guidance.
 - Project context loader for `RUNCODE.md` / `CLAUDE.md`, wired into `chat` prompt construction with bounded reads and truncation.
+- Opt-in JSONL transcript recording with `--transcript jsonl` / `RUNCODE_TRANSCRIPT=jsonl` and optional `--session-id` / `RUNCODE_SESSION_ID`.
 - Interactive approval prompt on stderr for `--permission-mode interactive` / `confirm`.
 - Current implementation status document at `docs/implementation-status.md`.
 
@@ -57,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Permission telemetry and approval prompts avoid raw paths, raw commands, tool inputs, tool outputs, file contents, credentials, and URLs.
 - Bash commands are classified before execution; unknown, privileged, destructive, outside-write, and complex shell-control commands are denied before approval.
 - The default `safe` permission mode does not execute approval-requiring writes, edits, or Bash commands.
+- Transcript records use a whitelist schema and omit system prompts, credentials, generic tool raw input, and full tool output; enabled transcripts may still contain user prompts, assistant text, and Bash command strings.
 
 ## [0.1.0-alpha] - TBD
 

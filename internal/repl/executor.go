@@ -85,6 +85,17 @@ func isNilTool(candidate tool.Tool) bool {
 	}
 }
 
+// IsConcurrencySafe reports whether the named tool can run concurrently with sibling tool calls.
+func (e *Executor) IsConcurrencySafe(name string) bool {
+	t, ok := e.tools[name]
+	return ok && t.IsConcurrencySafe()
+}
+
+// ApprovalAvailable reports whether the executor's permission service requires interactive approval.
+func (e *Executor) ApprovalAvailable() bool {
+	return e.permissions != nil && e.permissions.ApprovalAvailable()
+}
+
 func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
 	if req.Name == "" {
 		return ExecuteResult{}, fmt.Errorf("%w: tool name is required", ErrInvalidToolRequest)

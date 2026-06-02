@@ -43,13 +43,16 @@ Useful flags and environment variables:
 - `--base-url` / `ANTHROPIC_BASE_URL`.
 - `--cwd` / `RUNCODE_CWD`: workspace for tools.
 - `--loop`: keep one in-memory session alive across stdin prompts; use `/clear` to reset that in-memory history.
+- `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`: bound how many in-memory history messages are sent to the provider each turn (`0` = unlimited, the default). Trimming keeps the current turn intact, never splits `tool_use`/`tool_result` pairs, and does not touch transcript files.
 - `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`.
 - `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`.
+- `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT`: optionally write JSONL transcripts under `<workspace>/.runcode/transcripts/`.
+- `--session-id` / `RUNCODE_SESSION_ID`: choose the transcript file name when transcript recording is enabled.
 
 Current limitations:
 
 - No Bubble Tea TUI.
-- No persistent transcript or session resume.
+- No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
 - No streaming terminal rendering; final assistant text is printed after each turn.
 - No full slash command system, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
 
@@ -79,6 +82,8 @@ The executor calls `internal/permissions` before running every tool:
 - `interactive` mode asks once on stderr and only for actions already classified as approvable.
 
 Telemetry records bounded metadata such as operation, risk, resource scope, permission effect, and command classification. It does not record raw paths, raw commands, tool inputs, tool outputs, file contents, credentials, or URLs.
+
+Transcript recording is off by default. When enabled with `--transcript jsonl`, runcode writes append-only turn records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; records include user text, final assistant text, bounded tool summaries, and Bash command strings, but not system prompts, credentials, generic tool raw input, or full tool output.
 
 ## Architecture at a glance
 
@@ -111,6 +116,7 @@ internal/repl/         ReAct session, executor, tool result conversion, telemetr
 internal/permissions/  action/resource/risk model, policy, approval, command classification
 internal/prompt/       system prompt assembler and cache boundary
 internal/telemetry/    event model, JSONL, async, memory recorders
+internal/persistence/  opt-in JSONL transcript recording
 internal/toolpath/     workspace path resolution and fresh-read gates
 pkg/tool/              public tool interface, schema, context, result types
 pkg/llm/               provider-neutral LLM DTOs and stream interfaces
@@ -118,7 +124,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: `internal/ui`, `internal/mcp`, `internal/hooks`, `internal/persistence`, `internal/compaction`, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `pkg/llm/providers/openai`, `tools/todo`, and `prompts/*`.
+Scaffolded but not implemented yet: `internal/ui`, `internal/mcp`, `internal/hooks`, SQLite/session resume persistence, `internal/compaction`, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `pkg/llm/providers/openai`, `tools/todo`, and `prompts/*`.
 
 ## Contributing
 

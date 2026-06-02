@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/projectctx"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/repl"
@@ -28,21 +29,25 @@ const anthropicProvider = "anthropic"
 var errEmptyPrompt = errors.New("prompt is required")
 
 type chatConfig struct {
-	Provider       string
-	Model          string
-	MaxTokens      int
-	BaseURL        string
-	APIKey         string
-	AuthToken      string
-	CWD            string
-	Telemetry      string
-	PermissionMode string
+	Provider           string
+	Model              string
+	MaxTokens          int
+	BaseURL            string
+	APIKey             string
+	AuthToken          string
+	CWD                string
+	Telemetry          string
+	PermissionMode     string
+	Transcript         string
+	SessionID          string
+	MaxHistoryMessages int
 }
 
 type chatIO struct {
 	In    io.Reader
 	Lines lineReader
 	Err   io.Writer
+	Out   io.Writer
 }
 
 type chatRunner interface {
@@ -54,8 +59,9 @@ type resettableChatRunner interface {
 }
 
 type defaultChatRunner struct {
-	session  *repl.Session
-	recorder telemetry.Recorder
+	session    *repl.Session
+	recorder   telemetry.Recorder
+	transcript transcript.Recorder
 }
 
 func chatCmd() *cobra.Command {
@@ -81,14 +87,14 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 			if loop {
 				lines := newLineInput(cmd.InOrStdin())
 				defer lines.Close()
-				runtime := chatIO{In: cmd.InOrStdin(), Lines: lines, Err: cmd.ErrOrStderr()}
+				runtime := chatIO{In: cmd.InOrStdin(), Lines: lines, Err: cmd.ErrOrStderr(), Out: cmd.OutOrStdout()}
 				return runChatLoop(cmd, runner, cfg, runtime, args)
 			}
 			promptText, err := chatPrompt(cmd, args)
 			if err != nil {
 				return err
 			}
-			runtime := chatIO{In: cmd.InOrStdin(), Lines: lineReaderForConfig(cfg, cmd.InOrStdin()), Err: cmd.ErrOrStderr()}
+			runtime := chatIO{In: cmd.InOrStdin(), Lines: lineReaderForConfig(cfg, cmd.InOrStdin()), Err: cmd.ErrOrStderr(), Out: cmd.OutOrStdout()}
 			if closer, ok := runtime.Lines.(interface{ Close() }); ok {
 				defer closer.Close()
 			}
@@ -96,7 +102,11 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), text)
+			if text != "" {
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), text)
+			} else {
+				_, err = fmt.Fprintln(cmd.OutOrStdout())
+			}
 			return err
 		},
 	}
@@ -109,6 +119,9 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 	cmd.Flags().String("cwd", "", "Working directory for tools")
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
 	cmd.Flags().String("permission-mode", "", "Permission mode: safe or interactive")
+	cmd.Flags().String("transcript", "", "Transcript mode: off or jsonl")
+	cmd.Flags().String("session-id", "", "Session id for transcript files")
+	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
 	cmd.Flags().Bool("loop", false, "Run an in-memory multi-turn chat loop")
 	return cmd
 }
@@ -165,8 +178,14 @@ func runChatLoop(cmd *cobra.Command, runner chatRunner, cfg chatConfig, runtime 
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), text); err != nil {
-			return err
+		if text != "" {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), text); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -251,17 +270,42 @@ func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
 	if err != nil {
 		return chatConfig{}, err
 	}
+	transcriptMode, err := stringFlagOrEnv(cmd, "transcript", "RUNCODE_TRANSCRIPT", "off")
+	if err != nil {
+		return chatConfig{}, err
+	}
+	transcriptMode, err = normalizeTranscriptMode(transcriptMode)
+	if err != nil {
+		return chatConfig{}, err
+	}
+	sessionID, err := stringFlagOrEnv(cmd, "session-id", "RUNCODE_SESSION_ID", "")
+	if err != nil {
+		return chatConfig{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		if err := transcript.ValidateSessionID(sessionID); err != nil {
+			return chatConfig{}, err
+		}
+	}
+	maxHistoryMessages, err := intFlagOrEnv(cmd, "max-history-messages", "RUNCODE_MAX_HISTORY_MESSAGES")
+	if err != nil {
+		return chatConfig{}, err
+	}
 
 	return chatConfig{
-		Provider:       provider,
-		Model:          strings.TrimSpace(model),
-		MaxTokens:      maxTokens,
-		BaseURL:        strings.TrimSpace(baseURL),
-		APIKey:         apiKey,
-		AuthToken:      authToken,
-		CWD:            cwd,
-		Telemetry:      telemetryMode,
-		PermissionMode: permissionMode,
+		Provider:           provider,
+		Model:              strings.TrimSpace(model),
+		MaxTokens:          maxTokens,
+		BaseURL:            strings.TrimSpace(baseURL),
+		APIKey:             apiKey,
+		AuthToken:          authToken,
+		CWD:                cwd,
+		Telemetry:          telemetryMode,
+		PermissionMode:     permissionMode,
+		Transcript:         transcriptMode,
+		SessionID:          sessionID,
+		MaxHistoryMessages: maxHistoryMessages,
 	}, nil
 }
 
@@ -341,11 +385,37 @@ func normalizePermissionMode(value string) (string, error) {
 	}
 }
 
+func normalizeTranscriptMode(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "off", "none":
+		return "off", nil
+	case "jsonl":
+		return "jsonl", nil
+	default:
+		return "", fmt.Errorf("unsupported transcript mode %q", value)
+	}
+}
+
 func telemetryRecorder(mode string) telemetry.Recorder {
 	if mode == "jsonl" {
 		return telemetry.NewAsync(telemetry.NewJSONL(os.Stderr), telemetry.AsyncOptions{BufferSize: 256})
 	}
 	return telemetry.Noop()
+}
+
+func transcriptRecorder(cfg chatConfig) (transcript.Recorder, string, error) {
+	if cfg.Transcript != "jsonl" {
+		return transcript.Noop(), cfg.SessionID, nil
+	}
+	sessionID := cfg.SessionID
+	if sessionID == "" {
+		sessionID = transcript.NewSessionID()
+	}
+	recorder, err := transcript.OpenJSONL(cfg.CWD, sessionID)
+	if err != nil {
+		return nil, "", err
+	}
+	return recorder, sessionID, nil
 }
 
 func chatPrompt(cmd *cobra.Command, args []string) (string, error) {
@@ -376,6 +446,9 @@ func (r *defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime cha
 	if err != nil {
 		return "", err
 	}
+	if runtime.Out != nil {
+		return "", nil
+	}
 	return llm.TextContent(result.FinalAssistant), nil
 }
 
@@ -384,6 +457,11 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 		return r.session, nil
 	}
 	recorder := telemetryRecorder(cfg.Telemetry)
+	trecorder, sessionID, err := transcriptRecorder(cfg)
+	if err != nil {
+		closeRecorders(context.Background(), recorder, trecorder)
+		return nil, err
+	}
 	provider, err := anthropic.New(anthropic.Options{
 		APIKey:           cfg.APIKey,
 		AuthToken:        cfg.AuthToken,
@@ -391,16 +469,21 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 		DefaultMaxTokens: cfg.MaxTokens,
 	})
 	if err != nil {
-		recorder.Close(context.Background())
+		closeRecorders(context.Background(), recorder, trecorder)
 		return nil, err
 	}
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
-		recorder.Close(context.Background())
+		closeRecorders(context.Background(), recorder, trecorder)
 		return nil, err
 	}
 	builtins := tools.Builtins()
 	permissionService := permissionServiceForMode(cfg.PermissionMode, runtime)
+	var streamDelta func(string)
+	if runtime.Out != nil {
+		out := runtime.Out
+		streamDelta = func(delta string) { fmt.Fprint(out, delta) }
+	}
 	session, err := repl.NewSession(repl.SessionOptions{
 		Provider:  provider,
 		Model:     cfg.Model,
@@ -417,14 +500,19 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 			WorkingDirectory: cfg.CWD,
 			ReadSet:          map[string]tool.ReadFile{},
 		},
-		Telemetry:   recorder,
-		Permissions: permissionService,
+		Telemetry:          recorder,
+		Permissions:        permissionService,
+		Transcript:         trecorder,
+		SessionID:          sessionID,
+		MaxHistoryMessages: cfg.MaxHistoryMessages,
+		StreamDelta:        streamDelta,
 	})
 	if err != nil {
-		recorder.Close(context.Background())
+		closeRecorders(context.Background(), recorder, trecorder)
 		return nil, err
 	}
 	r.recorder = recorder
+	r.transcript = trecorder
 	r.session = session
 	return session, nil
 }
@@ -438,10 +526,20 @@ func (r *defaultChatRunner) Reset(context.Context) error {
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {
-	if r.recorder == nil {
-		return nil
+	return closeRecorders(ctx, r.recorder, r.transcript)
+}
+
+func closeRecorders(ctx context.Context, recorders ...interface{ Close(context.Context) error }) error {
+	var closeErr error
+	for _, recorder := range recorders {
+		if recorder == nil {
+			continue
+		}
+		if err := recorder.Close(ctx); err != nil && closeErr == nil {
+			closeErr = err
+		}
 	}
-	return r.recorder.Close(ctx)
+	return closeErr
 }
 
 func loadProjectContext(cwd string) (string, error) {

@@ -21,6 +21,7 @@ Implemented:
 - `internal/repl`: finite ReAct session controller, permission-aware tool executor, tool result conversion, and tool-spec conversion for future model tool exposure.
 - `internal/permissions`: internal permission boundary with action/resource/risk modeling, default safe policy, non-interactive and interactive authorizers, approval model, and permission telemetry helpers.
 - `internal/telemetry`: internal observability foundation with event model, no-op recorder, bounded async recorder, memory recorder, stderr JSONL support, and permission decision events.
+- `internal/persistence/transcript`: opt-in append-only JSONL transcript recorder with whitelisted turn summaries.
 - `internal/prompt`: system prompt boundary, assembler, and static/dynamic prompt sections.
 - `pkg/llm/providers/anthropic`: Anthropic SDK-backed provider skeleton with request and stream conversion tests.
 
@@ -28,7 +29,7 @@ Not implemented yet:
 
 - Bubble Tea TUI.
 - Persistent permission policy configuration.
-- MCP, hooks, sub-agents, skills, compaction, and persistence.
+- MCP, hooks, sub-agents, skills, compaction, SQLite persistence, and transcript-backed session resume.
 - Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.
 - Bash background tasks, streaming terminal output, custom cwd/env, interactive stdin, and persistent command approval policy.
 
@@ -53,18 +54,19 @@ Session.RunTurn()
   │   └─> denied -> error tool.Result without running tool
   ├─> ToolResultBlock()
   ├─> repeat provider/tool steps until no tool_use or max iterations
-  └─> successful turn commits messages back to in-memory history
+  ├─> successful turn commits messages back to in-memory history
+  └─> optional transcript.Recorder writes a JSONL turn summary
 ```
 
-This keeps tool implementation, tool execution, model-facing tool schemas, and prompt-visible tool descriptions aligned without coupling those consumers to concrete tool packages. The current session controller runs a bounded provider/tool loop within one user turn: it appends assistant `tool_use` messages and tool result messages back into the next provider request until the assistant stops requesting tools or the maximum iteration count is reached. Successful turns are stored as in-memory `llm.Message` history on the session; failed turns are not committed.
+This keeps tool implementation, tool execution, model-facing tool schemas, and prompt-visible tool descriptions aligned without coupling those consumers to concrete tool packages. The current session controller runs a bounded provider/tool loop within one user turn: it appends assistant `tool_use` messages and tool result messages back into the next provider request until the assistant stops requesting tools or the maximum iteration count is reached. Successful turns are stored as in-memory `llm.Message` history on the session; failed turns are not committed or written to transcript.
 
 ## CLI boundary
 
 `runcode chat` is wired as a minimal non-TUI command. By default it accepts a single prompt from args or stdin, constructs the Anthropic provider, built-in tools, prompt assembler inputs, telemetry recorder, and `internal/repl.Session`, then prints the final assistant text to stdout.
 
-`runcode chat --loop` keeps one process-local session alive across prompts. Args become the first prompt, subsequent prompts are read line-by-line from stdin, and EOF or `/exit` / `/quit` / `exit` / `quit` exits cleanly. This loop is in-memory only: it does not stream partial output, start a Bubble Tea UI, write transcripts, persist history, or compact history.
+`runcode chat --loop` keeps one process-local session alive across prompts. Args become the first prompt, subsequent prompts are read line-by-line from stdin, and EOF or `/exit` / `/quit` / `exit` / `quit` exits cleanly. `/clear` resets only the in-memory history. The loop does not stream partial output, start a Bubble Tea UI, resume transcript-backed sessions, or compact history.
 
-The command remains shell-friendly. Assistant final text is written to stdout. Loop prompt markers, interactive permission approval, and `RUNCODE_TELEMETRY=jsonl` / `--telemetry jsonl` output are written to stderr. Loop prompt input and approval input share the same line reader so they do not lose buffered stdin data.
+The command remains shell-friendly. Assistant final text is written to stdout. Loop prompt markers, interactive permission approval, and `RUNCODE_TELEMETRY=jsonl` / `--telemetry jsonl` output are written to stderr. Loop prompt input and approval input share the same line reader so they do not lose buffered stdin data. `RUNCODE_TRANSCRIPT=jsonl` / `--transcript jsonl` writes append-only records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; `--session-id` / `RUNCODE_SESSION_ID` can choose the file name.
 
 ## Prompt cache boundary
 
@@ -85,6 +87,7 @@ Dynamic sections currently include:
 - current working directory
 - current date
 - shell info
+- permission mode guidance
 - memory
 - project context
 
@@ -126,7 +129,13 @@ Current events cover:
 
 Events include correlation IDs (`trace_id`, `turn_id`, `request_id`, `tool_use_id`) and bounded metadata such as counts, durations, stop reasons, token usage, and error strings. They intentionally exclude prompts, assistant text, tool inputs, tool outputs, file contents, credentials, and base URLs.
 
-Runtime recorders are no-op by default. JSONL mode uses a bounded async recorder so telemetry IO does not block the chat/session/tool path; a full queue drops events rather than slowing the agent.
+Runtime telemetry recorders are no-op by default. JSONL telemetry mode uses a bounded async recorder so telemetry IO does not block the chat/session/tool path; a full queue drops events rather than slowing the agent.
+
+## Transcript boundary
+
+Transcript recording is opt-in through `--transcript jsonl` or `RUNCODE_TRANSCRIPT=jsonl`. The JSONL recorder writes one whitelisted turn summary per successful turn under `<workspace>/.runcode/transcripts/<session-id>.jsonl`; failed turns are not written. If no session id is provided, runcode generates one. `/clear` only resets in-memory history and does not delete or rotate the transcript file.
+
+Transcript records include user text, final assistant text, stop reason, token usage, iteration count, tool call id/name summaries, Bash command strings, and bounded tool result counts/byte sizes. They intentionally exclude system prompts, provider requests, credentials, base URLs, generic tool raw input, full tool output, thinking content, and image data. Current transcripts are not sufficient for resume; resume and compaction remain future persistence work.
 
 ## Provider-neutral LLM model
 
@@ -155,10 +164,11 @@ The current scaffold should be validated through tests rather than through a rea
 | `tools/grep` | regexp search, case-insensitive mode, slash glob filtering, file/directory search, binary skip, limit truncation, cancellation, and workspace containment |
 | `tools/bash` | non-interactive execution, workspace cwd, stdout/stderr capture, non-zero exit error results, timeout/cancel handling, and output truncation |
 | `internal/toolpath` | shared path resolution, workspace containment, symlink handling, mutation target resolution, and read freshness checks |
-| `internal/repl` | session request construction, in-memory history commit/reset behavior, stream collection, permission-aware executor behavior, interactive approval allow/deny execution paths, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
+| `internal/repl` | session request construction, in-memory history commit/reset behavior, transcript recording on successful turns, stream collection, permission-aware executor behavior, interactive approval allow/deny execution paths, event channel forwarding, tool use ID propagation, and `tool_use` to `tool_result` conversion |
 | `internal/permissions` | action/resource resolution, workspace containment, command classification, default safe policy, non-interactive and interactive authorization, approval fallback behavior, and sanitized decision data |
 | `internal/prompt` | boundary behavior, static/dynamic ordering, cache policy, environment isolation, and tool description injection |
 | `internal/telemetry` | event model, JSONL output, async flush/drop behavior, memory recorder, and ID generation |
+| `internal/persistence/transcript` | JSONL append behavior, session id validation, and transcript sanitizer whitelist |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |
 | `cmd/runcode` | `version` output, chat prompt input, `chat --loop` behavior, config parsing, fake-runner output, approval prompt behavior, shared line input, runtime IO propagation, and error propagation |

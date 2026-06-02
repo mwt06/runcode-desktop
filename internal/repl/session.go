@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/prompt/sections"
 	"github.com/wt68/runcode/internal/telemetry"
@@ -40,24 +44,37 @@ type SessionOptions struct {
 	Telemetry     telemetry.Recorder
 	TraceID       string
 	Permissions   *permissions.Service
+	Transcript    transcript.Recorder
+	SessionID     string
+	// MaxHistoryMessages bounds the number of messages retained across turns.
+	// 0 (default) disables trimming.
+	MaxHistoryMessages int
+	// StreamDelta is called with each text delta as it arrives from the provider.
+	// Only text blocks trigger the callback; tool_use and thinking deltas are skipped.
+	// nil disables streaming.
+	StreamDelta func(delta string)
 }
 
 type Session struct {
-	provider      llm.Provider
-	model         string
-	tools         []tool.Tool
-	executor      *Executor
-	prompt        prompt.AssemblerOpts
-	maxTokens     int
-	temperature   *float64
-	metadata      map[string]any
-	toolContext   *tool.Context
-	toolEvents    chan<- tool.Event
-	maxIterations int
-	reasoning     ReasoningOptions
-	telemetry     telemetry.Recorder
-	traceID       string
-	history       []llm.Message
+	provider           llm.Provider
+	model              string
+	tools              []tool.Tool
+	executor           *Executor
+	prompt             prompt.AssemblerOpts
+	maxTokens          int
+	temperature        *float64
+	metadata           map[string]any
+	toolContext        *tool.Context
+	toolEvents         chan<- tool.Event
+	maxIterations      int
+	reasoning          ReasoningOptions
+	telemetry          telemetry.Recorder
+	traceID            string
+	transcript         transcript.Recorder
+	sessionID          string
+	history            []llm.Message
+	maxHistoryMessages int
+	streamDelta        func(delta string)
 }
 
 type TurnResult struct {
@@ -85,6 +102,10 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxHistoryMessages, err := normalizeMaxHistoryMessages(opts.MaxHistoryMessages)
+	if err != nil {
+		return nil, err
+	}
 
 	tools := cloneTools(opts.Tools)
 	executor, err := NewExecutorWithOptions(ExecutorOptions{Tools: tools, Permissions: opts.Permissions})
@@ -99,28 +120,37 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	if traceID == "" {
 		traceID = telemetry.NewTraceID()
 	}
+	transcriptRecorder := opts.Transcript
+	if transcriptRecorder == nil {
+		transcriptRecorder = transcript.Noop()
+	}
 
 	return &Session{
-		provider:      opts.Provider,
-		model:         opts.Model,
-		tools:         tools,
-		executor:      executor,
-		prompt:        opts.Prompt,
-		maxTokens:     opts.MaxTokens,
-		temperature:   opts.Temperature,
-		metadata:      opts.Metadata,
-		toolContext:   opts.ToolContext,
-		toolEvents:    opts.ToolEvents,
-		maxIterations: maxIterations,
-		reasoning:     opts.Reasoning,
-		telemetry:     recorder,
-		traceID:       traceID,
+		provider:           opts.Provider,
+		model:              opts.Model,
+		tools:              tools,
+		executor:           executor,
+		prompt:             opts.Prompt,
+		maxTokens:          opts.MaxTokens,
+		temperature:        opts.Temperature,
+		metadata:           opts.Metadata,
+		toolContext:        opts.ToolContext,
+		toolEvents:         opts.ToolEvents,
+		maxIterations:      maxIterations,
+		reasoning:          opts.Reasoning,
+		telemetry:          recorder,
+		traceID:            traceID,
+		transcript:         transcriptRecorder,
+		sessionID:          opts.SessionID,
+		maxHistoryMessages: maxHistoryMessages,
+		streamDelta:        opts.StreamDelta,
 	}, nil
 }
 
 func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, error) {
 	messages := cloneMessages(s.history)
 	messages = append(messages, userMessage(userText))
+	currentUserIndex := len(messages) - 1
 	promptOpts := s.prompt
 	var result TurnResult
 	turn := s.startTurn(ctx, userText)
@@ -146,6 +176,7 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 	}
 
 	for iteration := 0; iteration < s.maxIterations; iteration++ {
+		messages, currentUserIndex = trimMessagesForHistoryBudget(messages, s.maxHistoryMessages, currentUserIndex)
 		req, err := s.buildRequestWithMessagesAndPrompt(messages, promptOpts)
 		if err != nil {
 			return result, turn.error(ctx, result, err)
@@ -169,7 +200,11 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 
 		messages = append(messages, assistant)
 		if !hasToolUse(assistant) {
-			s.history = cloneMessages(messages)
+			nextHistory, _ := trimMessagesForHistoryBudget(messages, s.maxHistoryMessages, currentUserIndex)
+			if err := s.recordTranscriptTurn(ctx, turn.id, userText, result); err != nil {
+				return result, turn.error(ctx, result, err)
+			}
+			s.history = nextHistory
 			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
@@ -196,6 +231,30 @@ func (s *Session) History() []llm.Message {
 
 func (s *Session) ResetHistory() {
 	s.history = nil
+}
+
+func (s *Session) recordTranscriptTurn(ctx context.Context, turnID string, userText string, result TurnResult) error {
+	return s.transcript.RecordTurn(ctx, transcript.BuildTurnRecord(transcript.TurnInput{
+		SessionID:         s.sessionID,
+		TraceID:           s.traceID,
+		TurnID:            turnID,
+		CWD:               workingDirectory(s.toolContext),
+		Model:             s.model,
+		UserText:          userText,
+		FinalAssistant:    result.FinalAssistant,
+		AssistantMessages: result.AssistantMessages,
+		ToolResults:       result.ToolResults,
+		StopReason:        result.FinalStopReason,
+		Iterations:        result.Iterations,
+		Usage:             result.FinalUsage,
+	}))
+}
+
+func workingDirectory(tctx *tool.Context) string {
+	if tctx == nil {
+		return ""
+	}
+	return tctx.WorkingDirectory
 }
 
 func (s *Session) buildRequest(userText string) (llm.Request, error) {
@@ -250,7 +309,11 @@ func (s *Session) streamAssistant(ctx context.Context, req llm.Request, turnID s
 		return llm.Message{}, "", nil, err
 	}
 	defer stream.Close()
-	message, stopReason, usage, err := collectAssistantMessage(ctx, stream)
+	var deltaFn func(string)
+	if purpose == "assistant" {
+		deltaFn = s.streamDelta
+	}
+	message, stopReason, usage, err := collectAssistantMessage(ctx, stream, deltaFn)
 	if err != nil {
 		s.record(ctx, s.llmErrorEvent(requestID, turnID, purpose, req, started, err))
 		return llm.Message{}, "", nil, err
@@ -300,31 +363,121 @@ func (s *Session) classifyReasoningScenario(ctx context.Context, userText string
 }
 
 func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, turnID string) ([]llm.ContentBlock, error) {
-	var results []llm.ContentBlock
-	for _, block := range assistant.Content {
-		if block.Type != llm.ContentBlockTypeToolUse {
+	var blocks []llm.ContentBlock
+	for _, b := range assistant.Content {
+		if b.Type == llm.ContentBlockTypeToolUse {
+			blocks = append(blocks, b)
+		}
+	}
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	results := make([]llm.ContentBlock, len(blocks))
+	i := 0
+	for i < len(blocks) {
+		if !s.canRunConcurrently(blocks[i]) {
+			result, err := s.executeSingleTool(ctx, blocks[i], turnID)
+			if err != nil {
+				return nil, err
+			}
+			results[i] = result
+			i++
 			continue
 		}
-		executed, err := s.executor.Execute(ctx, ExecuteRequest{
-			Name:      block.Name,
-			Input:     block.Input,
-			ToolUseID: block.ID,
-			Context:   s.toolContext,
-			Events:    s.toolEvents,
-			Telemetry: s.telemetry,
-			TraceID:   s.traceID,
-			TurnID:    turnID,
-		})
-		if err != nil {
+		j := i + 1
+		for j < len(blocks) && s.canRunConcurrently(blocks[j]) {
+			j++
+		}
+		if err := s.executeConcurrentBatch(ctx, blocks[i:j], results[i:j], turnID); err != nil {
 			return nil, err
 		}
-		resultBlock, err := ToolResultBlock(executed)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, resultBlock)
+		i = j
 	}
 	return results, nil
+}
+
+func (s *Session) canRunConcurrently(block llm.ContentBlock) bool {
+	return s.executor.IsConcurrencySafe(block.Name) && !s.executor.ApprovalAvailable()
+}
+
+func (s *Session) executeSingleTool(ctx context.Context, block llm.ContentBlock, turnID string) (llm.ContentBlock, error) {
+	executed, err := s.executor.Execute(ctx, ExecuteRequest{
+		Name:      block.Name,
+		Input:     block.Input,
+		ToolUseID: block.ID,
+		Context:   s.toolContext,
+		Events:    s.toolEvents,
+		Telemetry: s.telemetry,
+		TraceID:   s.traceID,
+		TurnID:    turnID,
+	})
+	if err != nil {
+		return llm.ContentBlock{}, err
+	}
+	return ToolResultBlock(executed)
+}
+
+func (s *Session) executeConcurrentBatch(ctx context.Context, blocks []llm.ContentBlock, results []llm.ContentBlock, turnID string) error {
+	if len(blocks) == 1 {
+		result, err := s.executeSingleTool(ctx, blocks[0], turnID)
+		if err != nil {
+			return err
+		}
+		results[0] = result
+		return nil
+	}
+	g, gctx := errgroup.WithContext(ctx)
+	var mu sync.Mutex
+	for idx, block := range blocks {
+		idx, block := idx, block
+		tctx := shallowCopyToolContext(s.toolContext, block.ID)
+		g.Go(func() error {
+			executed, err := s.executor.Execute(gctx, ExecuteRequest{
+				Name:      block.Name,
+				Input:     block.Input,
+				ToolUseID: block.ID,
+				Context:   tctx,
+				Events:    s.toolEvents,
+				Telemetry: s.telemetry,
+				TraceID:   s.traceID,
+				TurnID:    turnID,
+			})
+			if err != nil {
+				return err
+			}
+			rb, err := ToolResultBlock(executed)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			results[idx] = rb
+			mergeToolContextReadSet(s.toolContext, tctx)
+			mu.Unlock()
+			return nil
+		})
+	}
+	return g.Wait()
+}
+
+func shallowCopyToolContext(tctx *tool.Context, toolUseID string) *tool.Context {
+	if tctx == nil {
+		return &tool.Context{ToolUseID: toolUseID}
+	}
+	c := *tctx
+	c.ToolUseID = toolUseID
+	return &c
+}
+
+func mergeToolContextReadSet(dst *tool.Context, src *tool.Context) {
+	if dst == nil || src == nil || src.ReadSet == nil {
+		return
+	}
+	if dst.ReadSet == nil {
+		dst.ReadSet = make(map[string]tool.ReadFile, len(src.ReadSet))
+	}
+	for k, v := range src.ReadSet {
+		dst.ReadSet[k] = v
+	}
 }
 
 func normalizeMaxIterations(value int) (int, error) {
@@ -333,6 +486,13 @@ func normalizeMaxIterations(value int) (int, error) {
 	}
 	if value == 0 {
 		return DefaultMaxIterations, nil
+	}
+	return value, nil
+}
+
+func normalizeMaxHistoryMessages(value int) (int, error) {
+	if value < 0 {
+		return 0, fmt.Errorf("%w: max history messages must be greater than or equal to 0", ErrInvalidSession)
 	}
 	return value, nil
 }
@@ -397,7 +557,7 @@ type blockAccumulator struct {
 	materializedText bool
 }
 
-func collectAssistantMessage(ctx context.Context, stream llm.Stream) (llm.Message, llm.StopReason, *llm.Usage, error) {
+func collectAssistantMessage(ctx context.Context, stream llm.Stream, delta func(string)) (llm.Message, llm.StopReason, *llm.Usage, error) {
 	blocks := make(map[int]*blockAccumulator)
 	var stopReason llm.StopReason
 	var usage *llm.Usage
@@ -413,7 +573,7 @@ func collectAssistantMessage(ctx context.Context, stream llm.Stream) (llm.Messag
 				}
 				return llm.Message{Role: llm.RoleAssistant, Content: orderedBlocks(blocks)}, stopReason, usage, nil
 			}
-			if err := applyStreamEvent(blocks, event); err != nil {
+			if err := applyStreamEvent(blocks, event, delta); err != nil {
 				return llm.Message{}, "", nil, err
 			}
 			if event.Type == llm.StreamEventTypeMessageStop {
@@ -425,7 +585,7 @@ func collectAssistantMessage(ctx context.Context, stream llm.Stream) (llm.Messag
 	}
 }
 
-func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent) error {
+func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent, delta func(string)) error {
 	switch event.Type {
 	case llm.StreamEventTypeMessageStart, llm.StreamEventTypeMessageStop:
 		return nil
@@ -447,6 +607,9 @@ func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent) e
 		acc.text.WriteString(event.Delta.Thinking)
 		acc.signature.WriteString(event.Delta.Signature)
 		acc.inputJSON = append(acc.inputJSON, event.Delta.InputJSON...)
+		if delta != nil && event.Delta.Text != "" && acc.block.Type == llm.ContentBlockTypeText {
+			delta(event.Delta.Text)
+		}
 		return nil
 	case llm.StreamEventTypeContentBlockStop:
 		acc, ok := blocks[event.Index]

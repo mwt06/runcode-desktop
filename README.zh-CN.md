@@ -43,13 +43,16 @@ ANTHROPIC_API_KEY=... \
 - `--base-url` / `ANTHROPIC_BASE_URL`。
 - `--cwd` / `RUNCODE_CWD`：工具工作目录。
 - `--loop`：在 stdin 多轮输入中复用同一个内存 session；可用 `/clear` 清空该内存 history。
+- `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`：限制每轮发送给 provider 的内存 history 消息数（`0` 表示不限制，为默认值）。裁剪会完整保留当前 turn，绝不拆散 `tool_use`/`tool_result` 配对，也不影响 transcript 文件。
 - `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`。
 - `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`。
+- `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT`：可选把 JSONL transcript 写入 `<workspace>/.runcode/transcripts/`。
+- `--session-id` / `RUNCODE_SESSION_ID`：开启 transcript 时指定 transcript 文件名。
 
 当前限制：
 
 - 没有 Bubble Tea TUI。
-- 没有 transcript 持久化或 session 恢复。
+- 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
 - 没有终端流式渲染；每轮完成后输出 final assistant text。
 - 没有完整 slash commands 系统、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 
@@ -79,6 +82,8 @@ Executor 在运行每个工具前都会调用 `internal/permissions`：
 - `interactive` 模式只对权限层已判定为可审批的动作在 stderr 询问一次。
 
 Telemetry 只记录 operation、risk、resource scope、permission effect、command classification 等受控 metadata；不记录 raw path、raw command、tool input、tool output、文件内容、凭证或 URL。
+
+Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把 append-only turn record 写到 `<workspace>/.runcode/transcripts/<session-id>.jsonl`；记录包含用户文本、最终 assistant 文本、受限工具摘要和 Bash command 字符串，但不记录 system prompt、凭证、普通工具 raw input 或完整工具输出。
 
 ## 架构一览
 
@@ -111,6 +116,7 @@ internal/repl/         ReAct session、executor、tool result conversion、telem
 internal/permissions/  action/resource/risk、policy、approval、command classification
 internal/prompt/       系统提示组装器和 cache boundary
 internal/telemetry/    event model、JSONL、async、memory recorder
+internal/persistence/  可选 JSONL transcript 记录
 internal/toolpath/     workspace path 解析和 fresh-read gate
 pkg/tool/              public tool interface、schema、context、result types
 pkg/llm/               provider-neutral LLM DTO 和 stream interface
@@ -118,7 +124,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：`internal/ui`、`internal/mcp`、`internal/hooks`、`internal/persistence`、`internal/compaction`、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`pkg/llm/providers/openai`、`tools/todo`、`prompts/*`。
+仍是脚手架或未实现：`internal/ui`、`internal/mcp`、`internal/hooks`、SQLite/session resume persistence、`internal/compaction`、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`pkg/llm/providers/openai`、`tools/todo`、`prompts/*`。
 
 ## 贡献
 

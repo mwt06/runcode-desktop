@@ -25,9 +25,21 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 			t.Fatalf("expected non-empty input schema for %s", want)
 		}
 	}
+	wantConcurrencySafe := map[string]bool{
+		"Read":  false,
+		"Write": false,
+		"Edit":  false,
+		"Glob":  true,
+		"Grep":  false,
+		"Bash":  false,
+	}
 	for _, builtin := range builtins {
-		if builtin.IsConcurrencySafe() {
-			t.Fatalf("expected %s not to be concurrency safe while tools share mutable context", builtin.Name())
+		want, ok := wantConcurrencySafe[builtin.Name()]
+		if !ok {
+			t.Fatalf("missing concurrency safety expectation for %s", builtin.Name())
+		}
+		if got := builtin.IsConcurrencySafe(); got != want {
+			t.Fatalf("%s concurrency safe = %t, want %t", builtin.Name(), got, want)
 		}
 	}
 }
