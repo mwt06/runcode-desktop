@@ -30,7 +30,7 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 		"Write": false,
 		"Edit":  false,
 		"Glob":  true,
-		"Grep":  false,
+		"Grep":  true,
 		"Bash":  false,
 	}
 	for _, builtin := range builtins {

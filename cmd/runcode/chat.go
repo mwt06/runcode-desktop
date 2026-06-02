@@ -64,6 +64,20 @@ type defaultChatRunner struct {
 	transcript transcript.Recorder
 }
 
+type sessionFactoryOptions struct {
+	Runtime          chatIO
+	TelemetryRuntime chatIO
+	StreamDelta      func(string)
+	ToolEvents       chan<- tool.Event
+	Permissions      *permissions.Service
+}
+
+type sessionResources struct {
+	Telemetry  telemetry.Recorder
+	Transcript transcript.Recorder
+	SessionID  string
+}
+
 func chatCmd() *cobra.Command {
 	return newChatCmd(&defaultChatRunner{})
 }
@@ -110,6 +124,12 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 			return err
 		},
 	}
+	addChatConfigFlags(cmd)
+	cmd.Flags().Bool("loop", false, "Run an in-memory multi-turn chat loop")
+	return cmd
+}
+
+func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("provider", anthropicProvider, "LLM provider")
 	cmd.Flags().String("model", "", "Model name")
 	cmd.Flags().Int("max-tokens", 0, "Maximum output tokens")
@@ -122,8 +142,6 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 	cmd.Flags().String("transcript", "", "Transcript mode: off or jsonl")
 	cmd.Flags().String("session-id", "", "Session id for transcript files")
 	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
-	cmd.Flags().Bool("loop", false, "Run an in-memory multi-turn chat loop")
-	return cmd
 }
 
 func closeChatRunner(ctx context.Context, runner chatRunner) error {
@@ -397,8 +415,16 @@ func normalizeTranscriptMode(value string) (string, error) {
 }
 
 func telemetryRecorder(mode string) telemetry.Recorder {
+	return telemetryRecorderWithRuntime(mode, chatIO{Err: os.Stderr})
+}
+
+func telemetryRecorderWithRuntime(mode string, runtime chatIO) telemetry.Recorder {
 	if mode == "jsonl" {
-		return telemetry.NewAsync(telemetry.NewJSONL(os.Stderr), telemetry.AsyncOptions{BufferSize: 256})
+		errWriter := runtime.Err
+		if errWriter == nil {
+			errWriter = os.Stderr
+		}
+		return telemetry.NewAsync(telemetry.NewJSONL(errWriter), telemetry.AsyncOptions{BufferSize: 256})
 	}
 	return telemetry.Noop()
 }
@@ -456,11 +482,27 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	if r.session != nil {
 		return r.session, nil
 	}
-	recorder := telemetryRecorder(cfg.Telemetry)
+	session, resources, err := newSessionForConfig(cfg, sessionFactoryOptions{Runtime: runtime})
+	if err != nil {
+		return nil, err
+	}
+	r.recorder = resources.Telemetry
+	r.transcript = resources.Transcript
+	r.session = session
+	return session, nil
+}
+
+func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Session, sessionResources, error) {
+	telemetryRuntime := opts.TelemetryRuntime
+	if telemetryRuntime.Err == nil {
+		telemetryRuntime = opts.Runtime
+	}
+	recorder := telemetryRecorderWithRuntime(cfg.Telemetry, telemetryRuntime)
 	trecorder, sessionID, err := transcriptRecorder(cfg)
+	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, SessionID: sessionID}
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder)
-		return nil, err
+		return nil, sessionResources{}, err
 	}
 	provider, err := anthropic.New(anthropic.Options{
 		APIKey:           cfg.APIKey,
@@ -470,24 +512,26 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	})
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder)
-		return nil, err
+		return nil, sessionResources{}, err
 	}
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder)
-		return nil, err
+		return nil, sessionResources{}, err
 	}
-	builtins := tools.Builtins()
-	permissionService := permissionServiceForMode(cfg.PermissionMode, runtime)
-	var streamDelta func(string)
-	if runtime.Out != nil {
-		out := runtime.Out
+	permissionService := opts.Permissions
+	if permissionService == nil {
+		permissionService = permissionServiceForMode(cfg.PermissionMode, opts.Runtime)
+	}
+	streamDelta := opts.StreamDelta
+	if streamDelta == nil && opts.Runtime.Out != nil {
+		out := opts.Runtime.Out
 		streamDelta = func(delta string) { fmt.Fprint(out, delta) }
 	}
 	session, err := repl.NewSession(repl.SessionOptions{
 		Provider:  provider,
 		Model:     cfg.Model,
-		Tools:     builtins,
+		Tools:     tools.Builtins(),
 		MaxTokens: cfg.MaxTokens,
 		Prompt: prompt.AssemblerOpts{
 			CWD:            cfg.CWD,
@@ -500,6 +544,7 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 			WorkingDirectory: cfg.CWD,
 			ReadSet:          map[string]tool.ReadFile{},
 		},
+		ToolEvents:         opts.ToolEvents,
 		Telemetry:          recorder,
 		Permissions:        permissionService,
 		Transcript:         trecorder,
@@ -509,12 +554,9 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	})
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder)
-		return nil, err
+		return nil, sessionResources{}, err
 	}
-	r.recorder = recorder
-	r.transcript = trecorder
-	r.session = session
-	return session, nil
+	return session, resources, nil
 }
 
 func (r *defaultChatRunner) Reset(context.Context) error {

@@ -1,6 +1,6 @@
 # runcode 当前实现状态与缺口
 
-日期：2026-05-27
+日期：2026-06-02
 
 本文档记录当前代码已经真实实现了什么、具体效果是什么、哪些地方只是为了保持最小化而做了半闭环，以及后续还缺少哪些能力。它是一个当前状态快照，不替代 `docs/architecture.md` 的架构说明，也不替代 `docs/session-handoff.md` 的历史日志。
 
@@ -24,7 +24,7 @@ cmd/runcode chat
 
 当前可用能力包括：
 
-- 最小 CLI：`version`、`chat`、`chat --loop`。
+- 最小 CLI：`version`、`chat`、`chat --loop`、`tui`。
 - Provider-neutral LLM 抽象。
 - Anthropic streaming provider。
 - 有限 ReAct session loop。
@@ -34,8 +34,9 @@ cmd/runcode chat
 - prompt assembler 与静态/动态 cache boundary。
 - telemetry event model、JSONL stderr 输出、async recorder。
 - opt-in JSONL transcript store。
+- 最小 Bubble Tea TUI MVP：状态栏、可滚动对话 viewport、单行输入、assistant 流式文本，以及 `/help` / `/clear` / `/status` / `/exit`。
 
-但整体仍是 `v0.1-alpha` 最小实现。很多目录仍是空壳，很多能力只做到安全可验证的第一版，没有产品级交互体验、持久化、配置系统、TUI、MCP、hooks、skills、sub-agents、context compaction 或完整多 provider 支持。
+但整体仍是 `v0.1-alpha` 最小实现。很多目录仍是空壳，很多能力只做到安全可验证的第一版，没有产品级 TUI 权限弹窗、tool progress UI、diff viewer、持久化配置系统、MCP、hooks、skills、sub-agents、context compaction 或完整多 provider 支持。
 
 ## 当前已实现模块
 
@@ -45,6 +46,7 @@ cmd/runcode chat
 
 - `cmd/runcode/main.go`
 - `cmd/runcode/chat.go`
+- `cmd/runcode/tui.go`
 - `cmd/runcode/line_input.go`
 - `cmd/runcode/approval.go`
 
@@ -53,6 +55,7 @@ cmd/runcode chat
 - `runcode version` 输出版本、commit、build time、Go 平台信息。
 - `runcode chat [prompt]` 可从 args 或 stdin 读取 prompt。
 - `runcode chat --loop` 可在同一进程中逐行对话并复用一个 session，`/clear` 可清空该 session 的内存 history。
+- `runcode tui` 启动最小 Bubble Tea TUI，包含状态栏、可滚动对话 viewport、单行输入、assistant 流式文本，以及 `/help` / `/clear` / `/status` / `/exit`；MVP 当前仅支持 `safe` 权限模式。
 - `--provider` 目前只支持 `anthropic`。
 - 支持 model、max tokens、base URL、API key、auth token、cwd、telemetry、permission mode 配置。
 - 支持环境变量：`RUNCODE_PROVIDER`、`ANTHROPIC_MODEL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MAX_TOKENS`、`RUNCODE_CWD`、`RUNCODE_TELEMETRY`、`RUNCODE_PERMISSION_MODE`、`RUNCODE_TRANSCRIPT`、`RUNCODE_SESSION_ID`、`RUNCODE_MAX_HISTORY_MESSAGES`。
@@ -64,11 +67,10 @@ cmd/runcode chat
 
 最小化缺口：
 
-- `chat --loop` 只是逐行循环，不是完整 REPL/TUI。
-- 没有 readline、历史导航、多行输入、补全、快捷键。
-- 没有完整 slash command 系统，例如 `/help`、`/compact`、`/model`。
-- 没有实时 token streaming 输出，当前只在一轮完成后打印 final text。
-- 没有 tool progress UI。
+- `chat --loop` 只是逐行循环；完整交互体验由 `runcode tui` MVP 起步但仍不完整。
+- TUI 仍缺少 readline 级历史导航、多行输入、补全、可配置快捷键。
+- 没有完整 slash command 系统，例如 `/compact`、`/model`。
+- 没有 TUI permission modal、tool progress UI 或 diff viewer。
 - 没有配置文件系统。
 - 没有 transcript-backed session 恢复。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。
@@ -131,13 +133,14 @@ cmd/runcode chat
 - permission denied 被转换成带脱敏 reason/final effect 的 `is_error=true` tool result 回传模型。
 - unknown tool 和普通工具 runtime error 会转换成 `is_error=true` tool result，让模型有机会自我修正。
 - 工具执行 telemetry 和 permission telemetry 已接入。
+- 连续的 concurrency-safe tool_use 会批量并发执行；当前 `Glob` 和 `Grep` 标记为并发安全，interactive approval 可用时退回串行。
 
 最小化缺口：
 
 - transcript 只保存白名单摘要，不保存可恢复完整 history。
 - 已有按 message-count 的 history budget（默认关闭），但没有 token 精确预算、语义 context compaction 或 transcript-backed resume。
-- 没有实时 streaming observer 给 CLI/UI 展示 token。
-- tool_use 当前顺序执行，没有并发工具执行策略。
+- 已支持 assistant text delta streaming；仍缺结构化 tool progress observer 给 UI 展示工具执行进度。
+- 并发执行仅覆盖已标记安全的工具；Read/Write/Edit/Bash 仍串行，暂没有动态工具调度策略。
 - provider/stream/context/max-iteration 等错误仍是 turn-level error。
 - 没有 session resume；session id 目前只用于 transcript 文件名。
 - reasoning classification 是 prompt routing，不是 provider-native thinking。
@@ -448,24 +451,22 @@ cmd/runcode chat
 
 相对可信：
 
+- `README.md` / `README.zh-CN.md`：已反映当前 `chat`、`chat --loop`、TUI MVP、权限、telemetry、transcript 和内置工具状态。
 - `docs/architecture.md`：当前架构说明较新。
-- `docs/session-handoff.md`：历史日志，最新段落可信，早期段落已过期。
+- `docs/data-flow-and-prompt.md`：已覆盖当前 CLI / TUI / Session / tool / permission / prompt 数据流。
+- `CHANGELOG.md`：已记录近期 telemetry、permissions、transcript、history trimming、streaming chat 和 TUI MVP。
+- `docs/session-handoff.md`：历史日志，最新段落可信，早期段落可能过期。
 
-存在明显过期：
+仍需后续补充：
 
-- `docs/data-flow-and-prompt.md`：仍有“CLI 尚未接入 Session”“工具只有 Read”等旧描述。
-- `README.md`：仍描述 chat 未接通或 placeholder 状态。
-- `README.zh-CN.md`：同上。
-- `CHANGELOG.md`：没有反映近期 telemetry、permissions、Write/Edit/Glob/Grep/Bash、chat loop 等实现。
-
-建议：后续应优先更新这些对外文档，避免误导。
+- 更完整的 TUI 产品文档，例如 permission modal、tool progress UI 和 transcript resume 设计。
+- settings、MCP、hooks、skills、sub-agents 等后续模块落地后的独立说明。
 
 ## 空壳与未实现目录
 
 以下目录主要仍是 `.gitkeep` 或没有实质实现：
 
 - `internal/app/components`
-- `internal/ui`
 - `internal/persistence/claudemd`
 - `internal/persistence/settings`
 - `internal/persistence/sqlite`
@@ -489,7 +490,7 @@ cmd/runcode chat
 
 对应未实现能力：
 
-- Bubble Tea TUI。
+- 完整 TUI 产品能力：permission modal、tool progress UI、diff viewer、transcript browser、多行输入和 model switching。
 - SQLite transcript backend。
 - settings 持久化。
 - transcript-backed session resume。
@@ -507,14 +508,14 @@ cmd/runcode chat
 
 ## 主要缺口按优先级
 
-### 1. 文档同步
+### 1. Session resume 与 compaction
 
-当前 README 和 `docs/data-flow-and-prompt.md` 与代码实际状态不一致。应先修正事实源：
+当前 `chat --loop` 和 `tui` 都有进程内 history，且可选 JSONL transcript 会保存白名单摘要，但还没有从 transcript 恢复上下文或压缩。建议实现：
 
-- `docs/data-flow-and-prompt.md`
-- `README.md`
-- `README.zh-CN.md`
-- `CHANGELOG.md`
+- resume-capable transcript format 或独立 transcript-backed history store。
+- session id。
+- session resume 或 transcript-backed history 管理。
+- context compaction。
 
 ### 2. 模型可自我修正能力
 
@@ -528,24 +529,14 @@ cmd/runcode chat
 - memory loader。
 - 更丰富的 permission summary 注入 prompt。
 
-### 4. Session resume 与 compaction
+### 4. CLI / TUI 交互体验
 
-当前 `chat --loop` 有内存 history，且可选 JSONL transcript 会保存白名单摘要，但还没有从 transcript 恢复上下文或压缩。建议实现：
+目前已有 shell-friendly `chat`、stdout assistant streaming 和最小 TUI MVP，但还不是产品级终端体验。缺少：
 
-- resume-capable transcript format 或独立 transcript-backed history store。
-- session id。
-- session resume 或 transcript-backed history 管理。
-- context compaction。
-
-### 5. CLI 交互体验
-
-目前是最小 shell-friendly CLI，不是产品级终端体验。缺少：
-
-- streaming output。
-- readline。
-- slash commands。
-- tool progress display。
-- approval 更丰富选项。
+- readline 级历史导航、编辑和补全。
+- 完整 slash command 系统，例如 `/compact`、`/model`、`/cost`。
+- 结构化 tool progress display。
+- TUI permission modal 和更丰富 approval 选项。
 
 ### 6. 权限策略持久化
 
@@ -579,8 +570,8 @@ cmd/runcode chat
 
 如果目标是减少“半成品感”，建议不要马上继续堆新大功能，而是先补三个基础缺口：
 
-1. 更新过期文档，让外部说明与代码一致。
-2. 增加 `/clear` 或最小 history reset 入口，补齐当前内存会话的基础控制能力。
-3. 再推进 session resume、context compaction 或更完整的 CLI 交互体验。
+1. 实现 transcript-backed session resume 或 context compaction，让长会话能跨进程延续。
+2. 补齐 TUI permission modal 和 tool progress UI，让工具执行更可见、更可控。
+3. 增加 settings-backed permission policy，为 allow once/session/project 等选择打基础。
 
-这三项不会显著扩大架构面，但能把当前最小闭环从“能跑”推进到“更像可用的开发助手”。
+这三项不会改变当前核心 ReAct 架构，但能把最小闭环从“能跑”推进到“更像可长期使用的开发助手”。

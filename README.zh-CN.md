@@ -7,13 +7,13 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **状态：v0.1-alpha。** 当前已经有最小 provider-backed `chat` 命令、内存态 ReAct loop、safe/interactive 权限、telemetry，以及内置 `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` 工具；但还不是完整 TUI 产品。
+> **状态：v0.1-alpha。** 当前已经有最小 provider-backed `chat` 命令、内存态 ReAct loop、最小 Bubble Tea `tui` 命令、CLI chat 的 safe/interactive 权限、telemetry，以及内置 `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` 工具；但还不是完整 TUI 产品。
 
 ## runcode 是什么？
 
 `runcode` 是一个面向终端的 Go 版 AI 编程伴侣。当前版本刻意保持小范围：通过 `runcode chat` 调用 Anthropic provider，暴露一组受限本地工具，并在文件修改和命令执行前经过内部权限层。
 
-长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI、MCP、hooks、sub-agents、skills、SQLite transcript、上下文压缩、多 provider 等系统目前仍是脚手架或后续工作。
+长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；MCP、hooks、sub-agents、skills、SQLite transcript、上下文压缩、更完整的 TUI 权限/工具界面、多 provider 等系统目前仍是脚手架或后续工作。
 
 ## 快速开始
 
@@ -33,7 +33,13 @@ go build ./cmd/runcode
 ANTHROPIC_MODEL=claude-sonnet-4-6 \
 ANTHROPIC_API_KEY=... \
 ./runcode chat "summarize this repository"
+
+ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_API_KEY=... \
+./runcode tui
 ```
+
+`runcode chat` 会把 assistant text delta 实时写到 stdout。`runcode tui` 会启动一个最小 Bubble Tea 界面，包含状态栏、可滚动对话 viewport、单行输入、assistant 流式文本，以及 `/help`、`/clear`、`/status`、`/exit`。MVP 当前仅支持 `safe` 权限模式；interactive TUI 审批弹窗后续再做。
 
 常用参数和环境变量：
 
@@ -51,9 +57,8 @@ ANTHROPIC_API_KEY=... \
 
 当前限制：
 
-- 没有 Bubble Tea TUI。
+- TUI 仍是 MVP：还没有权限审批弹窗、tool progress UI、diff viewer、文件树、transcript 浏览器或多行输入。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- 没有终端流式渲染；每轮完成后输出 final assistant text。
 - 没有完整 slash commands 系统、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 
 ## 已实现工具
@@ -65,8 +70,8 @@ ANTHROPIC_API_KEY=... \
 | `Read` | 读取 workspace 文件，返回行号文本，并记录完整/部分读取 metadata。 |
 | `Write` | 在 workspace 内创建文件，或覆盖已 fresh-read 的文件。 |
 | `Edit` | 在 workspace 内对已 fresh-read 文件做 exact string replacement。 |
-| `Glob` | 用 slash glob pattern 和 `**` 查找 workspace 文件。 |
-| `Grep` | 用 Go regexp 搜索 workspace 文本文件。 |
+| `Glob` | 用 slash glob pattern 和 `**` 查找 workspace 文件；可与兄弟 safe 工具调用并发执行。 |
+| `Grep` | 用 Go regexp 搜索 workspace 文本文件；可与兄弟 safe 工具调用并发执行。 |
 | `Bash` | 权限审批后，在 workspace 内执行单行非交互 Bash 命令。 |
 
 `TodoWrite`、WebFetch/WebSearch、MCP tools 和插件工具尚未实现。
@@ -89,7 +94,8 @@ Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把
 
 ```text
 用户输入
-  -> cmd/runcode chat
+  -> cmd/runcode chat OR cmd/runcode tui
+  -> shared chat config/session factory
   -> Anthropic provider
   -> internal/repl.Session
   -> prompt.BuildSystemPrompt + tools.Builtins tool specs
@@ -99,7 +105,7 @@ Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把
   -> internal/permissions.Service
   -> Tool.Run
   -> tool_result
-  -> model final text
+  -> chat stdout OR TUI StreamDelta event
 ```
 
 更多说明：
@@ -111,7 +117,8 @@ Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把
 ## 项目布局
 
 ```text
-cmd/runcode/           Cobra CLI：version 和最小 chat
+cmd/runcode/           Cobra CLI：version、chat 和最小 tui
+internal/ui/           Bubble Tea TUI MVP：状态栏、viewport、输入框、slash commands
 internal/repl/         ReAct session、executor、tool result conversion、telemetry
 internal/permissions/  action/resource/risk、policy、approval、command classification
 internal/prompt/       系统提示组装器和 cache boundary
@@ -124,7 +131,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：`internal/ui`、`internal/mcp`、`internal/hooks`、SQLite/session resume persistence、`internal/compaction`、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`pkg/llm/providers/openai`、`tools/todo`、`prompts/*`。
+仍是脚手架或未实现：`internal/mcp`、`internal/hooks`、SQLite/session resume persistence、`internal/compaction`、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`pkg/llm/providers/openai`、`tools/todo`、`prompts/*`。
 
 ## 贡献
 

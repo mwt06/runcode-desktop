@@ -7,13 +7,13 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **Status: v0.1-alpha.** The project has a minimal provider-backed `chat` command, an in-memory ReAct loop, safe/interactive permissions, telemetry, and built-in `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` tools. It is not a full TUI product yet.
+> **Status: v0.1-alpha.** The project has a minimal provider-backed `chat` command, an in-memory ReAct loop, a minimal Bubble Tea `tui` command, safe/interactive permissions for CLI chat, telemetry, and built-in `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` tools. It is not a full TUI product yet.
 
 ## What is runcode?
 
 `runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
 
-The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. Many planned systems — Bubble Tea TUI, MCP, hooks, sub-agents, skills, SQLite transcripts, context compaction, and multi-provider support — are still scaffolds or deferred work.
+The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; many planned systems — MCP, hooks, sub-agents, skills, SQLite transcripts, context compaction, richer TUI permissions/tool UI, and multi-provider support — are still scaffolds or deferred work.
 
 ## Quick start
 
@@ -33,7 +33,13 @@ go build ./cmd/runcode
 ANTHROPIC_MODEL=claude-sonnet-4-6 \
 ANTHROPIC_API_KEY=... \
 ./runcode chat "summarize this repository"
+
+ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_API_KEY=... \
+./runcode tui
 ```
+
+`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a status bar, scrollable conversation viewport, single-line input, streaming assistant text, and `/help`, `/clear`, `/status`, `/exit`. The MVP currently supports `safe` permission mode only; interactive TUI approval modals are deferred.
 
 Useful flags and environment variables:
 
@@ -51,9 +57,8 @@ Useful flags and environment variables:
 
 Current limitations:
 
-- No Bubble Tea TUI.
+- TUI is MVP-only: no permission modal, tool progress UI, diff viewer, file tree, transcript browser, or multi-line input yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- No streaming terminal rendering; final assistant text is printed after each turn.
 - No full slash command system, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
 
 ## Implemented tools
@@ -65,8 +70,8 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `Read` | Reads workspace files with line numbers and records complete/partial read metadata. |
 | `Write` | Creates files or overwrites fresh-read files inside the workspace. |
 | `Edit` | Performs exact string replacement on fresh-read files inside the workspace. |
-| `Glob` | Finds workspace files with slash glob patterns and `**`. |
-| `Grep` | Searches workspace text files with Go regular expressions. |
+| `Glob` | Finds workspace files with slash glob patterns and `**`; concurrency-safe with sibling safe tool calls. |
+| `Grep` | Searches workspace text files with Go regular expressions; concurrency-safe with sibling safe tool calls. |
 | `Bash` | Runs a single-line non-interactive bash command in the workspace after permission approval. |
 
 `TodoWrite`, WebFetch/WebSearch, MCP tools, and plugin tools are not implemented yet.
@@ -89,7 +94,8 @@ Transcript recording is off by default. When enabled with `--transcript jsonl`, 
 
 ```text
 User input
-  -> cmd/runcode chat
+  -> cmd/runcode chat OR cmd/runcode tui
+  -> shared chat config/session factory
   -> Anthropic provider
   -> internal/repl.Session
   -> prompt.BuildSystemPrompt + tools.Builtins tool specs
@@ -99,7 +105,7 @@ User input
   -> internal/permissions.Service
   -> Tool.Run
   -> tool_result
-  -> model final text
+  -> chat stdout OR TUI StreamDelta event
 ```
 
 See:
@@ -111,7 +117,8 @@ See:
 ## Project layout
 
 ```text
-cmd/runcode/           Cobra CLI: version and minimal chat
+cmd/runcode/           Cobra CLI: version, chat, and minimal tui
+internal/ui/           Bubble Tea TUI MVP: status bar, viewport, input, slash commands
 internal/repl/         ReAct session, executor, tool result conversion, telemetry
 internal/permissions/  action/resource/risk model, policy, approval, command classification
 internal/prompt/       system prompt assembler and cache boundary
@@ -124,7 +131,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: `internal/ui`, `internal/mcp`, `internal/hooks`, SQLite/session resume persistence, `internal/compaction`, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `pkg/llm/providers/openai`, `tools/todo`, and `prompts/*`.
+Scaffolded but not implemented yet: `internal/mcp`, `internal/hooks`, SQLite/session resume persistence, `internal/compaction`, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `pkg/llm/providers/openai`, `tools/todo`, and `prompts/*`.
 
 ## Contributing
 

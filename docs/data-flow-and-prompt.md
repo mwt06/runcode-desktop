@@ -2,33 +2,36 @@
 
 本文档基于当前代码实现整理，用于快速理解 `runcode` 的 CLI 执行链路、ReAct 工具数据流、权限边界、telemetry 和 system prompt 拼接方式。
 
-当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic provider、`internal/repl.Session`、内置工具、权限系统和 telemetry；但还没有 Bubble Tea TUI、持久 transcript、context compaction、MCP、hooks、sub-agents、skills 或 OpenAI provider。
+当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic provider、`internal/repl.Session`、内置工具、权限系统和 telemetry；`cmd/runcode tui` 已接入最小 Bubble Tea TUI MVP；但还没有完整 TUI 权限弹窗、持久 transcript resume、context compaction、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 
 ## 1. CLI 到 Session 的数据流
 
 ```text
 用户输入
-  -> cmd/runcode chat
-  -> defaultChatRunner.Run
-  -> defaultChatRunner.sessionFor
+  -> cmd/runcode chat OR cmd/runcode tui
+  -> shared chatConfig/session factory
   -> anthropic.New(provider options)
   -> tools.Builtins()
   -> permissions.Service
   -> repl.NewSession
   -> Session.RunTurn
+  -> chat stdout OR TUI StreamDelta event
 ```
 
 当前 CLI 入口：
 
 - `cmd/runcode/main.go`
 - `cmd/runcode/chat.go`
+- `cmd/runcode/tui.go`
 - `cmd/runcode/line_input.go`
+- `internal/ui/*`
 - `cmd/runcode/approval.go`
 
 实际效果：
 
 - `runcode chat [prompt]` 从 args 或 stdin 读取 prompt。
 - `runcode chat --loop` 逐行读取 stdin，并复用同一个内存 session；`/clear` 会清空该 session 的内存 history。
+- `runcode tui` 启动最小 Bubble Tea TUI，复用同一套 chat 配置和 session 构造路径，把 `StreamDelta` 转换成 UI event 后渲染。
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES` 限制每轮发送给 provider 的内存 history 消息数（`0` = 不限制，默认）。
 - `--provider` 当前只支持 `anthropic`。
 - `--model` / `ANTHROPIC_MODEL` 必填。
@@ -41,9 +44,9 @@
 
 当前限制：
 
-- CLI 不做 token 实时渲染；每轮完成后输出 final assistant text。
+- `chat` 保持 shell-friendly 输出，并把 assistant text delta 实时写到 stdout；TUI 负责交互式流式渲染。
 - `--loop` 不是完整 REPL，除 `/clear` / exit aliases 外没有完整 slash command 系统、readline、多行输入或 transcript-backed session resume。
-- 没有 TUI。
+- TUI 仍是 MVP：没有 permission modal、tool progress UI、diff viewer、文件树或 transcript-backed session resume。
 
 ## 2. Session RunTurn 数据流
 
@@ -85,7 +88,7 @@ Session.RunTurn(ctx, userText)
 
 - transcript 是 append-only 摘要记录，当前还不能恢复 session history。
 - 已有按 message-count 的 history budget（默认关闭），但没有 token 精确预算、语义 context compaction 或 transcript-backed resume。
-- tool_use 顺序执行，不做并发工具调度。
+- 连续的 concurrency-safe tool_use 会批量并发执行；当前只有 `Glob` 和 `Grep` 标记为并发安全，interactive approval 可用时会退回串行执行。
 - permission denied、unknown tool 和普通工具 runtime error 会作为 `is_error=true` tool_result 回灌模型；provider/stream/context/max-iteration 等仍会中断 turn。
 
 ## 3. Prompt 拼接结构
@@ -365,7 +368,6 @@ Anthropic provider：
 
 ```text
 internal/app/components
-internal/ui
 internal/persistence/claudemd
 internal/persistence/settings
 internal/persistence/sqlite
@@ -390,7 +392,7 @@ examples/custom-tool
 
 对应未实现能力：
 
-- Bubble Tea TUI。
+- 完整 TUI 产品能力：permission modal、tool progress UI、diff viewer、transcript browser、多行输入和 model switching。
 - SQLite transcript backend 和 session resume。
 - settings persistence。
 - context compaction。
@@ -410,4 +412,4 @@ examples/custom-tool
 如果目标是减少半成品感，而不是继续扩新功能，建议顺序是：
 
 1. 实现 transcript-backed session resume 或 context compaction。
-2. 再考虑 TodoWrite、streaming output、TUI、MCP 等更大功能。
+2. 再考虑 TodoWrite、tool progress UI、完整 TUI 产品能力、MCP 等更大功能。

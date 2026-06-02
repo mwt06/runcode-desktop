@@ -465,7 +465,43 @@ func shallowCopyToolContext(tctx *tool.Context, toolUseID string) *tool.Context 
 	}
 	c := *tctx
 	c.ToolUseID = toolUseID
+	c.ReadSet = cloneReadSet(tctx.ReadSet)
+	c.Env = cloneStringMap(tctx.Env)
+	c.Metadata = cloneMetadata(tctx.Metadata)
 	return &c
+}
+
+func cloneReadSet(readSet map[string]tool.ReadFile) map[string]tool.ReadFile {
+	if readSet == nil {
+		return nil
+	}
+	cloned := make(map[string]tool.ReadFile, len(readSet))
+	for k, v := range readSet {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for k, v := range values {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+func cloneMetadata(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(values))
+	for k, v := range values {
+		cloned[k] = v
+	}
+	return cloned
 }
 
 func mergeToolContextReadSet(dst *tool.Context, src *tool.Context) {

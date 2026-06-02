@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - System prompt assembler in `internal/prompt`, with static/dynamic cache boundary, tool descriptions, environment section, permission-mode guidance, memory/project context slots, and reasoning guidance.
 - Project context loader for `RUNCODE.md` / `CLAUDE.md`, wired into `chat` prompt construction with bounded reads and truncation.
 - Opt-in JSONL transcript recording with `--transcript jsonl` / `RUNCODE_TRANSCRIPT=jsonl` and optional `--session-id` / `RUNCODE_SESSION_ID`.
+- Minimal Bubble Tea `runcode tui` MVP with a status bar, conversation viewport, single-line input, streaming assistant text, and `/help`, `/clear`, `/status`, `/exit`.
 - Interactive approval prompt on stderr for `--permission-mode interactive` / `confirm`.
 - Current implementation status document at `docs/implementation-status.md`.
 
@@ -64,7 +65,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned
 
-- Bubble Tea TUI.
+- Full TUI product features beyond the MVP (permission modal, tool progress UI, diff viewer, transcript browser, model switching).
 - SQLite transcript and persistent session resume.
 - OpenAI provider.
 - TodoWrite tool.

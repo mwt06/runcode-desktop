@@ -4,11 +4,12 @@ This document tracks the architecture that is currently implemented in runcode.
 
 ## Current status
 
-runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for an AI coding companion, and the provider-neutral session controller now supports a finite ReAct loop with in-memory multi-turn history. The CLI chat command is wired as a minimal provider-backed command with an optional loop mode; the full interactive TUI is intentionally not wired yet.
+runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for an AI coding companion, and the provider-neutral session controller now supports a finite ReAct loop with in-memory multi-turn history. The CLI chat command is wired as a minimal provider-backed command with an optional loop mode; `runcode tui` is wired as a minimal Bubble Tea MVP for status, conversation, input, streaming assistant text, and basic slash commands.
 
 Implemented:
 
-- `cmd/runcode`: Cobra CLI entry point with `version` and a minimal provider-backed `chat` command, including optional in-memory `--loop` mode.
+- `cmd/runcode`: Cobra CLI entry point with `version`, a minimal provider-backed `chat` command with optional in-memory `--loop` mode, and a minimal `tui` command.
+- `internal/ui`: minimal Bubble Tea TUI MVP with a status bar, scrollable conversation viewport, single-line input, streaming assistant deltas, and `/help` / `/clear` / `/status` / `/exit`.
 - `pkg/tool`: public tool SDK boundary, including tool context, schema, events, and result types.
 - `pkg/llm`: provider-neutral LLM request, message, stream, content block, cache, and tool spec types.
 - `tools/registry.go`: single registration point for built-in tools.
@@ -27,7 +28,7 @@ Implemented:
 
 Not implemented yet:
 
-- Bubble Tea TUI.
+- Full TUI product features beyond the MVP: permission modal, tool progress cards, diff viewer, file tree, transcript browser, multi-line input, and model switching.
 - Persistent permission policy configuration.
 - MCP, hooks, sub-agents, skills, compaction, SQLite persistence, and transcript-backed session resume.
 - Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.
@@ -64,9 +65,11 @@ This keeps tool implementation, tool execution, model-facing tool schemas, and p
 
 `runcode chat` is wired as a minimal non-TUI command. By default it accepts a single prompt from args or stdin, constructs the Anthropic provider, built-in tools, prompt assembler inputs, telemetry recorder, and `internal/repl.Session`, then prints the final assistant text to stdout.
 
-`runcode chat --loop` keeps one process-local session alive across prompts. Args become the first prompt, subsequent prompts are read line-by-line from stdin, and EOF or `/exit` / `/quit` / `exit` / `quit` exits cleanly. `/clear` resets only the in-memory history. The loop does not stream partial output, start a Bubble Tea UI, resume transcript-backed sessions, or compact history.
+`runcode chat --loop` keeps one process-local session alive across prompts. Args become the first prompt, subsequent prompts are read line-by-line from stdin, and EOF or `/exit` / `/quit` / `exit` / `quit` exits cleanly. `/clear` resets only the in-memory history. The loop does not start a Bubble Tea UI, resume transcript-backed sessions, or compact history.
 
-The command remains shell-friendly. Assistant final text is written to stdout. Loop prompt markers, interactive permission approval, and `RUNCODE_TELEMETRY=jsonl` / `--telemetry jsonl` output are written to stderr. Loop prompt input and approval input share the same line reader so they do not lose buffered stdin data. `RUNCODE_TRANSCRIPT=jsonl` / `--transcript jsonl` writes append-only records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; `--session-id` / `RUNCODE_SESSION_ID` can choose the file name.
+`runcode tui` starts a minimal Bubble Tea UI. It reuses the same chat config flags and session construction path, but routes `SessionOptions.StreamDelta` into Bubble Tea messages instead of writing deltas directly to stdout. The MVP supports safe permission mode only and handles `/help`, `/clear`, `/status`, and `/exit` locally.
+
+The `chat` command remains shell-friendly. Assistant text is written to stdout. Loop prompt markers, interactive permission approval, and `RUNCODE_TELEMETRY=jsonl` / `--telemetry jsonl` output are written to stderr. Loop prompt input and approval input share the same line reader so they do not lose buffered stdin data. `RUNCODE_TRANSCRIPT=jsonl` / `--transcript jsonl` writes append-only records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; `--session-id` / `RUNCODE_SESSION_ID` can choose the file name.
 
 ## Prompt cache boundary
 
