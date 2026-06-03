@@ -41,6 +41,7 @@ type Config struct {
 	Telemetry          string `toml:"telemetry"`
 	Transcript         string `toml:"transcript"`
 	MaxHistoryMessages *int   `toml:"max_history_messages"`
+	MaxContextTokens   *int   `toml:"max_context_tokens"`
 	APIKey             string `toml:"api_key"`
 	AuthToken          string `toml:"auth_token"`
 }
@@ -189,6 +190,9 @@ func merge(base Config, override Config) Config {
 	}
 	if override.MaxHistoryMessages != nil {
 		out.MaxHistoryMessages = override.MaxHistoryMessages
+	}
+	if override.MaxContextTokens != nil {
+		out.MaxContextTokens = override.MaxContextTokens
 	}
 	if override.APIKey != "" {
 		out.APIKey = override.APIKey

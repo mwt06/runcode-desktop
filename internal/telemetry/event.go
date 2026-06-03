@@ -33,6 +33,8 @@ const (
 	EventToolEnd            EventName = "tool.execute.end"
 	EventToolError          EventName = "tool.execute.error"
 	EventPermissionDecision EventName = "permission.decision"
+	EventSessionPersistErr  EventName = "session.persist.error"
+	EventCompactionErr      EventName = "compaction.error"
 )
 
 const (

@@ -553,14 +553,11 @@ func TestTranscriptRecorderCreatesWorkspaceFile(t *testing.T) {
 	t.Parallel()
 
 	workspace := t.TempDir()
-	recorder, sessionID, err := transcriptRecorder(chatConfig{CWD: workspace, Transcript: "jsonl", SessionID: "sess_test"})
+	recorder, err := transcriptRecorderForID(chatConfig{CWD: workspace, Transcript: "jsonl"}, "sess_test")
 	if err != nil {
-		t.Fatalf("transcriptRecorder: %v", err)
+		t.Fatalf("transcriptRecorderForID: %v", err)
 	}
 	defer recorder.Close(context.Background())
-	if sessionID != "sess_test" {
-		t.Fatalf("session id = %q, want sess_test", sessionID)
-	}
 	path := filepath.Join(workspace, ".runcode", "transcripts", "sess_test.jsonl")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat transcript file: %v", err)

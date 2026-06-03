@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/projectctx"
@@ -42,6 +43,10 @@ type chatConfig struct {
 	Transcript         string
 	SessionID          string
 	MaxHistoryMessages int
+	MaxContextTokens   int
+	Resume             string
+	Continue           bool
+	PersistSession     bool
 }
 
 type chatIO struct {
@@ -63,6 +68,7 @@ type defaultChatRunner struct {
 	session    *repl.Session
 	recorder   telemetry.Recorder
 	transcript transcript.Recorder
+	sessions   sessions.Store
 }
 
 type sessionFactoryOptions struct {
@@ -76,6 +82,7 @@ type sessionFactoryOptions struct {
 type sessionResources struct {
 	Telemetry  telemetry.Recorder
 	Transcript transcript.Recorder
+	Sessions   sessions.Store
 	SessionID  string
 }
 
@@ -141,8 +148,12 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
 	cmd.Flags().String("permission-mode", "", "Permission mode: safe or interactive")
 	cmd.Flags().String("transcript", "", "Transcript mode: off or jsonl")
-	cmd.Flags().String("session-id", "", "Session id for transcript files")
+	cmd.Flags().String("session-id", "", "Session id for transcript and history files")
 	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
+	cmd.Flags().Int("max-context-tokens", 0, "Context token budget that triggers compaction (0 = disabled)")
+	cmd.Flags().String("resume", "", "Resume a saved session by id and continue it")
+	cmd.Flags().Bool("continue", false, "Resume the most recent saved session")
+	cmd.Flags().Bool("no-session", false, "Disable saving full session history for resume")
 }
 
 func closeChatRunner(ctx context.Context, runner chatRunner) error {
@@ -256,6 +267,17 @@ func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
 			return chatConfig{}, err
 		}
 	}
+	if cfg.Resume != "" && cfg.Continue {
+		return chatConfig{}, errors.New("--resume and --continue are mutually exclusive")
+	}
+	if cfg.Resume != "" && cfg.SessionID != "" {
+		return chatConfig{}, errors.New("--resume and --session-id are mutually exclusive")
+	}
+	if cfg.Resume != "" {
+		if err := transcript.ValidateSessionID(cfg.Resume); err != nil {
+			return chatConfig{}, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -327,6 +349,22 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	maxContextTokens, err := intFlagEnvFile(cmd, "max-context-tokens", "ANTHROPIC_MAX_CONTEXT_TOKENS", file.MaxContextTokens)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	resumeID, err := cmd.Flags().GetString("resume")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	continueSession, err := cmd.Flags().GetBool("continue")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	noSession, err := cmd.Flags().GetBool("no-session")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 
 	return chatConfig{
 		Provider:           provider,
@@ -341,6 +379,10 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		Transcript:         transcriptMode,
 		SessionID:          strings.TrimSpace(sessionID),
 		MaxHistoryMessages: maxHistoryMessages,
+		MaxContextTokens:   maxContextTokens,
+		Resume:             strings.TrimSpace(resumeID),
+		Continue:           continueSession,
+		PersistSession:     !noSession,
 	}, resolved, nil
 }
 
@@ -500,19 +542,40 @@ func telemetryRecorderWithRuntime(mode string, runtime chatIO) telemetry.Recorde
 	return telemetry.Noop()
 }
 
-func transcriptRecorder(cfg chatConfig) (transcript.Recorder, string, error) {
+// resolveSessionID determines the id for this session, honoring --resume and
+// --continue, falling back to --session-id or a freshly generated id.
+func resolveSessionID(cfg chatConfig) (string, error) {
+	if cfg.Resume != "" {
+		return cfg.Resume, nil
+	}
+	if cfg.Continue {
+		latest, err := sessions.LatestSessionID(cfg.CWD)
+		if err != nil {
+			return "", err
+		}
+		if latest == "" {
+			return "", errors.New("no saved session to continue")
+		}
+		return latest, nil
+	}
+	if cfg.SessionID != "" {
+		return cfg.SessionID, nil
+	}
+	return transcript.NewSessionID(), nil
+}
+
+func transcriptRecorderForID(cfg chatConfig, sessionID string) (transcript.Recorder, error) {
 	if cfg.Transcript != "jsonl" {
-		return transcript.Noop(), cfg.SessionID, nil
+		return transcript.Noop(), nil
 	}
-	sessionID := cfg.SessionID
-	if sessionID == "" {
-		sessionID = transcript.NewSessionID()
+	return transcript.OpenJSONL(cfg.CWD, sessionID)
+}
+
+func openSessionStore(cfg chatConfig, sessionID string) (sessions.Store, error) {
+	if !cfg.PersistSession {
+		return sessions.Noop(), nil
 	}
-	recorder, err := transcript.OpenJSONL(cfg.CWD, sessionID)
-	if err != nil {
-		return nil, "", err
-	}
-	return recorder, sessionID, nil
+	return sessions.OpenJSONL(cfg.CWD, sessionID)
 }
 
 func chatPrompt(cmd *cobra.Command, args []string) (string, error) {
@@ -559,6 +622,7 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	}
 	r.recorder = resources.Telemetry
 	r.transcript = resources.Transcript
+	r.sessions = resources.Sessions
 	r.session = session
 	return session, nil
 }
@@ -569,12 +633,30 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		telemetryRuntime = opts.Runtime
 	}
 	recorder := telemetryRecorderWithRuntime(cfg.Telemetry, telemetryRuntime)
-	trecorder, sessionID, err := transcriptRecorder(cfg)
-	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, SessionID: sessionID}
+	sessionID, err := resolveSessionID(cfg)
+	if err != nil {
+		closeRecorders(context.Background(), recorder)
+		return nil, sessionResources{}, err
+	}
+	trecorder, err := transcriptRecorderForID(cfg, sessionID)
+	if err != nil {
+		closeRecorders(context.Background(), recorder)
+		return nil, sessionResources{}, err
+	}
+	store, err := openSessionStore(cfg, sessionID)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder)
 		return nil, sessionResources{}, err
 	}
+	var initialHistory []llm.Message
+	if cfg.Resume != "" || cfg.Continue {
+		initialHistory, err = sessions.LoadHistory(cfg.CWD, sessionID)
+		if err != nil {
+			closeRecorders(context.Background(), recorder, trecorder, store)
+			return nil, sessionResources{}, err
+		}
+	}
+	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, Sessions: store, SessionID: sessionID}
 	provider, err := anthropic.New(anthropic.Options{
 		APIKey:           cfg.APIKey,
 		AuthToken:        cfg.AuthToken,
@@ -582,12 +664,12 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		DefaultMaxTokens: cfg.MaxTokens,
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder)
+		closeRecorders(context.Background(), recorder, trecorder, store)
 		return nil, sessionResources{}, err
 	}
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder)
+		closeRecorders(context.Background(), recorder, trecorder, store)
 		return nil, sessionResources{}, err
 	}
 	permissionService := opts.Permissions
@@ -622,9 +704,12 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		SessionID:          sessionID,
 		MaxHistoryMessages: cfg.MaxHistoryMessages,
 		StreamDelta:        streamDelta,
+		InitialHistory:     initialHistory,
+		SessionStore:       store,
+		MaxContextTokens:   cfg.MaxContextTokens,
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder)
+		closeRecorders(context.Background(), recorder, trecorder, store)
 		return nil, sessionResources{}, err
 	}
 	return session, resources, nil
@@ -639,7 +724,7 @@ func (r *defaultChatRunner) Reset(context.Context) error {
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {
-	return closeRecorders(ctx, r.recorder, r.transcript)
+	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions)
 }
 
 func closeRecorders(ctx context.Context, recorders ...interface{ Close(context.Context) error }) error {

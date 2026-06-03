@@ -13,7 +13,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/wt68/runcode/internal/compaction"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/prompt/sections"
@@ -53,6 +55,15 @@ type SessionOptions struct {
 	// Only text blocks trigger the callback; tool_use and thinking deltas are skipped.
 	// nil disables streaming.
 	StreamDelta func(delta string)
+	// InitialHistory seeds the session's working history, e.g. when resuming a
+	// persisted session. nil starts a fresh conversation.
+	InitialHistory []llm.Message
+	// SessionStore persists the full conversation for cross-process resume.
+	// nil disables persistence.
+	SessionStore sessions.Store
+	// MaxContextTokens enables context compaction once a turn's input tokens
+	// approach this budget. 0 (default) disables compaction.
+	MaxContextTokens int
 }
 
 type Session struct {
@@ -75,6 +86,8 @@ type Session struct {
 	history            []llm.Message
 	maxHistoryMessages int
 	streamDelta        func(delta string)
+	sessionStore       sessions.Store
+	maxContextTokens   int
 }
 
 type TurnResult struct {
@@ -124,6 +137,10 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	if transcriptRecorder == nil {
 		transcriptRecorder = transcript.Noop()
 	}
+	sessionStore := opts.SessionStore
+	if sessionStore == nil {
+		sessionStore = sessions.Noop()
+	}
 
 	return &Session{
 		provider:           opts.Provider,
@@ -142,8 +159,11 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		traceID:            traceID,
 		transcript:         transcriptRecorder,
 		sessionID:          opts.SessionID,
+		history:            cloneMessages(opts.InitialHistory),
 		maxHistoryMessages: maxHistoryMessages,
 		streamDelta:        opts.StreamDelta,
+		sessionStore:       sessionStore,
+		maxContextTokens:   opts.MaxContextTokens,
 	}, nil
 }
 
@@ -204,7 +224,13 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 			if err := s.recordTranscriptTurn(ctx, turn.id, userText, result); err != nil {
 				return result, turn.error(ctx, result, err)
 			}
+			// Persist this turn's complete new messages (the mandatory segment is
+			// never truncated by trimming) before committing the in-memory working
+			// set, which may be trimmed/compacted.
+			turnMessages := cloneMessages(messages[currentUserIndex:])
 			s.history = nextHistory
+			s.persistTurn(ctx, turn.id, turnMessages)
+			s.history = s.maybeCompact(ctx, turn.id, s.history, result.FinalUsage)
 			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
@@ -231,6 +257,78 @@ func (s *Session) History() []llm.Message {
 
 func (s *Session) ResetHistory() {
 	s.history = nil
+}
+
+const (
+	compactionThresholdRatio   = 0.8
+	compactionSummaryMaxTokens = 2048
+)
+
+const compactionSystemPrompt = "You are condensing a coding-assistant conversation to save context. " +
+	"Write a concise summary that preserves key decisions, file paths, code changes, the current task " +
+	"state, and any unresolved follow-ups. Omit pleasantries and verbatim tool output."
+
+const compactionInstruction = "Summarize the conversation so far per the system instructions."
+
+// persistTurn appends the turn's complete new messages to the session store.
+// Persistence failures are recorded and swallowed so they never interrupt the
+// conversation; the on-disk history simply misses a turn.
+func (s *Session) persistTurn(ctx context.Context, turnID string, messages []llm.Message) {
+	if s.sessionStore == nil || len(messages) == 0 {
+		return
+	}
+	if err := s.sessionStore.Append(ctx, messages); err != nil {
+		s.record(ctx, telemetry.Event{
+			Time:       time.Now().UTC(),
+			Name:       telemetry.EventSessionPersistErr,
+			TraceID:    s.traceID,
+			TurnID:     turnID,
+			Attributes: telemetry.Attrs{string(telemetry.AttrError): "session_persist_failed"},
+		})
+	}
+}
+
+// maybeCompact compacts the working history when the last turn's input tokens
+// approach the context budget. It uses the provider-reported input tokens as a
+// free token estimate and never errors out the turn — a failed compaction leaves
+// history untouched.
+func (s *Session) maybeCompact(ctx context.Context, turnID string, history []llm.Message, usage *llm.Usage) []llm.Message {
+	if s.maxContextTokens <= 0 || usage == nil {
+		return history
+	}
+	if usage.InputTokens <= int(float64(s.maxContextTokens)*compactionThresholdRatio) {
+		return history
+	}
+	compacted, err := compaction.Compact(ctx, history, compaction.Options{Summarize: s.summarizeForCompaction(turnID)})
+	if err != nil {
+		s.record(ctx, telemetry.Event{
+			Time:       time.Now().UTC(),
+			Name:       telemetry.EventCompactionErr,
+			TraceID:    s.traceID,
+			TurnID:     turnID,
+			Attributes: telemetry.Attrs{string(telemetry.AttrError): "compaction_failed"},
+		})
+		return history
+	}
+	return compacted
+}
+
+func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
+	return func(ctx context.Context, messages []llm.Message) (string, error) {
+		conversation := append(cloneMessages(messages), userMessage(compactionInstruction))
+		req := llm.Request{
+			Model:     s.model,
+			Messages:  conversation,
+			System:    []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: compactionSystemPrompt}},
+			MaxTokens: compactionSummaryMaxTokens,
+			Metadata:  s.metadata,
+		}
+		assistant, _, _, err := s.streamAssistant(ctx, req, turnID, "compaction_summary")
+		if err != nil {
+			return "", err
+		}
+		return llm.TextContent(assistant), nil
+	}
 }
 
 func (s *Session) recordTranscriptTurn(ctx context.Context, turnID string, userText string, result TurnResult) error {

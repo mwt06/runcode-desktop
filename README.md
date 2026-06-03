@@ -73,6 +73,18 @@ base_url = "https://api.anthropic.com"
 permission_mode = "interactive"
 ```
 
+### Session resume & compaction
+
+runcode saves each session's full conversation to `<workspace>/.runcode/sessions/<id>.jsonl` by default, so you can continue where you left off:
+
+- `--resume <id>`: restore a saved session and continue it.
+- `--continue`: resume the most recent session in this workspace.
+- `--no-session` / `RUNCODE_SESSION_PERSIST=off`: disable history persistence.
+
+Set `--max-context-tokens` (or `max_context_tokens` in config) to cap context: when a turn's input tokens approach the budget, runcode summarizes the oldest turns into one message and keeps recent turns verbatim. Compaction affects only the in-memory working set — the on-disk history stays complete. `/clear` clears the in-memory context, but the on-disk session log remains a full append-only record.
+
+The session log is loss-less and may contain file contents and command output; it is written `0600` inside the workspace and ignored via `.gitignore`.
+
 Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.

@@ -42,6 +42,8 @@
 - `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT` 控制是否写入 JSONL transcript。
 - `--session-id` / `RUNCODE_SESSION_ID` 可指定 transcript 文件名。
 - 配置解析在 `chatConfigFromCommand`(chat 与 tui 共用)内完成,优先级 flag > env > 项目 `runcode.toml` > 用户 `config.toml` > 默认;凭证仅取自用户级文件。`runcode config` 打印生效配置与命中路径(凭证脱敏)。
+- 会话持久化默认开启:每个成功 turn 把本 turn 完整新消息 append 到 `.runcode/sessions/<id>.jsonl`(完整 `llm.Message`,无损);`--resume`/`--continue` 经 `sessions.LoadHistory` 注入 `SessionOptions.InitialHistory` 跨进程恢复。磁盘 append-only 完整,内存工作集另算。
+- 上下文压缩:`--max-context-tokens` 设置后,`RunTurn` 在提交段用上一轮 provider 回传的 input tokens 判断,超 80% 预算则调 `internal/compaction` 把最旧 turn 经 LLM 总结成一条摘要消息(保留最近 turn、不拆 tool 对),只改内存历史。持久化/压缩失败均降级记 telemetry,不打断对话。
 
 当前限制：
 

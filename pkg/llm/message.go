@@ -19,11 +19,13 @@ const (
 	RoleTool Role = "tool"
 )
 
-// Message is a neutral conversation message.
+// Message is a neutral conversation message. JSON tags make it a stable,
+// loss-less persistence format for session history (omitempty keeps records
+// compact and round-trips nil fields faithfully).
 type Message struct {
-	Role    Role
-	Content []ContentBlock
-	Name    string
+	Role    Role           `json:"role"`
+	Content []ContentBlock `json:"content,omitempty"`
+	Name    string         `json:"name,omitempty"`
 }
 
 // ContentBlockType identifies a neutral message content block.
@@ -44,17 +46,17 @@ const (
 
 // ContentBlock is one neutral content unit in a message.
 type ContentBlock struct {
-	Type      ContentBlockType
-	Text      string
-	ID        string
-	Name      string
-	Input     json.RawMessage
-	ToolUseID string
-	Content   []ContentBlock
-	Source    *ImageSource
-	Signature string
-	Cache     CacheControl
-	IsError   bool
+	Type      ContentBlockType `json:"type"`
+	Text      string           `json:"text,omitempty"`
+	ID        string           `json:"id,omitempty"`
+	Name      string           `json:"name,omitempty"`
+	Input     json.RawMessage  `json:"input,omitempty"`
+	ToolUseID string           `json:"tool_use_id,omitempty"`
+	Content   []ContentBlock   `json:"content,omitempty"`
+	Source    *ImageSource     `json:"source,omitempty"`
+	Signature string           `json:"signature,omitempty"`
+	Cache     CacheControl     `json:"cache,omitempty"`
+	IsError   bool             `json:"is_error,omitempty"`
 }
 
 // TextContent returns the concatenated text blocks in a message.
@@ -70,9 +72,9 @@ func TextContent(message Message) string {
 
 // ImageSource describes image data supplied to a model.
 type ImageSource struct {
-	MediaType string
-	Data      []byte
-	URL       string
+	MediaType string `json:"media_type,omitempty"`
+	Data      []byte `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 // CacheControl describes provider prompt-cache behavior for a content block.

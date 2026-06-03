@@ -72,7 +72,7 @@ cmd/runcode chat
 - 没有完整 slash command 系统，例如 `/compact`、`/model`。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
-- 没有 transcript-backed session 恢复。
+- 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;尚无 transcript 浏览/检索界面。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。
 - 只支持 Anthropic provider。
 
@@ -138,11 +138,11 @@ cmd/runcode chat
 最小化缺口：
 
 - transcript 只保存白名单摘要，不保存可恢复完整 history。
-- 已有按 message-count 的 history budget（默认关闭），但没有 token 精确预算、语义 context compaction 或 transcript-backed resume。
+- 已有按 message-count 的 history budget(默认关闭)、token 预算触发的语义 context compaction(LLM 总结最旧 turn)、以及完整历史持久化 + resume;token 量用 provider 回传的 input tokens 近似,非本地精确计数。
 - 已支持 assistant text delta streaming 和 executor-level tool lifecycle events，TUI 可展示带安全文件摘要的树状工具进度卡片；Read/Glob/Grep 可提供文件摘要，内置工具暂未普遍发送更细粒度 output。
 - 并发执行仅覆盖已标记安全的工具；Read/Write/Edit/Bash 仍串行，暂没有动态工具调度策略。
 - provider/stream/context/max-iteration 等错误仍是 turn-level error。
-- 没有 session resume；session id 目前只用于 transcript 文件名。
+- 已有 session resume:完整历史落盘到 `.runcode/sessions/`,`--resume`/`--continue` 跨进程恢复并通过 `InitialHistory` 注入;session id 同时用于 transcript 与 sessions 文件名。
 - reasoning classification 是 prompt routing，不是 provider-native thinking。
 
 ### 工具系统
@@ -472,7 +472,6 @@ cmd/runcode chat
 - `internal/persistence/migrate`
 - `internal/coordinator`
 - `internal/session`
-- `internal/compaction`
 - `internal/cost`
 - `internal/hooks`
 - `internal/mcp`
@@ -492,8 +491,6 @@ cmd/runcode chat
 - 完整 TUI 产品能力：diff viewer、transcript browser、多行输入和 model switching(permission modal 与 rich tool output 已实现)。
 - SQLite transcript backend。
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
-- transcript-backed session resume。
-- compaction。
 - cost tracking。
 - hooks。
 - MCP。
@@ -507,14 +504,11 @@ cmd/runcode chat
 
 ## 主要缺口按优先级
 
-### 1. Session resume 与 compaction
+### 1. Session resume 与 compaction(已实现)
 
-当前 `chat --loop` 和 `tui` 都有进程内 history，且可选 JSONL transcript 会保存白名单摘要，但还没有从 transcript 恢复上下文或压缩。建议实现：
+已落地:独立的完整-history 存储 `internal/persistence/sessions`(`.runcode/sessions/<id>.jsonl`,默认开启),`--resume`/`--continue` 跨进程恢复并通过 `SessionOptions.InitialHistory` 注入;`internal/compaction` 在 `--max-context-tokens` 设置且某轮 input tokens 接近预算时,调 LLM 把最旧 turn 总结成一条摘要消息,保留最近 turn。磁盘 append-only 完整、内存工作集可压缩。
 
-- resume-capable transcript format 或独立 transcript-backed history store。
-- session id。
-- session resume 或 transcript-backed history 管理。
-- context compaction。
+后续仍可做:transcript/session 浏览检索界面、SQLite 后端、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
 
 ### 2. 模型可自我修正能力
 
@@ -566,10 +560,10 @@ cmd/runcode chat
 
 ## 后续推荐路线
 
-如果目标是减少“半成品感”，建议不要马上继续堆新大功能，而是先补三个基础缺口：
+下列基础能力已落地,把最小闭环推进到“更像可长期使用的开发助手”:
 
-1. 实现 transcript-backed session resume 或 context compaction，让长会话能跨进程延续。
-2. 补齐 TUI permission modal 和 rich tool output，让工具执行更可控、输出更清晰。
-3. 增加 settings-backed permission policy，为 allow once/session/project 等选择打基础。
+1. ✅ session resume + context compaction(完整历史持久化 + `--resume`/`--continue` + token 预算压缩)。
+2. ✅ TUI permission modal + 会话级权限记忆 + rich tool output(输出摘要 + Edit/Write 行级 diff)。
+3. ✅ TOML 配置文件加载(项目级 + 用户级,`runcode config` 查看)。
 
-这三项不会改变当前核心 ReAct 架构，但能把最小闭环从“能跑”推进到“更像可长期使用的开发助手”。
+后续可选大方向:settings-backed 权限策略持久化(allow project / denylist)、OpenAI 兼容 provider、slash 命令系统(`/model`、`/compact`、`/cost`)、MCP/hooks/skills/sub-agents。

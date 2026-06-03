@@ -73,6 +73,18 @@ base_url = "https://api.anthropic.com"
 permission_mode = "interactive"
 ```
 
+### 会话恢复与上下文压缩
+
+runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sessions/<id>.jsonl`，可跨进程接着上次继续：
+
+- `--resume <id>`：恢复指定会话并继续。
+- `--continue`：恢复本 workspace 最近一次会话。
+- `--no-session` / `RUNCODE_SESSION_PERSIST=off`：关闭历史持久化。
+
+设置 `--max-context-tokens`（或配置文件 `max_context_tokens`）可限制上下文：当某轮的 input tokens 接近预算时，runcode 会把最旧的若干 turn 总结成一条消息，保留最近 turn 原文。压缩只作用于内存工作集——磁盘历史保持完整。`/clear` 只清内存上下文，磁盘会话日志仍是完整的 append-only 记录。
+
+会话日志是无损的，可能包含文件内容与命令输出；它以 `0600` 写在 workspace 内，并被 `.gitignore` 忽略。
+
 当前限制：
 
 - TUI 仍是 MVP：已有权限审批弹窗与 rich tool output（输出摘要 + Edit/Write 行级 diff），但还没有 diff viewer、文件树、transcript 浏览器或多行输入。

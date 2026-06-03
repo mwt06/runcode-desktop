@@ -27,6 +27,9 @@ vendor/
 *.local
 /runcode.toml
 
+# Session history, transcripts, and other runtime data
+/.runcode/
+
 # Runtime data
 *.db
 *.db-journal

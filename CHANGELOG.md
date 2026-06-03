@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Cobra CLI entry point with `version` and a minimal provider-backed `chat` command.
 - TOML configuration files: project-level `runcode.toml` (discovered by walking up from the working directory) and user-level `config.toml` (under `os.UserConfigDir()/runcode/`), with precedence flag > env > project file > user file > default. Credentials (`api_key`/`auth_token`) are only honored from the user-level file; any in a project file are ignored.
 - `runcode config` command that prints the effective configuration, the loaded config-file paths, and whether credentials are set (credential values are never printed).
+- Full session history persistence to `<workspace>/.runcode/sessions/<id>.jsonl` (one complete `llm.Message` per line), enabled by default. `--resume <id>` restores and continues a saved session; `--continue` resumes the most recent one; `--no-session` (or `RUNCODE_SESSION_PERSIST=off`) disables persistence. The on-disk history is append-only and loss-less, kept separate from the sanitized transcript.
+- Context compaction: with `--max-context-tokens` / `ANTHROPIC_MAX_CONTEXT_TOKENS` / `max_context_tokens` set, once a turn's input tokens approach the budget the oldest turns are summarized into a single message (via the provider) while recent turns are kept verbatim. Compaction touches only the in-memory working set; the on-disk history stays complete.
+- `pkg/llm` `Message`/`ContentBlock`/`ImageSource` now carry JSON tags so session history serializes to a stable, compact format that round-trips faithfully.
 - `chat --loop` for process-local in-memory multi-turn sessions, with `/clear` to reset loop history.
 - Provider-neutral LLM model in `pkg/llm`, including messages, content blocks, tool specs, streams, usage, and cache-control hints.
 - Anthropic streaming provider skeleton using the official Anthropic Go SDK.
