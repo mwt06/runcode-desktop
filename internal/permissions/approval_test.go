@@ -64,9 +64,13 @@ type fakeApprover struct {
 	response ApprovalResponse
 	err      error
 	called   bool
+	calls    int
+	request  ApprovalRequest
 }
 
-func (f *fakeApprover) Prompt(context.Context, ApprovalRequest) (ApprovalResponse, error) {
+func (f *fakeApprover) Prompt(_ context.Context, req ApprovalRequest) (ApprovalResponse, error) {
 	f.called = true
+	f.calls++
+	f.request = req
 	return f.response, f.err
 }

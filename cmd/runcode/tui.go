@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,9 +38,6 @@ func newTuiCmd(runner tuiRunner) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if cfg.PermissionMode != "safe" {
-				return errors.New("runcode tui MVP supports permission-mode=safe only; interactive TUI approvals are deferred")
-			}
 			return runner.Run(cmd.Context(), cfg)
 		},
 	}
@@ -59,6 +55,9 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 	model := ui.New(service)
 	events := model.Events()
 	service.onDelta = func(delta string) { events <- ui.AssistantDelta(delta) }
+	if service.approver != nil {
+		service.approver.SetEvents(events)
+	}
 	bridgeCtx, stopBridge := context.WithCancel(ctx)
 	defer stopBridge()
 	go bridgeTuiToolEvents(bridgeCtx, service.toolEvents, events)
@@ -73,12 +72,25 @@ type tuiSessionService struct {
 	session    *repl.Session
 	resources  sessionResources
 	onDelta    func(string)
+	approver   *ui.Approver
 	toolEvents chan tool.Event
 	closed     bool
 }
 
 func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 	service := &tuiSessionService{cfg: cfg, toolEvents: make(chan tool.Event, tuiToolEventBufferSize)}
+	permissionService := permissions.NewService(permissions.Options{Mode: "safe"})
+	if cfg.PermissionMode == "interactive" {
+		service.approver = ui.NewApprover(cfg.CWD)
+		permissionService = permissions.NewService(permissions.Options{
+			Mode:              "interactive",
+			ApprovalAvailable: true,
+			Authorizer: permissions.InteractiveAuthorizer{
+				Approver: service.approver,
+				Store:    permissions.NewMemorySessionAllowStore(),
+			},
+		})
+	}
 	session, resources, err := newSessionForConfig(cfg, sessionFactoryOptions{
 		Runtime:          chatIO{Err: io.Discard, Out: nil},
 		TelemetryRuntime: chatIO{Err: os.Stderr},
@@ -88,7 +100,7 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 			}
 		},
 		ToolEvents:  service.toolEvents,
-		Permissions: permissions.NewService(permissions.Options{Mode: "safe"}),
+		Permissions: permissionService,
 	})
 	if err != nil {
 		return nil, err

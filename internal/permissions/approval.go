@@ -1,6 +1,19 @@
 package permissions
 
-import "context"
+import (
+	"context"
+	"strings"
+)
+
+// ApprovalScope is the breadth of an interactive allow decision.
+type ApprovalScope string
+
+const (
+	// ApprovalScopeOnce allows only the current action.
+	ApprovalScopeOnce ApprovalScope = "once"
+	// ApprovalScopeSession allows equivalent actions for the rest of the session.
+	ApprovalScopeSession ApprovalScope = "session"
+)
 
 type ApprovalSummary struct {
 	ToolName            string
@@ -23,10 +36,15 @@ type ApprovalSummary struct {
 
 type ApprovalRequest struct {
 	Summary ApprovalSummary
+	// Targets carries resolved file resource paths for display by interactive
+	// approvers. It is deliberately not part of ApprovalSummary so it never
+	// reaches telemetry; only the in-process UI consumes it.
+	Targets []string
 }
 
 type ApprovalResponse struct {
 	Effect Effect
+	Scope  ApprovalScope
 	Reason Reason
 }
 
@@ -34,8 +52,14 @@ type Approver interface {
 	Prompt(ctx context.Context, req ApprovalRequest) (ApprovalResponse, error)
 }
 
+// InteractiveAuthorizer resolves ask decisions by prompting the user. When a
+// Store is configured it also honors and records session-scope grants, so a
+// user can choose to stop being asked about equivalent actions. With a nil
+// Store it behaves as allow-once only.
 type InteractiveAuthorizer struct {
 	Approver Approver
+	Store    SessionAllowStore
+	KeyFunc  func(Action) string
 }
 
 func NewApprovalSummary(action Action, decision Decision) ApprovalSummary {
@@ -131,13 +155,25 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		decision.Reason = ReasonApprovalUnavailable
 		return decision
 	}
-	response, err := a.Approver.Prompt(ctx, ApprovalRequest{Summary: NewApprovalSummary(action, decision)})
+	key := a.sessionKey(action)
+	if key != "" && a.Store != nil && a.Store.Allowed(key) {
+		decision.FinalEffect = EffectAllow
+		decision.Reason = ReasonSessionAllowed
+		return decision
+	}
+	response, err := a.Approver.Prompt(ctx, ApprovalRequest{
+		Summary: NewApprovalSummary(action, decision),
+		Targets: actionTargets(action),
+	})
 	if err != nil {
 		decision.FinalEffect = EffectDeny
 		decision.Reason = ReasonApprovalUnavailable
 		return decision
 	}
 	if response.Effect == EffectAllow {
+		if response.Scope == ApprovalScopeSession && key != "" && a.Store != nil {
+			a.Store.Remember(key)
+		}
 		decision.FinalEffect = EffectAllow
 		decision.Reason = ReasonApprovalGranted
 		return decision
@@ -149,4 +185,32 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		decision.Reason = ReasonApprovalDenied
 	}
 	return decision
+}
+
+func (a InteractiveAuthorizer) sessionKey(action Action) string {
+	if a.Store == nil {
+		return ""
+	}
+	keyFunc := a.KeyFunc
+	if keyFunc == nil {
+		keyFunc = DefaultSessionKey
+	}
+	return keyFunc(action)
+}
+
+// actionTargets returns the file resource paths of an action for interactive
+// display. Command resources carry no path and are described by their
+// classification instead.
+func actionTargets(action Action) []string {
+	targets := make([]string, 0, len(action.Resources))
+	for _, resource := range action.Resources {
+		if resource.Type != ResourceFile && resource.Type != ResourceDirectory {
+			continue
+		}
+		if strings.TrimSpace(resource.Path) == "" {
+			continue
+		}
+		targets = append(targets, resource.Path)
+	}
+	return targets
 }

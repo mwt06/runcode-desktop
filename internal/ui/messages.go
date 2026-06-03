@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -57,6 +58,15 @@ type streamDeltaMsg struct {
 
 type toolEventMsg struct {
 	Event tool.Event
+}
+
+// approvalRequestMsg is delivered by the Approver when a tool needs interactive
+// authorization. The model renders a modal and returns the user's choice on
+// Reply, which unblocks the waiting turn goroutine.
+type approvalRequestMsg struct {
+	Summary permissions.ApprovalSummary
+	Targets []string
+	Reply   chan permissions.ApprovalResponse
 }
 
 type turnDoneMsg struct {

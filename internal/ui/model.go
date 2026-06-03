@@ -42,6 +42,9 @@ type Model struct {
 	exitingAfterCancel  bool
 	followOutput        bool
 
+	approval      *pendingApproval
+	approvalQueue []*pendingApproval
+
 	lastError               string
 	turnCount               int
 	totalInputTokens        int
@@ -104,6 +107,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyToolEvent(msg.Event)
 		m.refreshViewport()
 		return m, waitEventCmd(m.events)
+	case approvalRequestMsg:
+		m.enqueueApproval(msg)
+		m.relayout()
+		return m, waitEventCmd(m.events)
 	case turnDoneMsg:
 		m.finishTurn(msg.Result)
 		m.refreshViewport()
@@ -137,6 +144,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.approval != nil {
+		return m.handleApprovalKey(msg)
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		if m.inFlight && m.turnCancel != nil {
@@ -272,7 +282,12 @@ func (m *Model) resize() {
 }
 
 func (m Model) chromeHeight() int {
-	return bottomChromeHeight
+	return len(m.bottomBlock())
+}
+
+func (m *Model) relayout() {
+	m.resize()
+	m.refreshViewport()
 }
 
 func (m *Model) appendMessage(role Role, text string) {

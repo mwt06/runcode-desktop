@@ -37,6 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Opt-in JSONL transcript recording with `--transcript jsonl` / `RUNCODE_TRANSCRIPT=jsonl` and optional `--session-id` / `RUNCODE_SESSION_ID`.
 - Minimal Bubble Tea `runcode tui` MVP with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, tree-style tool progress cards with safe file summaries, and `/help`, `/clear`, `/status`, `/exit`.
 - Interactive approval prompt on stderr for `--permission-mode interactive` / `confirm`.
+- TUI permission modal for `--permission-mode interactive`, with allow once / allow for session / deny choices, keyboard selection, sanitized request details (tool, operation, risk, workspace-relative targets, command classification), and serialized prompts.
+- Session-scope permission memory: choosing "allow for session" stops re-prompting for equivalent actions (per mutation target for Write/Edit, per command classification for Bash) for the lifetime of the process session; available in both the TUI and the CLI interactive prompt.
 - Current implementation status document at `docs/implementation-status.md`.
 
 ### Changed
@@ -65,7 +67,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned
 
-- Full TUI product features beyond the MVP (permission modal, rich tool output, diff viewer, transcript browser, model switching).
+- Full TUI product features beyond the MVP (rich tool output, diff viewer, transcript browser, model switching).
 - SQLite transcript and persistent session resume.
 - OpenAI provider.
 - TodoWrite tool.

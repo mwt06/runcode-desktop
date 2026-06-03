@@ -46,7 +46,7 @@
 
 - `chat` 保持 shell-friendly 输出，并把 assistant text delta 实时写到 stdout；TUI 负责交互式流式渲染。
 - `--loop` 不是完整 REPL，除 `/clear` / exit aliases 外没有完整 slash command 系统、readline、多行输入或 transcript-backed session resume。
-- TUI 仍是 MVP：已有 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、上下分隔线包裹的单行输入和带安全文件摘要的树状 tool progress cards，但没有 permission modal、rich tool output、diff viewer、文件树或 transcript-backed session resume。
+- TUI 仍是 MVP：已有 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、上下分隔线包裹的单行输入、带安全文件摘要的树状 tool progress cards，以及 interactive 模式下的 permission modal（allow once / allow session / deny）与会话级权限记忆；但仍没有 rich tool output、diff viewer、文件树或 transcript-backed session resume。
 
 ## 2. Session RunTurn 数据流
 

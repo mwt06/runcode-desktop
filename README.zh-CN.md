@@ -39,7 +39,7 @@ ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` 会把 assistant text delta 实时写到 stdout。`runcode tui` 会启动一个最小 Bubble Tea 界面，包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help`、`/clear`、`/status`、`/exit`。MVP 当前仅支持 `safe` 权限模式；interactive TUI 审批弹窗后续再做。
+`runcode chat` 会把 assistant text delta 实时写到 stdout。`runcode tui` 会启动一个最小 Bubble Tea 界面，包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help`、`/clear`、`/status`、`/exit`。使用 `--permission-mode interactive` 时，TUI 会弹出权限审批弹窗，提供「允许一次 / 本会话允许 / 拒绝」三个选项；选择「本会话允许」后，本会话内等价操作不再重复询问。
 
 常用参数和环境变量：
 

@@ -80,13 +80,20 @@ func TestTuiCommandRequiresCredential(t *testing.T) {
 	}
 }
 
-func TestTuiCommandRejectsInteractivePermissionMode(t *testing.T) {
+func TestTuiCommandAcceptsInteractivePermissionMode(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
-	cmd := newTuiCmd(&fakeTuiRunner{})
+	runner := &fakeTuiRunner{}
+	cmd := newTuiCmd(runner)
 	cmd.SetArgs([]string{"--model", "claude-test", "--permission-mode", "interactive"})
 
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "safe only") {
-		t.Fatalf("err = %v, want safe-only error", err)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute tui: %v", err)
+	}
+	if runner.runCount != 1 {
+		t.Fatalf("runCount = %d, want 1", runner.runCount)
+	}
+	if runner.cfg.PermissionMode != "interactive" {
+		t.Fatalf("permission mode = %q, want interactive", runner.cfg.PermissionMode)
 	}
 }
 

@@ -16,32 +16,137 @@ const (
 	expandedToolFileLimit  = 20
 )
 
+const approvalMaxTargets = 3
+
 var (
-	statusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	dividerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	userStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	assistantStyle = lipgloss.NewStyle().Bold(true)
-	systemStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	mutedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	statusStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	userStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
+	assistantStyle      = lipgloss.NewStyle().Bold(true)
+	systemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	errorStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	mutedStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	approvalTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	approvalSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
+	approvalOptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 )
 
 func (m Model) View() string {
 	if m.width <= 0 {
 		return "runcode\n\n" + m.input.View()
 	}
-	body := m.viewport.View()
-	return strings.Join([]string{
-		body,
+	lines := append([]string{m.viewport.View()}, m.bottomBlock()...)
+	return strings.Join(lines, "\n")
+}
+
+// bottomBlock is the single source of truth for the fixed rows below the
+// conversation viewport. chromeHeight is derived from its length so the layout
+// stays consistent whether the input row or an approval modal is shown.
+func (m Model) bottomBlock() []string {
+	if m.approval != nil {
+		return m.approvalBlock()
+	}
+	return []string{
 		m.inputTopDivider(),
 		m.inputLine(),
 		m.inputBottomDivider(),
 		m.bottomStatusLine(),
-	}, "\n")
+	}
 }
 
 func (m Model) statusLine() string {
 	return m.bottomStatusLine()
+}
+
+// approvalBlock renders the permission modal. It shows only sanitized data:
+// tool name, operation, risk, workspace-relative targets, and the command
+// classification — never a raw absolute path or raw command string.
+func (m Model) approvalBlock() []string {
+	if m.approval == nil {
+		return nil
+	}
+	lines := []string{renderDivider(m.width, approvalTitleStyle.Render("permission required"))}
+	lines = append(lines, " "+truncate(m.approvalSummaryLine(), maxZero(m.width-1)))
+	lines = append(lines, m.approvalDetailLines()...)
+	lines = append(lines, m.approvalOptionsLine())
+	lines = append(lines, m.bottomStatusLine())
+	return lines
+}
+
+func (m Model) approvalSummaryLine() string {
+	summary := m.approval.summary
+	parts := []string{}
+	if name := strings.TrimSpace(summary.ToolName); name != "" {
+		parts = append(parts, name)
+	}
+	if op := strings.TrimSpace(string(summary.Operation)); op != "" {
+		parts = append(parts, op)
+	}
+	if risk := strings.TrimSpace(string(summary.Risk)); risk != "" {
+		parts = append(parts, "risk "+risk)
+	}
+	if category := strings.TrimSpace(summary.CommandCategory); category != "" {
+		parts = append(parts, "cmd "+category)
+	}
+	if len(parts) == 0 {
+		return "permission request"
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m Model) approvalDetailLines() []string {
+	summary := m.approval.summary
+	width := maxZero(m.width - 3)
+	lines := []string{}
+	for i, target := range m.approval.targets {
+		if i >= approvalMaxTargets {
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("   +%d more", len(m.approval.targets)-approvalMaxTargets)))
+			break
+		}
+		lines = append(lines, " ↳ "+truncate(target, width))
+	}
+	if cmd := strings.TrimSpace(summary.CommandSummary); cmd != "" {
+		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(cmd, width)))
+	}
+	if hint := m.approvalSessionScopeHint(); hint != "" {
+		lines = append(lines, mutedStyle.Render(" session allows: "+truncate(hint, maxZero(m.width-18))))
+	}
+	return lines
+}
+
+func (m Model) approvalSessionScopeHint() string {
+	summary := m.approval.summary
+	if category := strings.TrimSpace(summary.CommandCategory); category != "" {
+		return category + " commands"
+	}
+	switch len(m.approval.targets) {
+	case 0:
+		return ""
+	case 1:
+		return string(summary.Operation) + " " + m.approval.targets[0]
+	default:
+		return fmt.Sprintf("%s these %d files", summary.Operation, len(m.approval.targets))
+	}
+}
+
+func (m Model) approvalOptionsLine() string {
+	labels := []string{"[y] allow once", "[s] allow session", "[n] deny"}
+	rendered := make([]string, len(labels))
+	for i, label := range labels {
+		if i == m.approval.selected {
+			rendered[i] = approvalSelectStyle.Render(" " + label + " ")
+		} else {
+			rendered[i] = approvalOptionStyle.Render(label)
+		}
+	}
+	return " " + strings.Join(rendered, "   ")
+}
+
+func maxZero(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
 }
 
 func (m Model) inputTopDivider() string {

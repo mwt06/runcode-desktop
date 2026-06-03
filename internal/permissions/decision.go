@@ -16,6 +16,7 @@ const (
 	ReasonApprovalUnavailable Reason = "approval_unavailable"
 	ReasonApprovalGranted     Reason = "approval_granted"
 	ReasonApprovalDenied      Reason = "approval_denied"
+	ReasonSessionAllowed      Reason = "session_allowed"
 	ReasonOutsideWorkspace    Reason = "outside_workspace"
 	ReasonUnknownTool         Reason = "unknown_tool"
 	ReasonInvalidInput        Reason = "invalid_input"

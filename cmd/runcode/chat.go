@@ -597,7 +597,10 @@ func permissionServiceForMode(mode string, runtime chatIO) *permissions.Service 
 		return permissions.NewService(permissions.Options{
 			Mode:              mode,
 			ApprovalAvailable: true,
-			Authorizer:        permissions.InteractiveAuthorizer{Approver: newApprovalPrompter(runtime.Lines, runtime.Err)},
+			Authorizer: permissions.InteractiveAuthorizer{
+				Approver: newApprovalPrompter(runtime.Lines, runtime.Err),
+				Store:    permissions.NewMemorySessionAllowStore(),
+			},
 		})
 	}
 	return permissions.NewService(permissions.Options{Mode: mode})

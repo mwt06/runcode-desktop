@@ -96,7 +96,7 @@ func TestApprovalPrompterDeniesAfterInvalidAttempts(t *testing.T) {
 	if response.Effect != permissions.EffectDeny {
 		t.Fatalf("response = %#v, want deny", response)
 	}
-	if strings.Count(errOut.String(), "Please answer y or n") != 2 {
+	if strings.Count(errOut.String(), "Please answer y, s, or n") != 2 {
 		t.Fatalf("unexpected retry prompt output: %q", errOut.String())
 	}
 }
