@@ -41,6 +41,7 @@
 - `--telemetry off|jsonl` 控制 telemetry 输出。
 - `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT` 控制是否写入 JSONL transcript。
 - `--session-id` / `RUNCODE_SESSION_ID` 可指定 transcript 文件名。
+- 配置解析在 `chatConfigFromCommand`(chat 与 tui 共用)内完成,优先级 flag > env > 项目 `runcode.toml` > 用户 `config.toml` > 默认;凭证仅取自用户级文件。`runcode config` 打印生效配置与命中路径(凭证脱敏)。
 
 当前限制：
 

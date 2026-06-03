@@ -55,9 +55,27 @@ ANTHROPIC_API_KEY=... \
 - `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT`：可选把 JSONL transcript 写入 `<workspace>/.runcode/transcripts/`。
 - `--session-id` / `RUNCODE_SESSION_ID`：开启 transcript 时指定 transcript 文件名。
 
+### 配置文件
+
+runcode 还支持 TOML 配置文件，优先级为 **flag > 环境变量 > 项目配置 > 用户配置 > 默认**：
+
+- 项目级：`runcode.toml`，从工作目录向上逐级查找。
+- 用户级：`config.toml`，位于 `os.UserConfigDir()/runcode/`（Windows=`%AppData%\runcode\config.toml`，Linux=`~/.config/runcode/config.toml`，macOS=`~/Library/Application Support/runcode/config.toml`）。
+
+支持的字段：`provider`、`model`、`base_url`、`max_tokens`、`permission_mode`、`telemetry`、`transcript`、`max_history_messages`，以及 **仅用户级文件生效** 的 `api_key` / `auth_token`。项目级文件中的凭证会被忽略，避免误提交。
+
+运行 `runcode config` 可查看生效配置和已加载的配置文件路径（凭证值绝不打印）。
+
+```toml
+# runcode.toml
+model = "claude-opus-4-8"
+base_url = "https://api.anthropic.com"
+permission_mode = "interactive"
+```
+
 当前限制：
 
-- TUI 仍是 MVP：还没有权限审批弹窗、diff viewer、文件树、transcript 浏览器或多行输入。
+- TUI 仍是 MVP：已有权限审批弹窗与 rich tool output（输出摘要 + Edit/Write 行级 diff），但还没有 diff viewer、文件树、transcript 浏览器或多行输入。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
 - 没有完整 slash commands 系统、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 

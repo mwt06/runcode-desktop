@@ -55,6 +55,24 @@ Useful flags and environment variables:
 - `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT`: optionally write JSONL transcripts under `<workspace>/.runcode/transcripts/`.
 - `--session-id` / `RUNCODE_SESSION_ID`: choose the transcript file name when transcript recording is enabled.
 
+### Configuration files
+
+runcode also reads TOML config files, with precedence **flag > env > project file > user file > default**:
+
+- Project: `runcode.toml`, discovered by walking up from the working directory.
+- User: `config.toml` under `os.UserConfigDir()/runcode/` (`%AppData%\runcode\config.toml` on Windows, `~/.config/runcode/config.toml` on Linux, `~/Library/Application Support/runcode/config.toml` on macOS).
+
+Supported keys: `provider`, `model`, `base_url`, `max_tokens`, `permission_mode`, `telemetry`, `transcript`, `max_history_messages`, and — **user file only** — `api_key` / `auth_token`. Credentials in a project file are ignored so they are never committed by accident.
+
+Run `runcode config` to print the effective configuration and which files were loaded (credential values are never printed).
+
+```toml
+# runcode.toml
+model = "claude-opus-4-8"
+base_url = "https://api.anthropic.com"
+permission_mode = "interactive"
+```
+
 Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.

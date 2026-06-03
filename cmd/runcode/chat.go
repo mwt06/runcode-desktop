@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/projectctx"
 	"github.com/wt68/runcode/internal/prompt"
@@ -237,78 +238,94 @@ func resetChatRunner(ctx context.Context, runner chatRunner) error {
 }
 
 func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
-	provider, err := stringFlagOrEnv(cmd, "provider", "RUNCODE_PROVIDER", anthropicProvider)
+	cfg, _, err := resolveChatConfig(cmd)
 	if err != nil {
 		return chatConfig{}, err
 	}
-	if provider != anthropicProvider {
-		return chatConfig{}, fmt.Errorf("unsupported provider %q", provider)
+	if cfg.Provider != anthropicProvider {
+		return chatConfig{}, fmt.Errorf("unsupported provider %q", cfg.Provider)
 	}
-
-	model, err := stringFlagOrEnv(cmd, "model", "ANTHROPIC_MODEL", "")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	if strings.TrimSpace(model) == "" {
+	if strings.TrimSpace(cfg.Model) == "" {
 		return chatConfig{}, errors.New("model is required")
 	}
-
-	maxTokens, err := intFlagOrEnv(cmd, "max-tokens", "ANTHROPIC_MAX_TOKENS")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	baseURL, err := stringFlagOrEnv(cmd, "base-url", "ANTHROPIC_BASE_URL", "")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	apiKey, authToken, err := credentialConfig(cmd)
-	if err != nil {
-		return chatConfig{}, err
-	}
-	if apiKey == "" && authToken == "" {
+	if cfg.APIKey == "" && cfg.AuthToken == "" {
 		return chatConfig{}, errors.New("anthropic api key or auth token is required")
 	}
-	cwd, err := cwdConfig(cmd)
-	if err != nil {
-		return chatConfig{}, err
-	}
-	telemetryMode, err := stringFlagOrEnv(cmd, "telemetry", "RUNCODE_TELEMETRY", "off")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	telemetryMode, err = normalizeTelemetryMode(telemetryMode)
-	if err != nil {
-		return chatConfig{}, err
-	}
-	permissionMode, err := stringFlagOrEnv(cmd, "permission-mode", "RUNCODE_PERMISSION_MODE", "safe")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	permissionMode, err = normalizePermissionMode(permissionMode)
-	if err != nil {
-		return chatConfig{}, err
-	}
-	transcriptMode, err := stringFlagOrEnv(cmd, "transcript", "RUNCODE_TRANSCRIPT", "off")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	transcriptMode, err = normalizeTranscriptMode(transcriptMode)
-	if err != nil {
-		return chatConfig{}, err
-	}
-	sessionID, err := stringFlagOrEnv(cmd, "session-id", "RUNCODE_SESSION_ID", "")
-	if err != nil {
-		return chatConfig{}, err
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID != "" {
-		if err := transcript.ValidateSessionID(sessionID); err != nil {
+	if cfg.SessionID != "" {
+		if err := transcript.ValidateSessionID(cfg.SessionID); err != nil {
 			return chatConfig{}, err
 		}
 	}
-	maxHistoryMessages, err := intFlagOrEnv(cmd, "max-history-messages", "RUNCODE_MAX_HISTORY_MESSAGES")
+	return cfg, nil
+}
+
+// resolveChatConfig resolves every configuration value using the precedence
+// flag > env > config file > default. It does not enforce required fields, so it
+// is reusable by `runcode config` for read-only inspection. The returned
+// settings.Resolved reports which config files were loaded.
+func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error) {
+	empty := settings.Resolved{}
+	cwd, err := cwdConfig(cmd)
 	if err != nil {
-		return chatConfig{}, err
+		return chatConfig{}, empty, err
+	}
+	resolved, err := settings.Load(settings.LoadOptions{CWD: cwd, UserConfigDir: userConfigDir()})
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	file := resolved.Config
+
+	provider, err := stringFlagEnvFile(cmd, "provider", "RUNCODE_PROVIDER", file.Provider, anthropicProvider)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	model, err := stringFlagEnvFile(cmd, "model", "ANTHROPIC_MODEL", file.Model, "")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	maxTokens, err := intFlagEnvFile(cmd, "max-tokens", "ANTHROPIC_MAX_TOKENS", file.MaxTokens)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	baseURL, err := stringFlagEnvFile(cmd, "base-url", "ANTHROPIC_BASE_URL", file.BaseURL, "")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	apiKey, authToken, err := credentialConfig(cmd, file.APIKey, file.AuthToken)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	telemetryMode, err := stringFlagEnvFile(cmd, "telemetry", "RUNCODE_TELEMETRY", file.Telemetry, "off")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	telemetryMode, err = normalizeTelemetryMode(telemetryMode)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	permissionMode, err := stringFlagEnvFile(cmd, "permission-mode", "RUNCODE_PERMISSION_MODE", file.PermissionMode, "safe")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	permissionMode, err = normalizePermissionMode(permissionMode)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	transcriptMode, err := stringFlagEnvFile(cmd, "transcript", "RUNCODE_TRANSCRIPT", file.Transcript, "off")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	transcriptMode, err = normalizeTranscriptMode(transcriptMode)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	sessionID, err := stringFlagOrEnv(cmd, "session-id", "RUNCODE_SESSION_ID", "")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	maxHistoryMessages, err := intFlagEnvFile(cmd, "max-history-messages", "RUNCODE_MAX_HISTORY_MESSAGES", file.MaxHistoryMessages)
+	if err != nil {
+		return chatConfig{}, empty, err
 	}
 
 	return chatConfig{
@@ -322,9 +339,9 @@ func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
 		Telemetry:          telemetryMode,
 		PermissionMode:     permissionMode,
 		Transcript:         transcriptMode,
-		SessionID:          sessionID,
+		SessionID:          strings.TrimSpace(sessionID),
 		MaxHistoryMessages: maxHistoryMessages,
-	}, nil
+	}, resolved, nil
 }
 
 func stringFlagOrEnv(cmd *cobra.Command, name string, env string, fallback string) (string, error) {
@@ -352,7 +369,52 @@ func intFlagOrEnv(cmd *cobra.Command, name string, env string) (int, error) {
 	return parsed, nil
 }
 
-func credentialConfig(cmd *cobra.Command) (string, string, error) {
+// stringFlagEnvFile resolves a string with precedence flag > env > config file > default.
+func stringFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue string, fallback string) (string, error) {
+	if cmd.Flags().Changed(name) {
+		return cmd.Flags().GetString(name)
+	}
+	if value := os.Getenv(env); value != "" {
+		return value, nil
+	}
+	if strings.TrimSpace(fileValue) != "" {
+		return fileValue, nil
+	}
+	return fallback, nil
+}
+
+// intFlagEnvFile resolves an int with precedence flag > env > config file > default(0).
+func intFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *int) (int, error) {
+	if cmd.Flags().Changed(name) {
+		return cmd.Flags().GetInt(name)
+	}
+	if value := os.Getenv(env); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", env, err)
+		}
+		return parsed, nil
+	}
+	if fileValue != nil {
+		return *fileValue, nil
+	}
+	return 0, nil
+}
+
+// userConfigDir returns the per-user config root, or "" if it cannot be determined
+// (in which case the user-level config layer is simply skipped).
+func userConfigDir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+// credentialConfig resolves credentials with precedence
+// flag > env > user-level config file. Project-level config files never supply
+// credentials (settings.Load already strips them).
+func credentialConfig(cmd *cobra.Command, fileAPIKey string, fileAuthToken string) (string, string, error) {
 	if cmd.Flags().Changed("auth-token") {
 		value, err := cmd.Flags().GetString("auth-token")
 		return "", strings.TrimSpace(value), err
@@ -364,7 +426,16 @@ func credentialConfig(cmd *cobra.Command) (string, string, error) {
 	if value := strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")); value != "" {
 		return "", value, nil
 	}
-	return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")), "", nil
+	if value := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); value != "" {
+		return value, "", nil
+	}
+	if value := strings.TrimSpace(fileAuthToken); value != "" {
+		return "", value, nil
+	}
+	if value := strings.TrimSpace(fileAPIKey); value != "" {
+		return value, "", nil
+	}
+	return "", "", nil
 }
 
 func cwdConfig(cmd *cobra.Command) (string, error) {

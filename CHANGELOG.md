@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Cobra CLI entry point with `version` and a minimal provider-backed `chat` command.
+- TOML configuration files: project-level `runcode.toml` (discovered by walking up from the working directory) and user-level `config.toml` (under `os.UserConfigDir()/runcode/`), with precedence flag > env > project file > user file > default. Credentials (`api_key`/`auth_token`) are only honored from the user-level file; any in a project file are ignored.
+- `runcode config` command that prints the effective configuration, the loaded config-file paths, and whether credentials are set (credential values are never printed).
 - `chat --loop` for process-local in-memory multi-turn sessions, with `/clear` to reset loop history.
 - Provider-neutral LLM model in `pkg/llm`, including messages, content blocks, tool specs, streams, usage, and cache-control hints.
 - Anthropic streaming provider skeleton using the official Anthropic Go SDK.

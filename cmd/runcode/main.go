@@ -32,6 +32,7 @@ This is the v0.1 alpha scaffold.`,
 	root.AddCommand(versionCmd())
 	root.AddCommand(chatCmd())
 	root.AddCommand(tuiCmd())
+	root.AddCommand(configCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

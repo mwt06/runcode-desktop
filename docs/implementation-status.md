@@ -71,7 +71,7 @@ cmd/runcode chat
 - TUI 仍缺少 readline 级历史导航、多行输入、补全、可配置快捷键。
 - 没有完整 slash command 系统，例如 `/compact`、`/model`。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
-- 没有配置文件系统。
+- 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
 - 没有 transcript-backed session 恢复。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。
 - 只支持 Anthropic provider。
@@ -379,7 +379,7 @@ cmd/runcode chat
 
 - project context loader 只读取第一个命中的 `RUNCODE.md` / `CLAUDE.md`，读取上限 64 KiB；不合并多个文件，也不支持 include。
 - `Memory` 仍只是调用方传入字符串。
-- 没有 settings loader。
+- 已有 TOML settings loader(`internal/persistence/settings`)供 CLI/TUI 配置;尚未用于 prompt memory 或 settings-backed policy guidance。
 - 没有 prompt templates / go:embed。
 - 没有 agent/skill prompt。
 - 只注入固定 permission mode guidance，还没有更丰富的审批摘要或 settings-backed policy guidance。
@@ -468,7 +468,6 @@ cmd/runcode chat
 
 - `internal/app/components`
 - `internal/persistence/claudemd`
-- `internal/persistence/settings`
 - `internal/persistence/sqlite`
 - `internal/persistence/migrate`
 - `internal/coordinator`
@@ -490,9 +489,9 @@ cmd/runcode chat
 
 对应未实现能力：
 
-- 完整 TUI 产品能力：permission modal、rich tool output、diff viewer、transcript browser、多行输入和 model switching。
+- 完整 TUI 产品能力：diff viewer、transcript browser、多行输入和 model switching(permission modal 与 rich tool output 已实现)。
 - SQLite transcript backend。
-- settings 持久化。
+- 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - transcript-backed session resume。
 - compaction。
 - cost tracking。
