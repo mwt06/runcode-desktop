@@ -5,6 +5,11 @@ type Result struct {
 	Content  []ResultContent `json:"content,omitempty"`
 	Metadata map[string]any  `json:"metadata,omitempty"`
 	IsError  bool            `json:"is_error,omitempty"`
+	// Output is an optional sanitized, display-only rendering of what the tool
+	// produced (e.g. a unified diff). When set, the executor surfaces it to the
+	// UI instead of deriving a generic excerpt from Content. It is never sent to
+	// the model or recorded to telemetry/transcripts.
+	Output []OutputLine `json:"-"`
 }
 
 // ResultContentType identifies a tool result content block.

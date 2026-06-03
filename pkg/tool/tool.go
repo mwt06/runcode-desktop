@@ -52,14 +52,44 @@ type FileReference struct {
 	Kind FileReferenceKind `json:"kind,omitempty"`
 }
 
+// OutputStream classifies a line of tool output for display.
+type OutputStream string
+
+const (
+	// OutputStreamStdout is normal command or tool output.
+	OutputStreamStdout OutputStream = "stdout"
+	// OutputStreamStderr is error output, shown emphasized.
+	OutputStreamStderr OutputStream = "stderr"
+	// OutputStreamMatch is a search match line (e.g. Grep).
+	OutputStreamMatch OutputStream = "match"
+	// OutputStreamInfo is a synthesized status line (e.g. a Bash exit/duration header).
+	OutputStreamInfo OutputStream = "info"
+	// OutputStreamDiffAdd is an added line in a diff.
+	OutputStreamDiffAdd OutputStream = "diff_add"
+	// OutputStreamDiffDel is a removed line in a diff.
+	OutputStreamDiffDel OutputStream = "diff_del"
+	// OutputStreamDiffContext is an unchanged context line in a diff.
+	OutputStreamDiffContext OutputStream = "diff_context"
+)
+
+// OutputLine is a single sanitized, bounded line of tool output for UI display.
+// It is never recorded to telemetry or transcripts.
+type OutputLine struct {
+	Stream OutputStream `json:"stream,omitempty"`
+	Text   string       `json:"text"`
+}
+
 // Event is a streaming update produced while a tool runs.
 type Event struct {
-	Type       EventType       `json:"type"`
-	ToolName   string          `json:"toolName,omitempty"`
-	ToolUseID  string          `json:"toolUseID,omitempty"`
-	Message    string          `json:"message,omitempty"`
-	Data       any             `json:"data,omitempty"`
-	Files      []FileReference `json:"files,omitempty"`
-	FilesTotal int             `json:"filesTotal,omitempty"`
-	Time       time.Time       `json:"time,omitempty"`
+	Type            EventType       `json:"type"`
+	ToolName        string          `json:"toolName,omitempty"`
+	ToolUseID       string          `json:"toolUseID,omitempty"`
+	Message         string          `json:"message,omitempty"`
+	Data            any             `json:"data,omitempty"`
+	Files           []FileReference `json:"files,omitempty"`
+	FilesTotal      int             `json:"filesTotal,omitempty"`
+	Output          []OutputLine    `json:"output,omitempty"`
+	OutputTotal     int             `json:"outputTotal,omitempty"`
+	OutputTruncated bool            `json:"outputTruncated,omitempty"`
+	Time            time.Time       `json:"time,omitempty"`
 }

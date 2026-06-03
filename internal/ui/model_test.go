@@ -239,8 +239,8 @@ func TestToolEventCreatesAndUpdatesProgressMessage(t *testing.T) {
 		t.Fatalf("messages = %#v, want no duplicate tool card", model.messages)
 	}
 	progress := model.messages[1].Tools[0]
-	if progress.Status != ToolStatusCompleted || progress.Message != "completed" || len(progress.Lines) != 1 || progress.Lines[0] != "scanning" {
-		t.Fatalf("progress = %#v, want completed with scanning line", progress)
+	if progress.Status != ToolStatusCompleted || progress.Message != "completed" {
+		t.Fatalf("progress = %#v, want completed status", progress)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/telemetry"
@@ -25,6 +26,8 @@ var (
 const (
 	toolEventForwarderBufferSize = 32
 	maxToolEventFiles            = 50
+	maxToolEventOutputLines      = 20
+	maxToolEventOutputLineRunes  = 200
 )
 
 type Executor struct {
@@ -165,6 +168,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 	result, err := runner.Run(ctx, req.Input, tctx, toolEvents)
 	finishToolEvents()
 	readFiles, readFilesTotal := readSetDeltaFileReferences(readSetBefore, tctx.ReadSet, tctx)
+	outputLines, outputTotal, outputTruncated := toolOutputForEvents(req.Name, result)
 	if err != nil {
 		if isUnrecoverableToolError(err) {
 			event := executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "cancelled")
@@ -177,6 +181,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		event := executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "failed")
 		event.Files = readFiles
 		event.FilesTotal = readFilesTotal
+		attachToolOutput(&event, outputLines, outputTotal, outputTruncated)
 		emitToolEvent(req.Events, event)
 		return toolRunErrorResult(req, tctx, err), nil
 	}
@@ -201,11 +206,13 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		event := executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "completed with error")
 		event.Files = readFiles
 		event.FilesTotal = readFilesTotal
+		attachToolOutput(&event, outputLines, outputTotal, outputTruncated)
 		emitToolEvent(req.Events, event)
 	} else {
 		event := executorToolEvent(tool.EventTypeCompleted, req.Name, tctx.ToolUseID, "completed")
 		event.Files = readFiles
 		event.FilesTotal = readFilesTotal
+		attachToolOutput(&event, outputLines, outputTotal, outputTruncated)
 		emitToolEvent(req.Events, event)
 	}
 	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result}, nil
@@ -335,6 +342,111 @@ func readSetDeltaFileReferences(before map[string]tool.ReadFile, after map[strin
 		refs = refs[:maxToolEventFiles]
 	}
 	return refs, total
+}
+
+func attachToolOutput(event *tool.Event, lines []tool.OutputLine, total int, truncated bool) {
+	event.Output = lines
+	event.OutputTotal = total
+	event.OutputTruncated = truncated
+}
+
+// toolOutputForEvents builds a bounded, sanitized output excerpt for UI display.
+// It prefers a tool-supplied structured Result.Output (e.g. a diff) and otherwise
+// derives a generic excerpt from the result content. Glob is suppressed because its
+// matched files are already surfaced as file references. The returned excerpt is
+// display-only and never recorded to telemetry or transcripts.
+func toolOutputForEvents(name string, result tool.Result) ([]tool.OutputLine, int, bool) {
+	if name == "Glob" {
+		return nil, 0, false
+	}
+	var lines []tool.OutputLine
+	if len(result.Output) > 0 {
+		lines = sanitizeOutputLines(result.Output)
+	} else {
+		lines = sanitizeOutputLines(genericToolOutput(name, result))
+	}
+	total := len(lines)
+	truncated := false
+	if total > maxToolEventOutputLines {
+		lines = lines[:maxToolEventOutputLines]
+		truncated = true
+	}
+	if len(lines) == 0 {
+		return nil, 0, false
+	}
+	return lines, total, truncated
+}
+
+func genericToolOutput(name string, result tool.Result) []tool.OutputLine {
+	text := strings.TrimRight(resultText(result), "\n")
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	stream := tool.OutputStreamStdout
+	switch {
+	case result.IsError:
+		stream = tool.OutputStreamStderr
+	case name == "Grep":
+		stream = tool.OutputStreamMatch
+	}
+	rawLines := strings.Split(text, "\n")
+	lines := make([]tool.OutputLine, 0, len(rawLines))
+	for _, raw := range rawLines {
+		lines = append(lines, tool.OutputLine{Stream: stream, Text: raw})
+	}
+	return lines
+}
+
+func resultText(result tool.Result) string {
+	var b strings.Builder
+	for _, content := range result.Content {
+		if content.Text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(content.Text)
+	}
+	return b.String()
+}
+
+func sanitizeOutputLines(lines []tool.OutputLine) []tool.OutputLine {
+	out := make([]tool.OutputLine, 0, len(lines))
+	for _, line := range lines {
+		stream := line.Stream
+		if stream == "" {
+			stream = tool.OutputStreamStdout
+		}
+		out = append(out, tool.OutputLine{Stream: stream, Text: sanitizeOutputText(line.Text)})
+	}
+	return out
+}
+
+func sanitizeOutputText(text string) string {
+	text = strings.ReplaceAll(text, "\t", "    ")
+	var b strings.Builder
+	for _, r := range text {
+		if r == '\n' || r == '\r' || unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return truncateOutputRunes(b.String(), maxToolEventOutputLineRunes)
+}
+
+func truncateOutputRunes(value string, width int) string {
+	if width <= 0 {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	if width <= 1 {
+		return string(runes[:width])
+	}
+	return string(runes[:width-1]) + "…"
 }
 
 func sameReadFile(a tool.ReadFile, b tool.ReadFile) bool {

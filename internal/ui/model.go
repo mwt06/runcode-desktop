@@ -16,8 +16,8 @@ const (
 	eventBufferSize      = 1024
 	mouseWheelScrollRows = 3
 	bottomChromeHeight   = 4
-	maxToolProgressLines = 6
 	maxToolStoredFiles   = 50
+	maxToolStoredOutput  = 50
 	toolLineMaxRunes     = 200
 	toolFilePathMaxRunes = 96
 )
@@ -335,6 +335,7 @@ func (m *Model) applyToolEvent(event tool.Event) {
 		progress.StartedAt = event.Time
 	}
 	appendToolFileReferences(progress, event.Files, event.FilesTotal)
+	appendToolOutput(progress, event.Output, event.OutputTotal, event.OutputTruncated)
 	message := toolEventMessage(event)
 	switch event.Type {
 	case tool.EventTypeStarted:
@@ -346,7 +347,6 @@ func (m *Model) applyToolEvent(event tool.Event) {
 	case tool.EventTypeProgress, tool.EventTypeOutput:
 		progress.Status = ToolStatusRunning
 		progress.Message = message
-		progress.Lines = appendBoundedToolLine(progress.Lines, message)
 	case tool.EventTypeCompleted:
 		progress.Status = ToolStatusCompleted
 		progress.Message = message
@@ -502,16 +502,38 @@ func toolEventMessage(event tool.Event) string {
 	}
 }
 
-func appendBoundedToolLine(lines []string, line string) []string {
-	line = truncateRunes(strings.TrimSpace(line), toolLineMaxRunes)
-	if line == "" {
-		return lines
+func appendToolOutput(progress *ToolProgress, lines []tool.OutputLine, total int, truncated bool) {
+	if progress == nil || len(lines) == 0 {
+		return
 	}
-	lines = append(lines, line)
-	if len(lines) > maxToolProgressLines {
-		return lines[len(lines)-maxToolProgressLines:]
+	for _, line := range lines {
+		if len(progress.Output) >= maxToolStoredOutput {
+			truncated = true
+			break
+		}
+		progress.Output = append(progress.Output, ToolOutputLine{Stream: string(line.Stream), Text: safeOutputText(line.Text)})
 	}
-	return lines
+	if total > progress.OutputTotal {
+		progress.OutputTotal = total
+	}
+	if progress.OutputTotal < len(progress.Output) {
+		progress.OutputTotal = len(progress.Output)
+	}
+	if truncated {
+		progress.OutputTruncated = true
+	}
+}
+
+func safeOutputText(text string) string {
+	text = strings.ReplaceAll(text, "\t", "    ")
+	var b strings.Builder
+	for _, r := range text {
+		if r == '\n' || r == '\r' || unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return truncateRunes(b.String(), toolLineMaxRunes)
 }
 
 func truncateRunes(value string, width int) string {

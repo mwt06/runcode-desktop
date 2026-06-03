@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wt68/runcode/internal/diff"
 	"github.com/wt68/runcode/internal/toolpath"
 	"github.com/wt68/runcode/pkg/tool"
 )
@@ -126,5 +127,8 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	if err := os.WriteFile(target.Path, []byte(updated), 0o600); err != nil {
 		return tool.Result{}, fmt.Errorf("write file: %w", err)
 	}
-	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "File edited."}}}, nil
+	return tool.Result{
+		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "File edited."}},
+		Output:  diff.Unified(text, updated, diff.DefaultOptions()),
+	}, nil
 }

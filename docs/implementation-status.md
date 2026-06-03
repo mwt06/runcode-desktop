@@ -55,7 +55,7 @@ cmd/runcode chat
 - `runcode version` 输出版本、commit、build time、Go 平台信息。
 - `runcode chat [prompt]` 可从 args 或 stdin 读取 prompt。
 - `runcode chat --loop` 可在同一进程中逐行对话并复用一个 session，`/clear` 可清空该 session 的内存 history。
-- `runcode tui` 启动最小 Bubble Tea TUI，包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help` / `/clear` / `/status` / `/exit`；`--permission-mode interactive` 下提供权限审批弹窗（允许一次 / 本会话允许 / 拒绝）和会话级权限记忆。
+- `runcode tui` 启动最小 Bubble Tea TUI，包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help` / `/clear` / `/status` / `/exit`；`--permission-mode interactive` 下提供权限审批弹窗（允许一次 / 本会话允许 / 拒绝）和会话级权限记忆；工具卡片展示脱敏输出摘要（Bash stdout/stderr、Grep 匹配行、Read 预览）与 Edit/Write 完整行级 diff，可 `ctrl+o` 展开。
 - `--provider` 目前只支持 `anthropic`。
 - 支持 model、max tokens、base URL、API key、auth token、cwd、telemetry、permission mode 配置。
 - 支持环境变量：`RUNCODE_PROVIDER`、`ANTHROPIC_MODEL`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MAX_TOKENS`、`RUNCODE_CWD`、`RUNCODE_TELEMETRY`、`RUNCODE_PERMISSION_MODE`、`RUNCODE_TRANSCRIPT`、`RUNCODE_SESSION_ID`、`RUNCODE_MAX_HISTORY_MESSAGES`。
@@ -70,7 +70,7 @@ cmd/runcode chat
 - `chat --loop` 只是逐行循环；完整交互体验由 `runcode tui` MVP 起步但仍不完整。
 - TUI 仍缺少 readline 级历史导航、多行输入、补全、可配置快捷键。
 - 没有完整 slash command 系统，例如 `/compact`、`/model`。
-- 已有 TUI permission modal（allow once / allow session / deny）与会话级权限记忆；仍缺 rich tool output、diff viewer 与权限策略持久化。
+- 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 没有配置文件系统。
 - 没有 transcript-backed session 恢复。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。

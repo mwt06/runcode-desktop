@@ -9,11 +9,17 @@ import (
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/wt68/runcode/pkg/tool"
 )
 
 const (
 	collapsedToolFileLimit = 3
 	expandedToolFileLimit  = 20
+)
+
+const (
+	collapsedToolOutputLimit = 5
+	expandedToolOutputLimit  = 20
 )
 
 const approvalMaxTargets = 3
@@ -29,6 +35,8 @@ var (
 	approvalTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	approvalSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
 	approvalOptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	diffAddStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	diffDelStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 func (m Model) View() string {
@@ -342,12 +350,14 @@ func renderToolProgressGroup(messages []ChatMessage, expanded bool) string {
 }
 
 type toolProgressSummary struct {
-	name       string
-	status     ToolStatus
-	message    string
-	count      int
-	files      []ToolFileReference
-	filesTotal int
+	name        string
+	status      ToolStatus
+	message     string
+	count       int
+	files       []ToolFileReference
+	filesTotal  int
+	output      []ToolOutputLine
+	outputTotal int
 }
 
 func toolProgresses(message ChatMessage) []*ToolProgress {
@@ -388,6 +398,7 @@ func summarizeToolProgress(messages []ChatMessage) []toolProgressSummary {
 				summary.message = strings.TrimSpace(progress.Message)
 			}
 			appendSummaryFiles(summary, progress.Files, progress.FilesTotal)
+			appendSummaryOutput(summary, progress.Output, progress.OutputTotal)
 		}
 	}
 	ordered := make([]toolProgressSummary, 0, len(order))
@@ -424,6 +435,19 @@ func appendSummaryFiles(summary *toolProgressSummary, files []ToolFileReference,
 	}
 }
 
+func appendSummaryOutput(summary *toolProgressSummary, lines []ToolOutputLine, total int) {
+	if summary == nil || len(lines) == 0 {
+		return
+	}
+	summary.output = append(summary.output, lines...)
+	if total > summary.outputTotal {
+		summary.outputTotal = total
+	}
+	if summary.outputTotal < len(summary.output) {
+		summary.outputTotal = len(summary.output)
+	}
+}
+
 func renderToolProgressSummary(summary toolProgressSummary, expanded bool) []string {
 	status := toolStatusLabel(summary.status)
 	if summary.status == ToolStatusFailed {
@@ -437,14 +461,58 @@ func renderToolProgressSummary(summary toolProgressSummary, expanded bool) []str
 	if message := displayToolMessage(summary); message != "" {
 		line += " · " + truncate(message, toolLineMaxRunes)
 	}
-	if fileCount > collapsedToolFileLimit && !expanded {
+	hasMore := fileCount > collapsedToolFileLimit || summary.outputTotal > collapsedToolOutputLimit
+	if hasMore && !expanded {
 		line += " " + mutedStyle.Render("(ctrl+o to expand)")
-	} else if fileCount > collapsedToolFileLimit && expanded {
+	} else if hasMore && expanded {
 		line += " " + mutedStyle.Render("(ctrl+o to collapse)")
 	}
 	lines := []string{line}
 	lines = append(lines, renderToolFileLines(summary, expanded)...)
+	lines = append(lines, renderToolOutputLines(summary, expanded)...)
 	return lines
+}
+
+func renderToolOutputLines(summary toolProgressSummary, expanded bool) []string {
+	if len(summary.output) == 0 {
+		return nil
+	}
+	limit := collapsedToolOutputLimit
+	if expanded {
+		limit = expandedToolOutputLimit
+	}
+	shown := min(len(summary.output), limit)
+	total := summary.outputTotal
+	if total < len(summary.output) {
+		total = len(summary.output)
+	}
+	remaining := total - shown
+	if remaining < 0 {
+		remaining = 0
+	}
+	guide := mutedStyle.Render("│ ")
+	lines := make([]string, 0, shown+1)
+	for i := 0; i < shown; i++ {
+		lines = append(lines, guide+styleToolOutputLine(summary.output[i]))
+	}
+	if remaining > 0 {
+		lines = append(lines, guide+mutedStyle.Render(fmt.Sprintf("+%d more lines", remaining)))
+	}
+	return lines
+}
+
+func styleToolOutputLine(line ToolOutputLine) string {
+	text := line.Text
+	switch tool.OutputStream(line.Stream) {
+	case tool.OutputStreamDiffAdd:
+		return diffAddStyle.Render(text)
+	case tool.OutputStreamDiffDel, tool.OutputStreamStderr:
+		return diffDelStyle.Render(text)
+	case tool.OutputStreamDiffContext, tool.OutputStreamInfo:
+		return mutedStyle.Render(text)
+	default:
+		return text
+	}
 }
 
 func toolSummaryLabel(summary toolProgressSummary, fileCount int) string {

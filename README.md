@@ -39,7 +39,7 @@ ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, minimal tree-style tool progress cards with safe file summaries, and `/help`, `/clear`, `/status`, `/exit`. With `--permission-mode interactive` the TUI shows a permission modal offering allow once / allow for session / deny; "allow for session" stops re-prompting equivalent actions for the rest of the session.
+`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, minimal tree-style tool progress cards with safe file summaries, and `/help`, `/clear`, `/status`, `/exit`. With `--permission-mode interactive` the TUI shows a permission modal offering allow once / allow for session / deny; "allow for session" stops re-prompting equivalent actions for the rest of the session. Tool cards show a bounded, sanitized output excerpt (Bash stdout/stderr, Grep matches, Read preview) and a full line diff for Edit/Write, expandable with `ctrl+o`.
 
 Useful flags and environment variables:
 
@@ -57,7 +57,7 @@ Useful flags and environment variables:
 
 Current limitations:
 
-- TUI is MVP-only: it has an interactive permission modal, but no diff viewer, file tree, transcript browser, or multi-line input yet.
+- TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
 - No full slash command system, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
 

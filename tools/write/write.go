@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/wt68/runcode/internal/diff"
 	"github.com/wt68/runcode/internal/toolpath"
 	"github.com/wt68/runcode/pkg/tool"
 )
@@ -73,13 +74,20 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	if !target.Within {
 		return tool.Result{}, errors.New("path is outside the workspace")
 	}
+	previous := ""
 	if target.Exists {
 		if err := toolpath.RequireFreshRead(target.Path, tctx); err != nil {
 			return tool.Result{}, err
+		}
+		if data, readErr := os.ReadFile(target.Path); readErr == nil {
+			previous = string(data)
 		}
 	}
 	if err := os.WriteFile(target.Path, []byte(*in.Content), 0o600); err != nil {
 		return tool.Result{}, fmt.Errorf("write file: %w", err)
 	}
-	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "File written."}}}, nil
+	return tool.Result{
+		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "File written."}},
+		Output:  diff.Unified(previous, *in.Content, diff.DefaultOptions()),
+	}, nil
 }

@@ -40,16 +40,23 @@ type ToolFileReference struct {
 	Kind string
 }
 
+type ToolOutputLine struct {
+	Stream string
+	Text   string
+}
+
 type ToolProgress struct {
-	ToolName   string
-	ToolUseID  string
-	Status     ToolStatus
-	Message    string
-	Lines      []string
-	Files      []ToolFileReference
-	FilesTotal int
-	StartedAt  time.Time
-	FinishedAt time.Time
+	ToolName        string
+	ToolUseID       string
+	Status          ToolStatus
+	Message         string
+	Files           []ToolFileReference
+	FilesTotal      int
+	Output          []ToolOutputLine
+	OutputTotal     int
+	OutputTruncated bool
+	StartedAt       time.Time
+	FinishedAt      time.Time
 }
 
 type streamDeltaMsg struct {

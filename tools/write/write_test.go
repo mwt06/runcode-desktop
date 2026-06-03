@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wt68/runcode/internal/toolpath"
@@ -24,6 +25,47 @@ func TestWriteToolCreatesFile(t *testing.T) {
 	}
 	if got := readFile(t, path); got != "alpha" {
 		t.Fatalf("content = %q, want alpha", got)
+	}
+}
+
+func TestWriteToolEmitsDiffOutput(t *testing.T) {
+	t.Parallel()
+
+	// Create: whole content shown as additions.
+	workspace := t.TempDir()
+	created, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": "new.txt", "content": "one\ntwo\n"}), &tool.Context{WorkingDirectory: workspace}, nil)
+	if err != nil {
+		t.Fatalf("run write tool (create): %v", err)
+	}
+	adds := 0
+	for _, line := range created.Output {
+		if line.Stream == tool.OutputStreamDiffAdd {
+			adds++
+		}
+	}
+	if adds != 2 {
+		t.Fatalf("create output = %#v, want 2 added lines", created.Output)
+	}
+
+	// Overwrite: diff of old vs new content.
+	path := filepath.Join(workspace, "sample.txt")
+	writeFile(t, path, "alpha\nbeta\n")
+	tctx := readContext(t, workspace, path, true)
+	overwritten, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": "sample.txt", "content": "alpha\nBETA\n"}), tctx, nil)
+	if err != nil {
+		t.Fatalf("run write tool (overwrite): %v", err)
+	}
+	var hasDel, hasAdd bool
+	for _, line := range overwritten.Output {
+		if line.Stream == tool.OutputStreamDiffDel && strings.Contains(line.Text, "beta") {
+			hasDel = true
+		}
+		if line.Stream == tool.OutputStreamDiffAdd && strings.Contains(line.Text, "BETA") {
+			hasAdd = true
+		}
+	}
+	if !hasDel || !hasAdd {
+		t.Fatalf("overwrite output = %#v, want -beta and +BETA diff lines", overwritten.Output)
 	}
 }
 

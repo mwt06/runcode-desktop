@@ -39,6 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Interactive approval prompt on stderr for `--permission-mode interactive` / `confirm`.
 - TUI permission modal for `--permission-mode interactive`, with allow once / allow for session / deny choices, keyboard selection, sanitized request details (tool, operation, risk, workspace-relative targets, command classification), and serialized prompts.
 - Session-scope permission memory: choosing "allow for session" stops re-prompting for equivalent actions (per mutation target for Write/Edit, per command classification for Bash) for the lifetime of the process session; available in both the TUI and the CLI interactive prompt.
+- Rich tool output in the TUI: tool progress cards now show a bounded, sanitized output excerpt — Bash stdout/stderr (with exit/duration envelope), Grep match lines, and a Read preview — expandable with `ctrl+o`. Output is display-only and never recorded to telemetry or transcripts.
+- Full unified line diff for `Edit` and `Write`, computed by a new bounded `internal/diff` package and rendered with added/removed/context styling in the tool card; binary or oversized files fall back to a summary line.
 - Current implementation status document at `docs/implementation-status.md`.
 
 ### Changed

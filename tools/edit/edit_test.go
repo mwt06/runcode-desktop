@@ -30,6 +30,31 @@ func TestEditToolReplacesUniqueString(t *testing.T) {
 	}
 }
 
+func TestEditToolEmitsDiffOutput(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "sample.txt")
+	writeFile(t, path, "alpha\nbeta\ngamma\n")
+	tctx := readContext(t, workspace, path, true)
+	result, err := edit.New().Run(context.Background(), rawInput(t, map[string]any{"path": "sample.txt", "old_string": "beta", "new_string": "BETA"}), tctx, nil)
+	if err != nil {
+		t.Fatalf("run edit tool: %v", err)
+	}
+	var hasDel, hasAdd bool
+	for _, line := range result.Output {
+		if line.Stream == tool.OutputStreamDiffDel && strings.Contains(line.Text, "beta") {
+			hasDel = true
+		}
+		if line.Stream == tool.OutputStreamDiffAdd && strings.Contains(line.Text, "BETA") {
+			hasAdd = true
+		}
+	}
+	if !hasDel || !hasAdd {
+		t.Fatalf("edit output = %#v, want -beta and +BETA diff lines", result.Output)
+	}
+}
+
 func TestEditToolReplaceAll(t *testing.T) {
 	t.Parallel()
 
