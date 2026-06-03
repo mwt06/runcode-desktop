@@ -25,6 +25,7 @@ vendor/
 .env
 .env.local
 *.local
+/runcode.toml
 
 # Runtime data
 *.db
