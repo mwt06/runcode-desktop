@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	defaultLimit = 200
-	maxLimit     = 1000
+	defaultLimit      = 200
+	maxLimit          = 1000
+	maxEventFileRefs  = 50
+	matchedFilesLabel = "matched files"
 )
 
 type input struct {
@@ -67,7 +69,7 @@ func (Tool) IsConcurrencySafe() bool {
 	return true
 }
 
-func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, out chan<- tool.Event) (tool.Result, error) {
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return tool.Result{}, fmt.Errorf("parse glob input: %w", err)
@@ -103,6 +105,7 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	if err != nil {
 		return tool.Result{}, err
 	}
+	emitMatchedFilesEvent(out, matches)
 	text := strings.Join(matches, "\n")
 	if truncated {
 		if text != "" {
@@ -111,6 +114,23 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 		text += "[output truncated]"
 	}
 	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}}}, nil
+}
+
+func emitMatchedFilesEvent(out chan<- tool.Event, paths []string) {
+	if out == nil || len(paths) == 0 {
+		return
+	}
+	refs := make([]tool.FileReference, 0, min(len(paths), maxEventFileRefs))
+	for _, path := range paths {
+		if len(refs) >= maxEventFileRefs {
+			break
+		}
+		refs = append(refs, tool.FileReference{Path: path, Kind: tool.FileReferenceMatched})
+	}
+	select {
+	case out <- tool.Event{Type: tool.EventTypeProgress, Message: matchedFilesLabel, Files: refs, FilesTotal: len(paths)}:
+	default:
+	}
 }
 
 func findMatches(ctx context.Context, workspace string, searchRoot string, pattern string, limit int) ([]string, bool, error) {

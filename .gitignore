@@ -1,6 +1,7 @@
 # Binaries
 /runcode
 /runcode.exe
+*.exe~
 /dist/
 /bin/
 

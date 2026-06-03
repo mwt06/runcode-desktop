@@ -3,8 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wt68/runcode/internal/ui"
+	"github.com/wt68/runcode/pkg/tool"
 )
 
 type fakeTuiRunner struct {
@@ -112,5 +118,24 @@ func TestTuiCommandPropagatesRunnerError(t *testing.T) {
 
 	if err := cmd.Execute(); !errors.Is(err, expected) {
 		t.Fatalf("err = %v, want runner error", err)
+	}
+}
+
+func TestBridgeTuiToolEventsForwardsEvents(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	toolEvents := make(chan tool.Event, 1)
+	events := make(chan tea.Msg, 1)
+	go bridgeTuiToolEvents(ctx, toolEvents, events)
+
+	toolEvents <- tool.Event{Type: tool.EventTypeStarted, ToolName: "Read", ToolUseID: "toolu_123"}
+
+	select {
+	case msg := <-events:
+		if reflect.TypeOf(msg) != reflect.TypeOf(ui.ToolEvent(tool.Event{})) {
+			t.Fatalf("unexpected msg type: %T", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for forwarded event")
 	}
 }

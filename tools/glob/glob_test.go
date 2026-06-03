@@ -85,6 +85,29 @@ func TestGlobToolAppliesLimit(t *testing.T) {
 	}
 }
 
+func TestGlobToolEmitsMatchedFileReferences(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.go"), "package a\n")
+	writeFile(t, filepath.Join(dir, "b.go"), "package b\n")
+	events := make(chan tool.Event, 1)
+
+	_, err := glob.New().Run(context.Background(), rawInput(t, map[string]any{"pattern": "*.go"}), &tool.Context{WorkingDirectory: dir}, events)
+	if err != nil {
+		t.Fatalf("run glob tool: %v", err)
+	}
+
+	event := drainEvent(t, events)
+	if event.Type != tool.EventTypeProgress || event.Message != "matched files" || event.FilesTotal != 2 {
+		t.Fatalf("event = %+v, want matched files progress", event)
+	}
+	got := []string{event.Files[0].Path, event.Files[1].Path}
+	if strings.Join(got, ",") != "a.go,b.go" {
+		t.Fatalf("files = %#v, want a.go,b.go", event.Files)
+	}
+}
+
 func TestGlobToolReturnsEmptyTextWhenNoMatch(t *testing.T) {
 	t.Parallel()
 
@@ -146,6 +169,17 @@ func TestGlobToolDoesNotUpdateReadSet(t *testing.T) {
 	}
 	if len(tctx.ReadSet) != 0 {
 		t.Fatalf("glob updated read set: %#v", tctx.ReadSet)
+	}
+}
+
+func drainEvent(t *testing.T, events <-chan tool.Event) tool.Event {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	default:
+		t.Fatal("expected tool event")
+		return tool.Event{}
 	}
 }
 

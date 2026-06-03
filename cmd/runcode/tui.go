@@ -13,6 +13,7 @@ import (
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/ui"
 	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/pkg/tool"
 )
 
 type tuiRunner interface {
@@ -20,6 +21,8 @@ type tuiRunner interface {
 }
 
 type defaultTuiRunner struct{}
+
+const tuiToolEventBufferSize = 256
 
 func tuiCmd() *cobra.Command {
 	return newTuiCmd(&defaultTuiRunner{})
@@ -56,6 +59,9 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 	model := ui.New(service)
 	events := model.Events()
 	service.onDelta = func(delta string) { events <- ui.AssistantDelta(delta) }
+	bridgeCtx, stopBridge := context.WithCancel(ctx)
+	defer stopBridge()
+	go bridgeTuiToolEvents(bridgeCtx, service.toolEvents, events)
 
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = program.Run()
@@ -63,15 +69,16 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 }
 
 type tuiSessionService struct {
-	cfg       chatConfig
-	session   *repl.Session
-	resources sessionResources
-	onDelta   func(string)
-	closed    bool
+	cfg        chatConfig
+	session    *repl.Session
+	resources  sessionResources
+	onDelta    func(string)
+	toolEvents chan tool.Event
+	closed     bool
 }
 
 func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
-	service := &tuiSessionService{cfg: cfg}
+	service := &tuiSessionService{cfg: cfg, toolEvents: make(chan tool.Event, tuiToolEventBufferSize)}
 	session, resources, err := newSessionForConfig(cfg, sessionFactoryOptions{
 		Runtime:          chatIO{Err: io.Discard, Out: nil},
 		TelemetryRuntime: chatIO{Err: os.Stderr},
@@ -80,6 +87,7 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 				service.onDelta(delta)
 			}
 		},
+		ToolEvents:  service.toolEvents,
 		Permissions: permissions.NewService(permissions.Options{Mode: "safe"}),
 	})
 	if err != nil {
@@ -95,14 +103,19 @@ func (s *tuiSessionService) RunTurn(ctx context.Context, userText string) (ui.Tu
 	if err != nil {
 		return ui.TurnResult{}, err
 	}
-	return ui.TurnResult{
+	turn := ui.TurnResult{
 		Text:            llm.TextContent(result.FinalAssistant),
 		StopReason:      string(result.FinalStopReason),
 		Iterations:      result.Iterations,
 		ToolResultCount: len(result.ToolResults),
-		InputTokens:     usageInputTokens(result.FinalUsage),
-		OutputTokens:    usageOutputTokens(result.FinalUsage),
-	}, nil
+		InputTokens:     usageInputTokens(result.Usages),
+		OutputTokens:    usageOutputTokens(result.Usages),
+	}
+	if result.ReasoningClassification != nil {
+		turn.ReasoningScenario = string(result.ReasoningClassification.Scenario)
+		turn.ReasoningConfidence = result.ReasoningClassification.Confidence
+	}
+	return turn, nil
 }
 
 func (s *tuiSessionService) Reset(context.Context) error {
@@ -128,18 +141,42 @@ func (s *tuiSessionService) Status() ui.Status {
 	}
 }
 
-func usageInputTokens(usage *llm.Usage) int {
-	if usage == nil {
-		return 0
+func bridgeTuiToolEvents(ctx context.Context, toolEvents <-chan tool.Event, events chan<- tea.Msg) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-toolEvents:
+			if !ok {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case events <- ui.ToolEvent(event):
+			}
+		}
 	}
-	return usage.InputTokens
 }
 
-func usageOutputTokens(usage *llm.Usage) int {
-	if usage == nil {
-		return 0
+func usageInputTokens(usages []*llm.Usage) int {
+	total := 0
+	for _, usage := range usages {
+		if usage != nil {
+			total += usage.InputTokens
+		}
 	}
-	return usage.OutputTokens
+	return total
+}
+
+func usageOutputTokens(usages []*llm.Usage) int {
+	total := 0
+	for _, usage := range usages {
+		if usage != nil {
+			total += usage.OutputTokens
+		}
+	}
+	return total
 }
 
 func formatTuiTurnSummary(result ui.TurnResult) string {

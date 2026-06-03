@@ -39,7 +39,7 @@ ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` 会把 assistant text delta 实时写到 stdout。`runcode tui` 会启动一个最小 Bubble Tea 界面，包含状态栏、可滚动对话 viewport、单行输入、assistant 流式文本，以及 `/help`、`/clear`、`/status`、`/exit`。MVP 当前仅支持 `safe` 权限模式；interactive TUI 审批弹窗后续再做。
+`runcode chat` 会把 assistant text delta 实时写到 stdout。`runcode tui` 会启动一个最小 Bubble Tea 界面，包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help`、`/clear`、`/status`、`/exit`。MVP 当前仅支持 `safe` 权限模式；interactive TUI 审批弹窗后续再做。
 
 常用参数和环境变量：
 
@@ -57,7 +57,7 @@ ANTHROPIC_API_KEY=... \
 
 当前限制：
 
-- TUI 仍是 MVP：还没有权限审批弹窗、tool progress UI、diff viewer、文件树、transcript 浏览器或多行输入。
+- TUI 仍是 MVP：还没有权限审批弹窗、diff viewer、文件树、transcript 浏览器或多行输入。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
 - 没有完整 slash commands 系统、MCP、hooks、sub-agents、skills 或 OpenAI provider。
 
@@ -118,7 +118,7 @@ Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把
 
 ```text
 cmd/runcode/           Cobra CLI：version、chat 和最小 tui
-internal/ui/           Bubble Tea TUI MVP：状态栏、viewport、输入框、slash commands
+internal/ui/           Bubble Tea TUI MVP：底部状态区、viewport、输入框、Markdown 渲染、工具进度/文件摘要、slash commands
 internal/repl/         ReAct session、executor、tool result conversion、telemetry
 internal/permissions/  action/resource/risk、policy、approval、command classification
 internal/prompt/       系统提示组装器和 cache boundary

@@ -15,7 +15,7 @@
   -> permissions.Service
   -> repl.NewSession
   -> Session.RunTurn
-  -> chat stdout OR TUI StreamDelta event
+  -> chat stdout OR TUI StreamDelta / ToolEvents
 ```
 
 当前 CLI 入口：
@@ -31,7 +31,7 @@
 
 - `runcode chat [prompt]` 从 args 或 stdin 读取 prompt。
 - `runcode chat --loop` 逐行读取 stdin，并复用同一个内存 session；`/clear` 会清空该 session 的内存 history。
-- `runcode tui` 启动最小 Bubble Tea TUI，复用同一套 chat 配置和 session 构造路径，把 `StreamDelta` 转换成 UI event 后渲染。
+- `runcode tui` 启动最小 Bubble Tea TUI，复用同一套 chat 配置和 session 构造路径，把 `StreamDelta` 和 `ToolEvents` 转换成 UI event 后渲染；界面包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、上下分隔线包裹的单行输入、assistant Markdown 和树状工具进度。
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES` 限制每轮发送给 provider 的内存 history 消息数（`0` = 不限制，默认）。
 - `--provider` 当前只支持 `anthropic`。
 - `--model` / `ANTHROPIC_MODEL` 必填。
@@ -46,7 +46,7 @@
 
 - `chat` 保持 shell-friendly 输出，并把 assistant text delta 实时写到 stdout；TUI 负责交互式流式渲染。
 - `--loop` 不是完整 REPL，除 `/clear` / exit aliases 外没有完整 slash command 系统、readline、多行输入或 transcript-backed session resume。
-- TUI 仍是 MVP：没有 permission modal、tool progress UI、diff viewer、文件树或 transcript-backed session resume。
+- TUI 仍是 MVP：已有 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、上下分隔线包裹的单行输入和带安全文件摘要的树状 tool progress cards，但没有 permission modal、rich tool output、diff viewer、文件树或 transcript-backed session resume。
 
 ## 2. Session RunTurn 数据流
 
@@ -188,12 +188,16 @@ Executor.Execute(ctx, req)
   -> prepare tool.Context and ToolUseID
   -> permissions.Service.AuthorizeTool
   -> permissions.RecordDecision
-  -> if denied: return is_error tool result with sanitized reason without running tool
-  -> if unknown tool: return is_error tool result
+  -> if denied: emit failed ToolEvent and return is_error tool result with sanitized reason without running tool
+  -> if unknown tool: emit failed ToolEvent and return is_error tool result
+  -> emit started ToolEvent
   -> record tool.execute.start
   -> runner.Run
-  -> if recoverable tool error: return is_error tool result
+  -> forward tool progress/output events with ToolName + ToolUseID
+  -> attach typed safe file references for ReadSet / Glob / Grep summaries
+  -> if recoverable tool error: emit failed ToolEvent and return is_error tool result
   -> record tool.execute.end or tool.execute.error
+  -> emit completed or failed ToolEvent
 ```
 
 权限层：
@@ -392,7 +396,7 @@ examples/custom-tool
 
 对应未实现能力：
 
-- 完整 TUI 产品能力：permission modal、tool progress UI、diff viewer、transcript browser、多行输入和 model switching。
+- 完整 TUI 产品能力：permission modal、rich tool output、diff viewer、transcript browser、多行输入和 model switching。
 - SQLite transcript backend 和 session resume。
 - settings persistence。
 - context compaction。
@@ -412,4 +416,4 @@ examples/custom-tool
 如果目标是减少半成品感，而不是继续扩新功能，建议顺序是：
 
 1. 实现 transcript-backed session resume 或 context compaction。
-2. 再考虑 TodoWrite、tool progress UI、完整 TUI 产品能力、MCP 等更大功能。
+2. 再考虑 TodoWrite、rich tool output、完整 TUI 产品能力、MCP 等更大功能。

@@ -55,7 +55,7 @@ func helpText() string {
 	}, "\n")
 }
 
-func statusText(status Status, state string, turnCount int, messageCount int) string {
+func statusText(status Status, state string, turnCount int, messageCount int, inputTokens int, outputTokens int, reasoningScenario string, reasoningConfidence string) string {
 	transcript := status.Transcript
 	if transcript == "" {
 		transcript = "off"
@@ -64,12 +64,24 @@ func statusText(status Status, state string, turnCount int, messageCount int) st
 	if session == "" {
 		session = "-"
 	}
-	return fmt.Sprintf("model: %s\ncwd: %s\npermission: %s\ntranscript: %s\nsession: %s\nstate: %s\nturns: %d\nmessages: %d",
+	git := status.GitBranch
+	if git == "" {
+		git = "-"
+	}
+	diff := formatDiffStats(status.GitDiff)
+	if diff == "" {
+		diff = "-"
+	}
+	return fmt.Sprintf("model: %s\ncwd: %s\npermission: %s\ntranscript: %s\nsession: %s\nctx: %s\nthink: %s\ngit: %s\ndiff: %s\nstate: %s\nturns: %d\nmessages: %d",
 		status.Model,
 		status.CWD,
 		status.PermissionMode,
 		transcript,
 		session,
+		formatContext(inputTokens, outputTokens, status.MaxContextTokens),
+		formatThinking(status.ThinkingMode, reasoningScenario, reasoningConfidence),
+		git,
+		diff,
 		state,
 		turnCount,
 		messageCount,

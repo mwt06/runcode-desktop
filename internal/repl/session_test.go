@@ -370,6 +370,41 @@ func TestSessionRunTurnExecutesReadToolUse(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnForwardsToolEvents(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	events := make(chan tool.Event, 2)
+	session := newTestSession(t, SessionOptions{
+		Provider: newFakeProviderSequence(
+			fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+			fakeProviderResponse{events: textEvents("done")},
+		),
+		Tools:       tools.Builtins(),
+		ToolContext: &tool.Context{WorkingDirectory: dir},
+		ToolEvents:  events,
+	})
+
+	_, err := session.RunTurn(context.Background(), "read sample.txt")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+
+	got := drainToolEvents(events)
+	if len(got) != 2 {
+		t.Fatalf("events = %#v, want started and completed", got)
+	}
+	if got[0].Type != tool.EventTypeStarted || got[1].Type != tool.EventTypeCompleted {
+		t.Fatalf("unexpected event types: %#v", got)
+	}
+	for _, event := range got {
+		if event.ToolName != "Read" || event.ToolUseID != "toolu_123" || event.Time.IsZero() {
+			t.Fatalf("unexpected event metadata: %+v", event)
+		}
+	}
+}
+
 func TestSessionRunTurnReturnsPermissionDeniedAsToolResult(t *testing.T) {
 	t.Parallel()
 

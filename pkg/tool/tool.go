@@ -32,13 +32,34 @@ const (
 	EventTypeOutput EventType = "output"
 	// EventTypeCompleted marks the successful end of a tool run.
 	EventTypeCompleted EventType = "completed"
+	// EventTypeFailed marks a tool run that ended without a successful result.
+	EventTypeFailed EventType = "failed"
 )
+
+// FileReferenceKind identifies how a tool interacted with a file path.
+type FileReferenceKind string
+
+const (
+	// FileReferenceRead identifies a file that was read by a tool.
+	FileReferenceRead FileReferenceKind = "read"
+	// FileReferenceMatched identifies a file that matched a search or discovery tool.
+	FileReferenceMatched FileReferenceKind = "matched"
+)
+
+// FileReference is a sanitized, workspace-relative file reference safe for UI progress summaries.
+type FileReference struct {
+	Path string            `json:"path"`
+	Kind FileReferenceKind `json:"kind,omitempty"`
+}
 
 // Event is a streaming update produced while a tool runs.
 type Event struct {
-	Type     EventType `json:"type"`
-	ToolName string    `json:"toolName,omitempty"`
-	Message  string    `json:"message,omitempty"`
-	Data     any       `json:"data,omitempty"`
-	Time     time.Time `json:"time,omitempty"`
+	Type       EventType       `json:"type"`
+	ToolName   string          `json:"toolName,omitempty"`
+	ToolUseID  string          `json:"toolUseID,omitempty"`
+	Message    string          `json:"message,omitempty"`
+	Data       any             `json:"data,omitempty"`
+	Files      []FileReference `json:"files,omitempty"`
+	FilesTotal int             `json:"filesTotal,omitempty"`
+	Time       time.Time       `json:"time,omitempty"`
 }

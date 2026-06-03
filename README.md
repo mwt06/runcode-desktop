@@ -39,7 +39,7 @@ ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a status bar, scrollable conversation viewport, single-line input, streaming assistant text, and `/help`, `/clear`, `/status`, `/exit`. The MVP currently supports `safe` permission mode only; interactive TUI approval modals are deferred.
+`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, minimal tree-style tool progress cards with safe file summaries, and `/help`, `/clear`, `/status`, `/exit`. The MVP currently supports `safe` permission mode only; interactive TUI approval modals are deferred.
 
 Useful flags and environment variables:
 
@@ -57,7 +57,7 @@ Useful flags and environment variables:
 
 Current limitations:
 
-- TUI is MVP-only: no permission modal, tool progress UI, diff viewer, file tree, transcript browser, or multi-line input yet.
+- TUI is MVP-only: no permission modal, diff viewer, file tree, transcript browser, or multi-line input yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
 - No full slash command system, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
 
@@ -118,7 +118,7 @@ See:
 
 ```text
 cmd/runcode/           Cobra CLI: version, chat, and minimal tui
-internal/ui/           Bubble Tea TUI MVP: status bar, viewport, input, slash commands
+internal/ui/           Bubble Tea TUI MVP: bottom status area, viewport, input, Markdown rendering, tool progress/file summaries, slash commands
 internal/repl/         ReAct session, executor, tool result conversion, telemetry
 internal/permissions/  action/resource/risk model, policy, approval, command classification
 internal/prompt/       system prompt assembler and cache boundary

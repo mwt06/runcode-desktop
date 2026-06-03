@@ -21,10 +21,12 @@ import (
 )
 
 const (
-	defaultLimit     = 100
-	maxLimit         = 1000
-	maxLineBytes     = 64 * 1024
-	binarySampleSize = 8192
+	defaultLimit      = 100
+	maxLimit          = 1000
+	maxLineBytes      = 64 * 1024
+	binarySampleSize  = 8192
+	maxEventFileRefs  = 50
+	matchedFilesLabel = "matched files"
 )
 
 type input struct {
@@ -85,7 +87,7 @@ func (Tool) IsConcurrencySafe() bool {
 	return true
 }
 
-func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, out chan<- tool.Event) (tool.Result, error) {
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return tool.Result{}, fmt.Errorf("parse grep input: %w", err)
@@ -127,12 +129,13 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 		return tool.Result{}, errors.New("path is outside workspace")
 	}
 
-	matches, truncated, err := search(ctx, workspace, searchPath, in.Glob, re, limit)
+	searchResult, err := search(ctx, workspace, searchPath, in.Glob, re, limit)
 	if err != nil {
 		return tool.Result{}, err
 	}
-	text := strings.Join(matches, "\n")
-	if truncated {
+	emitMatchedFilesEvent(out, searchResult.Files)
+	text := strings.Join(searchResult.Lines, "\n")
+	if searchResult.Truncated {
 		if text != "" {
 			text += "\n"
 		}
@@ -141,10 +144,33 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}}}, nil
 }
 
-func search(ctx context.Context, workspace string, searchPath string, globPattern string, re *regexp.Regexp, limit int) ([]string, bool, error) {
+type searchResult struct {
+	Lines     []string
+	Files     []string
+	Truncated bool
+}
+
+func emitMatchedFilesEvent(out chan<- tool.Event, paths []string) {
+	if out == nil || len(paths) == 0 {
+		return
+	}
+	refs := make([]tool.FileReference, 0, min(len(paths), maxEventFileRefs))
+	for _, path := range paths {
+		if len(refs) >= maxEventFileRefs {
+			break
+		}
+		refs = append(refs, tool.FileReference{Path: path, Kind: tool.FileReferenceMatched})
+	}
+	select {
+	case out <- tool.Event{Type: tool.EventTypeProgress, Message: matchedFilesLabel, Files: refs, FilesTotal: len(paths)}:
+	default:
+	}
+}
+
+func search(ctx context.Context, workspace string, searchPath string, globPattern string, re *regexp.Regexp, limit int) (searchResult, error) {
 	info, err := os.Stat(searchPath)
 	if err != nil {
-		return nil, false, fmt.Errorf("stat search path: %w", err)
+		return searchResult{}, fmt.Errorf("stat search path: %w", err)
 	}
 	var files []string
 	if !info.IsDir() {
@@ -173,20 +199,32 @@ func search(ctx context.Context, workspace string, searchPath string, globPatter
 			return nil
 		})
 		if err != nil {
-			return nil, false, err
+			return searchResult{}, err
 		}
 	}
 	sort.Strings(files)
 
 	var matches []string
+	matchedFiles := []string{}
+	seenMatchedFiles := map[string]struct{}{}
 	truncated := false
 	for _, filePath := range files {
 		if err := ctx.Err(); err != nil {
-			return nil, false, err
+			return searchResult{}, err
 		}
 		fileMatches, err := grepFile(ctx, workspace, filePath, re, limit-len(matches))
 		if err != nil {
 			continue
+		}
+		if len(fileMatches) > 0 {
+			rel, err := filepath.Rel(workspace, filePath)
+			if err == nil {
+				slashRel := filepath.ToSlash(rel)
+				if _, ok := seenMatchedFiles[slashRel]; !ok {
+					seenMatchedFiles[slashRel] = struct{}{}
+					matchedFiles = append(matchedFiles, slashRel)
+				}
+			}
 		}
 		matches = append(matches, fileMatches...)
 		if len(matches) >= limit {
@@ -194,7 +232,7 @@ func search(ctx context.Context, workspace string, searchPath string, globPatter
 			break
 		}
 	}
-	return matches, truncated, nil
+	return searchResult{Lines: matches, Files: matchedFiles, Truncated: truncated}, nil
 }
 
 func grepFile(ctx context.Context, workspace string, filePath string, re *regexp.Regexp, remaining int) ([]string, error) {

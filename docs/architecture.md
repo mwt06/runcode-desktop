@@ -4,12 +4,12 @@ This document tracks the architecture that is currently implemented in runcode.
 
 ## Current status
 
-runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for an AI coding companion, and the provider-neutral session controller now supports a finite ReAct loop with in-memory multi-turn history. The CLI chat command is wired as a minimal provider-backed command with an optional loop mode; `runcode tui` is wired as a minimal Bubble Tea MVP for status, conversation, input, streaming assistant text, and basic slash commands.
+runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for an AI coding companion, and the provider-neutral session controller now supports a finite ReAct loop with in-memory multi-turn history. The CLI chat command is wired as a minimal provider-backed command with an optional loop mode; `runcode tui` is wired as a minimal Bubble Tea MVP for a Claude Code-style bottom status area with cumulative context token and thinking-mode indicators, conversation, input, streaming assistant Markdown rendering, tree-style tool progress cards with safe file summaries, and basic slash commands.
 
 Implemented:
 
 - `cmd/runcode`: Cobra CLI entry point with `version`, a minimal provider-backed `chat` command with optional in-memory `--loop` mode, and a minimal `tui` command.
-- `internal/ui`: minimal Bubble Tea TUI MVP with a status bar, scrollable conversation viewport, single-line input, streaming assistant deltas, and `/help` / `/clear` / `/status` / `/exit`.
+- `internal/ui`: minimal Bubble Tea TUI MVP with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, tree-style tool progress cards with safe file summaries, and `/help` / `/clear` / `/status` / `/exit`.
 - `pkg/tool`: public tool SDK boundary, including tool context, schema, events, and result types.
 - `pkg/llm`: provider-neutral LLM request, message, stream, content block, cache, and tool spec types.
 - `tools/registry.go`: single registration point for built-in tools.
@@ -28,7 +28,7 @@ Implemented:
 
 Not implemented yet:
 
-- Full TUI product features beyond the MVP: permission modal, tool progress cards, diff viewer, file tree, transcript browser, multi-line input, and model switching.
+- Full TUI product features beyond the MVP: permission modal, rich tool output cards, diff viewer, file tree, transcript browser, multi-line input, and model switching.
 - Persistent permission policy configuration.
 - MCP, hooks, sub-agents, skills, compaction, SQLite persistence, and transcript-backed session resume.
 - Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.

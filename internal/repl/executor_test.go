@@ -530,27 +530,107 @@ func TestExecutorPreservesUnrecoverableToolErrors(t *testing.T) {
 	}
 }
 
+func TestExecutorEmitsReadFileReferencesFromReadSet(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	events := make(chan tool.Event, 2)
+	executor := newBuiltinExecutor(t)
+
+	_, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Read",
+		Input:     rawInput(t, map[string]any{"path": "sample.txt"}),
+		Context:   &tool.Context{WorkingDirectory: dir},
+		ToolUseID: "toolu_read",
+		Events:    events,
+	})
+	if err != nil {
+		t.Fatalf("execute read: %v", err)
+	}
+
+	got := drainToolEvents(events)
+	if len(got) != 2 || got[1].Type != tool.EventTypeCompleted {
+		t.Fatalf("events = %#v, want started and completed", got)
+	}
+	if got[1].FilesTotal != 1 || len(got[1].Files) != 1 || got[1].Files[0].Path != "sample.txt" || got[1].Files[0].Kind != tool.FileReferenceRead {
+		t.Fatalf("completed event files = %#v total=%d, want sample.txt", got[1].Files, got[1].FilesTotal)
+	}
+	if strings.Contains(got[1].Message, "alpha") {
+		t.Fatalf("event message leaked file content: %q", got[1].Message)
+	}
+}
+
 func TestExecutorPassesEventChannel(t *testing.T) {
 	t.Parallel()
 
-	events := make(chan tool.Event, 1)
+	events := make(chan tool.Event, 3)
 	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Fake", emitEvent: true}})
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
 
-	_, err = executor.Execute(context.Background(), ExecuteRequest{Name: "Fake", Events: events})
+	_, err = executor.Execute(context.Background(), ExecuteRequest{Name: "Fake", ToolUseID: "toolu_123", Events: events})
 	if err != nil {
 		t.Fatalf("execute fake: %v", err)
 	}
 
-	select {
-	case event := <-events:
-		if event.Type != tool.EventTypeProgress || event.ToolName != "Fake" {
-			t.Fatalf("unexpected event: %+v", event)
+	got := drainToolEvents(events)
+	if len(got) != 3 {
+		t.Fatalf("events = %#v, want started/progress/completed", got)
+	}
+	wantTypes := []tool.EventType{tool.EventTypeStarted, tool.EventTypeProgress, tool.EventTypeCompleted}
+	for i, event := range got {
+		if event.Type != wantTypes[i] || event.ToolName != "Fake" || event.ToolUseID != "toolu_123" || event.Time.IsZero() {
+			t.Fatalf("event[%d] = %+v, want type=%s name/id/time", i, event, wantTypes[i])
 		}
-	default:
-		t.Fatal("expected event")
+	}
+}
+
+func TestExecutorEmitsFailedEventForPermissionDenied(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan tool.Event, 1)
+	executor := newBuiltinExecutor(t)
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Write",
+		Input:     rawInput(t, map[string]any{"path": "new.txt", "content": "alpha"}),
+		Context:   &tool.Context{WorkingDirectory: t.TempDir()},
+		ToolUseID: "toolu_write",
+		Events:    events,
+	})
+	if err != nil {
+		t.Fatalf("execute denied write: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("expected denied error result, got %#v", result)
+	}
+
+	got := drainToolEvents(events)
+	if len(got) != 1 || got[0].Type != tool.EventTypeFailed || got[0].ToolName != "Write" || got[0].ToolUseID != "toolu_write" || got[0].Message != "permission denied" {
+		t.Fatalf("events = %#v, want one failed permission event", got)
+	}
+}
+
+func TestExecutorEmitsFailedEventForErrorResult(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan tool.Event, 2)
+	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Fake", resultIsError: true}})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	result, err := executor.Execute(context.Background(), ExecuteRequest{Name: "Fake", ToolUseID: "toolu_123", Events: events})
+	if err != nil {
+		t.Fatalf("execute fake: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("expected error result, got %#v", result)
+	}
+
+	got := drainToolEvents(events)
+	if len(got) != 2 || got[0].Type != tool.EventTypeStarted || got[1].Type != tool.EventTypeFailed || got[1].Message != "completed with error" {
+		t.Fatalf("events = %#v, want started then failed", got)
 	}
 }
 
@@ -628,6 +708,18 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
+func drainToolEvents(events <-chan tool.Event) []tool.Event {
+	var out []tool.Event
+	for {
+		select {
+		case event := <-events:
+			out = append(out, event)
+		default:
+			return out
+		}
+	}
+}
+
 func rawInput(t *testing.T, input map[string]any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(input)
@@ -664,9 +756,10 @@ func (a testApprover) Prompt(context.Context, permissions.ApprovalRequest) (perm
 }
 
 type fakeTool struct {
-	name      string
-	emitEvent bool
-	runErr    error
+	name          string
+	emitEvent     bool
+	runErr        error
+	resultIsError bool
 }
 
 type pointerFakeTool struct{}
@@ -689,12 +782,12 @@ func (f fakeTool) IsConcurrencySafe() bool {
 
 func (f fakeTool) Run(_ context.Context, _ json.RawMessage, _ *tool.Context, out chan<- tool.Event) (tool.Result, error) {
 	if f.emitEvent && out != nil {
-		out <- tool.Event{Type: tool.EventTypeProgress, ToolName: f.name}
+		out <- tool.Event{Type: tool.EventTypeProgress, ToolName: f.name, Message: "running"}
 	}
 	if f.runErr != nil {
 		return tool.Result{}, f.runErr
 	}
-	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "ok"}}}, nil
+	return tool.Result{IsError: f.resultIsError, Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "ok"}}}, nil
 }
 
 func (*pointerFakeTool) Name() string {

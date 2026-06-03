@@ -5,17 +5,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/telemetry"
+	"github.com/wt68/runcode/internal/toolpath"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
 var (
 	ErrInvalidToolRequest = errors.New("invalid tool request")
 	ErrUnknownTool        = errors.New("unknown tool")
+)
+
+const (
+	toolEventForwarderBufferSize = 32
+	maxToolEventFiles            = 50
 )
 
 type Executor struct {
@@ -109,6 +118,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 	runner, ok := e.tools[req.Name]
 	if !ok {
 		err := fmt.Errorf("%w: %s", ErrUnknownTool, req.Name)
+		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, req.ToolUseID, "unknown tool"))
 		recordToolError(ctx, recorder, req, started, err)
 		return unknownToolResult(req), nil
 	}
@@ -132,8 +142,10 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		Decision:          decision,
 	})
 	if decision.FinalEffect != permissions.EffectAllow {
+		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "permission denied"))
 		return permissionDeniedResult(req.Name, tctx.ToolUseID, decision), nil
 	}
+	emitToolEvent(req.Events, executorToolEvent(tool.EventTypeStarted, req.Name, tctx.ToolUseID, "started"))
 
 	recorder.Record(ctx, telemetry.Event{
 		Time:      started.UTC(),
@@ -148,12 +160,24 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		},
 	})
 
-	result, err := runner.Run(ctx, req.Input, tctx, req.Events)
+	readSetBefore := cloneReadSetForEvents(tctx.ReadSet)
+	toolEvents, finishToolEvents := toolEventForwarder(req.Events, req.Name, tctx.ToolUseID)
+	result, err := runner.Run(ctx, req.Input, tctx, toolEvents)
+	finishToolEvents()
+	readFiles, readFilesTotal := readSetDeltaFileReferences(readSetBefore, tctx.ReadSet, tctx)
 	if err != nil {
 		if isUnrecoverableToolError(err) {
+			event := executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "cancelled")
+			event.Files = readFiles
+			event.FilesTotal = readFilesTotal
+			emitToolEvent(req.Events, event)
 			return ExecuteResult{}, err
 		}
 		recordToolError(ctx, recorder, req, started, fmt.Errorf("run tool %q: %w", req.Name, err))
+		event := executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "failed")
+		event.Files = readFiles
+		event.FilesTotal = readFilesTotal
+		emitToolEvent(req.Events, event)
 		return toolRunErrorResult(req, tctx, err), nil
 	}
 
@@ -173,6 +197,17 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		},
 	})
 
+	if result.IsError {
+		event := executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "completed with error")
+		event.Files = readFiles
+		event.FilesTotal = readFilesTotal
+		emitToolEvent(req.Events, event)
+	} else {
+		event := executorToolEvent(tool.EventTypeCompleted, req.Name, tctx.ToolUseID, "completed")
+		event.Files = readFiles
+		event.FilesTotal = readFilesTotal
+		emitToolEvent(req.Events, event)
+	}
 	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result}, nil
 }
 
@@ -211,6 +246,122 @@ func permissionDeniedResult(toolName string, toolUseID string, decision permissi
 			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("Permission denied: this tool action is not allowed by the current policy. reason=%s final_effect=%s", decision.Reason, decision.FinalEffect)}},
 		},
 	}
+}
+
+func executorToolEvent(eventType tool.EventType, toolName string, toolUseID string, message string) tool.Event {
+	return normalizeToolEvent(tool.Event{Type: eventType, ToolName: toolName, ToolUseID: toolUseID, Message: message}, toolName, toolUseID)
+}
+
+func emitToolEvent(out chan<- tool.Event, event tool.Event) {
+	if out == nil {
+		return
+	}
+	select {
+	case out <- event:
+	default:
+	}
+}
+
+func toolEventForwarder(out chan<- tool.Event, toolName string, toolUseID string) (chan<- tool.Event, func()) {
+	in := make(chan tool.Event, toolEventForwarderBufferSize)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for event := range in {
+			emitToolEvent(out, normalizeToolEvent(event, toolName, toolUseID))
+		}
+	}()
+	return in, func() {
+		close(in)
+		<-done
+	}
+}
+
+func normalizeToolEvent(event tool.Event, toolName string, toolUseID string) tool.Event {
+	if event.ToolName == "" {
+		event.ToolName = toolName
+	}
+	if event.ToolUseID == "" {
+		event.ToolUseID = toolUseID
+	}
+	if event.Time.IsZero() {
+		event.Time = time.Now().UTC()
+	}
+	return event
+}
+
+func cloneReadSetForEvents(readSet map[string]tool.ReadFile) map[string]tool.ReadFile {
+	if len(readSet) == 0 {
+		return nil
+	}
+	cloned := make(map[string]tool.ReadFile, len(readSet))
+	for path, file := range readSet {
+		cloned[path] = file
+	}
+	return cloned
+}
+
+func readSetDeltaFileReferences(before map[string]tool.ReadFile, after map[string]tool.ReadFile, tctx *tool.Context) ([]tool.FileReference, int) {
+	if len(after) == 0 {
+		return nil, 0
+	}
+	workspace, err := toolpath.WorkspaceRoot(tctx)
+	if err != nil {
+		return nil, 0
+	}
+	seen := map[string]struct{}{}
+	refs := make([]tool.FileReference, 0)
+	for key, file := range after {
+		if previous, ok := before[key]; ok && sameReadFile(previous, file) {
+			continue
+		}
+		filePath := file.Path
+		if filePath == "" {
+			filePath = key
+		}
+		rel, ok := safeWorkspaceRelativeEventPath(workspace, filePath)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[rel]; exists {
+			continue
+		}
+		seen[rel] = struct{}{}
+		refs = append(refs, tool.FileReference{Path: rel, Kind: tool.FileReferenceRead})
+	}
+	sort.Slice(refs, func(i int, j int) bool { return refs[i].Path < refs[j].Path })
+	total := len(refs)
+	if len(refs) > maxToolEventFiles {
+		refs = refs[:maxToolEventFiles]
+	}
+	return refs, total
+}
+
+func sameReadFile(a tool.ReadFile, b tool.ReadFile) bool {
+	return a.Path == b.Path && a.Size == b.Size && a.Complete == b.Complete && a.ModTime.Equal(b.ModTime)
+}
+
+func safeWorkspaceRelativeEventPath(workspace string, filePath string) (string, bool) {
+	if filePath == "" {
+		return "", false
+	}
+	abs, err := filepath.Abs(filepath.Clean(filePath))
+	if err != nil {
+		return "", false
+	}
+	within, err := toolpath.IsWithinResolved(workspace, abs)
+	if err != nil || !within {
+		return "", false
+	}
+	rel, err := filepath.Rel(workspace, abs)
+	if err != nil || rel == "." || filepath.IsAbs(rel) {
+		return "", false
+	}
+	slashRel := filepath.ToSlash(rel)
+	if slashRel == "" || slashRel == "." || slashRel == ".." || strings.HasPrefix(slashRel, "../") {
+		return "", false
+	}
+	return slashRel, true
 }
 
 func recordToolError(ctx context.Context, recorder telemetry.Recorder, req ExecuteRequest, started time.Time, err error) {

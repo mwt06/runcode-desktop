@@ -94,6 +94,50 @@ func TestGrepToolAppliesLimit(t *testing.T) {
 	}
 }
 
+func TestGrepToolEmitsMatchedFileReferencesWithoutLineContent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.txt"), "secret-needle\n")
+	writeFile(t, filepath.Join(dir, "b.txt"), "needle\n")
+	events := make(chan tool.Event, 1)
+
+	_, err := grep.New().Run(context.Background(), rawInput(t, map[string]any{"pattern": "needle"}), &tool.Context{WorkingDirectory: dir}, events)
+	if err != nil {
+		t.Fatalf("run grep tool: %v", err)
+	}
+
+	event := drainEvent(t, events)
+	if event.Type != tool.EventTypeProgress || event.Message != "matched files" || event.FilesTotal != 2 {
+		t.Fatalf("event = %+v, want matched files progress", event)
+	}
+	got := []string{event.Files[0].Path, event.Files[1].Path}
+	if strings.Join(got, ",") != "a.txt,b.txt" {
+		t.Fatalf("files = %#v, want a.txt,b.txt", event.Files)
+	}
+	if strings.Contains(event.Message, "secret-needle") {
+		t.Fatalf("event message leaked line content: %q", event.Message)
+	}
+}
+
+func TestGrepToolDeduplicatesMatchedFileReferences(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sample.txt"), "needle one\nneedle two\n")
+	events := make(chan tool.Event, 1)
+
+	_, err := grep.New().Run(context.Background(), rawInput(t, map[string]any{"pattern": "needle"}), &tool.Context{WorkingDirectory: dir}, events)
+	if err != nil {
+		t.Fatalf("run grep tool: %v", err)
+	}
+
+	event := drainEvent(t, events)
+	if event.FilesTotal != 1 || len(event.Files) != 1 || event.Files[0].Path != "sample.txt" {
+		t.Fatalf("event files = %#v total=%d, want one sample.txt", event.Files, event.FilesTotal)
+	}
+}
+
 func TestGrepToolReturnsEmptyTextWhenNoMatch(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +219,17 @@ func TestGrepToolDoesNotUpdateReadSet(t *testing.T) {
 	}
 	if len(tctx.ReadSet) != 0 {
 		t.Fatalf("grep updated read set: %#v", tctx.ReadSet)
+	}
+}
+
+func drainEvent(t *testing.T, events <-chan tool.Event) tool.Event {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	default:
+		t.Fatal("expected tool event")
+		return tool.Event{}
 	}
 }
 

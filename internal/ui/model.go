@@ -2,16 +2,24 @@ package ui
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wt68/runcode/pkg/tool"
 )
 
 const (
 	eventBufferSize      = 1024
 	mouseWheelScrollRows = 3
+	bottomChromeHeight   = 4
+	maxToolProgressLines = 6
+	maxToolStoredFiles   = 50
+	toolLineMaxRunes     = 200
+	toolFilePathMaxRunes = 96
 )
 
 type Model struct {
@@ -24,16 +32,22 @@ type Model struct {
 	viewport viewport.Model
 	input    textinput.Model
 
-	messages           []ChatMessage
-	inFlight           bool
-	currentAssistant   int
-	events             chan tea.Msg
-	turnCancel         context.CancelFunc
-	exitingAfterCancel bool
-	followOutput       bool
+	messages            []ChatMessage
+	inFlight            bool
+	currentAssistant    int
+	toolMessages        map[string]int
+	toolDetailsExpanded bool
+	events              chan tea.Msg
+	turnCancel          context.CancelFunc
+	exitingAfterCancel  bool
+	followOutput        bool
 
-	lastError string
-	turnCount int
+	lastError               string
+	turnCount               int
+	totalInputTokens        int
+	totalOutputTokens       int
+	lastReasoningScenario   string
+	lastReasoningConfidence string
 }
 
 func New(service Service) Model {
@@ -52,6 +66,7 @@ func New(service Service) Model {
 		viewport:         vp,
 		input:            input,
 		currentAssistant: -1,
+		toolMessages:     map[string]int{},
 		events:           make(chan tea.Msg, eventBufferSize),
 		followOutput:     true,
 	}
@@ -85,6 +100,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendAssistantDelta(msg.Text)
 		m.refreshViewport()
 		return m, waitEventCmd(m.events)
+	case toolEventMsg:
+		m.applyToolEvent(msg.Event)
+		m.refreshViewport()
+		return m, waitEventCmd(m.events)
 	case turnDoneMsg:
 		m.finishTurn(msg.Result)
 		m.refreshViewport()
@@ -101,7 +120,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitEventCmd(m.events)
 	case resetDoneMsg:
 		m.messages = []ChatMessage{{Role: RoleSystem, Text: "history cleared"}}
+		m.toolMessages = map[string]int{}
 		m.lastError = ""
+		m.totalInputTokens = 0
+		m.totalOutputTokens = 0
+		m.lastReasoningScenario = ""
+		m.lastReasoningConfidence = ""
 		m.refreshViewport()
 		return m, nil
 	case resetErrorMsg:
@@ -148,6 +172,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 		m.followOutput = true
 		return m, nil
+	case tea.KeyCtrlO:
+		m.toolDetailsExpanded = !m.toolDetailsExpanded
+		m.refreshViewport()
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -188,7 +216,7 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	case slashStatus:
-		m.appendMessage(RoleSystem, statusText(m.status, m.state(), m.turnCount, len(m.messages)))
+		m.appendMessage(RoleSystem, statusText(m.status, m.state(), m.turnCount, len(m.messages), m.totalInputTokens, m.totalOutputTokens, m.lastReasoningScenario, m.lastReasoningConfidence))
 		m.refreshViewport()
 		return m, nil
 	case slashClear:
@@ -230,7 +258,7 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) resize() {
-	viewportHeight := m.height - 2
+	viewportHeight := m.height - m.chromeHeight()
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}
@@ -241,6 +269,10 @@ func (m *Model) resize() {
 		inputWidth = 1
 	}
 	m.input.Width = inputWidth
+}
+
+func (m Model) chromeHeight() int {
+	return bottomChromeHeight
 }
 
 func (m *Model) appendMessage(role Role, text string) {
@@ -258,17 +290,246 @@ func (m *Model) appendAssistantDelta(text string) {
 	m.messages[m.currentAssistant].Text += text
 }
 
+func (m *Model) applyToolEvent(event tool.Event) {
+	if event.Type == "" {
+		return
+	}
+	key := toolProgressKey(event)
+	idx, ok := m.toolMessages[key]
+	if !ok || m.toolProgressAt(idx, key) == nil {
+		progress := &ToolProgress{
+			ToolName:  event.ToolName,
+			ToolUseID: event.ToolUseID,
+			Status:    ToolStatusRunning,
+		}
+		idx = m.toolBatchMessageIndex()
+		m.messages[idx].Tools = append(m.messages[idx].Tools, progress)
+		m.toolMessages[key] = idx
+	}
+	progress := m.toolProgressAt(idx, key)
+	if progress == nil {
+		return
+	}
+	if progress.ToolName == "" {
+		progress.ToolName = event.ToolName
+	}
+	if progress.ToolUseID == "" {
+		progress.ToolUseID = event.ToolUseID
+	}
+	if progress.StartedAt.IsZero() && !event.Time.IsZero() {
+		progress.StartedAt = event.Time
+	}
+	appendToolFileReferences(progress, event.Files, event.FilesTotal)
+	message := toolEventMessage(event)
+	switch event.Type {
+	case tool.EventTypeStarted:
+		progress.Status = ToolStatusRunning
+		progress.Message = message
+		if progress.StartedAt.IsZero() {
+			progress.StartedAt = event.Time
+		}
+	case tool.EventTypeProgress, tool.EventTypeOutput:
+		progress.Status = ToolStatusRunning
+		progress.Message = message
+		progress.Lines = appendBoundedToolLine(progress.Lines, message)
+	case tool.EventTypeCompleted:
+		progress.Status = ToolStatusCompleted
+		progress.Message = message
+		progress.FinishedAt = event.Time
+	case tool.EventTypeFailed:
+		progress.Status = ToolStatusFailed
+		progress.Message = message
+		progress.FinishedAt = event.Time
+	}
+}
+
+func (m *Model) toolBatchMessageIndex() int {
+	m.closeCurrentAssistantForToolEvent()
+	if len(m.messages) > 0 {
+		idx := len(m.messages) - 1
+		if m.messages[idx].Role == RoleTool {
+			return idx
+		}
+	}
+	m.messages = append(m.messages, ChatMessage{Role: RoleTool})
+	return len(m.messages) - 1
+}
+
+func (m *Model) toolProgressAt(idx int, key string) *ToolProgress {
+	if idx < 0 || idx >= len(m.messages) || m.messages[idx].Role != RoleTool {
+		return nil
+	}
+	message := &m.messages[idx]
+	if message.Tool != nil {
+		return message.Tool
+	}
+	for _, progress := range message.Tools {
+		if progress != nil && toolProgressKeyFromValues(progress.ToolName, progress.ToolUseID) == key {
+			return progress
+		}
+	}
+	return nil
+}
+
+func (m *Model) closeCurrentAssistantForToolEvent() {
+	if m.currentAssistant < 0 || m.currentAssistant >= len(m.messages) {
+		m.currentAssistant = -1
+		return
+	}
+	current := m.messages[m.currentAssistant]
+	if current.Role != RoleAssistant || !current.Streaming {
+		m.currentAssistant = -1
+		return
+	}
+	if strings.TrimSpace(current.Text) == "" {
+		removed := m.currentAssistant
+		m.messages = append(m.messages[:removed], m.messages[removed+1:]...)
+		m.reindexToolMessagesAfterRemoval(removed)
+	} else {
+		m.messages[m.currentAssistant].Streaming = false
+	}
+	m.currentAssistant = -1
+}
+
+func (m *Model) reindexToolMessagesAfterRemoval(removed int) {
+	for key, idx := range m.toolMessages {
+		if idx == removed {
+			delete(m.toolMessages, key)
+			continue
+		}
+		if idx > removed {
+			m.toolMessages[key] = idx - 1
+		}
+	}
+}
+
+func toolProgressKey(event tool.Event) string {
+	return toolProgressKeyFromValues(event.ToolName, event.ToolUseID)
+}
+
+func toolProgressKeyFromValues(toolName string, toolUseID string) string {
+	if toolUseID != "" {
+		return "id:" + toolUseID
+	}
+	if toolName != "" {
+		return "name:" + toolName
+	}
+	return "unknown"
+}
+
+func appendToolFileReferences(progress *ToolProgress, refs []tool.FileReference, total int) {
+	if progress == nil {
+		return
+	}
+	seen := make(map[string]struct{}, len(progress.Files)+len(refs))
+	for _, file := range progress.Files {
+		seen[file.Path] = struct{}{}
+	}
+	for _, ref := range refs {
+		path, ok := safeToolFilePath(ref.Path)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		progress.Files = append(progress.Files, ToolFileReference{Path: path, Kind: string(ref.Kind)})
+		if len(progress.Files) >= maxToolStoredFiles {
+			break
+		}
+	}
+	if len(progress.Files) > 0 && total > progress.FilesTotal {
+		progress.FilesTotal = total
+	}
+	if progress.FilesTotal < len(progress.Files) {
+		progress.FilesTotal = len(progress.Files)
+	}
+}
+
+func safeToolFilePath(value string) (string, bool) {
+	value = strings.TrimSpace(filepath.ToSlash(value))
+	if value == "" || filepath.IsAbs(value) || strings.HasPrefix(value, "/") || strings.Contains(value, ":") {
+		return "", false
+	}
+	segments := strings.Split(value, "/")
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
+			return "", false
+		}
+		for _, r := range segment {
+			if r == '\n' || r == '\r' || unicode.IsControl(r) {
+				return "", false
+			}
+		}
+	}
+	return truncateRunes(strings.Join(segments, "/"), toolFilePathMaxRunes), true
+}
+
+func toolEventMessage(event tool.Event) string {
+	message := strings.TrimSpace(event.Message)
+	if message != "" {
+		return message
+	}
+	switch event.Type {
+	case tool.EventTypeStarted:
+		return "started"
+	case tool.EventTypeProgress:
+		return "running"
+	case tool.EventTypeOutput:
+		return "output"
+	case tool.EventTypeCompleted:
+		return "completed"
+	case tool.EventTypeFailed:
+		return "failed"
+	default:
+		return string(event.Type)
+	}
+}
+
+func appendBoundedToolLine(lines []string, line string) []string {
+	line = truncateRunes(strings.TrimSpace(line), toolLineMaxRunes)
+	if line == "" {
+		return lines
+	}
+	lines = append(lines, line)
+	if len(lines) > maxToolProgressLines {
+		return lines[len(lines)-maxToolProgressLines:]
+	}
+	return lines
+}
+
+func truncateRunes(value string, width int) string {
+	if width <= 0 {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	if width <= 1 {
+		return string(runes[:width])
+	}
+	return string(runes[:width-1]) + "…"
+}
+
 func (m *Model) finishTurn(result TurnResult) {
 	if m.currentAssistant >= 0 && m.currentAssistant < len(m.messages) {
 		if result.Text != "" && m.messages[m.currentAssistant].Text != result.Text {
 			m.messages[m.currentAssistant].Text = result.Text
 		}
 		m.messages[m.currentAssistant].Streaming = false
+	} else if strings.TrimSpace(result.Text) != "" {
+		m.messages = append(m.messages, ChatMessage{Role: RoleAssistant, Text: result.Text})
 	}
 	m.inFlight = false
 	m.turnCancel = nil
 	m.currentAssistant = -1
 	m.turnCount++
+	m.totalInputTokens += result.InputTokens
+	m.totalOutputTokens += result.OutputTokens
+	m.lastReasoningScenario = result.ReasoningScenario
+	m.lastReasoningConfidence = result.ReasoningConfidence
 }
 
 func (m *Model) finishTurnError(err error) {
@@ -286,7 +547,7 @@ func (m *Model) finishTurnError(err error) {
 }
 
 func (m *Model) refreshViewport() {
-	m.viewport.SetContent(renderMessages(m.messages))
+	m.viewport.SetContent(renderMessages(m.messages, m.viewport.Width, m.toolDetailsExpanded))
 	if m.followOutput {
 		m.viewport.GotoBottom()
 	}
