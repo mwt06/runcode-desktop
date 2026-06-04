@@ -140,6 +140,10 @@ func TestMapFinishReason(t *testing.T) {
 		{"", true, llm.StopReasonToolUse},
 		{"", false, llm.StopReasonEndTurn},
 		{"weird", false, llm.StopReasonEndTurn},
+		// Endpoints that report "stop" despite returning tool_calls.
+		{"stop", true, llm.StopReasonToolUse},
+		// Truncation wins even when tool calls were partially emitted.
+		{"length", true, llm.StopReasonMaxTokens},
 	}
 	for _, c := range cases {
 		if got := mapFinishReason(c.reason, c.hasTools); got != c.want {

@@ -27,12 +27,17 @@ type Options struct {
 	BaseURL          string
 	DefaultMaxTokens int
 	MaxContextTokens int
+	// DisableStreamUsage omits stream_options.include_usage from requests for
+	// endpoints that reject unknown fields. Usage (and thus compaction) is then
+	// unavailable, but requests still succeed.
+	DisableStreamUsage bool
 }
 
 type Provider struct {
 	client           completionClient
 	defaultMaxTokens int
 	maxContextTokens int
+	includeUsage     bool
 }
 
 var _ llm.Provider = (*Provider)(nil)
@@ -50,6 +55,7 @@ func newProvider(opts Options, client completionClient) *Provider {
 		client:           client,
 		defaultMaxTokens: maxTokens,
 		maxContextTokens: opts.MaxContextTokens,
+		includeUsage:     !opts.DisableStreamUsage,
 	}
 }
 
@@ -64,7 +70,7 @@ func (p *Provider) Capabilities() llm.Capabilities {
 }
 
 func (p *Provider) Stream(ctx context.Context, req llm.Request) (llm.Stream, error) {
-	params, err := buildChatRequest(req, p.defaultMaxTokens)
+	params, err := buildChatRequest(req, p.defaultMaxTokens, p.includeUsage)
 	if err != nil {
 		return nil, err
 	}

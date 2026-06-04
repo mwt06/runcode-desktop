@@ -13,7 +13,7 @@ import (
 // on the OpenAI Chat Completions wire.
 var ErrUnsupportedContent = errors.New("unsupported openai content")
 
-func buildChatRequest(req llm.Request, defaultMaxTokens int) (chatRequest, error) {
+func buildChatRequest(req llm.Request, defaultMaxTokens int, includeUsage bool) (chatRequest, error) {
 	messages := make([]chatMessage, 0, len(req.Messages)+1)
 
 	system, err := convertSystem(req.System)
@@ -42,15 +42,21 @@ func buildChatRequest(req llm.Request, defaultMaxTokens int) (chatRequest, error
 		maxTokens = defaultMaxTokens
 	}
 
-	return chatRequest{
-		Model:         req.Model,
-		Messages:      messages,
-		Tools:         tools,
-		MaxTokens:     maxTokens,
-		Temperature:   req.Temperature,
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
-	}, nil
+	out := chatRequest{
+		Model:       req.Model,
+		Messages:    messages,
+		Tools:       tools,
+		MaxTokens:   maxTokens,
+		Temperature: req.Temperature,
+		Stream:      true,
+	}
+	// stream_options is a newer field; some compatible endpoints reject unknown
+	// keys, so it can be disabled. Without it usage is simply absent (compaction
+	// degrades to never triggering rather than failing).
+	if includeUsage {
+		out.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	return out, nil
 }
 
 // convertSystem joins system text blocks into a single system message body.
@@ -139,8 +145,14 @@ func convertAssistantMessage(message llm.Message) ([]chatMessage, error) {
 		}
 	}
 	out := chatMessage{Role: "assistant"}
-	if body := text.String(); body != "" {
+	switch body := text.String(); {
+	case body != "":
 		out.Content = body
+	case len(toolCalls) == 0:
+		// OpenAI rejects an assistant message with neither content nor tool
+		// calls (e.g. a thinking-only message after thinking is dropped); emit
+		// an explicit empty string instead of omitting the field.
+		out.Content = ""
 	}
 	out.ToolCalls = toolCalls
 	return []chatMessage{out}, nil

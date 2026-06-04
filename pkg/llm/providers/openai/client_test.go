@@ -42,6 +42,26 @@ func TestHTTPSSEStreamParsing(t *testing.T) {
 	}
 }
 
+func TestHTTPSSEStreamMultiLineData(t *testing.T) {
+	t.Parallel()
+	// One event split across two data lines (joined by \n per the SSE spec),
+	// then a no-blank-line trailing [DONE].
+	raw := "data: {\"choices\":[{\"delta\":\ndata: {\"content\":\"x\"}}]}\n\ndata: [DONE]\n"
+	s := newHTTPSSEStream(io.NopCloser(strings.NewReader(raw)))
+	if !s.Next() {
+		t.Fatalf("expected a chunk, err=%v", s.Err())
+	}
+	if s.Current().Choices[0].Delta.Content != "x" {
+		t.Fatalf("multi-line data not joined: %#v", s.Current())
+	}
+	if s.Next() {
+		t.Fatal("expected [DONE] to end stream")
+	}
+	if s.Err() != nil {
+		t.Fatalf("err = %v", s.Err())
+	}
+}
+
 func TestHTTPSSEStreamMalformedChunk(t *testing.T) {
 	t.Parallel()
 	s := newHTTPSSEStream(io.NopCloser(strings.NewReader("data: {not json}\n\n")))

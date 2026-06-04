@@ -724,6 +724,16 @@ func (r *defaultChatRunner) Reset(context.Context) error {
 	return nil
 }
 
+// boolEnv reports whether an environment variable is set to a truthy value.
+func boolEnv(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // buildProvider constructs the configured LLM provider. cfg.Provider has already
 // been validated to be one of the supported names.
 func buildProvider(cfg chatConfig) (llm.Provider, error) {
@@ -735,6 +745,8 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 			BaseURL:          cfg.BaseURL,
 			DefaultMaxTokens: cfg.MaxTokens,
 			MaxContextTokens: cfg.MaxContextTokens,
+			// Escape hatch for compatible endpoints that reject stream_options.
+			DisableStreamUsage: boolEnv("RUNCODE_OPENAI_DISABLE_USAGE_STREAM"),
 		})
 	default:
 		return anthropic.New(anthropic.Options{

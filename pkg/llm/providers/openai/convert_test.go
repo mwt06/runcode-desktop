@@ -33,7 +33,7 @@ func TestBuildChatRequestShape(t *testing.T) {
 		Tools: []llm.ToolSpec{{Name: "Read", Description: "d", InputSchema: map[string]any{"type": "object"}}},
 	}
 
-	out, err := buildChatRequest(req, 4096)
+	out, err := buildChatRequest(req, 4096, true)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -85,8 +85,50 @@ func TestConvertAssistantToolOnlyOmitsContent(t *testing.T) {
 	if out[0].Content != nil {
 		t.Fatalf("tool-only assistant should omit content, got %#v", out[0].Content)
 	}
+	data, _ := json.Marshal(out[0])
+	if strings.Contains(string(data), `"content"`) {
+		t.Fatalf("tool-only assistant must omit content field: %s", data)
+	}
 	if out[0].ToolCalls[0].Function.Arguments != "{}" {
 		t.Fatalf("empty input should become {}, got %q", out[0].ToolCalls[0].Function.Arguments)
+	}
+}
+
+func TestConvertAssistantEmptyEmitsExplicitContent(t *testing.T) {
+	t.Parallel()
+	// A thinking-only assistant message (thinking dropped, no text, no tools)
+	// must serialize with an explicit empty content so OpenAI does not reject it.
+	msg := llm.Message{Role: llm.RoleAssistant, Content: []llm.ContentBlock{
+		{Type: llm.ContentBlockTypeThinking, Text: "only reasoning"},
+	}}
+	out, err := convertAssistantMessage(msg)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if len(out[0].ToolCalls) != 0 {
+		t.Fatalf("unexpected tool calls: %#v", out[0].ToolCalls)
+	}
+	data, _ := json.Marshal(out[0])
+	if !strings.Contains(string(data), `"content":""`) {
+		t.Fatalf("empty assistant must serialize explicit empty content, got: %s", data)
+	}
+}
+
+func TestBuildChatRequestCanOmitStreamOptions(t *testing.T) {
+	t.Parallel()
+	out, err := buildChatRequest(llm.Request{Model: "m"}, 100, false)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if !out.Stream {
+		t.Fatal("stream should still be true")
+	}
+	if out.StreamOptions != nil {
+		t.Fatalf("stream_options should be omitted when usage disabled: %#v", out.StreamOptions)
+	}
+	data, _ := json.Marshal(out)
+	if strings.Contains(string(data), "stream_options") {
+		t.Fatalf("stream_options leaked into request: %s", data)
 	}
 }
 

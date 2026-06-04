@@ -132,18 +132,17 @@ func buildSummaryBody(ctx context.Context, opts Options, priorBody string, older
 	return priorBody + summarySeparator + summary, nil
 }
 
-// isSummaryMessage reports whether a message is a compaction summary message
-// (a user message whose first text block carries summaryPrefix).
+// isSummaryMessage reports whether a message is a compaction summary message.
+// Summary messages are produced by makeSummaryMessage as a single text block
+// carrying summaryPrefix; requiring that exact shape (not just any user message
+// whose text starts with the prefix) avoids misreading a user message that
+// happens to begin with the prefix.
 func isSummaryMessage(m llm.Message) bool {
-	if m.Role != llm.RoleUser {
+	if m.Role != llm.RoleUser || len(m.Content) != 1 {
 		return false
 	}
-	for _, block := range m.Content {
-		if block.Type == llm.ContentBlockTypeText {
-			return strings.HasPrefix(block.Text, summaryPrefix)
-		}
-	}
-	return false
+	block := m.Content[0]
+	return block.Type == llm.ContentBlockTypeText && strings.HasPrefix(block.Text, summaryPrefix)
 }
 
 // summaryBody returns the summary text of a summary message, without the prefix.

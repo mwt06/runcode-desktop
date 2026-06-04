@@ -38,7 +38,10 @@ func (s *streamState) chunk(c chatChunk) []llm.StreamEvent {
 			OutputTokens: c.Usage.CompletionTokens,
 		}
 	}
-	for _, choice := range c.Choices {
+	// Only the first choice is consumed: runcode never requests n>1, and folding
+	// multiple choices into one block stream would interleave unrelated outputs.
+	if len(c.Choices) > 0 {
+		choice := c.Choices[0]
 		events = append(events, s.delta(choice.Delta)...)
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			s.finish = *choice.FinishReason
@@ -108,6 +111,13 @@ func (s *streamState) finishEvents() []llm.StreamEvent {
 }
 
 func mapFinishReason(reason string, hasTools bool) llm.StopReason {
+	// A response that emitted tool calls is a tool-use turn regardless of the
+	// finish_reason string: some compatible endpoints report "stop" (or omit
+	// the reason) even when they returned tool_calls. Length truncation still
+	// wins, since it signals the output was cut off.
+	if hasTools && reason != "length" {
+		return llm.StopReasonToolUse
+	}
 	switch reason {
 	case "stop":
 		return llm.StopReasonEndTurn
@@ -115,14 +125,9 @@ func mapFinishReason(reason string, hasTools bool) llm.StopReason {
 		return llm.StopReasonMaxTokens
 	case "tool_calls", "function_call":
 		return llm.StopReasonToolUse
-	case "":
-		if hasTools {
-			return llm.StopReasonToolUse
-		}
-		return llm.StopReasonEndTurn
 	default:
-		// content_filter and any non-standard reason: report a completed turn
-		// rather than leak a token the session loop does not understand.
+		// content_filter, empty, and any non-standard reason: report a completed
+		// turn rather than leak a token the session loop does not understand.
 		return llm.StopReasonEndTurn
 	}
 }

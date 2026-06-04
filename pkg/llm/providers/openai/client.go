@@ -9,11 +9,18 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // maxSSELine bounds a single SSE data line. Tool-call argument payloads can be
 // large, so this is generous compared to bufio's 64KiB default.
 const maxSSELine = 10 << 20
+
+// responseHeaderTimeout caps how long we wait for the endpoint to start
+// responding. It does not bound the streaming body (that is governed by the
+// request context), so a slow or hung endpoint cannot block forever before the
+// first byte while long generations still stream freely.
+const responseHeaderTimeout = 60 * time.Second
 
 // sseStream is an iterator over decoded streaming chunks. It mirrors the shape
 // of the Anthropic provider's sdkStream so the provider and tests can swap the
@@ -51,7 +58,11 @@ func newHTTPClient(opts Options) *httpClient {
 	if bearer == "" {
 		bearer = opts.AuthToken
 	}
-	return &httpClient{doer: http.DefaultClient, baseURL: baseURL, bearer: bearer}
+	client := &http.Client{Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ResponseHeaderTimeout: responseHeaderTimeout,
+	}}
+	return &httpClient{doer: client, baseURL: baseURL, bearer: bearer}
 }
 
 func (c *httpClient) stream(ctx context.Context, reqBody chatRequest) (sseStream, error) {
@@ -104,29 +115,53 @@ func newHTTPSSEStream(body io.ReadCloser) *httpSSEStream {
 	return &httpSSEStream{body: body, scanner: scanner}
 }
 
+// Next reads SSE lines, accumulating `data:` fields until a blank line
+// dispatches the event (per the SSE spec, an event may span multiple data
+// lines joined by "\n"). It returns false on [DONE], end of stream, or a decode
+// error.
 func (s *httpSSEStream) Next() bool {
+	var data []string
 	for s.scanner.Scan() {
-		line := strings.TrimSpace(s.scanner.Text())
-		if line == "" || !strings.HasPrefix(line, "data:") {
-			// Skip blank separators, SSE comments, and `event:` lines.
-			continue
+		line := s.scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			if len(data) == 0 {
+				continue // blank separator with nothing buffered
+			}
+			return s.dispatch(data)
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" {
-			return false
+		if strings.HasPrefix(line, ":") {
+			continue // comment
 		}
-		var chunk chatChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			s.err = fmt.Errorf("decode chunk: %w", err)
-			return false
+		if rest, ok := strings.CutPrefix(line, "data:"); ok {
+			data = append(data, strings.TrimPrefix(rest, " "))
 		}
-		s.current = chunk
-		return true
+		// Other SSE fields (event:, id:, retry:) are ignored.
 	}
 	if err := s.scanner.Err(); err != nil {
 		s.err = fmt.Errorf("read stream: %w", err)
+		return false
+	}
+	// End of stream with a trailing event that had no terminating blank line.
+	if len(data) > 0 {
+		return s.dispatch(data)
 	}
 	return false
+}
+
+// dispatch decodes one accumulated event. It returns false for the [DONE]
+// sentinel or a decode error (recording it), true when a chunk is ready.
+func (s *httpSSEStream) dispatch(data []string) bool {
+	payload := strings.Join(data, "\n")
+	if payload == "[DONE]" {
+		return false
+	}
+	var chunk chatChunk
+	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+		s.err = fmt.Errorf("decode chunk: %w", err)
+		return false
+	}
+	s.current = chunk
+	return true
 }
 
 func (s *httpSSEStream) Current() chatChunk { return s.current }
