@@ -7,8 +7,8 @@ import "context"
 // on top, so the protocol logic never knows which transport it is on.
 //
 // Contract:
-//   - Write sends one already-encoded JSON-RPC frame. The conn serializes its
-//     own writes, so implementations may assume a single concurrent caller.
+//   - Write sends one already-encoded JSON-RPC frame. Concurrent calls (the conn
+//     issues requests from multiple goroutines) must be safe.
 //   - Incoming delivers received frames and is closed exactly once when the
 //     transport reaches EOF or is closed. After it closes, Err reports the
 //     terminal cause (nil for a clean EOF).
