@@ -47,6 +47,7 @@ Useful flags and environment variables:
 - `--model` / `ANTHROPIC_MODEL`: required unless provided by environment.
 - `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
 - `--base-url` / `ANTHROPIC_BASE_URL`.
+- `--max-retries` / `RUNCODE_MAX_RETRIES`: provider transient-failure retries (0 = default, negative = disabled).
 - `--cwd` / `RUNCODE_CWD`: workspace for tools.
 - `--loop`: keep one in-memory session alive across stdin prompts; use `/clear` to reset that in-memory history.
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`: bound how many in-memory history messages are sent to the provider each turn (`0` = unlimited, the default). Trimming keeps the current turn intact, never splits `tool_use`/`tool_result` pairs, and does not touch transcript files.

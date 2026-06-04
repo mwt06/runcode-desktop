@@ -51,6 +51,7 @@ type chatConfig struct {
 	Resume             string
 	Continue           bool
 	PersistSession     bool
+	MaxRetries         int
 }
 
 type chatIO struct {
@@ -155,6 +156,7 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("session-id", "", "Session id for transcript and history files")
 	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
 	cmd.Flags().Int("max-context-tokens", 0, "Context token budget that triggers compaction (0 = disabled)")
+	cmd.Flags().Int("max-retries", 0, "Provider transient-failure retries (0 = default, negative = disabled)")
 	cmd.Flags().String("resume", "", "Resume a saved session by id and continue it")
 	cmd.Flags().Bool("continue", false, "Resume the most recent saved session")
 	cmd.Flags().Bool("no-session", false, "Disable saving full session history for resume")
@@ -359,6 +361,10 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	maxRetries, err := intFlagEnvFile(cmd, "max-retries", "RUNCODE_MAX_RETRIES", file.MaxRetries)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 	resumeID, err := cmd.Flags().GetString("resume")
 	if err != nil {
 		return chatConfig{}, empty, err
@@ -389,6 +395,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		Resume:             strings.TrimSpace(resumeID),
 		Continue:           continueSession,
 		PersistSession:     !noSession,
+		MaxRetries:         maxRetries,
 	}, resolved, nil
 }
 
@@ -749,6 +756,7 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 			BaseURL:          cfg.BaseURL,
 			DefaultMaxTokens: cfg.MaxTokens,
 			MaxContextTokens: cfg.MaxContextTokens,
+			MaxRetries:       cfg.MaxRetries,
 			// Escape hatch for compatible endpoints that reject stream_options.
 			DisableStreamUsage: boolEnv("RUNCODE_OPENAI_DISABLE_USAGE_STREAM"),
 		})
@@ -759,6 +767,7 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 			BaseURL:          cfg.BaseURL,
 			DefaultMaxTokens: cfg.MaxTokens,
 			MaxContextTokens: cfg.MaxContextTokens,
+			MaxRetries:       cfg.MaxRetries,
 		})
 	}
 }

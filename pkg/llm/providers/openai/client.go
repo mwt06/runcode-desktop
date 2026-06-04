@@ -80,9 +80,22 @@ func newHTTPClient(opts Options) *httpClient {
 		doer:        client,
 		baseURL:     baseURL,
 		bearer:      bearer,
-		maxRetries:  defaultMaxRetries,
+		maxRetries:  resolveMaxRetries(opts.MaxRetries),
 		baseBackoff: defaultBaseBackoff,
 		sleep:       sleepContext,
+	}
+}
+
+// resolveMaxRetries maps the option convention (0 = default, negative =
+// disabled, positive = explicit count) to a concrete retry count.
+func resolveMaxRetries(configured int) int {
+	switch {
+	case configured < 0:
+		return 0
+	case configured > 0:
+		return configured
+	default:
+		return defaultMaxRetries
 	}
 }
 

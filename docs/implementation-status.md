@@ -564,7 +564,8 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 - stop sequences / tool choice / thinking budget。
 
 > retry/backoff（network/429/5xx/529，capped 指数退避 + 尊重 `Retry-After`，仅连接建立阶段）已实现：
-> OpenAI 在 HTTP transport 内重试，Anthropic 启用 SDK 内置重试。
+> OpenAI 在 HTTP transport 内重试，Anthropic 启用 SDK 内置重试。重试次数可配
+> （`--max-retries` / `RUNCODE_MAX_RETRIES` / `max_retries`，0=默认、负=禁用）。
 
 ## 后续推荐路线
 

@@ -42,6 +42,7 @@ type Config struct {
 	Transcript         string `toml:"transcript"`
 	MaxHistoryMessages *int   `toml:"max_history_messages"`
 	MaxContextTokens   *int   `toml:"max_context_tokens"`
+	MaxRetries         *int   `toml:"max_retries"`
 	APIKey             string `toml:"api_key"`
 	AuthToken          string `toml:"auth_token"`
 }
@@ -193,6 +194,9 @@ func merge(base Config, override Config) Config {
 	}
 	if override.MaxContextTokens != nil {
 		out.MaxContextTokens = override.MaxContextTokens
+	}
+	if override.MaxRetries != nil {
+		out.MaxRetries = override.MaxRetries
 	}
 	if override.APIKey != "" {
 		out.APIKey = override.APIKey

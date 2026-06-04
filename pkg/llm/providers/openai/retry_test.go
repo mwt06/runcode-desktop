@@ -187,3 +187,32 @@ func TestParseRetryAfter(t *testing.T) {
 		t.Error("HTTP-date Retry-After should be ignored (0)")
 	}
 }
+
+func TestResolveMaxRetries(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want int }{
+		{0, defaultMaxRetries},
+		{-1, 0},
+		{-5, 0},
+		{1, 1},
+		{5, 5},
+	}
+	for _, c := range cases {
+		if got := resolveMaxRetries(c.in); got != c.want {
+			t.Errorf("resolveMaxRetries(%d) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+func TestNewHTTPClientAppliesMaxRetries(t *testing.T) {
+	t.Parallel()
+	if got := newHTTPClient(Options{MaxRetries: -1}).maxRetries; got != 0 {
+		t.Errorf("negative MaxRetries should disable, got %d", got)
+	}
+	if got := newHTTPClient(Options{MaxRetries: 5}).maxRetries; got != 5 {
+		t.Errorf("positive MaxRetries should be applied, got %d", got)
+	}
+	if got := newHTTPClient(Options{}).maxRetries; got != defaultMaxRetries {
+		t.Errorf("zero MaxRetries should use default, got %d", got)
+	}
+}

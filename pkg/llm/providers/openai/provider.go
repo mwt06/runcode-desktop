@@ -31,6 +31,10 @@ type Options struct {
 	// endpoints that reject unknown fields. Usage (and thus compaction) is then
 	// unavailable, but requests still succeed.
 	DisableStreamUsage bool
+	// MaxRetries bounds transient-failure retries during request setup:
+	// 0 uses the default, a negative value disables retries, and a positive
+	// value sets the count.
+	MaxRetries int
 }
 
 type Provider struct {

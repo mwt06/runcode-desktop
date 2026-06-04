@@ -47,6 +47,7 @@ ANTHROPIC_API_KEY=... \
 - `--model` / `ANTHROPIC_MODEL`：必须通过 flag 或环境变量提供。
 - `--api-key` / `ANTHROPIC_API_KEY`，或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`。
 - `--base-url` / `ANTHROPIC_BASE_URL`。
+- `--max-retries` / `RUNCODE_MAX_RETRIES`：provider 瞬时失败重试次数（0 = 默认，负数 = 禁用）。
 - `--cwd` / `RUNCODE_CWD`：工具工作目录。
 - `--loop`：在 stdin 多轮输入中复用同一个内存 session；可用 `/clear` 清空该内存 history。
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`：限制每轮发送给 provider 的内存 history 消息数（`0` 表示不限制，为默认值）。裁剪会完整保留当前 turn，绝不拆散 `tool_use`/`tool_result` 配对，也不影响 transcript 文件。
