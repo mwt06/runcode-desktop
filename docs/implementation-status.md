@@ -549,6 +549,8 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 - Edit append/insert/regex/line patch。
 - Write atomic write + preserve mode。
 - Bash streaming/background task。
+- WebSearch（需配置搜索 API provider）。`WebFetch` 已实现：抓取 http(s) URL → 纯文本，作为
+  `network` 操作需审批（按 host 显示与记忆）。
 
 ### 8. Provider 扩展
 

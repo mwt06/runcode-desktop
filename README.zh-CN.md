@@ -106,8 +106,9 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 | `Grep` | 用 Go regexp 搜索 workspace 文本文件；可与兄弟 safe 工具调用并发执行。 |
 | `Bash` | 权限审批后，在 workspace 内执行单行非交互 Bash 命令。 |
 | `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
+| `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；网络操作，需审批（按 host 显示）。 |
 
-WebFetch/WebSearch、MCP tools 和插件工具尚未实现。
+WebSearch、MCP tools 和插件工具尚未实现。
 
 ## 权限与安全
 

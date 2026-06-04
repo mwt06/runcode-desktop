@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/wt68/runcode/internal/toolpath"
@@ -57,6 +58,8 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return resolveBash(req)
 	case "TodoWrite":
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "WebFetch":
+		return resolveWebFetch(req)
 	default:
 		return Action{ToolName: req.ToolName, Operation: OperationUnknown, Risk: RiskHigh, Resources: []Resource{{Type: ResourceUnknown, Scope: ResourceScopeUnknown}}}, nil
 	}
@@ -189,6 +192,42 @@ func resolveBash(req ResolveRequest) (Action, error) {
 
 func commandFallback(toolName string) Action {
 	return Action{ToolName: toolName, Operation: OperationExecute, Risk: RiskCritical, Resources: []Resource{{Type: ResourceCommand, Scope: ResourceScopeUnknown}}}
+}
+
+type webFetchInput struct {
+	URL string `json:"url"`
+}
+
+func resolveWebFetch(req ResolveRequest) (Action, error) {
+	var input webFetchInput
+	if err := json.Unmarshal(req.Input, &input); err != nil {
+		return networkFallback(req.ToolName), fmt.Errorf("%w: parse webfetch input", ErrInvalidInput)
+	}
+	if strings.TrimSpace(input.URL) == "" {
+		return networkFallback(req.ToolName), fmt.Errorf("%w: url is required", ErrInvalidInput)
+	}
+	action := networkFallback(req.ToolName)
+	if host := networkHost(input.URL); host != "" {
+		action.Metadata = map[string]any{MetadataNetworkHost: host}
+	}
+	return action, nil
+}
+
+func networkHost(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+func networkFallback(toolName string) Action {
+	return Action{
+		ToolName:  toolName,
+		Operation: OperationNetwork,
+		Risk:      RiskMedium,
+		Resources: []Resource{{Type: ResourceNetwork, Scope: ResourceScopeOutside}},
+	}
 }
 
 func mutationFallback(toolName string, operation Operation) Action {

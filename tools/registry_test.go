@@ -10,10 +10,10 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 	t.Parallel()
 
 	builtins := tools.Builtins()
-	if len(builtins) != 7 {
-		t.Fatalf("expected 7 builtin tools, got %d", len(builtins))
+	if len(builtins) != 8 {
+		t.Fatalf("expected 8 builtin tools, got %d", len(builtins))
 	}
-	wantNames := []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"}
+	wantNames := []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite", "WebFetch"}
 	for i, want := range wantNames {
 		if builtins[i].Name() != want {
 			t.Fatalf("builtin[%d] = %q, want %q", i, builtins[i].Name(), want)
@@ -33,6 +33,7 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 		"Grep":      true,
 		"Bash":      false,
 		"TodoWrite": false,
+		"WebFetch":  false,
 	}
 	for _, builtin := range builtins {
 		want, ok := wantConcurrencySafe[builtin.Name()]

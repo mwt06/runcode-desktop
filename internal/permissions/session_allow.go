@@ -81,6 +81,12 @@ func DefaultSessionKey(action Action) string {
 		sorted := append([]string(nil), capabilities...)
 		sort.Strings(sorted)
 		return "command\x00" + action.ToolName + "\x00" + category + "\x00" + strings.Join(sorted, ",")
+	case OperationNetwork:
+		host := metadataString(action.Metadata, MetadataNetworkHost)
+		if host == "" {
+			return ""
+		}
+		return "network\x00" + action.ToolName + "\x00" + host
 	default:
 		return ""
 	}

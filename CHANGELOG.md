@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - `Grep`
   - `Bash`
   - `TodoWrite`
+  - `WebFetch`
 - `Read` tool with line-numbered output, offset/limit support, output bounds, and complete/partial read metadata.
 - `Write` tool for workspace file creation and fresh-read overwrites.
 - `Edit` tool for fresh-read exact string replacement and replace-all edits.
@@ -36,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `Grep` tool for workspace regexp search with path/glob filtering and bounded output.
 - Minimal `Bash` tool with workspace cwd, no stdin, timeout, stdout/stderr capture, output truncation, and `is_error` result semantics for non-zero exit or timeout.
 - `TodoWrite` tool: the model records its current task list by passing the complete list each call (replacing the previous one). Each item has content, a status (pending/in_progress/completed), and an activeForm; the tool validates the list (non-empty, valid statuses, at most one in_progress), renders a checklist, and emits a progress event for the UI. It is side-effect-free and classified as a new `manage` permission operation that is allowed without approval (no files or commands). Registered in `tools.Builtins()` and exposed to the model and prompt automatically.
+- `WebFetch` tool: fetches an http(s) URL (GET, with timeout, a 5 MiB body cap, and a redirect limit that refuses non-http(s) schemes) and returns its text — HTML is reduced to plain text (script/style/head dropped, block elements becoming line breaks), other text/JSON/XML is returned as-is, and binary content is rejected. It is modeled as a new `network` permission operation that always requires approval (so safe mode denies it); the approval shows the target host (never the full URL), and "allow for session/project" can be granted per host. Verified live against `example.com`.
 - Finite ReAct session controller in `internal/repl` with tool-use iteration, tool-result conversion, max-iteration protection, in-memory history, and optional reasoning classification.
 - Unified permission boundary in `internal/permissions`, including action/resource/risk modeling, resolver, policy, safe mode, interactive approval, command classification, and sanitized approval summaries.
 - Permission-aware executor that records permission decisions and returns permission denial, unknown tools, and recoverable tool runtime errors as error tool results.

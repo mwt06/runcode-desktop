@@ -19,6 +19,10 @@ func (DefaultPolicy) Decide(_ context.Context, action Action) Decision {
 		// Side-effect-free session management (e.g. TodoWrite): no files or
 		// commands, so it is allowed without approval.
 		return Allow(ReasonAllowedManage, "default.manage")
+	case OperationNetwork:
+		// Outbound network access (e.g. WebFetch) always requires approval; in
+		// safe mode the authorizer turns that into a denial.
+		return Ask(ReasonRequiresApproval, "default.network")
 	case OperationWrite, OperationEdit:
 		return decideMutation(action)
 	case OperationExecute:

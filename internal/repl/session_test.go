@@ -79,7 +79,7 @@ func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	if got := req.Messages[0].Content[0].Text; got != "read the file" {
 		t.Fatalf("user text = %q, want %q", got, "read the file")
 	}
-	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"}; !sameStrings(got, want) {
+	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite", "WebFetch"}; !sameStrings(got, want) {
 		t.Fatalf("tool specs = %#v, want %#v", got, want)
 	}
 }

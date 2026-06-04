@@ -120,6 +120,9 @@ func (m Model) approvalDetailLines() []string {
 	if cmd := strings.TrimSpace(summary.CommandSummary); cmd != "" {
 		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(cmd, width)))
 	}
+	if host := strings.TrimSpace(summary.NetworkHost); host != "" {
+		lines = append(lines, mutedStyle.Render(" ↳ host "+truncate(host, width)))
+	}
 	if hint := m.approvalSessionScopeHint(); hint != "" {
 		lines = append(lines, mutedStyle.Render(" allow remembers: "+truncate(hint, maxZero(m.width-19))))
 	}
@@ -130,6 +133,9 @@ func (m Model) approvalSessionScopeHint() string {
 	summary := m.approval.summary
 	if category := strings.TrimSpace(summary.CommandCategory); category != "" {
 		return category + " commands"
+	}
+	if host := strings.TrimSpace(summary.NetworkHost); host != "" {
+		return "fetches from " + host
 	}
 	switch len(m.approval.targets) {
 	case 0:

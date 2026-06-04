@@ -13,6 +13,7 @@ const (
 	ResourceFile      ResourceType = "file"
 	ResourceDirectory ResourceType = "directory"
 	ResourceCommand   ResourceType = "command"
+	ResourceNetwork   ResourceType = "network"
 	ResourceUnknown   ResourceType = "unknown"
 )
 

@@ -106,8 +106,9 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `Grep` | Searches workspace text files with Go regular expressions; concurrency-safe with sibling safe tool calls. |
 | `Bash` | Runs a single-line non-interactive bash command in the workspace after permission approval. |
 | `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
+| `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); a network operation that requires approval (shown per host). |
 
-WebFetch/WebSearch, MCP tools, and plugin tools are not implemented yet.
+WebSearch, MCP tools, and plugin tools are not implemented yet.
 
 ## Permissions and safety
 

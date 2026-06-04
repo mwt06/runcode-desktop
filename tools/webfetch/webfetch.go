@@ -1,0 +1,196 @@
+// Package webfetch implements the WebFetch tool: fetch an http(s) URL and return
+// its text content (HTML reduced to plain text). It is an outbound network
+// operation, so the permission layer requires approval before it runs.
+package webfetch
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"golang.org/x/net/html"
+
+	"github.com/wt68/runcode/pkg/tool"
+)
+
+const (
+	requestTimeout = 30 * time.Second
+	maxBodyBytes   = 5 << 20 // 5 MiB read cap
+	maxOutputRunes = 50000   // extracted-text cap
+	maxRedirects   = 5
+)
+
+type input struct {
+	URL string `json:"url"`
+}
+
+type Tool struct {
+	client *http.Client
+}
+
+func New() tool.Tool { return Tool{client: defaultClient()} }
+
+func defaultClient() *http.Client {
+	return &http.Client{
+		Timeout: requestTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxRedirects {
+				return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("refusing redirect to %q scheme", req.URL.Scheme)
+			}
+			return nil
+		},
+	}
+}
+
+func (Tool) Name() string { return "WebFetch" }
+
+func (Tool) Description() string {
+	return "Fetch an http(s) URL and return its text content; HTML is reduced to plain text. " +
+		"This is a network operation and requires approval."
+}
+
+func (Tool) InputSchema() tool.Schema {
+	return tool.Schema{
+		Type: tool.SchemaTypeObject,
+		Properties: map[string]tool.Schema{
+			"url": {Type: tool.SchemaTypeString, Description: "The http(s) URL to fetch."},
+		},
+		Required:             []string{"url"},
+		AdditionalProperties: false,
+	}
+}
+
+func (Tool) IsConcurrencySafe() bool { return false }
+
+func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+	var in input
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return tool.Result{}, fmt.Errorf("parse webfetch input: %w", err)
+	}
+	target := strings.TrimSpace(in.URL)
+	if target == "" {
+		return tool.Result{}, errors.New("url is required")
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return tool.Result{}, fmt.Errorf("invalid url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return tool.Result{}, fmt.Errorf("unsupported url scheme %q (only http and https)", parsed.Scheme)
+	}
+
+	client := t.client
+	if client == nil {
+		client = defaultClient()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return tool.Result{}, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Accept", "text/html, text/plain, */*")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return tool.Result{}, fmt.Errorf("fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return tool.Result{
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("HTTP %d fetching %s", resp.StatusCode, parsed.Host)}},
+			IsError: true,
+		}, nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return tool.Result{}, fmt.Errorf("read body: %w", err)
+	}
+	text, err := extractText(resp.Header.Get("Content-Type"), body)
+	if err != nil {
+		return tool.Result{}, err
+	}
+	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: truncateRunes(text, maxOutputRunes)}}}, nil
+}
+
+func extractText(contentType string, body []byte) (string, error) {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+	switch {
+	case strings.Contains(mediaType, "html"):
+		return htmlToText(body), nil
+	case mediaType == "",
+		strings.HasPrefix(mediaType, "text/"),
+		strings.Contains(mediaType, "json"),
+		strings.Contains(mediaType, "xml"):
+		return string(body), nil
+	default:
+		return "", fmt.Errorf("unsupported content type %q", mediaType)
+	}
+}
+
+var skipElements = map[string]bool{"script": true, "style": true, "noscript": true, "head": true}
+
+var blockElements = map[string]bool{
+	"p": true, "div": true, "br": true, "li": true, "tr": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+	"section": true, "article": true, "header": true, "footer": true,
+}
+
+func htmlToText(body []byte) string {
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return string(body)
+	}
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && skipElements[n.Data] {
+			return
+		}
+		if n.Type == html.TextNode {
+			if text := strings.TrimSpace(n.Data); text != "" {
+				b.WriteString(text)
+				b.WriteString(" ")
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+		if n.Type == html.ElementNode && blockElements[n.Data] {
+			b.WriteString("\n")
+		}
+	}
+	walk(doc)
+	return collapseWhitespace(b.String())
+}
+
+func collapseWhitespace(s string) string {
+	lines := strings.Split(s, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		cleaned = append(cleaned, strings.Join(strings.Fields(line), " "))
+	}
+	result := strings.Join(cleaned, "\n")
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(result)
+}
+
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "\n[output truncated]"
+}

@@ -18,7 +18,10 @@ const (
 	OperationExecute Operation = "execute"
 	// OperationManage is a side-effect-free session-management operation (e.g.
 	// updating the in-memory todo list). It touches no files or commands.
-	OperationManage  Operation = "manage"
+	OperationManage Operation = "manage"
+	// OperationNetwork is an outbound network access (e.g. WebFetch). It has no
+	// local side effects but leaves the machine, so it requires approval.
+	OperationNetwork Operation = "network"
 	OperationUnknown Operation = "unknown"
 )
 
