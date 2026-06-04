@@ -142,12 +142,17 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		sessionStore = sessions.Noop()
 	}
 
+	// Derive prompt cache hints from the provider so a provider that ignores
+	// cache control (e.g. OpenAI) does not get no-op cache metadata.
+	promptOpts := opts.Prompt
+	promptOpts.SupportsCacheControl = opts.Provider.Capabilities().SupportsCacheControl
+
 	return &Session{
 		provider:           opts.Provider,
 		model:              opts.Model,
 		tools:              tools,
 		executor:           executor,
-		prompt:             opts.Prompt,
+		prompt:             promptOpts,
 		maxTokens:          opts.MaxTokens,
 		temperature:        opts.Temperature,
 		metadata:           opts.Metadata,

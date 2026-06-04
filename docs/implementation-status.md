@@ -557,13 +557,12 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 可选方向：
 
-- **Provider capabilities 接线**：`llm.Provider.Capabilities()`（`MaxContextTokens` /
-  `SupportsCacheControl` / `SupportsThinking`）目前在 repl 实际代码里从未被读取（仅测试 fake
-  使用），provider 各自声明的能力是“死字段”。接线后可：(1) 按 provider 上下文窗口自动推断压缩
-  预算，免去手填 `--max-context-tokens`；(2) 按 `SupportsCacheControl` 决定是否注入 ephemeral
-  cache hint（OpenAI 不支持时跳过，当前是无害忽略但浪费 prompt 组装）；(3) 按 `SupportsThinking`
-  控制 thinking 相关行为。需在 `repl.NewSession` 注入 provider capability，并让 prompt 组装与
-  `maybeCompact` 读取它。
+- **Provider capabilities 接线（部分实现）**：`SupportsCacheControl` 已接线——`repl.NewSession`
+  从 provider 读取该能力并注入 prompt assembler，static system-prompt 段仅在 provider 支持时带
+  ephemeral cache hint（Anthropic=true 保留缓存优化；OpenAI=false 不再生成无用 cache 字段）。
+  仍未接线：(1) 按 provider 上下文窗口自动推断压缩预算——`Capabilities().MaxContextTokens` 当前与
+  CLI 的 `--max-context-tokens` 同源，要有意义需 provider 提供独立来源（model→窗口映射或 API 查询），
+  对任意 model 名的 OpenAI 兼容端点不可行，故留作进一步工作；(3) `SupportsThinking` 暂无消费方。
 - Anthropic image support。
 - stop sequences / tool choice / thinking budget。
 - retry/backoff/rate-limit 分类。

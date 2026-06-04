@@ -18,6 +18,10 @@ type AssemblerOpts struct {
 	Reasoning         string
 	PermissionMode    string
 	PermissionContext string
+	// SupportsCacheControl marks static prompt sections with ephemeral cache
+	// hints. It should reflect the provider's capability: enabling it for a
+	// provider that ignores cache control (e.g. OpenAI) only adds no-op metadata.
+	SupportsCacheControl bool
 }
 
 func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
@@ -40,18 +44,23 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 		opts.ProjectCtx,
 	}
 
+	staticCache := llm.CacheControlNone
+	if opts.SupportsCacheControl {
+		staticCache = llm.CacheControlEphemeral
+	}
+
 	blocks := make([]llm.ContentBlock, 0, len(staticSections)+len(dynamicSections)+1)
 	for _, section := range staticSections {
 		if section == "" {
 			continue
 		}
-		blocks = append(blocks, textBlock(section, llm.CacheControlEphemeral))
+		blocks = append(blocks, textBlock(section, staticCache))
 	}
 	if len(blocks) == 0 {
 		return nil, fmt.Errorf("empty system prompt: no static sections provided")
 	}
 
-	blocks = append(blocks, textBlock(DynamicBoundary, llm.CacheControlEphemeral))
+	blocks = append(blocks, textBlock(DynamicBoundary, staticCache))
 	for _, section := range dynamicSections {
 		if section == "" {
 			continue

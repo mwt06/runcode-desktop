@@ -29,7 +29,7 @@ func TestBuildSystemPromptReturnsTextBlocks(t *testing.T) {
 func TestBuildSystemPromptBoundaryBetweenStaticAndDynamic(t *testing.T) {
 	t.Parallel()
 
-	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp", ProjectCtx: "ctx"})
+	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp", ProjectCtx: "ctx", SupportsCacheControl: true})
 	if err != nil {
 		t.Fatalf("BuildSystemPrompt: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestBuildSystemPromptBoundaryBetweenStaticAndDynamic(t *testing.T) {
 func TestBuildSystemPromptCachePolicy(t *testing.T) {
 	t.Parallel()
 
-	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp", Date: "2026-05-19", ProjectCtx: "project context"})
+	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp", Date: "2026-05-19", ProjectCtx: "project context", SupportsCacheControl: true})
 	if err != nil {
 		t.Fatalf("BuildSystemPrompt: %v", err)
 	}
@@ -77,6 +77,22 @@ func TestBuildSystemPromptCachePolicy(t *testing.T) {
 		}
 		if seenBoundary && block.Cache != llm.CacheControlNone {
 			t.Fatalf("dynamic block should not be cacheable: %#v", block)
+		}
+	}
+}
+
+func TestBuildSystemPromptNoCacheWhenUnsupported(t *testing.T) {
+	t.Parallel()
+
+	// With SupportsCacheControl false (e.g. an OpenAI-compatible provider), no
+	// block should carry a cache hint.
+	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp", ProjectCtx: "ctx"})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	for _, block := range blocks {
+		if block.Cache != llm.CacheControlNone {
+			t.Fatalf("no block should be cacheable when the provider lacks cache support: %#v", block)
 		}
 	}
 }
