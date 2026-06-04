@@ -14,6 +14,7 @@ const (
 	ResourceDirectory ResourceType = "directory"
 	ResourceCommand   ResourceType = "command"
 	ResourceNetwork   ResourceType = "network"
+	ResourceExternal  ResourceType = "external"
 	ResourceUnknown   ResourceType = "unknown"
 )
 

@@ -22,7 +22,11 @@ const (
 	// OperationNetwork is an outbound network access (e.g. WebFetch). It has no
 	// local side effects but leaves the machine, so it requires approval.
 	OperationNetwork Operation = "network"
-	OperationUnknown Operation = "unknown"
+	// OperationExternal is a call to an external MCP server tool. The server is a
+	// separate process with arbitrary capabilities, so every call requires
+	// approval (safe mode denies it).
+	OperationExternal Operation = "external"
+	OperationUnknown  Operation = "unknown"
 )
 
 type Risk string

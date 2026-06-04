@@ -45,6 +45,9 @@ type bashInput struct {
 }
 
 func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, error) {
+	if strings.HasPrefix(req.ToolName, mcpToolNamePrefix) {
+		return resolveMCP(req), nil
+	}
 	switch req.ToolName {
 	case "Read":
 		return resolveRead(req)
@@ -219,6 +222,25 @@ func networkHost(rawURL string) string {
 		return ""
 	}
 	return parsed.Hostname()
+}
+
+// resolveMCP classifies a namespaced MCP tool call as an external operation that
+// always requires approval. The server and tool are carried as metadata for
+// approval display and per-tool grants; the raw arguments are never inspected.
+func resolveMCP(req ResolveRequest) Action {
+	action := Action{
+		ToolName:  req.ToolName,
+		Operation: OperationExternal,
+		Risk:      RiskHigh,
+		Resources: []Resource{{Type: ResourceExternal, Scope: ResourceScopeOutside}},
+	}
+	if server, tool, ok := parseMCPToolName(req.ToolName); ok {
+		action.Metadata = map[string]any{
+			MetadataMCPServer: server,
+			MetadataMCPTool:   tool,
+		}
+	}
+	return action
 }
 
 func networkFallback(toolName string) Action {

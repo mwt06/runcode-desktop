@@ -123,6 +123,13 @@ func (m Model) approvalDetailLines() []string {
 	if host := strings.TrimSpace(summary.NetworkHost); host != "" {
 		lines = append(lines, mutedStyle.Render(" ↳ host "+truncate(host, width)))
 	}
+	if server := strings.TrimSpace(summary.MCPServer); server != "" {
+		detail := "server " + server
+		if mcpTool := strings.TrimSpace(summary.MCPTool); mcpTool != "" {
+			detail += " · tool " + mcpTool
+		}
+		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(detail, width)))
+	}
 	if hint := m.approvalSessionScopeHint(); hint != "" {
 		lines = append(lines, mutedStyle.Render(" allow remembers: "+truncate(hint, maxZero(m.width-19))))
 	}
@@ -136,6 +143,9 @@ func (m Model) approvalSessionScopeHint() string {
 	}
 	if host := strings.TrimSpace(summary.NetworkHost); host != "" {
 		return "fetches from " + host
+	}
+	if mcpTool := strings.TrimSpace(summary.MCPTool); mcpTool != "" {
+		return mcpTool + " from " + strings.TrimSpace(summary.MCPServer)
 	}
 	switch len(m.approval.targets) {
 	case 0:

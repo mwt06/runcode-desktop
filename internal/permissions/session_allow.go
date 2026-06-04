@@ -58,6 +58,7 @@ const (
 	ScopeMutate   = "mutate"
 	ScopeCommand  = "command"
 	ScopeNetwork  = "network"
+	ScopeExternal = "external"
 	sessionKeySep = "\x00"
 )
 
@@ -76,6 +77,15 @@ func MutateSessionKey(tool, path string) string {
 		return ""
 	}
 	return strings.Join([]string{ScopeMutate, tool, path}, sessionKeySep)
+}
+
+// ExternalSessionKey builds the key for an external MCP tool call, grained per
+// server and tool so "allow for session/project" remembers that one tool.
+func ExternalSessionKey(server, tool string) string {
+	if server == "" || tool == "" {
+		return ""
+	}
+	return strings.Join([]string{ScopeExternal, server, tool}, sessionKeySep)
 }
 
 // CommandSessionKey builds the key for a Bash command category and its
@@ -141,6 +151,11 @@ func DefaultSessionKey(action Action) string {
 		return CommandSessionKey(action.ToolName, category, metadataStrings(action.Metadata, MetadataCommandCapabilities))
 	case OperationNetwork:
 		return NetworkSessionKey(action.ToolName, metadataString(action.Metadata, MetadataNetworkHost))
+	case OperationExternal:
+		return ExternalSessionKey(
+			metadataString(action.Metadata, MetadataMCPServer),
+			metadataString(action.Metadata, MetadataMCPTool),
+		)
 	default:
 		return ""
 	}

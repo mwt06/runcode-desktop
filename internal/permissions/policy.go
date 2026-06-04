@@ -23,6 +23,10 @@ func (DefaultPolicy) Decide(_ context.Context, action Action) Decision {
 		// Outbound network access (e.g. WebFetch) always requires approval; in
 		// safe mode the authorizer turns that into a denial.
 		return Ask(ReasonRequiresApproval, "default.network")
+	case OperationExternal:
+		// External MCP server tools are separate processes with arbitrary
+		// capabilities, so every call requires approval; safe mode denies it.
+		return Ask(ReasonRequiresApproval, "default.external")
 	case OperationWrite, OperationEdit:
 		return decideMutation(action)
 	case OperationExecute:

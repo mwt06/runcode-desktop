@@ -36,6 +36,8 @@ type ApprovalSummary struct {
 	CommandRiskReasons  []string
 	CommandSummary      string
 	NetworkHost         string
+	MCPServer           string
+	MCPTool             string
 	PolicyRule          string
 }
 
@@ -85,6 +87,8 @@ func NewApprovalSummary(action Action, decision Decision) ApprovalSummary {
 		CommandRiskReasons:  metadataStrings(action.Metadata, MetadataCommandRiskReasons),
 		CommandSummary:      metadataString(action.Metadata, MetadataCommandSummary),
 		NetworkHost:         metadataString(action.Metadata, MetadataNetworkHost),
+		MCPServer:           metadataString(action.Metadata, MetadataMCPServer),
+		MCPTool:             metadataString(action.Metadata, MetadataMCPTool),
 		PolicyRule:          decision.Rule,
 	}
 }
