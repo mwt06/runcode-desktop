@@ -3,22 +3,33 @@ package permissions
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 )
 
 type Options struct {
-	Resolver          Resolver
-	Policy            Policy
-	Authorizer        Authorizer
-	Mode              string
-	ApprovalAvailable bool
+	Resolver Resolver
+	Policy   Policy
+	// Authorizer is a fixed authorizer used when InteractiveAuthorizer is not
+	// set. It keeps existing callers working without runtime mode switching.
+	Authorizer Authorizer
+	// InteractiveAuthorizer, when set, makes the service mode-aware: interactive
+	// mode routes ask decisions to it, safe mode denies them. Supplying it (even
+	// when starting in safe mode) is what enables runtime mode switching.
+	InteractiveAuthorizer Authorizer
+	Mode                  string
+	ApprovalAvailable     bool
 }
 
 type Service struct {
-	resolver          Resolver
-	policy            Policy
-	authorizer        Authorizer
-	mode              string
-	approvalAvailable bool
+	resolver              Resolver
+	policy                Policy
+	authorizer            Authorizer
+	interactiveAuthorizer Authorizer
+	approvalAvailable     bool
+
+	mu   sync.RWMutex
+	mode string
 }
 
 func NewService(opts Options) *Service {
@@ -38,7 +49,14 @@ func NewService(opts Options) *Service {
 	if mode == "" {
 		mode = "safe"
 	}
-	return &Service{resolver: resolver, policy: policy, authorizer: authorizer, mode: mode, approvalAvailable: opts.ApprovalAvailable}
+	return &Service{
+		resolver:              resolver,
+		policy:                policy,
+		authorizer:            authorizer,
+		interactiveAuthorizer: opts.InteractiveAuthorizer,
+		approvalAvailable:     opts.ApprovalAvailable,
+		mode:                  mode,
+	}
 }
 
 func DefaultService() *Service {
@@ -46,14 +64,62 @@ func DefaultService() *Service {
 }
 
 func (s *Service) Mode() string {
-	if s == nil || s.mode == "" {
+	if s == nil {
+		return "safe"
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.mode == "" {
 		return "safe"
 	}
 	return s.mode
 }
 
+// SetMode switches the permission mode at runtime. Switching to interactive
+// requires an interactive authorizer (an approver) to have been configured.
+func (s *Service) SetMode(mode string) error {
+	if s == nil {
+		return errors.New("permissions: nil service")
+	}
+	switch mode {
+	case "safe", "interactive":
+	default:
+		return fmt.Errorf("unknown permission mode %q", mode)
+	}
+	if mode == "interactive" && s.interactiveAuthorizer == nil {
+		return errors.New("interactive mode unavailable: no approver configured")
+	}
+	s.mu.Lock()
+	s.mode = mode
+	s.mu.Unlock()
+	return nil
+}
+
+// ApprovalAvailable reports whether the current mode may prompt for approval.
+// A mode-aware service (with an interactive authorizer) reports availability
+// for the current mode, so concurrency decisions track runtime switches.
 func (s *Service) ApprovalAvailable() bool {
-	return s != nil && s.approvalAvailable
+	if s == nil {
+		return false
+	}
+	if s.interactiveAuthorizer != nil {
+		return s.Mode() == "interactive"
+	}
+	return s.approvalAvailable
+}
+
+// authorizerForMode picks the authorizer for the current mode. Without an
+// interactive authorizer the service is not mode-aware and uses its fixed
+// authorizer (legacy behavior). With one, interactive mode uses it and safe
+// mode denies ask decisions.
+func (s *Service) authorizerForMode() Authorizer {
+	if s.interactiveAuthorizer == nil {
+		return s.authorizer
+	}
+	if s.Mode() == "interactive" {
+		return s.interactiveAuthorizer
+	}
+	return NonInteractiveAuthorizer{}
 }
 
 func (s *Service) AuthorizeTool(ctx context.Context, req ResolveRequest) (Action, Decision) {
@@ -83,5 +149,5 @@ func (s *Service) AuthorizeTool(ctx context.Context, req ResolveRequest) (Action
 	if decision.FinalEffect == "" {
 		decision.FinalEffect = decision.Effect
 	}
-	return action, s.authorizer.Authorize(ctx, action, decision)
+	return action, s.authorizerForMode().Authorize(ctx, action, decision)
 }

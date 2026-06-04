@@ -11,11 +11,14 @@ import (
 )
 
 type fakeService struct {
-	status        Status
-	resetCount    int
-	closeCount    int
-	compactResult CompactResult
-	compactErr    error
+	status              Status
+	resetCount          int
+	closeCount          int
+	compactResult       CompactResult
+	compactErr          error
+	permissionMode      string
+	permissionModeCalls int
+	permissionModeErr   error
 }
 
 func (s *fakeService) RunTurn(context.Context, string) (TurnResult, error) {
@@ -34,6 +37,12 @@ func (s *fakeService) Close(context.Context) error {
 
 func (s *fakeService) Compact(context.Context) (CompactResult, error) {
 	return s.compactResult, s.compactErr
+}
+
+func (s *fakeService) SetPermissionMode(mode string) error {
+	s.permissionMode = mode
+	s.permissionModeCalls++
+	return s.permissionModeErr
 }
 
 func (s *fakeService) Status() Status {

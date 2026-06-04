@@ -68,33 +68,34 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 }
 
 type tuiSessionService struct {
-	cfg        chatConfig
-	session    *repl.Session
-	resources  sessionResources
-	onDelta    func(string)
-	approver   *ui.Approver
-	toolEvents chan tool.Event
-	closed     bool
+	cfg         chatConfig
+	session     *repl.Session
+	resources   sessionResources
+	onDelta     func(string)
+	approver    *ui.Approver
+	permissions *permissions.Service
+	toolEvents  chan tool.Event
+	closed      bool
 }
 
 func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 	service := &tuiSessionService{cfg: cfg, toolEvents: make(chan tool.Event, tuiToolEventBufferSize)}
-	permissionService := permissions.NewService(permissions.Options{Mode: "safe"})
-	if cfg.PermissionMode == "interactive" {
-		service.approver = ui.NewApprover(cfg.CWD)
-		store, err := newAllowStore(cfg.CWD)
-		if err != nil {
-			return nil, err
-		}
-		permissionService = permissions.NewService(permissions.Options{
-			Mode:              "interactive",
-			ApprovalAvailable: true,
-			Authorizer: permissions.InteractiveAuthorizer{
-				Approver: service.approver,
-				Store:    store,
-			},
-		})
+	// Always build the approver and an interactive authorizer so /mode can switch
+	// to interactive at runtime, even when starting in safe mode.
+	service.approver = ui.NewApprover(cfg.CWD)
+	store, err := newAllowStore(cfg.CWD)
+	if err != nil {
+		return nil, err
 	}
+	permissionService := permissions.NewService(permissions.Options{
+		Mode:              cfg.PermissionMode,
+		ApprovalAvailable: true,
+		InteractiveAuthorizer: permissions.InteractiveAuthorizer{
+			Approver: service.approver,
+			Store:    store,
+		},
+	})
+	service.permissions = permissionService
 	session, resources, err := newSessionForConfig(cfg, sessionFactoryOptions{
 		Runtime:          chatIO{Err: io.Discard, Out: nil},
 		TelemetryRuntime: chatIO{Err: os.Stderr},
@@ -147,6 +148,10 @@ func (s *tuiSessionService) Compact(ctx context.Context) (ui.CompactResult, erro
 	return ui.CompactResult{Before: before, After: after}, nil
 }
 
+func (s *tuiSessionService) SetPermissionMode(mode string) error {
+	return s.permissions.SetMode(mode)
+}
+
 func (s *tuiSessionService) Close(ctx context.Context) error {
 	if s.closed {
 		return nil
@@ -159,7 +164,7 @@ func (s *tuiSessionService) Status() ui.Status {
 	return ui.Status{
 		Model:              s.cfg.Model,
 		CWD:                s.cfg.CWD,
-		PermissionMode:     s.cfg.PermissionMode,
+		PermissionMode:     s.permissions.Mode(),
 		Transcript:         s.cfg.Transcript,
 		SessionID:          s.resources.SessionID,
 		InputPricePerMTok:  s.cfg.InputPrice,

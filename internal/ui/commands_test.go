@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -186,5 +187,50 @@ func TestCostCommandShowsUsage(t *testing.T) {
 	last := model.messages[len(model.messages)-1]
 	if !strings.Contains(last.Text, "1500") || !strings.Contains(last.Text, "estimated cost") {
 		t.Fatalf("cost message = %q", last.Text)
+	}
+}
+
+func TestModeCommandSwitches(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{status: Status{PermissionMode: "safe"}}
+	model := New(service)
+	model.input.SetValue("/mode interactive")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if service.permissionMode != "interactive" {
+		t.Fatalf("SetPermissionMode = %q, want interactive", service.permissionMode)
+	}
+	if model.status.PermissionMode != "interactive" {
+		t.Fatalf("status mode = %q, want interactive", model.status.PermissionMode)
+	}
+}
+
+func TestModeCommandRejectsUnknown(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{}
+	model := New(service)
+	model.input.SetValue("/mode bogus")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if service.permissionModeCalls != 0 {
+		t.Fatal("unknown mode must not call SetPermissionMode")
+	}
+	if model.messages[len(model.messages)-1].Role != RoleError {
+		t.Fatalf("expected error message: %#v", model.messages)
+	}
+}
+
+func TestModeCommandSurfacesServiceError(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{permissionModeErr: errors.New("no approver")}
+	model := New(service)
+	model.input.SetValue("/mode interactive")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if model.messages[len(model.messages)-1].Role != RoleError {
+		t.Fatalf("expected error from SetPermissionMode: %#v", model.messages)
 	}
 }

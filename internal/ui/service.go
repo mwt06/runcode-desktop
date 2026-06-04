@@ -6,6 +6,7 @@ type Service interface {
 	RunTurn(ctx context.Context, userText string) (TurnResult, error)
 	Reset(ctx context.Context) error
 	Compact(ctx context.Context) (CompactResult, error)
+	SetPermissionMode(mode string) error
 	Close(ctx context.Context) error
 	Status() Status
 }

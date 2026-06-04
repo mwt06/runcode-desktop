@@ -148,6 +148,33 @@ func defaultSlashRegistry() *slashRegistry {
 	})
 
 	r.register(&slashCommand{
+		name:    "mode",
+		summary: "switch permission mode: /mode safe|interactive",
+		run: func(m Model, args []string) (Model, tea.Cmd) {
+			if len(args) == 0 {
+				m.appendMessage(RoleSystem, "usage: /mode safe|interactive (current: "+m.status.PermissionMode+")")
+				m.refreshViewport()
+				return m, nil
+			}
+			mode := strings.ToLower(strings.TrimSpace(args[0]))
+			if mode != "safe" && mode != "interactive" {
+				m.appendMessage(RoleError, "unknown mode "+args[0]+" (want safe or interactive)")
+				m.refreshViewport()
+				return m, nil
+			}
+			if err := m.service.SetPermissionMode(mode); err != nil {
+				m.appendMessage(RoleError, errorText(err))
+				m.refreshViewport()
+				return m, nil
+			}
+			m.status.PermissionMode = mode
+			m.appendMessage(RoleSystem, "permission mode: "+mode)
+			m.refreshViewport()
+			return m, nil
+		},
+	})
+
+	r.register(&slashCommand{
 		name:    "cost",
 		summary: "show token usage and estimated cost",
 		run: func(m Model, _ []string) (Model, tea.Cmd) {
