@@ -262,11 +262,20 @@ func (s *Session) ResetHistory() {
 const (
 	compactionThresholdRatio   = 0.8
 	compactionSummaryMaxTokens = 2048
+	// compactionSummaryCharBudgetFactor turns the token budget into a rough
+	// character cap for the retained summary body (~3 chars/token for mixed
+	// code/CJK text). While the body stays under it, compaction is incremental
+	// and never re-summarizes existing summary text; above it, the summary is
+	// recompacted once. Soft, tunable heuristic — no local tokenizer involved.
+	compactionSummaryCharBudgetFactor = 2
 )
 
 const compactionSystemPrompt = "You are condensing a coding-assistant conversation to save context. " +
-	"Write a concise summary that preserves key decisions, file paths, code changes, the current task " +
-	"state, and any unresolved follow-ups. Omit pleasantries and verbatim tool output."
+	"Write a concise summary that preserves: every concrete fact the user stated (preferences, " +
+	"constraints, names, numbers, identifiers, file paths, requirements), all key decisions, code " +
+	"changes, the current task state, and any unresolved follow-ups. Keep these specific facts even " +
+	"if they look like small talk — never drop them. Omit greetings and verbatim tool output. " +
+	"If the input contains an earlier summary to retain, fold all of its facts into your output."
 
 const compactionInstruction = "Summarize the conversation so far per the system instructions."
 
@@ -299,7 +308,10 @@ func (s *Session) maybeCompact(ctx context.Context, turnID string, history []llm
 	if usage.InputTokens <= int(float64(s.maxContextTokens)*compactionThresholdRatio) {
 		return history
 	}
-	compacted, err := compaction.Compact(ctx, history, compaction.Options{Summarize: s.summarizeForCompaction(turnID)})
+	compacted, err := compaction.Compact(ctx, history, compaction.Options{
+		Summarize:         s.summarizeForCompaction(turnID),
+		SummaryCharBudget: s.maxContextTokens * compactionSummaryCharBudgetFactor,
+	})
 	if err != nil {
 		s.record(ctx, telemetry.Event{
 			Time:       time.Now().UTC(),
