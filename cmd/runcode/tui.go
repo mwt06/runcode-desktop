@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -150,6 +151,17 @@ func (s *tuiSessionService) Compact(ctx context.Context) (ui.CompactResult, erro
 
 func (s *tuiSessionService) SetPermissionMode(mode string) error {
 	return s.permissions.SetMode(mode)
+}
+
+// SetModel switches the session's model for subsequent turns and updates the
+// cached config so the status line reflects it. The switch is runtime-only and
+// not persisted to config files.
+func (s *tuiSessionService) SetModel(model string) error {
+	if err := s.session.SetModel(model); err != nil {
+		return err
+	}
+	s.cfg.Model = strings.TrimSpace(model)
+	return nil
 }
 
 func (s *tuiSessionService) Close(ctx context.Context) error {

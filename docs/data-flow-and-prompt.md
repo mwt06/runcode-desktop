@@ -399,7 +399,7 @@ examples/custom-tool
 
 对应未实现能力：
 
-- 完整 TUI 产品能力：permission modal、rich tool output、diff viewer、transcript browser、多行输入和 model switching。
+- 完整 TUI 产品能力：diff viewer、transcript browser、文件树、语法高亮（permission modal、rich tool output、多行输入和 `/model` 运行时切换已实现）。
 - SQLite transcript backend 和 session resume。
 - settings persistence。
 - context compaction。

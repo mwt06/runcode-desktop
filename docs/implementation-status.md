@@ -69,7 +69,7 @@ cmd/runcode chat
 
 - `chat --loop` 只是逐行循环；完整交互体验由 `runcode tui` MVP 起步但仍不完整。
 - TUI 已有可随内容增高的多行输入（Enter 发送、`alt+enter`/`ctrl+j` 换行）与已提交输入的 readline 式历史翻阅（↑/↓ 在首/末行翻历史，多行草稿内则移动光标；保留浏览前的草稿）；仍缺命令补全、可配置快捷键、按可视行(软换行)精确计高。
-- slash 命令已有可扩展基座（含 `/compact`、`/cost`），但缺 `/model` 等。
+- slash 命令已有可扩展基座（含 `/mode`、`/model`、`/compact`、`/cost`）；后续可加更多命令。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
 - 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;尚无 transcript 浏览/检索界面。
@@ -486,7 +486,7 @@ cmd/runcode chat
 
 对应未实现能力：
 
-- 完整 TUI 产品能力：diff viewer、transcript browser、多行输入和 model switching(permission modal 与 rich tool output 已实现)。
+- 完整 TUI 产品能力：diff viewer、transcript browser、文件树、语法高亮(permission modal、rich tool output、多行输入和 `/model` 运行时切换已实现)。
 - SQLite transcript backend。
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - 更细的 cost tracking（按模型定价表自动估算）。当前已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）；`internal/cost` 包仍是空壳。
@@ -523,7 +523,7 @@ cmd/runcode chat
 目前已有 shell-friendly `chat`、stdout assistant streaming 和最小 TUI MVP，但还不是产品级终端体验。缺少：
 
 - 多行输入与 readline 式历史翻阅已实现；仍缺命令补全和可配置快捷键。
-- 更多 slash 命令（`/model`；`/compact`、`/cost` 已实现）。
+- slash 命令 `/mode`、`/model`、`/compact`、`/cost` 已实现；后续可加更多。
 - 更丰富的 tool output display。
 - TUI permission modal 和更丰富 approval 选项。
 
@@ -583,4 +583,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 4. ✅ 会话恢复(`--resume`/`--continue`)+ 增量上下文压缩(摘要逐字保留,不重复重总结)。
 5. ✅ OpenAI 兼容 provider(`--provider openai`,直连 Chat Completions HTTP/SSE,支持各类兼容端点)。
 
-后续可选大方向:更多 slash 命令(`/model`)、MCP/hooks/skills/sub-agents。
+后续可选大方向:MCP/hooks/skills/sub-agents、WebSearch。

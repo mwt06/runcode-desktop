@@ -234,3 +234,66 @@ func TestModeCommandSurfacesServiceError(t *testing.T) {
 		t.Fatalf("expected error from SetPermissionMode: %#v", model.messages)
 	}
 }
+
+func TestModelCommandSwitches(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{status: Status{Model: "old-model"}}
+	model := New(service)
+	model.input.SetValue("/model new-model")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if service.model != "new-model" || service.modelCalls != 1 {
+		t.Fatalf("SetModel = %q calls=%d, want new-model/1", service.model, service.modelCalls)
+	}
+	if model.status.Model != "new-model" {
+		t.Fatalf("status model = %q, want new-model", model.status.Model)
+	}
+}
+
+func TestModelCommandWithoutArgsShowsCurrent(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{status: Status{Model: "current-model"}}
+	model := New(service)
+	model.input.SetValue("/model")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if service.modelCalls != 0 {
+		t.Fatal("no-arg /model must not switch")
+	}
+	last := model.messages[len(model.messages)-1]
+	if last.Role != RoleSystem || !strings.Contains(last.Text, "current-model") {
+		t.Fatalf("message = %#v, want current model shown", last)
+	}
+}
+
+func TestModelCommandRefusedWhileInFlight(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{status: Status{Model: "m1"}}
+	model := New(service)
+	model.inFlight = true
+	model.input.SetValue("/model m2")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if service.modelCalls != 0 {
+		t.Fatal("must not switch model mid-turn")
+	}
+	if model.status.Model != "m1" {
+		t.Fatalf("status model = %q, want unchanged m1", model.status.Model)
+	}
+}
+
+func TestModelCommandSurfacesServiceError(t *testing.T) {
+	t.Parallel()
+	service := &fakeService{modelErr: errors.New("bad model")}
+	model := New(service)
+	model.input.SetValue("/model whatever")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if model.messages[len(model.messages)-1].Role != RoleError {
+		t.Fatalf("expected error from SetModel: %#v", model.messages)
+	}
+}

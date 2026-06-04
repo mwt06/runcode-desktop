@@ -84,6 +84,49 @@ func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	}
 }
 
+func TestSessionSetModelAppliesToNextTurn(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents("first")},
+		fakeProviderResponse{events: textEvents("second")},
+	)
+	session := newTestSession(t, SessionOptions{Provider: provider, Model: "model-a"})
+
+	if _, err := session.RunTurn(context.Background(), "one"); err != nil {
+		t.Fatalf("RunTurn 1: %v", err)
+	}
+	if got := provider.requests[0].Model; got != "model-a" {
+		t.Fatalf("first turn model = %q, want model-a", got)
+	}
+
+	if err := session.SetModel("model-b"); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	if session.Model() != "model-b" {
+		t.Fatalf("Model() = %q, want model-b", session.Model())
+	}
+
+	if _, err := session.RunTurn(context.Background(), "two"); err != nil {
+		t.Fatalf("RunTurn 2: %v", err)
+	}
+	if got := provider.requests[1].Model; got != "model-b" {
+		t.Fatalf("second turn model = %q, want model-b after switch", got)
+	}
+}
+
+func TestSessionSetModelRejectsEmpty(t *testing.T) {
+	t.Parallel()
+
+	session := newTestSession(t, SessionOptions{Provider: newFakeProvider(textEvents("ok"), nil), Model: "keep"})
+	if err := session.SetModel("   "); err == nil {
+		t.Fatal("SetModel(empty) should error")
+	}
+	if session.Model() != "keep" {
+		t.Fatalf("Model() = %q, want unchanged keep after rejected switch", session.Model())
+	}
+}
+
 func TestSessionRunTurnCollectsAssistantText(t *testing.T) {
 	t.Parallel()
 

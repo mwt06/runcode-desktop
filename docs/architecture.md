@@ -28,7 +28,7 @@ Implemented:
 
 Not implemented yet:
 
-- Full TUI product features beyond the MVP: permission modal, rich tool output cards, diff viewer, file tree, transcript browser, multi-line input, and model switching.
+- Full TUI product features beyond the MVP: diff viewer, file tree, transcript browser, and syntax highlighting (permission modal, rich tool output cards, multi-line input, and runtime model switching are implemented).
 - Persistent permission policy configuration.
 - MCP, hooks, sub-agents, skills, compaction, SQLite persistence, and transcript-backed session resume.
 - Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.

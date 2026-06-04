@@ -7,6 +7,7 @@ type Service interface {
 	Reset(ctx context.Context) error
 	Compact(ctx context.Context) (CompactResult, error)
 	SetPermissionMode(mode string) error
+	SetModel(model string) error
 	Close(ctx context.Context) error
 	Status() Status
 }

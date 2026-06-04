@@ -19,6 +19,9 @@ type fakeService struct {
 	permissionMode      string
 	permissionModeCalls int
 	permissionModeErr   error
+	model               string
+	modelCalls          int
+	modelErr            error
 }
 
 func (s *fakeService) RunTurn(context.Context, string) (TurnResult, error) {
@@ -43,6 +46,15 @@ func (s *fakeService) SetPermissionMode(mode string) error {
 	s.permissionMode = mode
 	s.permissionModeCalls++
 	return s.permissionModeErr
+}
+
+func (s *fakeService) SetModel(model string) error {
+	if s.modelErr != nil {
+		return s.modelErr
+	}
+	s.model = model
+	s.modelCalls++
+	return nil
 }
 
 func (s *fakeService) Status() Status {

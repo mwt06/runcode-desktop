@@ -67,8 +67,12 @@ type SessionOptions struct {
 }
 
 type Session struct {
-	provider           llm.Provider
-	model              string
+	provider llm.Provider
+	// modelMu guards model, which can be switched at runtime (e.g. the TUI
+	// /model command) while a turn goroutine may still be reading it.
+	modelMu sync.RWMutex
+	model   string
+
 	tools              []tool.Tool
 	executor           *Executor
 	prompt             prompt.AssemblerOpts
@@ -264,6 +268,32 @@ func (s *Session) ResetHistory() {
 	s.history = nil
 }
 
+// Model returns the model the session currently sends requests with.
+func (s *Session) Model() string {
+	return s.currentModel()
+}
+
+func (s *Session) currentModel() string {
+	s.modelMu.RLock()
+	defer s.modelMu.RUnlock()
+	return s.model
+}
+
+// SetModel switches the model used for subsequent turns. It is safe to call
+// between turns; callers should not switch mid-turn, since a single turn may
+// read the model several times and expects it to stay stable. An empty model is
+// rejected so a turn is never started without one.
+func (s *Session) SetModel(model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("%w: model is required", ErrInvalidSession)
+	}
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	s.model = model
+	return nil
+}
+
 const (
 	compactionThresholdRatio   = 0.8
 	compactionSummaryMaxTokens = 2048
@@ -360,7 +390,7 @@ func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
 	return func(ctx context.Context, messages []llm.Message) (string, error) {
 		conversation := append(cloneMessages(messages), userMessage(compactionInstruction))
 		req := llm.Request{
-			Model:     s.model,
+			Model:     s.currentModel(),
 			Messages:  conversation,
 			System:    []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: compactionSystemPrompt}},
 			MaxTokens: compactionSummaryMaxTokens,
@@ -380,7 +410,7 @@ func (s *Session) recordTranscriptTurn(ctx context.Context, turnID string, userT
 		TraceID:           s.traceID,
 		TurnID:            turnID,
 		CWD:               workingDirectory(s.toolContext),
-		Model:             s.model,
+		Model:             s.currentModel(),
 		UserText:          userText,
 		FinalAssistant:    result.FinalAssistant,
 		AssistantMessages: result.AssistantMessages,
@@ -414,7 +444,7 @@ func (s *Session) buildRequestWithMessagesAndPrompt(messages []llm.Message, prom
 	}
 
 	return llm.Request{
-		Model:       s.model,
+		Model:       s.currentModel(),
 		Messages:    cloneMessages(messages),
 		System:      system,
 		Tools:       ToolSpecs(s.tools),
@@ -481,7 +511,7 @@ func (s *Session) streamAssistant(ctx context.Context, req llm.Request, turnID s
 func (s *Session) classifyReasoningScenario(ctx context.Context, userText string, turnID string) (ReasoningClassification, *llm.Request, *llm.Usage, error) {
 	temperature := 0.0
 	req := llm.Request{
-		Model:    s.model,
+		Model:    s.currentModel(),
 		Messages: []llm.Message{userMessage(userText)},
 		System: []llm.ContentBlock{{
 			Type:  llm.ContentBlockTypeText,

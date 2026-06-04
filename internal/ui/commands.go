@@ -192,6 +192,33 @@ func defaultSlashRegistry() *slashRegistry {
 	})
 
 	r.register(&slashCommand{
+		name:    "model",
+		summary: "switch the model for new turns: /model <name>",
+		run: func(m Model, args []string) (Model, tea.Cmd) {
+			if len(args) == 0 {
+				m.appendMessage(RoleSystem, "usage: /model <name> (current: "+modelLabel(m.status.Model)+")")
+				m.refreshViewport()
+				return m, nil
+			}
+			if m.inFlight {
+				m.appendMessage(RoleSystem, "cannot switch model while assistant is responding")
+				m.refreshViewport()
+				return m, nil
+			}
+			model := strings.TrimSpace(strings.Join(args, " "))
+			if err := m.service.SetModel(model); err != nil {
+				m.appendMessage(RoleError, errorText(err))
+				m.refreshViewport()
+				return m, nil
+			}
+			m.status.Model = model
+			m.appendMessage(RoleSystem, "model: "+model)
+			m.refreshViewport()
+			return m, nil
+		},
+	})
+
+	r.register(&slashCommand{
 		name:    "cost",
 		summary: "show token usage and estimated cost",
 		run: func(m Model, _ []string) (Model, tea.Cmd) {
