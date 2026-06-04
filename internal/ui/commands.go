@@ -51,6 +51,18 @@ func (r *slashRegistry) lookup(name string) (*slashCommand, bool) {
 	return c, ok
 }
 
+// matching returns the registered commands whose name starts with prefix, in
+// registration order. An empty prefix returns all commands.
+func (r *slashRegistry) matching(prefix string) []*slashCommand {
+	var out []*slashCommand
+	for _, c := range r.order {
+		if strings.HasPrefix(c.name, prefix) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // parseSlash splits a submitted line into a lowercase command name and its
 // args. isSlash is true for any input that begins with '/'; name is empty for a
 // bare '/'.

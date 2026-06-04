@@ -53,6 +53,11 @@ type Model struct {
 	totalOutputTokens       int
 	lastReasoningScenario   string
 	lastReasoningConfidence string
+
+	// Slash command menu shown while typing a command name.
+	menuActive   bool
+	menuItems    []*slashCommand
+	menuSelected int
 }
 
 func New(service Service) Model {
@@ -162,6 +167,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.approval != nil {
 		return m.handleApprovalKey(msg)
 	}
+	if m.menuActive {
+		if handled, model, cmd := m.handleMenuKey(msg); handled {
+			return model, cmd
+		}
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		if m.inFlight && m.turnCancel != nil {
@@ -205,6 +215,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	prevActive, prevLen := m.menuActive, len(m.menuItems)
+	m = m.syncCommandMenu()
+	if m.menuActive != prevActive || len(m.menuItems) != prevLen {
+		m.relayout()
+	}
 	return m, cmd
 }
 
@@ -234,6 +249,7 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.input.SetValue("")
+	m.menuActive = false
 
 	if name, args, isSlash := parseSlash(text); isSlash {
 		if command, ok := m.commands.lookup(name); ok {

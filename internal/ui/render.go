@@ -54,12 +54,16 @@ func (m Model) bottomBlock() []string {
 	if m.approval != nil {
 		return m.approvalBlock()
 	}
-	return []string{
+	var block []string
+	if menu := m.menuView(); menu != "" {
+		block = append(block, strings.Split(menu, "\n")...)
+	}
+	return append(block,
 		m.inputTopDivider(),
 		m.inputLine(),
 		m.inputBottomDivider(),
 		m.bottomStatusLine(),
-	}
+	)
 }
 
 func (m Model) statusLine() string {
