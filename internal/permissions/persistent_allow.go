@@ -154,6 +154,94 @@ func (s *FileAllowStore) RememberPersistent(key string) error {
 	return s.flushLocked()
 }
 
+// Allows returns the persisted "allow for project" grants, sorted. Session-only
+// grants are not included.
+func (s *FileAllowStore) Allows() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return sortedKeys(s.allow)
+}
+
+// Denies returns the persisted denylist keys, sorted.
+func (s *FileAllowStore) Denies() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return sortedKeys(s.deny)
+}
+
+// DenyPersistent adds a key to the denylist and flushes. Any matching allow grant
+// is dropped at the same time, since a deny always wins; a redundant deny is a
+// no-op. Reports whether the rule set changed.
+func (s *FileAllowStore) DenyPersistent(key string) (bool, error) {
+	if s == nil || key == "" {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	if _, ok := s.deny[key]; !ok {
+		s.deny[key] = struct{}{}
+		changed = true
+	}
+	if _, ok := s.allow[key]; ok {
+		delete(s.allow, key)
+		changed = true
+	}
+	delete(s.session, key)
+	if !changed {
+		return false, nil
+	}
+	return true, s.flushLocked()
+}
+
+// Forget removes a key from both the allow and deny lists (and any session grant)
+// and flushes. Reports whether anything was removed.
+func (s *FileAllowStore) Forget(key string) (bool, error) {
+	if s == nil || key == "" {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, allowed := s.allow[key]
+	_, denied := s.deny[key]
+	if !allowed && !denied {
+		return false, nil
+	}
+	delete(s.allow, key)
+	delete(s.deny, key)
+	delete(s.session, key)
+	return true, s.flushLocked()
+}
+
+// ClearPersistent empties the selected persisted lists and flushes. It returns
+// the number of rules removed.
+func (s *FileAllowStore) ClearPersistent(allow, deny bool) (int, error) {
+	if s == nil {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	if allow {
+		removed += len(s.allow)
+		s.allow = map[string]struct{}{}
+	}
+	if deny {
+		removed += len(s.deny)
+		s.deny = map[string]struct{}{}
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	return removed, s.flushLocked()
+}
+
 func (s *FileAllowStore) flushLocked() error {
 	rules := persistedRules{
 		Version: permissionsFileVersion,

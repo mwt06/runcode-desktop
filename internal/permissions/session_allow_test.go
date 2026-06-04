@@ -71,6 +71,38 @@ func TestDefaultSessionKey(t *testing.T) {
 	}
 }
 
+func TestSessionKeyConstructorsAndParse(t *testing.T) {
+	t.Parallel()
+
+	// Empty inputs never produce a key (never remembered).
+	if NetworkSessionKey("", "h") != "" || NetworkSessionKey("t", "") != "" {
+		t.Fatal("network key with an empty part should be empty")
+	}
+	if MutateSessionKey("Write", "") != "" || CommandSessionKey("Bash", "", nil) != "" {
+		t.Fatal("mutate/command key with an empty required part should be empty")
+	}
+
+	// Capabilities are order-independent.
+	a := CommandSessionKey("Bash", "build", []string{"write", "network"})
+	b := CommandSessionKey("Bash", "build", []string{"network", "write"})
+	if a != b {
+		t.Fatalf("command key depends on capability order: %q vs %q", a, b)
+	}
+
+	rule := ParseRule(NetworkSessionKey("WebFetch", "example.com"))
+	if rule.Scope != ScopeNetwork || rule.Tool != "WebFetch" || rule.Target != "example.com" {
+		t.Fatalf("ParseRule(network) = %#v", rule)
+	}
+	mrule := ParseRule(MutateSessionKey("Write", "/repo/a.go"))
+	if mrule.Scope != ScopeMutate || mrule.Tool != "Write" || mrule.Target != "/repo/a.go" {
+		t.Fatalf("ParseRule(mutate) = %#v", mrule)
+	}
+	// A key that did not come from a constructor still yields whatever is present.
+	if got := ParseRule("garbage"); got.Scope != "garbage" || got.Tool != "" {
+		t.Fatalf("ParseRule(garbage) = %#v, want scope-only", got)
+	}
+}
+
 func TestInteractiveAuthorizerRemembersSessionGrant(t *testing.T) {
 	t.Parallel()
 

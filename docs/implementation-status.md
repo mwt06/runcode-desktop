@@ -533,13 +533,17 @@ cmd/runcode chat
 （`<workspace>/.runcode/permissions.json`，0600，gitignore）+ **denylist**（询问前检查、deny
 始终优先于 allow、文件损坏时快速报错而非静默丢弃 deny 规则）。CLI prompt（`[p]roject`）与 TUI
 modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 按 mutation target、Bash 按
-命令分类）。
+命令分类）。键格式集中在 `NetworkSessionKey`/`MutateSessionKey`/`CommandSessionKey` 构造器
+与 `ParseRule` 读取器（运行时与 CLI 共用同一来源）。`runcode permissions` 管理命令已实现：
+`list` 按编号可读列出 allow/deny（含 TUI 写入的 mutation/command 规则）、`remove <n>` 按编号删除
+任意规则、`clear [--allow|--deny]` 清空、`deny/allow <host>` 按 host 增删网络规则（唯一可手输且
+精确匹配的键类型）。
 
 后续仍可做：
 
 - user 级（全局）allow/deny。
-- denylist 的交互式录入 UI（目前 deny 规则需手动写入 permissions.json）。
-- `runcode permissions` 管理命令（查看 / 清除规则）。
+- mutation/command 规则的 CLI 录入（目前只支持 network host 的 add；其它键含绝对路径/能力集，
+  手输难以精确匹配，只支持 list/remove）。
 
 ### 7. 工具增强
 

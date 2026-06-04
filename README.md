@@ -120,6 +120,8 @@ The executor calls `internal/permissions` before running every tool:
 - `safe` mode is non-interactive, so approval-requiring actions resolve to denial.
 - `interactive` mode asks once on stderr and only for actions already classified as approvable. Approval offers allow once / allow for session / allow for project; "allow for project" persists to `<workspace>/.runcode/permissions.json` (0600, gitignored) and is honored across processes. That file also holds a denylist checked before prompting (a deny always wins over an allow); a corrupt file fails fast rather than dropping deny rules.
 
+`runcode permissions` manages that file without hand-editing JSON: `permissions list` numbers the persisted allow/deny rules, `permissions remove <n>` deletes one by number (works for every grain, including the mutation/command rules the TUI writes), and `permissions clear [--allow|--deny]` wipes them. `permissions deny <host>` / `permissions allow <host>` add a network rule for a host (default tool `WebFetch`) — the one rule kind that is reliably typeable and matches exactly; a deny always wins, so allowing a denied host is refused until the deny is removed.
+
 Telemetry records bounded metadata such as operation, risk, resource scope, permission effect, and command classification. It does not record raw paths, raw commands, tool inputs, tool outputs, file contents, credentials, or URLs.
 
 Transcript recording is off by default. When enabled with `--transcript jsonl`, runcode writes append-only turn records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; records include user text, final assistant text, bounded tool summaries, and Bash command strings, but not system prompts, credentials, generic tool raw input, or full tool output.

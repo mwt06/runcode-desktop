@@ -120,6 +120,8 @@ Executor 在运行每个工具前都会调用 `internal/permissions`：
 - `safe` 模式是非交互模式，所有需要审批的动作最终都会拒绝。
 - `interactive` 模式只对权限层已判定为可审批的动作在 stderr 询问一次。审批提供 allow once / allow for session / allow for project；选「allow for project」会持久化到 `<workspace>/.runcode/permissions.json`（0600，已 gitignore），跨进程生效。该文件还承载一个 denylist，在询问前检查（deny 始终优先于 allow）；文件损坏时快速报错，而非静默丢弃 deny 规则。
 
+`runcode permissions` 用来管理该文件，无需手改 JSON：`permissions list` 给持久化的 allow/deny 规则编号，`permissions remove <n>` 按编号删除任意一条（包括 TUI 写入的 mutation/command 规则），`permissions clear [--allow|--deny]` 清空。`permissions deny <host>` / `permissions allow <host>` 按 host 增删网络规则（默认工具 `WebFetch`）——这是唯一可手输且能精确匹配的规则类型；deny 始终优先,因此 host 在 denylist 上时 allow 会被拒绝,需先删除该 deny。
+
 Telemetry 只记录 operation、risk、resource scope、permission effect、command classification 等受控 metadata；不记录 raw path、raw command、tool input、tool output、文件内容、凭证或 URL。
 
 Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把 append-only turn record 写到 `<workspace>/.runcode/transcripts/<session-id>.jsonl`；记录包含用户文本、最终 assistant 文本、受限工具摘要和 Bash command 字符串，但不记录 system prompt、凭证、普通工具 raw input 或完整工具输出。
