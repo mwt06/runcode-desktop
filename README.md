@@ -43,7 +43,7 @@ ANTHROPIC_API_KEY=... \
 
 Useful flags and environment variables:
 
-- `--provider` / `RUNCODE_PROVIDER`: currently only `anthropic`.
+- `--provider` / `RUNCODE_PROVIDER`: `anthropic` or `openai` (the latter also drives OpenAI-compatible endpoints such as vLLM/Ollama/llama.cpp/gateways; point `--base-url` at the API root serving `/chat/completions`, and the bearer credential is optional for unauthenticated local endpoints).
 - `--model` / `ANTHROPIC_MODEL`: required unless provided by environment.
 - `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
 - `--base-url` / `ANTHROPIC_BASE_URL`.
@@ -89,7 +89,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- No full slash command system, MCP, hooks, sub-agents, skills, or OpenAI provider yet.
+- No full slash command system, MCP, hooks, sub-agents, or skills yet.
 
 ## Implemented tools
 
@@ -161,7 +161,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: `internal/mcp`, `internal/hooks`, SQLite/session resume persistence, `internal/compaction`, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `pkg/llm/providers/openai`, `tools/todo`, and `prompts/*`.
+Scaffolded but not implemented yet: `internal/mcp`, `internal/hooks`, SQLite transcript persistence, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `tools/todo`, and `prompts/*`.
 
 ## Contributing
 

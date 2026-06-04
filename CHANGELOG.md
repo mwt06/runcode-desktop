@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `chat --loop` for process-local in-memory multi-turn sessions, with `/clear` to reset loop history.
 - Provider-neutral LLM model in `pkg/llm`, including messages, content blocks, tool specs, streams, usage, and cache-control hints.
 - Anthropic streaming provider skeleton using the official Anthropic Go SDK.
+- OpenAI-compatible streaming provider (`--provider openai` / `RUNCODE_PROVIDER=openai`) that speaks the Chat Completions wire protocol directly over HTTP/SSE — no vendor SDK — so it also drives compatible endpoints (vLLM, Ollama, llama.cpp, LM Studio, and gateways such as a self-hosted qwen). It maps neutral messages to OpenAI roles (system merge, `tool_use` → `tool_calls`, `tool_result` → `tool` messages, images → `image_url`), reassembles streamed `content`/`tool_calls` deltas into block-structured events, and reports usage and stop reasons. The bearer credential is optional so unauthenticated local endpoints work; `--base-url` should point at the API root that serves `/chat/completions`.
 - Public tool SDK boundary in `pkg/tool`, including tool context, schema, events, result content, metadata, and `is_error` support.
 - Built-in tools registered through `tools.Builtins()`:
   - `Read`
@@ -76,7 +77,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Full TUI product features beyond the MVP (rich tool output, diff viewer, transcript browser, model switching).
 - SQLite transcript and persistent session resume.
-- OpenAI provider.
 - TodoWrite tool.
 - MCP integration.
 - Hooks.

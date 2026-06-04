@@ -22,11 +22,15 @@ import (
 	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/llm/providers/anthropic"
+	"github.com/wt68/runcode/pkg/llm/providers/openai"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
 )
 
-const anthropicProvider = "anthropic"
+const (
+	anthropicProvider = "anthropic"
+	openaiProvider    = "openai"
+)
 
 var errEmptyPrompt = errors.New("prompt is required")
 
@@ -253,13 +257,15 @@ func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
 	if err != nil {
 		return chatConfig{}, err
 	}
-	if cfg.Provider != anthropicProvider {
+	if cfg.Provider != anthropicProvider && cfg.Provider != openaiProvider {
 		return chatConfig{}, fmt.Errorf("unsupported provider %q", cfg.Provider)
 	}
 	if strings.TrimSpace(cfg.Model) == "" {
 		return chatConfig{}, errors.New("model is required")
 	}
-	if cfg.APIKey == "" && cfg.AuthToken == "" {
+	// OpenAI-compatible endpoints (local vLLM/Ollama/llama.cpp, gateways) often
+	// run without auth, so only Anthropic strictly requires a credential.
+	if cfg.Provider == anthropicProvider && cfg.APIKey == "" && cfg.AuthToken == "" {
 		return chatConfig{}, errors.New("anthropic api key or auth token is required")
 	}
 	if cfg.SessionID != "" {
@@ -657,12 +663,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		}
 	}
 	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, Sessions: store, SessionID: sessionID}
-	provider, err := anthropic.New(anthropic.Options{
-		APIKey:           cfg.APIKey,
-		AuthToken:        cfg.AuthToken,
-		BaseURL:          cfg.BaseURL,
-		DefaultMaxTokens: cfg.MaxTokens,
-	})
+	provider, err := buildProvider(cfg)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store)
 		return nil, sessionResources{}, err
@@ -721,6 +722,29 @@ func (r *defaultChatRunner) Reset(context.Context) error {
 	}
 	r.session.ResetHistory()
 	return nil
+}
+
+// buildProvider constructs the configured LLM provider. cfg.Provider has already
+// been validated to be one of the supported names.
+func buildProvider(cfg chatConfig) (llm.Provider, error) {
+	switch cfg.Provider {
+	case openaiProvider:
+		return openai.New(openai.Options{
+			APIKey:           cfg.APIKey,
+			AuthToken:        cfg.AuthToken,
+			BaseURL:          cfg.BaseURL,
+			DefaultMaxTokens: cfg.MaxTokens,
+			MaxContextTokens: cfg.MaxContextTokens,
+		})
+	default:
+		return anthropic.New(anthropic.Options{
+			APIKey:           cfg.APIKey,
+			AuthToken:        cfg.AuthToken,
+			BaseURL:          cfg.BaseURL,
+			DefaultMaxTokens: cfg.MaxTokens,
+			MaxContextTokens: cfg.MaxContextTokens,
+		})
+	}
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {

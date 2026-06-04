@@ -100,7 +100,7 @@ cmd/runcode chat
 
 最小化缺口：
 
-- OpenAI provider 目录仍为空壳。
+- OpenAI 兼容 provider 已实现（`pkg/llm/providers/openai`）：直连 Chat Completions HTTP/SSE，支持 system 合并、`tool_use`↔`tool_calls`、`tool_result`→`tool` 消息、image→`image_url`、流式 delta 重组、usage 与 stop reason、可选 bearer；尚未支持 retry/backoff、parallel tool 控制、response format、reasoning channel。
 - Anthropic provider 是最小 skeleton：没有 retry/backoff、rate limit 分类、timeout 配置、HTTP client 注入。
 - 中立层定义了 image，但 Anthropic converter 当前不支持 image block。
 - 不支持 stop sequences、top_p/top_k、tool choice、parallel tool use 控制、response format、thinking budget。
@@ -475,7 +475,6 @@ cmd/runcode chat
 - `internal/cost`
 - `internal/hooks`
 - `internal/mcp`
-- `pkg/llm/providers/openai`
 - `pkg/agent`
 - `pkg/command`
 - `pkg/plugin`
@@ -498,7 +497,6 @@ cmd/runcode chat
 - slash commands。
 - plugins。
 - skills。
-- OpenAI provider。
 - TodoWrite。
 - custom tool example。
 
@@ -553,7 +551,6 @@ cmd/runcode chat
 
 可选方向：
 
-- OpenAI provider。
 - Anthropic image support。
 - stop sequences / tool choice / thinking budget。
 - retry/backoff/rate-limit 分类。
@@ -565,5 +562,7 @@ cmd/runcode chat
 1. ✅ session resume + context compaction(完整历史持久化 + `--resume`/`--continue` + token 预算压缩)。
 2. ✅ TUI permission modal + 会话级权限记忆 + rich tool output(输出摘要 + Edit/Write 行级 diff)。
 3. ✅ TOML 配置文件加载(项目级 + 用户级,`runcode config` 查看)。
+4. ✅ 会话恢复(`--resume`/`--continue`)+ 增量上下文压缩(摘要逐字保留,不重复重总结)。
+5. ✅ OpenAI 兼容 provider(`--provider openai`,直连 Chat Completions HTTP/SSE,支持各类兼容端点)。
 
-后续可选大方向:settings-backed 权限策略持久化(allow project / denylist)、OpenAI 兼容 provider、slash 命令系统(`/model`、`/compact`、`/cost`)、MCP/hooks/skills/sub-agents。
+后续可选大方向:settings-backed 权限策略持久化(allow project / denylist)、slash 命令系统(`/model`、`/compact`、`/cost`)、MCP/hooks/skills/sub-agents。

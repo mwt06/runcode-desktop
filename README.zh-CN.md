@@ -43,7 +43,7 @@ ANTHROPIC_API_KEY=... \
 
 常用参数和环境变量：
 
-- `--provider` / `RUNCODE_PROVIDER`：当前只支持 `anthropic`。
+- `--provider` / `RUNCODE_PROVIDER`：`anthropic` 或 `openai`（后者同时支持各类 OpenAI 兼容端点，如 vLLM/Ollama/llama.cpp/网关；`--base-url` 指向提供 `/chat/completions` 的 API 根路径，本地无鉴权端点可不填凭证）。
 - `--model` / `ANTHROPIC_MODEL`：必须通过 flag 或环境变量提供。
 - `--api-key` / `ANTHROPIC_API_KEY`，或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`。
 - `--base-url` / `ANTHROPIC_BASE_URL`。
@@ -89,7 +89,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗与 rich tool output（输出摘要 + Edit/Write 行级 diff），但还没有 diff viewer、文件树、transcript 浏览器或多行输入。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- 没有完整 slash commands 系统、MCP、hooks、sub-agents、skills 或 OpenAI provider。
+- 没有完整 slash commands 系统、MCP、hooks、sub-agents 或 skills。
 
 ## 已实现工具
 
@@ -161,7 +161,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：`internal/mcp`、`internal/hooks`、SQLite/session resume persistence、`internal/compaction`、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`pkg/llm/providers/openai`、`tools/todo`、`prompts/*`。
+仍是脚手架或未实现：`internal/mcp`、`internal/hooks`、SQLite transcript persistence、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`tools/todo`、`prompts/*`。
 
 ## 贡献
 
