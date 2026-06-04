@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/pkg/llm"
@@ -81,6 +82,18 @@ func TestResolveSessionIDContinuePicksLatest(t *testing.T) {
 			t.Fatalf("append %s: %v", id, err)
 		}
 		store.Close(context.Background())
+	}
+
+	// Pin explicit, increasing mtimes so ordering does not depend on filesystem
+	// mtime granularity (two files created in the same tick are otherwise an
+	// unstable tie for LatestSessionID).
+	base := time.Now()
+	sessionsDir := filepath.Join(dir, ".runcode", "sessions")
+	if err := os.Chtimes(filepath.Join(sessionsDir, "sess_one.jsonl"), base, base.Add(-2*time.Second)); err != nil {
+		t.Fatalf("chtimes sess_one: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(sessionsDir, "sess_two.jsonl"), base, base.Add(-1*time.Second)); err != nil {
+		t.Fatalf("chtimes sess_two: %v", err)
 	}
 
 	id, err := resolveSessionID(chatConfig{CWD: dir, Continue: true})

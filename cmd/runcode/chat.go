@@ -675,7 +675,11 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	}
 	permissionService := opts.Permissions
 	if permissionService == nil {
-		permissionService = permissionServiceForMode(cfg.PermissionMode, opts.Runtime)
+		permissionService, err = permissionServiceForMode(cfg.PermissionMode, opts.Runtime, cfg.CWD)
+		if err != nil {
+			closeRecorders(context.Background(), recorder, trecorder, store)
+			return nil, sessionResources{}, err
+		}
 	}
 	streamDelta := opts.StreamDelta
 	if streamDelta == nil && opts.Runtime.Out != nil {
@@ -784,18 +788,34 @@ func loadProjectContext(cwd string) (string, error) {
 	return projectctx.Format(result), nil
 }
 
-func permissionServiceForMode(mode string, runtime chatIO) *permissions.Service {
+func permissionServiceForMode(mode string, runtime chatIO, cwd string) (*permissions.Service, error) {
 	if mode == "interactive" {
+		store, err := newAllowStore(cwd)
+		if err != nil {
+			return nil, err
+		}
 		return permissions.NewService(permissions.Options{
 			Mode:              mode,
 			ApprovalAvailable: true,
 			Authorizer: permissions.InteractiveAuthorizer{
 				Approver: newApprovalPrompter(runtime.Lines, runtime.Err),
-				Store:    permissions.NewMemorySessionAllowStore(),
+				Store:    store,
 			},
-		})
+		}), nil
 	}
-	return permissions.NewService(permissions.Options{Mode: mode})
+	return permissions.NewService(permissions.Options{Mode: mode}), nil
+}
+
+// newAllowStore builds the session/persistent allow store. With a workspace it
+// loads <workspace>/.runcode/permissions.json so "allow for project" grants and
+// the denylist persist across processes; a corrupt file is surfaced as an error
+// rather than silently degrading (which would drop denylist rules). Without a
+// workspace it falls back to an in-memory, session-only store.
+func newAllowStore(cwd string) (permissions.SessionAllowStore, error) {
+	if cwd == "" {
+		return permissions.NewMemorySessionAllowStore(), nil
+	}
+	return permissions.OpenFileAllowStore(cwd)
 }
 
 func shellInfo() string {

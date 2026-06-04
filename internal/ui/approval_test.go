@@ -177,6 +177,43 @@ func TestApprovalModalSelectionThenEnter(t *testing.T) {
 	}
 }
 
+func TestApprovalModalResolvesAllowProject(t *testing.T) {
+	t.Parallel()
+
+	model := sizedApprovalModel(t)
+	reply := make(chan permissions.ApprovalResponse, 1)
+	model = deliverApproval(t, model, editApprovalMsg(reply, "a.go"))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	model = updated.(Model)
+
+	resp := <-reply
+	if resp.Effect != permissions.EffectAllow || resp.Scope != permissions.ApprovalScopeProject {
+		t.Fatalf("resp = %#v, want allow project", resp)
+	}
+}
+
+func TestApprovalModalSelectionToProject(t *testing.T) {
+	t.Parallel()
+
+	model := sizedApprovalModel(t)
+	reply := make(chan permissions.ApprovalResponse, 1)
+	model = deliverApproval(t, model, editApprovalMsg(reply, "a.go"))
+
+	// once → session → project (third option), then confirm with enter.
+	for i := 0; i < 2; i++ {
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+		model = updated.(Model)
+	}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	resp := <-reply
+	if resp.Effect != permissions.EffectAllow || resp.Scope != permissions.ApprovalScopeProject {
+		t.Fatalf("resp = %#v, want allow project via selection", resp)
+	}
+}
+
 func TestApprovalModalRendersSanitizedPanel(t *testing.T) {
 	t.Parallel()
 

@@ -114,7 +114,7 @@ Executor 在运行每个工具前都会调用 `internal/permissions`：
 - `Write`/`Edit` 需要审批，并且覆盖/编辑前要求 fresh-read。
 - `Bash` 执行前会分类命令；unknown、privileged、destructive、outside-write、complex shell-control 命令在审批前直接拒绝。
 - `safe` 模式是非交互模式，所有需要审批的动作最终都会拒绝。
-- `interactive` 模式只对权限层已判定为可审批的动作在 stderr 询问一次。
+- `interactive` 模式只对权限层已判定为可审批的动作在 stderr 询问一次。审批提供 allow once / allow for session / allow for project；选「allow for project」会持久化到 `<workspace>/.runcode/permissions.json`（0600，已 gitignore），跨进程生效。该文件还承载一个 denylist，在询问前检查（deny 始终优先于 allow）；文件损坏时快速报错，而非静默丢弃 deny 规则。
 
 Telemetry 只记录 operation、risk、resource scope、permission effect、command classification 等受控 metadata；不记录 raw path、raw command、tool input、tool output、文件内容、凭证或 URL。
 

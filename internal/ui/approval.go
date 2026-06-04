@@ -10,11 +10,12 @@ import (
 	"github.com/wt68/runcode/internal/permissions"
 )
 
-const approvalOptionCount = 3
+const approvalOptionCount = 4
 
 const (
 	approvalOptionOnce = iota
 	approvalOptionSession
+	approvalOptionProject
 	approvalOptionDeny
 )
 
@@ -153,6 +154,8 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeOnce)
 	case "s":
 		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeSession)
+	case "p":
+		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeProject)
 	case "n":
 		return m.resolveApproval(permissions.EffectDeny, permissions.ApprovalScopeOnce)
 	}
@@ -166,6 +169,8 @@ func (m Model) resolveSelectedApproval() (tea.Model, tea.Cmd) {
 	switch m.approval.selected {
 	case approvalOptionSession:
 		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeSession)
+	case approvalOptionProject:
+		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeProject)
 	case approvalOptionDeny:
 		return m.resolveApproval(permissions.EffectDeny, permissions.ApprovalScopeOnce)
 	default:

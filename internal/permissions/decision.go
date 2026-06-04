@@ -24,6 +24,7 @@ const (
 	ReasonReadRequired        Reason = "read_required"
 	ReasonReadStale           Reason = "read_stale"
 	ReasonPolicyDenied        Reason = "policy_denied"
+	ReasonDenylisted          Reason = "denylisted"
 )
 
 // Decision is the original policy decision plus the final effect after authorization.

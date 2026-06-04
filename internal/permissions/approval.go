@@ -13,6 +13,10 @@ const (
 	ApprovalScopeOnce ApprovalScope = "once"
 	// ApprovalScopeSession allows equivalent actions for the rest of the session.
 	ApprovalScopeSession ApprovalScope = "session"
+	// ApprovalScopeProject allows equivalent actions across processes by
+	// persisting the grant. It degrades to session scope when the store does not
+	// support persistence.
+	ApprovalScopeProject ApprovalScope = "project"
 )
 
 type ApprovalSummary struct {
@@ -156,6 +160,14 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		return decision
 	}
 	key := a.sessionKey(action)
+	// A persisted denylist entry blocks before prompting.
+	if key != "" {
+		if persistent, ok := a.Store.(PersistentAllowStore); ok && persistent.Denied(key) {
+			decision.FinalEffect = EffectDeny
+			decision.Reason = ReasonDenylisted
+			return decision
+		}
+	}
 	if key != "" && a.Store != nil && a.Store.Allowed(key) {
 		decision.FinalEffect = EffectAllow
 		decision.Reason = ReasonSessionAllowed
@@ -171,9 +183,7 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		return decision
 	}
 	if response.Effect == EffectAllow {
-		if response.Scope == ApprovalScopeSession && key != "" && a.Store != nil {
-			a.Store.Remember(key)
-		}
+		a.recordGrant(key, response.Scope)
 		decision.FinalEffect = EffectAllow
 		decision.Reason = ReasonApprovalGranted
 		return decision
@@ -185,6 +195,28 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		decision.Reason = ReasonApprovalDenied
 	}
 	return decision
+}
+
+// recordGrant remembers an allow grant per its scope. A project-scope grant is
+// persisted when the store supports it; if persistence fails (or the store is
+// session-only) it degrades to a session grant so the action is at least not
+// re-prompted this run.
+func (a InteractiveAuthorizer) recordGrant(key string, scope ApprovalScope) {
+	if key == "" || a.Store == nil {
+		return
+	}
+	switch scope {
+	case ApprovalScopeProject:
+		if persistent, ok := a.Store.(PersistentAllowStore); ok {
+			if err := persistent.RememberPersistent(key); err != nil {
+				a.Store.Remember(key)
+			}
+			return
+		}
+		a.Store.Remember(key)
+	case ApprovalScopeSession:
+		a.Store.Remember(key)
+	}
 }
 
 func (a InteractiveAuthorizer) sessionKey(action Action) string {

@@ -117,7 +117,7 @@ func (m Model) approvalDetailLines() []string {
 		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(cmd, width)))
 	}
 	if hint := m.approvalSessionScopeHint(); hint != "" {
-		lines = append(lines, mutedStyle.Render(" session allows: "+truncate(hint, maxZero(m.width-18))))
+		lines = append(lines, mutedStyle.Render(" allow remembers: "+truncate(hint, maxZero(m.width-19))))
 	}
 	return lines
 }
@@ -138,7 +138,7 @@ func (m Model) approvalSessionScopeHint() string {
 }
 
 func (m Model) approvalOptionsLine() string {
-	labels := []string{"[y] allow once", "[s] allow session", "[n] deny"}
+	labels := []string{"[y] allow once", "[s] allow session", "[p] allow project", "[n] deny"}
 	rendered := make([]string, len(labels))
 	for i, label := range labels {
 		if i == m.approval.selected {

@@ -82,12 +82,16 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 	permissionService := permissions.NewService(permissions.Options{Mode: "safe"})
 	if cfg.PermissionMode == "interactive" {
 		service.approver = ui.NewApprover(cfg.CWD)
+		store, err := newAllowStore(cfg.CWD)
+		if err != nil {
+			return nil, err
+		}
 		permissionService = permissions.NewService(permissions.Options{
 			Mode:              "interactive",
 			ApprovalAvailable: true,
 			Authorizer: permissions.InteractiveAuthorizer{
 				Approver: service.approver,
-				Store:    permissions.NewMemorySessionAllowStore(),
+				Store:    store,
 			},
 		})
 	}

@@ -114,7 +114,7 @@ The executor calls `internal/permissions` before running every tool:
 - `Write`/`Edit` mutations require approval and fresh-read checks.
 - `Bash` commands are classified before execution; unknown, privileged, destructive, outside-write, and complex shell-control commands are denied before approval.
 - `safe` mode is non-interactive, so approval-requiring actions resolve to denial.
-- `interactive` mode asks once on stderr and only for actions already classified as approvable.
+- `interactive` mode asks once on stderr and only for actions already classified as approvable. Approval offers allow once / allow for session / allow for project; "allow for project" persists to `<workspace>/.runcode/permissions.json` (0600, gitignored) and is honored across processes. That file also holds a denylist checked before prompting (a deny always wins over an allow); a corrupt file fails fast rather than dropping deny rules.
 
 Telemetry records bounded metadata such as operation, risk, resource scope, permission effect, and command classification. It does not record raw paths, raw commands, tool inputs, tool outputs, file contents, credentials, or URLs.
 

@@ -529,13 +529,19 @@ cmd/runcode chat
 - 更丰富的 tool output display。
 - TUI permission modal 和更丰富 approval 选项。
 
-### 6. 权限策略持久化
+### 6. 权限策略持久化（部分实现）
 
-当前 interactive 已有 allow once 和进程内 allow for session（不跨进程持久化）。缺少：
+已实现：allow once、进程内 allow for session，以及跨进程持久化的 **allow for project**
+（`<workspace>/.runcode/permissions.json`，0600，gitignore）+ **denylist**（询问前检查、deny
+始终优先于 allow、文件损坏时快速报错而非静默丢弃 deny 规则）。CLI prompt（`[p]roject`）与 TUI
+modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 按 mutation target、Bash 按
+命令分类）。
 
-- allow project。
-- denylist。
-- settings-backed policy（跨进程持久化的 allow/deny 记忆）。
+后续仍可做：
+
+- user 级（全局）allow/deny。
+- denylist 的交互式录入 UI（目前 deny 规则需手动写入 permissions.json）。
+- `runcode permissions` 管理命令（查看 / 清除规则）。
 
 ### 7. 工具增强
 

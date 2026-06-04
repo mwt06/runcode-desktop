@@ -29,7 +29,7 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 			return permissions.ApprovalResponse{}, err
 		}
 		if attempt > 0 {
-			if _, err := fmt.Fprint(p.err, "Please answer y, s, or n: "); err != nil {
+			if _, err := fmt.Fprint(p.err, "Please answer y, s, p, or n: "); err != nil {
 				return permissions.ApprovalResponse{}, err
 			}
 		}
@@ -43,6 +43,9 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 		}
 		if answer == "s" || answer == "session" {
 			return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeSession}, nil
+		}
+		if answer == "p" || answer == "project" {
+			return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeProject}, nil
 		}
 		if answer == "" || answer == "n" || answer == "no" || answer == "deny" {
 			return permissions.ApprovalResponse{Effect: permissions.EffectDeny, Reason: permissions.ReasonApprovalDenied}, nil
@@ -83,7 +86,7 @@ func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 			return err
 		}
 	}
-	_, err := fmt.Fprintf(p.err, "Policy: %s\nAllow? [y]es once / [s]ession / [N]o: ", summary.PolicyRule)
+	_, err := fmt.Fprintf(p.err, "Policy: %s\nAllow? [y]es once / [s]ession / [p]roject / [N]o: ", summary.PolicyRule)
 	return err
 }
 
