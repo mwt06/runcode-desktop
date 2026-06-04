@@ -89,7 +89,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- No full slash command system, MCP, hooks, sub-agents, or skills yet.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/exit`), but functional commands like `/compact`, `/model`, and `/cost` are not implemented yet; no MCP, hooks, sub-agents, or skills.
 
 ## Implemented tools
 

@@ -3,56 +3,150 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-type slashCommand string
+// slashHandler runs a slash command against the model and returns the updated
+// model plus any command to execute. Each handler owns its control flow (e.g.
+// guarding against an in-flight turn), so behavior lives with the command.
+type slashHandler func(m Model, args []string) (Model, tea.Cmd)
 
-const (
-	slashNone    slashCommand = ""
-	slashHelp    slashCommand = "help"
-	slashClear   slashCommand = "clear"
-	slashStatus  slashCommand = "status"
-	slashExit    slashCommand = "exit"
-	slashUnknown slashCommand = "unknown"
-)
+// slashCommand is one registered command: its canonical name, optional aliases,
+// a one-line summary for help, and its handler.
+type slashCommand struct {
+	name    string
+	aliases []string
+	summary string
+	run     slashHandler
+}
 
-func parseSlashCommand(input string) slashCommand {
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" || !strings.HasPrefix(trimmed, "/") {
-		return slashNone
+// slashRegistry holds the available slash commands. Parsing, dispatch, and help
+// are all driven from the registry, so adding a command means registering it in
+// exactly one place instead of editing a parse switch, a dispatch switch, and a
+// hand-written help string.
+type slashRegistry struct {
+	order  []*slashCommand
+	byName map[string]*slashCommand
+}
+
+func newSlashRegistry() *slashRegistry {
+	return &slashRegistry{byName: map[string]*slashCommand{}}
+}
+
+// register adds a command under its name and every alias. A later registration
+// for the same key wins, which lets callers override a default command.
+func (r *slashRegistry) register(c *slashCommand) {
+	if _, exists := r.byName[c.name]; !exists {
+		r.order = append(r.order, c)
 	}
-	fields := strings.Fields(strings.TrimPrefix(trimmed, "/"))
-	if len(fields) == 0 {
-		return slashUnknown
-	}
-	name := strings.ToLower(fields[0])
-	switch name {
-	case "help":
-		return slashHelp
-	case "clear":
-		return slashClear
-	case "status":
-		return slashStatus
-	case "exit", "quit":
-		return slashExit
-	default:
-		return slashUnknown
+	r.byName[c.name] = c
+	for _, alias := range c.aliases {
+		r.byName[alias] = c
 	}
 }
 
-func helpText() string {
-	return strings.Join([]string{
-		"Commands",
-		"  /help     show commands",
-		"  /clear    clear in-memory history and the screen",
-		"  /status   show current session status",
-		"  /exit     quit",
-		"",
-		"Scrolling",
-		"  ↑/↓       scroll one line",
-		"  PgUp/PgDn scroll half a page",
-		"  Wheel     scroll with mouse wheel",
-	}, "\n")
+func (r *slashRegistry) lookup(name string) (*slashCommand, bool) {
+	c, ok := r.byName[name]
+	return c, ok
+}
+
+// parseSlash splits a submitted line into a lowercase command name and its
+// args. isSlash is true for any input that begins with '/'; name is empty for a
+// bare '/'.
+func parseSlash(input string) (name string, args []string, isSlash bool) {
+	trimmed := strings.TrimSpace(input)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", nil, false
+	}
+	fields := strings.Fields(strings.TrimPrefix(trimmed, "/"))
+	if len(fields) == 0 {
+		return "", nil, true
+	}
+	args = fields[1:]
+	if len(args) == 0 {
+		args = nil // normalize "no args" to nil for a consistent API
+	}
+	return strings.ToLower(fields[0]), args, true
+}
+
+const scrollingHelp = "Scrolling\n" +
+	"  ↑/↓       scroll one line\n" +
+	"  PgUp/PgDn scroll half a page\n" +
+	"  Wheel     scroll with mouse wheel"
+
+// helpText renders the command list (auto-generated from the registry, names
+// aligned) followed by the static scrolling reference.
+func (r *slashRegistry) helpText() string {
+	width := 0
+	for _, c := range r.order {
+		if len(c.name) > width {
+			width = len(c.name)
+		}
+	}
+	var b strings.Builder
+	b.WriteString("Commands\n")
+	for _, c := range r.order {
+		fmt.Fprintf(&b, "  /%-*s  %s\n", width, c.name, c.summary)
+	}
+	b.WriteString("\n")
+	b.WriteString(scrollingHelp)
+	return b.String()
+}
+
+// defaultSlashRegistry builds the registry of built-in commands. New commands
+// (e.g. /compact, /model, /cost) are added here.
+func defaultSlashRegistry() *slashRegistry {
+	r := newSlashRegistry()
+
+	r.register(&slashCommand{
+		name:    "help",
+		summary: "show commands",
+		run: func(m Model, _ []string) (Model, tea.Cmd) {
+			m.appendMessage(RoleSystem, m.commands.helpText())
+			m.refreshViewport()
+			return m, nil
+		},
+	})
+
+	r.register(&slashCommand{
+		name:    "clear",
+		summary: "clear in-memory history and the screen",
+		run: func(m Model, _ []string) (Model, tea.Cmd) {
+			if m.inFlight {
+				m.appendMessage(RoleSystem, "cannot clear while assistant is responding")
+				m.refreshViewport()
+				return m, nil
+			}
+			return m, resetCmd(m.service)
+		},
+	})
+
+	r.register(&slashCommand{
+		name:    "status",
+		summary: "show current session status",
+		run: func(m Model, _ []string) (Model, tea.Cmd) {
+			m.appendMessage(RoleSystem, statusText(m.status, m.state(), m.turnCount, len(m.messages), m.totalInputTokens, m.totalOutputTokens, m.lastReasoningScenario, m.lastReasoningConfidence))
+			m.refreshViewport()
+			return m, nil
+		},
+	})
+
+	r.register(&slashCommand{
+		name:    "exit",
+		aliases: []string{"quit"},
+		summary: "quit",
+		run: func(m Model, _ []string) (Model, tea.Cmd) {
+			if m.inFlight && m.turnCancel != nil {
+				m.exitingAfterCancel = true
+				m.turnCancel()
+				return m, nil
+			}
+			return m, tea.Quit
+		},
+	})
+
+	return r
 }
 
 func statusText(status Status, state string, turnCount int, messageCount int, inputTokens int, outputTokens int, reasoningScenario string, reasoningConfidence string) string {

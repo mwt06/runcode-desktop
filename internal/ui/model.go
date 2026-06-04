@@ -23,8 +23,9 @@ const (
 )
 
 type Model struct {
-	service Service
-	status  Status
+	service  Service
+	status   Status
+	commands *slashRegistry
 
 	width  int
 	height int
@@ -66,6 +67,7 @@ func New(service Service) Model {
 	return Model{
 		service:          service,
 		status:           service.Status(),
+		commands:         defaultSlashRegistry(),
 		viewport:         vp,
 		input:            input,
 		currentAssistant: -1,
@@ -220,30 +222,10 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 	}
 	m.input.SetValue("")
 
-	switch parseSlashCommand(text) {
-	case slashHelp:
-		m.appendMessage(RoleSystem, helpText())
-		m.refreshViewport()
-		return m, nil
-	case slashStatus:
-		m.appendMessage(RoleSystem, statusText(m.status, m.state(), m.turnCount, len(m.messages), m.totalInputTokens, m.totalOutputTokens, m.lastReasoningScenario, m.lastReasoningConfidence))
-		m.refreshViewport()
-		return m, nil
-	case slashClear:
-		if m.inFlight {
-			m.appendMessage(RoleSystem, "cannot clear while assistant is responding")
-			m.refreshViewport()
-			return m, nil
+	if name, args, isSlash := parseSlash(text); isSlash {
+		if command, ok := m.commands.lookup(name); ok {
+			return command.run(m, args)
 		}
-		return m, resetCmd(m.service)
-	case slashExit:
-		if m.inFlight && m.turnCancel != nil {
-			m.exitingAfterCancel = true
-			m.turnCancel()
-			return m, nil
-		}
-		return m, tea.Quit
-	case slashUnknown:
 		m.appendMessage(RoleError, "unknown command: "+text)
 		m.refreshViewport()
 		return m, nil
