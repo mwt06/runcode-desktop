@@ -7,9 +7,11 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -21,6 +23,9 @@ const (
 	maxToolStoredOutput  = 50
 	toolLineMaxRunes     = 200
 	toolFilePathMaxRunes = 96
+	// maxInputRows caps how tall the multi-line input grows before it scrolls
+	// internally, keeping the conversation viewport usable on small terminals.
+	maxInputRows = 8
 )
 
 type Model struct {
@@ -32,7 +37,8 @@ type Model struct {
 	height int
 
 	viewport viewport.Model
-	input    textinput.Model
+	input    textarea.Model
+	history  promptHistory
 
 	messages            []ChatMessage
 	inFlight            bool
@@ -61,12 +67,23 @@ type Model struct {
 }
 
 func New(service Service) Model {
-	input := textinput.New()
-	input.Prompt = ""
-	input.Placeholder = "输入你的问题，/help 查看命令"
-	input.Focus()
+	input := textarea.New()
+	input.Prompt = "> "
+	input.Placeholder = "输入你的问题，/help 查看命令（alt+enter 或 ctrl+j 换行）"
+	input.ShowLineNumbers = false
 	input.CharLimit = 0
-	input.Width = 80
+	input.MaxHeight = maxInputRows
+	// Enter submits the turn; newlines are inserted with alt+enter / ctrl+j so a
+	// single Enter never accidentally sends a half-written multi-line prompt.
+	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
+	// The input is a plain line box, not a document editor: drop the cursor-line
+	// highlight and end-of-buffer filler so a one-line prompt looks unchanged.
+	input.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	input.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	input.FocusedStyle.Prompt = mutedStyle
+	input.BlurredStyle.Prompt = mutedStyle
+	input.SetHeight(1)
+	input.Focus()
 	vp := viewport.New(80, 20)
 	vp.MouseWheelEnabled = true
 	vp.MouseWheelDelta = mouseWheelScrollRows
@@ -186,6 +203,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case tea.KeyEnter:
+		// alt+enter inserts a newline; it falls through to the textarea below.
+		if msg.Alt {
+			break
+		}
 		return m.submitInput()
 	case tea.KeyPgUp:
 		m.scrollUp(m.viewport.Height / 2)
@@ -194,11 +215,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scrollDown(m.viewport.Height / 2)
 		return m, nil
 	case tea.KeyUp:
-		m.scrollUp(1)
-		return m, nil
+		return m.handleInputUp(msg)
 	case tea.KeyDown:
-		m.scrollDown(1)
-		return m, nil
+		return m.handleInputDown(msg)
 	case tea.KeyHome:
 		m.viewport.GotoTop()
 		m.followOutput = false
@@ -215,12 +234,77 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m = m.afterInputEdit()
+	return m, cmd
+}
+
+// handleInputUp routes the Up key: within a multi-line input it moves the cursor
+// up; on the first line it recalls the previous (older) history entry. Viewport
+// scrolling lives on PgUp/Home and the mouse wheel.
+func (m Model) handleInputUp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.input.Line() > 0 {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m.afterInputEdit(), cmd
+	}
+	if text, ok := m.history.older(m.input.Value()); ok {
+		m.recallHistory(text)
+	}
+	return m, nil
+}
+
+// handleInputDown is the mirror of handleInputUp: cursor down within the input,
+// or the next (newer) history entry / saved draft when on the last line.
+func (m Model) handleInputDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.input.Line() < m.input.LineCount()-1 {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m.afterInputEdit(), cmd
+	}
+	if text, ok := m.history.newer(); ok {
+		m.recallHistory(text)
+	}
+	return m, nil
+}
+
+// recallHistory replaces the input with a recalled line, parks the cursor at the
+// end, and re-syncs the menu and input height.
+func (m *Model) recallHistory(text string) {
+	m.input.SetValue(text)
+	m.input.CursorEnd()
+	updated := m.afterInputEdit()
+	*m = updated
+}
+
+// afterInputEdit re-syncs the slash-command menu and the input height after the
+// input value may have changed, relaying out only when the bottom chrome height
+// actually changed (so a normal keystroke does not re-render the whole viewport).
+func (m Model) afterInputEdit() Model {
 	prevActive, prevLen := m.menuActive, len(m.menuItems)
 	m = m.syncCommandMenu()
-	if m.menuActive != prevActive || len(m.menuItems) != prevLen {
+	heightChanged := m.adjustInputHeight()
+	if heightChanged || m.menuActive != prevActive || len(m.menuItems) != prevLen {
 		m.relayout()
 	}
-	return m, cmd
+	return m
+}
+
+// adjustInputHeight grows or shrinks the input box to fit its content, clamped to
+// [1, maxInputRows]. It reports whether the height changed so callers can decide
+// to relayout.
+func (m *Model) adjustInputHeight() bool {
+	rows := m.input.LineCount()
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > maxInputRows {
+		rows = maxInputRows
+	}
+	if rows == m.input.Height() {
+		return false
+	}
+	m.input.SetHeight(rows)
+	return true
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -248,7 +332,9 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 	if text == "" {
 		return m, nil
 	}
+	m.history.add(text)
 	m.input.SetValue("")
+	m.adjustInputHeight()
 	m.menuActive = false
 
 	if name, args, isSlash := parseSlash(text); isSlash {
@@ -289,7 +375,7 @@ func (m *Model) resize() {
 	if inputWidth < 1 {
 		inputWidth = 1
 	}
-	m.input.Width = inputWidth
+	m.input.SetWidth(inputWidth)
 }
 
 func (m Model) chromeHeight() int {

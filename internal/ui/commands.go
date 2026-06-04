@@ -82,13 +82,18 @@ func parseSlash(input string) (name string, args []string, isSlash bool) {
 	return strings.ToLower(fields[0]), args, true
 }
 
-const scrollingHelp = "Scrolling\n" +
-	"  ↑/↓       scroll one line\n" +
-	"  PgUp/PgDn scroll half a page\n" +
-	"  Wheel     scroll with mouse wheel"
+const scrollingHelp = "Input\n" +
+	"  Enter            send\n" +
+	"  alt+enter/ctrl+j insert a newline\n" +
+	"  ↑/↓              recall history (move the cursor in a multi-line input)\n" +
+	"\n" +
+	"Scrolling\n" +
+	"  PgUp/PgDn        scroll half a page\n" +
+	"  Home/End         jump to top / bottom\n" +
+	"  Wheel            scroll with mouse wheel"
 
 // helpText renders the command list (auto-generated from the registry, names
-// aligned) followed by the static scrolling reference.
+// aligned) followed by the static input/scrolling reference.
 func (r *slashRegistry) helpText() string {
 	width := 0
 	for _, c := range r.order {

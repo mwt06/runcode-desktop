@@ -68,7 +68,7 @@ cmd/runcode chat
 最小化缺口：
 
 - `chat --loop` 只是逐行循环；完整交互体验由 `runcode tui` MVP 起步但仍不完整。
-- TUI 仍缺少 readline 级历史导航、多行输入、补全、可配置快捷键。
+- TUI 已有可随内容增高的多行输入（Enter 发送、`alt+enter`/`ctrl+j` 换行）与已提交输入的 readline 式历史翻阅（↑/↓ 在首/末行翻历史，多行草稿内则移动光标；保留浏览前的草稿）；仍缺命令补全、可配置快捷键、按可视行(软换行)精确计高。
 - slash 命令已有可扩展基座（含 `/compact`、`/cost`），但缺 `/model` 等。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
@@ -522,7 +522,7 @@ cmd/runcode chat
 
 目前已有 shell-friendly `chat`、stdout assistant streaming 和最小 TUI MVP，但还不是产品级终端体验。缺少：
 
-- readline 级历史导航、编辑和补全。
+- 多行输入与 readline 式历史翻阅已实现；仍缺命令补全和可配置快捷键。
 - 更多 slash 命令（`/model`；`/compact`、`/cost` 已实现）。
 - 更丰富的 tool output display。
 - TUI permission modal 和更丰富 approval 选项。

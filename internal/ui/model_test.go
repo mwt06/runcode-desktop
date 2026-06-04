@@ -178,7 +178,7 @@ func TestScrollingUpDisablesFollowOutput(t *testing.T) {
 	model.refreshViewport()
 	bottom := model.viewport.YOffset
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	model = updated.(Model)
 
 	if model.followOutput {

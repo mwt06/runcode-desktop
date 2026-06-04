@@ -58,9 +58,9 @@ func (m Model) bottomBlock() []string {
 	if menu := m.menuView(); menu != "" {
 		block = append(block, strings.Split(menu, "\n")...)
 	}
+	block = append(block, m.inputTopDivider())
+	block = append(block, m.inputViewLines()...)
 	return append(block,
-		m.inputTopDivider(),
-		m.inputLine(),
 		m.inputBottomDivider(),
 		m.bottomStatusLine(),
 	)
@@ -200,9 +200,11 @@ func renderDivider(width int, label string) string {
 	return dividerStyle.Render(line)
 }
 
-func (m Model) inputLine() string {
-	prefix := mutedStyle.Render("> ")
-	return prefix + m.input.View()
+// inputViewLines renders the (possibly multi-line) input box as individual rows
+// so bottomBlock can splice them in and chromeHeight stays accurate. The "> "
+// prompt is drawn by the textarea itself, once per row.
+func (m Model) inputViewLines() []string {
+	return strings.Split(m.input.View(), "\n")
 }
 
 func (m Model) bottomStatusLine() string {

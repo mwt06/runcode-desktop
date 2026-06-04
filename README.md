@@ -39,7 +39,7 @@ ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, minimal tree-style tool progress cards with safe file summaries, and slash commands (`/help`, `/clear`, `/status`, `/mode`, `/compact`, `/cost`, `/exit`) with a type-to-filter menu that opens when you type `/`. With `--permission-mode interactive` the TUI shows a permission modal offering allow once / allow for session / deny; "allow for session" stops re-prompting equivalent actions for the rest of the session. Tool cards show a bounded, sanitized output excerpt (Bash stdout/stderr, Grep matches, Read preview) and a full line diff for Edit/Write, expandable with `ctrl+o`.
+`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, a multi-line input with top and bottom dividers (Enter sends; `alt+enter`/`ctrl+j` insert a newline; ↑/↓ recall submitted-input history or move the cursor inside a multi-line draft), streaming assistant Markdown rendering, minimal tree-style tool progress cards with safe file summaries, and slash commands (`/help`, `/clear`, `/status`, `/mode`, `/compact`, `/cost`, `/exit`) with a type-to-filter menu that opens when you type `/`. With `--permission-mode interactive` the TUI shows a permission modal offering allow once / allow for session / deny; "allow for session" stops re-prompting equivalent actions for the rest of the session. Tool cards show a bounded, sanitized output excerpt (Bash stdout/stderr, Grep matches, Read preview) and a full line diff for Edit/Write, expandable with `ctrl+o`.
 
 Useful flags and environment variables:
 
@@ -89,7 +89,7 @@ The session log is loss-less and may contain file contents and command output; i
 
 Current limitations:
 
-- TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.
+- TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
 - Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode at runtime); `/model` is not implemented yet; no MCP, hooks, sub-agents, or skills.
 
