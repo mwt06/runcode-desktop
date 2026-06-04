@@ -7,6 +7,7 @@ import (
 	"github.com/wt68/runcode/tools/glob"
 	"github.com/wt68/runcode/tools/grep"
 	"github.com/wt68/runcode/tools/read"
+	"github.com/wt68/runcode/tools/todo"
 	"github.com/wt68/runcode/tools/write"
 )
 
@@ -18,5 +19,6 @@ func Builtins() []tool.Tool {
 		glob.New(),
 		grep.New(),
 		bash.New(),
+		todo.New(),
 	}
 }

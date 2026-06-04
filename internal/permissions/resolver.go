@@ -55,6 +55,8 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return resolveEdit(req)
 	case "Bash":
 		return resolveBash(req)
+	case "TodoWrite":
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	default:
 		return Action{ToolName: req.ToolName, Operation: OperationUnknown, Risk: RiskHigh, Resources: []Resource{{Type: ResourceUnknown, Scope: ResourceScopeUnknown}}}, nil
 	}

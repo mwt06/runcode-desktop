@@ -15,6 +15,10 @@ func (DefaultPolicy) Decide(_ context.Context, action Action) Decision {
 			return Allow(ReasonAllowedRead, "default.read.workspace")
 		}
 		return Deny(ReasonOutsideWorkspace, "default.read.outside_workspace")
+	case OperationManage:
+		// Side-effect-free session management (e.g. TodoWrite): no files or
+		// commands, so it is allowed without approval.
+		return Allow(ReasonAllowedManage, "default.manage")
 	case OperationWrite, OperationEdit:
 		return decideMutation(action)
 	case OperationExecute:

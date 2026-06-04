@@ -28,12 +28,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - `Glob`
   - `Grep`
   - `Bash`
+  - `TodoWrite`
 - `Read` tool with line-numbered output, offset/limit support, output bounds, and complete/partial read metadata.
 - `Write` tool for workspace file creation and fresh-read overwrites.
 - `Edit` tool for fresh-read exact string replacement and replace-all edits.
 - `Glob` tool for workspace file discovery with slash glob semantics and `**` support.
 - `Grep` tool for workspace regexp search with path/glob filtering and bounded output.
 - Minimal `Bash` tool with workspace cwd, no stdin, timeout, stdout/stderr capture, output truncation, and `is_error` result semantics for non-zero exit or timeout.
+- `TodoWrite` tool: the model records its current task list by passing the complete list each call (replacing the previous one). Each item has content, a status (pending/in_progress/completed), and an activeForm; the tool validates the list (non-empty, valid statuses, at most one in_progress), renders a checklist, and emits a progress event for the UI. It is side-effect-free and classified as a new `manage` permission operation that is allowed without approval (no files or commands). Registered in `tools.Builtins()` and exposed to the model and prompt automatically.
 - Finite ReAct session controller in `internal/repl` with tool-use iteration, tool-result conversion, max-iteration protection, in-memory history, and optional reasoning classification.
 - Unified permission boundary in `internal/permissions`, including action/resource/risk modeling, resolver, policy, safe mode, interactive approval, command classification, and sanitized approval summaries.
 - Permission-aware executor that records permission decisions and returns permission denial, unknown tools, and recoverable tool runtime errors as error tool results.
@@ -81,7 +83,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Full TUI product features beyond the MVP (rich tool output, diff viewer, transcript browser, model switching).
 - SQLite transcript and persistent session resume.
-- TodoWrite tool.
 - MCP integration.
 - Hooks.
 - Slash commands.

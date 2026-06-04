@@ -103,8 +103,9 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `Glob` | Finds workspace files with slash glob patterns and `**`; concurrency-safe with sibling safe tool calls. |
 | `Grep` | Searches workspace text files with Go regular expressions; concurrency-safe with sibling safe tool calls. |
 | `Bash` | Runs a single-line non-interactive bash command in the workspace after permission approval. |
+| `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
 
-`TodoWrite`, WebFetch/WebSearch, MCP tools, and plugin tools are not implemented yet.
+WebFetch/WebSearch, MCP tools, and plugin tools are not implemented yet.
 
 ## Permissions and safety
 

@@ -16,6 +16,9 @@ const (
 	OperationWrite   Operation = "write"
 	OperationEdit    Operation = "edit"
 	OperationExecute Operation = "execute"
+	// OperationManage is a side-effect-free session-management operation (e.g.
+	// updating the in-memory todo list). It touches no files or commands.
+	OperationManage  Operation = "manage"
 	OperationUnknown Operation = "unknown"
 )
 

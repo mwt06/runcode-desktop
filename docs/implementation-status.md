@@ -479,7 +479,6 @@ cmd/runcode chat
 - `pkg/command`
 - `pkg/plugin`
 - `pkg/skill`
-- `tools/todo`
 - `prompts/templates`
 - `prompts/agents`
 - `prompts/skills`
@@ -497,7 +496,6 @@ cmd/runcode chat
 - slash commands。
 - plugins。
 - skills。
-- TodoWrite。
 - custom tool example。
 
 ## 主要缺口按优先级
@@ -547,7 +545,6 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 可选方向：
 
-- TodoWrite。
 - Grep context lines / files-only / count / `.gitignore`。
 - Edit append/insert/regex/line patch。
 - Write atomic write + preserve mode。
