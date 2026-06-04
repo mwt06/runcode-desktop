@@ -565,7 +565,9 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
   对任意 model 名的 OpenAI 兼容端点不可行，故留作进一步工作；(3) `SupportsThinking` 暂无消费方。
 - Anthropic image support。
 - stop sequences / tool choice / thinking budget。
-- retry/backoff/rate-limit 分类。
+
+> retry/backoff（network/429/5xx/529，capped 指数退避 + 尊重 `Retry-After`，仅连接建立阶段）已实现：
+> OpenAI 在 HTTP transport 内重试，Anthropic 启用 SDK 内置重试。
 
 ## 后续推荐路线
 

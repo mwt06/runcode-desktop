@@ -24,7 +24,10 @@ type sdkClient struct {
 }
 
 func newSDKClient(opts Options) messageStreamClient {
-	requestOptions := []option.RequestOption{option.WithoutEnvironmentDefaults()}
+	requestOptions := []option.RequestOption{
+		option.WithoutEnvironmentDefaults(),
+		option.WithMaxRetries(maxRetries),
+	}
 	if opts.AuthToken != "" {
 		requestOptions = append(requestOptions, option.WithAuthToken(opts.AuthToken))
 	} else if opts.APIKey != "" {

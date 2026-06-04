@@ -9,6 +9,9 @@ import (
 const (
 	providerName     = "anthropic"
 	defaultMaxTokens = 4096
+	// maxRetries lets the SDK retry transient failures (429/5xx/network) with
+	// its own backoff and Retry-After handling during request establishment.
+	maxRetries = 2
 )
 
 type Options struct {
