@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/persistence/settings"
@@ -54,6 +55,7 @@ type chatConfig struct {
 	MaxRetries         int
 	InputPrice         float64
 	OutputPrice        float64
+	MCPServers         []mcp.ServerConfig
 }
 
 type chatIO struct {
@@ -76,6 +78,7 @@ type defaultChatRunner struct {
 	recorder   telemetry.Recorder
 	transcript transcript.Recorder
 	sessions   sessions.Store
+	mcp        *mcp.Manager
 }
 
 type sessionFactoryOptions struct {
@@ -90,6 +93,7 @@ type sessionResources struct {
 	Telemetry  telemetry.Recorder
 	Transcript transcript.Recorder
 	Sessions   sessions.Store
+	MCP        *mcp.Manager
 	SessionID  string
 }
 
@@ -389,6 +393,10 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	mcpServers, err := mcpServersFromConfig(file.MCP)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 
 	return chatConfig{
 		Provider:           provider,
@@ -410,6 +418,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		MaxRetries:         maxRetries,
 		InputPrice:         inputPrice,
 		OutputPrice:        outputPrice,
+		MCPServers:         mcpServers,
 	}, resolved, nil
 }
 
@@ -668,6 +677,7 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	r.recorder = resources.Telemetry
 	r.transcript = resources.Transcript
 	r.sessions = resources.Sessions
+	r.mcp = resources.MCP
 	r.session = session
 	return session, nil
 }
@@ -707,6 +717,12 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		closeRecorders(context.Background(), recorder, trecorder, store)
 		return nil, sessionResources{}, err
 	}
+	// Connect configured MCP servers and merge their tools with the builtins.
+	// Startup is tolerant: a server that fails to connect is reported and skipped.
+	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers)
+	reportMCPStartupErrors(opts.Runtime, mcpErrs)
+	resources.MCP = mcpManager
+	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store)
@@ -728,7 +744,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	session, err := repl.NewSession(repl.SessionOptions{
 		Provider:  provider,
 		Model:     cfg.Model,
-		Tools:     tools.Builtins(),
+		Tools:     sessionTools,
 		MaxTokens: cfg.MaxTokens,
 		Prompt: prompt.AssemblerOpts{
 			CWD:            cfg.CWD,
@@ -753,10 +769,22 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		MaxContextTokens:   cfg.MaxContextTokens,
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store)
+		closeRecorders(context.Background(), recorder, trecorder, store, mcpManager)
 		return nil, sessionResources{}, err
 	}
 	return session, resources, nil
+}
+
+// reportMCPStartupErrors writes a bounded, sanitized warning for each MCP server
+// that failed to connect. It uses the runtime's stderr when available; startup is
+// tolerant, so these are warnings, not fatal errors.
+func reportMCPStartupErrors(runtime chatIO, errs []mcp.StartupError) {
+	if len(errs) == 0 || runtime.Err == nil {
+		return
+	}
+	for _, e := range errs {
+		fmt.Fprintf(runtime.Err, "warning: MCP server %q unavailable: %v\n", e.Server, e.Err)
+	}
 }
 
 func (r *defaultChatRunner) Reset(context.Context) error {
@@ -805,7 +833,7 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {
-	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions)
+	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.mcp)
 }
 
 func closeRecorders(ctx context.Context, recorders ...interface{ Close(context.Context) error }) error {

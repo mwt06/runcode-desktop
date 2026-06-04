@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/wt68/runcode/pkg/tool"
@@ -67,6 +68,39 @@ func TestManagerDeduplicatesToolNames(t *testing.T) {
 
 	if names := toolNames(mgr.Tools()); len(names) != 1 || names[0] != "mcp__dup__do" {
 		t.Fatalf("tools = %#v, want a single deduplicated tool", names)
+	}
+}
+
+// TestOpenRealStdioServer exercises the production dial path (real transport,
+// handshake, tools/list, adapter) against a real subprocess — the test binary
+// re-executed as a minimal MCP server.
+func TestOpenRealStdioServer(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("executable: %v", err)
+	}
+	mgr, errs := Open(context.Background(), []ServerConfig{{
+		Name:      "helper",
+		Transport: TransportStdio,
+		Command:   exe,
+		Args:      []string{"-test.run=TestStdioHelperProcess"},
+		Env:       []string{"MCP_STDIO_HELPER=1"},
+	}})
+	defer mgr.Close(context.Background())
+
+	if len(errs) != 0 {
+		t.Fatalf("startup errors = %v, want none", errs)
+	}
+	tools := mgr.Tools()
+	if len(tools) != 1 || tools[0].Name() != "mcp__helper__ping" {
+		t.Fatalf("tools = %#v, want mcp__helper__ping", toolNames(tools))
+	}
+	result, err := tools[0].Run(context.Background(), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(result.Content) != 1 || result.Content[0].Text != "pong" {
+		t.Fatalf("result = %#v, want pong", result)
 	}
 }
 

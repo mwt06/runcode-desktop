@@ -64,7 +64,28 @@ runcode 还支持 TOML 配置文件，优先级为 **flag > 环境变量 > 项�
 - 项目级：`runcode.toml`，从工作目录向上逐级查找。
 - 用户级：`config.toml`，位于 `os.UserConfigDir()/runcode/`（Windows=`%AppData%\runcode\config.toml`，Linux=`~/.config/runcode/config.toml`，macOS=`~/Library/Application Support/runcode/config.toml`）。
 
-支持的字段：`provider`、`model`、`base_url`、`max_tokens`、`permission_mode`、`telemetry`、`transcript`、`max_history_messages`，以及 **仅用户级文件生效** 的 `api_key` / `auth_token`。项目级文件中的凭证会被忽略，避免误提交。
+支持的字段：`provider`、`model`、`base_url`、`max_tokens`、`permission_mode`、`telemetry`、`transcript`、`max_history_messages`，以及 **仅用户级文件生效** 的 `api_key` / `auth_token` 和 `[mcp.servers.*]`（见下）。项目级文件中的凭证会被忽略，避免误提交。
+
+### MCP 服务器（Model Context Protocol）
+
+runcode 可以连接 MCP 服务器并把它们的工具暴露给模型。服务器在 **用户级** `config.toml` 的 `[mcp.servers.<name>]` 下配置——**仅用户级生效**，项目文件绝不能仅凭存在就让 runcode 启动子进程或访问端点。每个服务器通过 **stdio**（本地子进程）或 **Streamable HTTP**（远程端点）连接。字符串值支持 `${VAR}` 展开，让密钥留在环境变量而不是文件里。
+
+```toml
+# stdio：作为子进程启动的本地服务器（默认传输）
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/expose"]
+env = { SOME_TOKEN = "${SOME_TOKEN}" }   # ${VAR} 从环境变量展开
+# enabled = false                         # 省略或设 true 即启用
+
+# http：通过 Streamable HTTP 的远程服务器
+[mcp.servers.docs]
+transport = "http"
+url = "https://example.com/mcp"
+headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
+```
+
+服务器的工具以 `mcp__<server>__<tool>` 暴露给模型。它们被归类为 **external** 权限操作：每次调用都需审批（safe 模式拒绝），「本会话/项目允许」按 server+tool 记忆。连接失败的服务器会作为 warning 报告并跳过，绝不中断会话。服务器名只能用字母、数字、`-`、`_`，且不含 `__`。
 
 运行 `runcode config` 可查看生效配置和已加载的配置文件路径（凭证值绝不打印）。
 
@@ -91,7 +112,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）；没有 MCP、hooks、sub-agents 或 skills。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）；尚无 hooks、sub-agents、skills,也暂无 MCP resources/prompts/sampling。
 
 ## 已实现工具
 
@@ -108,7 +129,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 | `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
 | `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；网络操作，需审批（按 host 显示）。 |
 
-WebSearch、MCP tools 和插件工具尚未实现。
+配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）。WebSearch 和插件工具尚未实现。
 
 ## 权限与安全
 
@@ -117,6 +138,7 @@ Executor 在运行每个工具前都会调用 `internal/permissions`：
 - workspace 内 `Read`/`Glob`/`Grep` 默认允许。
 - `Write`/`Edit` 需要审批，并且覆盖/编辑前要求 fresh-read。
 - `Bash` 执行前会分类命令；unknown、privileged、destructive、outside-write、complex shell-control 命令在审批前直接拒绝。
+- `WebFetch`（network）与 MCP 服务器工具（external）始终需要审批；「本会话/项目允许」分别按 host、按 server+tool 记忆。
 - `safe` 模式是非交互模式，所有需要审批的动作最终都会拒绝。
 - `interactive` 模式只对权限层已判定为可审批的动作在 stderr 询问一次。审批提供 allow once / allow for session / allow for project；选「allow for project」会持久化到 `<workspace>/.runcode/permissions.json`（0600，已 gitignore），跨进程生效。该文件还承载一个 denylist，在询问前检查（deny 始终优先于 allow）；文件损坏时快速报错，而非静默丢弃 deny 规则。
 
@@ -157,6 +179,7 @@ cmd/runcode/           Cobra CLI：version、chat 和最小 tui
 internal/ui/           Bubble Tea TUI MVP：底部状态区、viewport、输入框、Markdown 渲染、工具进度/文件摘要、slash commands
 internal/repl/         ReAct session、executor、tool result conversion、telemetry
 internal/permissions/  action/resource/risk、policy、approval、command classification
+internal/mcp/          Model Context Protocol 客户端：JSON-RPC、stdio + HTTP 传输、工具适配、manager
 internal/prompt/       系统提示组装器和 cache boundary
 internal/telemetry/    event model、JSONL、async、memory recorder
 internal/persistence/  可选 JSONL transcript 记录
@@ -167,7 +190,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：`internal/mcp`、`internal/hooks`、SQLite transcript persistence、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`tools/todo`、`prompts/*`。
+仍是脚手架或未实现：`internal/hooks`、SQLite transcript persistence、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`prompts/*`。
 
 ## 贡献
 

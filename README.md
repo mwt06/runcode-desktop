@@ -64,7 +64,28 @@ runcode also reads TOML config files, with precedence **flag > env > project fil
 - Project: `runcode.toml`, discovered by walking up from the working directory.
 - User: `config.toml` under `os.UserConfigDir()/runcode/` (`%AppData%\runcode\config.toml` on Windows, `~/.config/runcode/config.toml` on Linux, `~/Library/Application Support/runcode/config.toml` on macOS).
 
-Supported keys: `provider`, `model`, `base_url`, `max_tokens`, `permission_mode`, `telemetry`, `transcript`, `max_history_messages`, and — **user file only** — `api_key` / `auth_token`. Credentials in a project file are ignored so they are never committed by accident.
+Supported keys: `provider`, `model`, `base_url`, `max_tokens`, `permission_mode`, `telemetry`, `transcript`, `max_history_messages`, and — **user file only** — `api_key` / `auth_token` and `[mcp.servers.*]` (see below). Credentials in a project file are ignored so they are never committed by accident.
+
+### MCP servers (Model Context Protocol)
+
+runcode can connect to MCP servers and expose their tools to the model. Servers are configured under `[mcp.servers.<name>]` in the **user-level** `config.toml` only — a project file can never make runcode launch a subprocess or reach an endpoint just by being opened. Each server is reached over **stdio** (a local subprocess) or **Streamable HTTP** (a remote endpoint). String values support `${VAR}` expansion so secrets stay in environment variables rather than the file.
+
+```toml
+# stdio: a local server launched as a subprocess (default transport)
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/expose"]
+env = { SOME_TOKEN = "${SOME_TOKEN}" }   # ${VAR} expanded from the environment
+# enabled = false                         # omit or set true to enable
+
+# http: a remote server over Streamable HTTP
+[mcp.servers.docs]
+transport = "http"
+url = "https://example.com/mcp"
+headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
+```
+
+A server's tools appear to the model as `mcp__<server>__<tool>`. They are classified as an **external** permission operation: every call requires approval (so safe mode denies them), and "allow for session/project" remembers a grant per server+tool. A server that fails to connect is reported as a warning and skipped — it never aborts the session. Server names must use letters, digits, `-`, or `_` and contain no `__`.
 
 Run `runcode config` to print the effective configuration and which files were loaded (credential values are never printed).
 
@@ -91,7 +112,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime); no MCP, hooks, sub-agents, or skills.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)); no hooks, sub-agents, or skills, and no MCP resources/prompts/sampling yet.
 
 ## Implemented tools
 
@@ -108,7 +129,7 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
 | `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); a network operation that requires approval (shown per host). |
 
-WebSearch, MCP tools, and plugin tools are not implemented yet.
+MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)). WebSearch and plugin tools are not implemented yet.
 
 ## Permissions and safety
 
@@ -117,6 +138,7 @@ The executor calls `internal/permissions` before running every tool:
 - Workspace `Read`/`Glob`/`Grep` are allowed by default.
 - `Write`/`Edit` mutations require approval and fresh-read checks.
 - `Bash` commands are classified before execution; unknown, privileged, destructive, outside-write, and complex shell-control commands are denied before approval.
+- `WebFetch` (network) and MCP server tools (external) always require approval; "allow for session/project" remembers a grant per host and per server+tool respectively.
 - `safe` mode is non-interactive, so approval-requiring actions resolve to denial.
 - `interactive` mode asks once on stderr and only for actions already classified as approvable. Approval offers allow once / allow for session / allow for project; "allow for project" persists to `<workspace>/.runcode/permissions.json` (0600, gitignored) and is honored across processes. That file also holds a denylist checked before prompting (a deny always wins over an allow); a corrupt file fails fast rather than dropping deny rules.
 
@@ -157,6 +179,7 @@ cmd/runcode/           Cobra CLI: version, chat, and minimal tui
 internal/ui/           Bubble Tea TUI MVP: bottom status area, viewport, input, Markdown rendering, tool progress/file summaries, slash commands
 internal/repl/         ReAct session, executor, tool result conversion, telemetry
 internal/permissions/  action/resource/risk model, policy, approval, command classification
+internal/mcp/          Model Context Protocol client: JSON-RPC, stdio + HTTP transports, tool adapter, manager
 internal/prompt/       system prompt assembler and cache boundary
 internal/telemetry/    event model, JSONL, async, memory recorders
 internal/persistence/  opt-in JSONL transcript recording
@@ -167,7 +190,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: `internal/mcp`, `internal/hooks`, SQLite transcript persistence, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, `tools/todo`, and `prompts/*`.
+Scaffolded but not implemented yet: `internal/hooks`, SQLite transcript persistence, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, and `prompts/*`.
 
 ## Contributing
 

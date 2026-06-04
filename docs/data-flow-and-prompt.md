@@ -2,7 +2,7 @@
 
 本文档基于当前代码实现整理，用于快速理解 `runcode` 的 CLI 执行链路、ReAct 工具数据流、权限边界、telemetry 和 system prompt 拼接方式。
 
-当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic provider、`internal/repl.Session`、内置工具、权限系统和 telemetry；`cmd/runcode tui` 已接入最小 Bubble Tea TUI MVP；但还没有完整 TUI 权限弹窗、持久 transcript resume、context compaction、MCP、hooks、sub-agents、skills 或 OpenAI provider。
+当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic / OpenAI 兼容 provider、`internal/repl.Session`、内置工具、MCP 工具、权限系统和 telemetry；`cmd/runcode tui` 已接入 Bubble Tea TUI MVP；但还没有 diff viewer、transcript resume、hooks、sub-agents、skills 或 MCP 的 resources/prompts/sampling。
 
 ## 1. CLI 到 Session 的数据流
 
@@ -376,21 +376,16 @@ Anthropic provider：
 ```text
 internal/app/components
 internal/persistence/claudemd
-internal/persistence/settings
 internal/persistence/sqlite
 internal/persistence/migrate
 internal/coordinator
 internal/session
-internal/compaction
 internal/cost
 internal/hooks
-internal/mcp
-pkg/llm/providers/openai
 pkg/agent
 pkg/command
 pkg/plugin
 pkg/skill
-tools/todo
 prompts/templates
 prompts/agents
 prompts/skills
@@ -405,7 +400,7 @@ examples/custom-tool
 - context compaction。
 - cost tracking。
 - hooks。
-- MCP。
+- MCP resources / prompts / sampling（tools 原语已实现）。
 - sub-agents。
 - slash commands。
 - plugins。

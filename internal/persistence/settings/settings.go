@@ -47,6 +47,28 @@ type Config struct {
 	OutputPrice        *float64 `toml:"output_price"`
 	APIKey             string   `toml:"api_key"`
 	AuthToken          string   `toml:"auth_token"`
+	// MCP configures Model Context Protocol servers. It is honored only from the
+	// user-level file (like credentials): a project file must not be able to make
+	// runcode launch subprocesses or connect to endpoints just by being present.
+	MCP MCPConfig `toml:"mcp"`
+}
+
+// MCPConfig groups the configured MCP servers keyed by a short name.
+type MCPConfig struct {
+	Servers map[string]MCPServerConfig `toml:"servers"`
+}
+
+// MCPServerConfig describes one MCP server. String values support ${VAR}
+// expansion so secrets stay in environment variables rather than the file.
+type MCPServerConfig struct {
+	Transport string            `toml:"transport"` // "stdio" (default) or "http"
+	Command   string            `toml:"command"`   // stdio: executable
+	Args      []string          `toml:"args"`      // stdio: arguments
+	Env       map[string]string `toml:"env"`       // stdio: extra environment
+	Dir       string            `toml:"dir"`       // stdio: working directory
+	URL       string            `toml:"url"`       // http: endpoint
+	Headers   map[string]string `toml:"headers"`   // http: extra headers
+	Enabled   *bool             `toml:"enabled"`   // default true
 }
 
 // LoadOptions controls config discovery.
@@ -93,6 +115,10 @@ func Load(opts LoadOptions) (Resolved, error) {
 		// Credentials never come from a project file (it may be committed to VCS).
 		projectCfg.APIKey = ""
 		projectCfg.AuthToken = ""
+		// MCP servers never come from a project file either: honoring them would
+		// let a cloned repo launch arbitrary subprocesses or reach endpoints just
+		// by being opened. They are user-level only.
+		projectCfg.MCP = MCPConfig{}
 		resolved.Config = merge(resolved.Config, projectCfg)
 		resolved.ProjectPath = projectPath
 	}
@@ -211,6 +237,16 @@ func merge(base Config, override Config) Config {
 	}
 	if override.AuthToken != "" {
 		out.AuthToken = override.AuthToken
+	}
+	if len(override.MCP.Servers) > 0 {
+		merged := make(map[string]MCPServerConfig, len(out.MCP.Servers)+len(override.MCP.Servers))
+		for name, server := range out.MCP.Servers {
+			merged[name] = server
+		}
+		for name, server := range override.MCP.Servers {
+			merged[name] = server // override wins per server name
+		}
+		out.MCP.Servers = merged
 	}
 	return out
 }

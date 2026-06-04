@@ -30,7 +30,7 @@ Not implemented yet:
 
 - Full TUI product features beyond the MVP: diff viewer, file tree, transcript browser, and syntax highlighting (permission modal, rich tool output cards, multi-line input, and runtime model switching are implemented).
 - Persistent permission policy configuration.
-- MCP, hooks, sub-agents, skills, compaction, SQLite persistence, and transcript-backed session resume.
+- Hooks, sub-agents, skills, SQLite persistence, and transcript-backed session resume (MCP tools and compaction are implemented; MCP resources/prompts/sampling are not).
 - Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.
 - Bash background tasks, streaming terminal output, custom cwd/env, interactive stdin, and persistent command approval policy.
 

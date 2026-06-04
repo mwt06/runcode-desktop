@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/mcp"
 )
 
 func configCmd() *cobra.Command {
@@ -33,6 +34,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  input_price:          %g\n", cfg.InputPrice)
 			fmt.Fprintf(out, "  output_price:         %g\n", cfg.OutputPrice)
 			fmt.Fprintf(out, "  cwd:                  %s\n", cfg.CWD)
+			fmt.Fprintf(out, "  mcp_servers:          %s\n", mcpServerSummary(cfg.MCPServers))
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Config files:")
@@ -43,6 +45,19 @@ func configCmd() *cobra.Command {
 	}
 	addChatConfigFlags(cmd)
 	return cmd
+}
+
+// mcpServerSummary lists the enabled MCP server names and transports without
+// printing commands, URLs, env, or headers (which may contain secrets).
+func mcpServerSummary(servers []mcp.ServerConfig) string {
+	if len(servers) == 0 {
+		return "<none>"
+	}
+	parts := make([]string, len(servers))
+	for i, s := range servers {
+		parts[i] = fmt.Sprintf("%s (%s)", s.Name, s.Transport)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func configValueOrUnset(value string) string {

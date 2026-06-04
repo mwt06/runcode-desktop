@@ -169,7 +169,7 @@ func (s *tuiSessionService) Close(ctx context.Context) error {
 		return nil
 	}
 	s.closed = true
-	return closeRecorders(ctx, s.resources.Telemetry, s.resources.Transcript, s.resources.Sessions)
+	return closeRecorders(ctx, s.resources.Telemetry, s.resources.Transcript, s.resources.Sessions, s.resources.MCP)
 }
 
 func (s *tuiSessionService) Status() ui.Status {

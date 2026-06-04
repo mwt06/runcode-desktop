@@ -36,7 +36,7 @@ cmd/runcode chat
 - opt-in JSONL transcript store。
 - 最小 Bubble Tea TUI MVP：Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help` / `/clear` / `/status` / `/exit`。
 
-但整体仍是 `v0.1-alpha` 最小实现。很多目录仍是空壳，很多能力只做到安全可验证的第一版，没有产品级 TUI 权限弹窗、rich tool output、diff viewer、持久化配置系统、MCP、hooks、skills、sub-agents、context compaction 或完整多 provider 支持。
+但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer、hooks、skills、sub-agents 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP tools 已实现。）
 
 ## 当前已实现模块
 
@@ -172,7 +172,7 @@ cmd/runcode chat
 
 最小化缺口：
 
-- 工具是静态注册，没有 MCP、plugin 或 workspace 配置动态工具。
+- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP）；plugin 与 workspace 配置动态工具尚未实现。
 - executor 会通过 tool event channel 发送 started/completed/failed 生命周期事件，并为 ReadSet diff 附带安全文件摘要；Glob/Grep 会发送匹配文件摘要事件，但内置工具暂未普遍发送更细粒度 output。
 - prompt 中只列工具 name 和 description，没有丰富 usage notes。
 - 工具不会根据权限模式动态隐藏；safe 模式下 Write/Edit/Bash 仍会暴露给模型，但 prompt 会提示限制，运行时仍会被权限层拒绝。
@@ -474,7 +474,6 @@ cmd/runcode chat
 - `internal/session`
 - `internal/cost`
 - `internal/hooks`
-- `internal/mcp`
 - `pkg/agent`
 - `pkg/command`
 - `pkg/plugin`
@@ -491,7 +490,7 @@ cmd/runcode chat
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - 更细的 cost tracking（按模型定价表自动估算）。当前已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）；`internal/cost` 包仍是空壳。
 - hooks。
-- MCP。
+- MCP resources / prompts / sampling（tools 原语已实现：stdio + Streamable HTTP，作为 external 操作需审批；server 仅用户级配置）。
 - sub-agents。
 - slash commands。
 - plugins。
@@ -583,4 +582,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 4. ✅ 会话恢复(`--resume`/`--continue`)+ 增量上下文压缩(摘要逐字保留,不重复重总结)。
 5. ✅ OpenAI 兼容 provider(`--provider openai`,直连 Chat Completions HTTP/SSE,支持各类兼容端点)。
 
-后续可选大方向:MCP/hooks/skills/sub-agents、WebSearch。
+后续可选大方向:hooks/skills/sub-agents、WebSearch、MCP 的 resources/prompts/sampling。
