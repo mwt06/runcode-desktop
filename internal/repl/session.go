@@ -330,6 +330,32 @@ func (s *Session) maybeCompact(ctx context.Context, turnID string, history []llm
 	return compacted
 }
 
+// Compact summarizes the oldest turns of the working history now, regardless of
+// the token budget (used by an explicit /compact request). It returns the
+// in-memory message counts before and after; equal counts mean nothing was
+// safe to compact. Like automatic compaction it only touches the in-memory
+// working set — the on-disk session log stays complete.
+func (s *Session) Compact(ctx context.Context) (before int, after int, err error) {
+	before = len(s.history)
+	turnID := telemetry.NewTurnID()
+	compacted, err := compaction.Compact(ctx, s.history, compaction.Options{
+		Summarize:         s.summarizeForCompaction(turnID),
+		SummaryCharBudget: s.maxContextTokens * compactionSummaryCharBudgetFactor,
+	})
+	if err != nil {
+		s.record(ctx, telemetry.Event{
+			Time:       time.Now().UTC(),
+			Name:       telemetry.EventCompactionErr,
+			TraceID:    s.traceID,
+			TurnID:     turnID,
+			Attributes: telemetry.Attrs{string(telemetry.AttrError): "compaction_failed"},
+		})
+		return before, before, err
+	}
+	s.history = compacted
+	return before, len(compacted), nil
+}
+
 func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
 	return func(ctx context.Context, messages []llm.Message) (string, error) {
 		conversation := append(cloneMessages(messages), userMessage(compactionInstruction))

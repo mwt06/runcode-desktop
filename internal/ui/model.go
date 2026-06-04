@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -138,6 +139,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	case resetErrorMsg:
+		m.appendMessage(RoleError, errorText(msg.Err))
+		m.refreshViewport()
+		return m, nil
+	case compactDoneMsg:
+		if msg.Result.After < msg.Result.Before {
+			m.appendMessage(RoleSystem, fmt.Sprintf("context compacted: %d → %d messages", msg.Result.Before, msg.Result.After))
+		} else {
+			m.appendMessage(RoleSystem, "nothing to compact yet")
+		}
+		m.refreshViewport()
+		return m, nil
+	case compactErrorMsg:
 		m.appendMessage(RoleError, errorText(msg.Err))
 		m.refreshViewport()
 		return m, nil
@@ -608,5 +621,15 @@ func resetCmd(service Service) tea.Cmd {
 			return resetErrorMsg{Err: err}
 		}
 		return resetDoneMsg{}
+	}
+}
+
+func compactCmd(service Service) tea.Cmd {
+	return func() tea.Msg {
+		result, err := service.Compact(context.Background())
+		if err != nil {
+			return compactErrorMsg{Err: err}
+		}
+		return compactDoneMsg{Result: result}
 	}
 }

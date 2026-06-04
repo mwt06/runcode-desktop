@@ -129,3 +129,34 @@ func TestExitAliasQuitDispatches(t *testing.T) {
 		t.Fatal("/quit should produce a quit command")
 	}
 }
+
+func TestCompactCommandReportsResult(t *testing.T) {
+	t.Parallel()
+	model := New(&fakeService{compactResult: CompactResult{Before: 10, After: 4}})
+	model.input.SetValue("/compact")
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("/compact should produce a command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	last := model.messages[len(model.messages)-1]
+	if !strings.Contains(last.Text, "10 → 4") {
+		t.Fatalf("expected compaction result message, got %q", last.Text)
+	}
+}
+
+func TestCompactCommandNothingToCompact(t *testing.T) {
+	t.Parallel()
+	model := New(&fakeService{compactResult: CompactResult{Before: 4, After: 4}})
+	model.input.SetValue("/compact")
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	last := model.messages[len(model.messages)-1]
+	if !strings.Contains(last.Text, "nothing to compact") {
+		t.Fatalf("expected nothing-to-compact message, got %q", last.Text)
+	}
+}

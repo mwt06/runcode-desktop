@@ -123,6 +123,21 @@ func defaultSlashRegistry() *slashRegistry {
 	})
 
 	r.register(&slashCommand{
+		name:    "compact",
+		summary: "summarize older context now to free up tokens",
+		run: func(m Model, _ []string) (Model, tea.Cmd) {
+			if m.inFlight {
+				m.appendMessage(RoleSystem, "cannot compact while assistant is responding")
+				m.refreshViewport()
+				return m, nil
+			}
+			m.appendMessage(RoleSystem, "compacting context…")
+			m.refreshViewport()
+			return m, compactCmd(m.service)
+		},
+	})
+
+	r.register(&slashCommand{
 		name:    "status",
 		summary: "show current session status",
 		run: func(m Model, _ []string) (Model, tea.Cmd) {

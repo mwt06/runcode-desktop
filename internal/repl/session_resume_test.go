@@ -147,3 +147,41 @@ func TestCompactionTriggersAndSummarizes(t *testing.T) {
 		t.Fatalf("retained tail should start at q2, got %q", messageText(history[1]))
 	}
 }
+
+func TestManualCompact(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents("a1")},
+		fakeProviderResponse{events: textEvents("a2")},
+		fakeProviderResponse{events: textEvents("a3")},
+		fakeProviderResponse{events: textEvents("a4")},
+		fakeProviderResponse{events: textEvents("a5")},
+		fakeProviderResponse{events: textEvents("CONDENSED")}, // summarizer for the manual compact
+	)
+	// MaxContextTokens 0 disables automatic compaction, so the history grows
+	// until we compact it explicitly.
+	session := newTestSession(t, SessionOptions{Provider: provider})
+
+	for _, q := range []string{"q1", "q2", "q3", "q4", "q5"} {
+		if _, err := session.RunTurn(context.Background(), q); err != nil {
+			t.Fatalf("RunTurn %s: %v", q, err)
+		}
+	}
+	if len(provider.requests) != 5 {
+		t.Fatalf("provider calls = %d, want 5 (no auto compaction)", len(provider.requests))
+	}
+
+	before, after, err := session.Compact(context.Background())
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	// 5 turns (10 messages) -> [summary] + last 4 turns (8 messages) = 9.
+	if before != 10 || after != 9 {
+		t.Fatalf("compact result = (%d, %d), want (10, 9)", before, after)
+	}
+	history := session.History()
+	if history[0].Role != llm.RoleUser || !strings.Contains(messageText(history[0]), "CONDENSED") {
+		t.Fatalf("first message should be the summary: %#v", history[0])
+	}
+}

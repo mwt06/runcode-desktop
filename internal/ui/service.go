@@ -5,8 +5,16 @@ import "context"
 type Service interface {
 	RunTurn(ctx context.Context, userText string) (TurnResult, error)
 	Reset(ctx context.Context) error
+	Compact(ctx context.Context) (CompactResult, error)
 	Close(ctx context.Context) error
 	Status() Status
+}
+
+// CompactResult reports the in-memory message counts before and after an
+// explicit context compaction.
+type CompactResult struct {
+	Before int
+	After  int
 }
 
 type TurnResult struct {

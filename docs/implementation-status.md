@@ -69,7 +69,7 @@ cmd/runcode chat
 
 - `chat --loop` 只是逐行循环；完整交互体验由 `runcode tui` MVP 起步但仍不完整。
 - TUI 仍缺少 readline 级历史导航、多行输入、补全、可配置快捷键。
-- 没有完整 slash command 系统，例如 `/compact`、`/model`。
+- slash 命令已有可扩展基座（含 `/compact`），但缺 `/model`、`/cost` 等。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
 - 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;尚无 transcript 浏览/检索界面。
@@ -523,7 +523,7 @@ cmd/runcode chat
 目前已有 shell-friendly `chat`、stdout assistant streaming 和最小 TUI MVP，但还不是产品级终端体验。缺少：
 
 - readline 级历史导航、编辑和补全。
-- 完整 slash command 系统，例如 `/compact`、`/model`、`/cost`。
+- 更多 slash 命令（`/model`、`/cost`；`/compact` 已实现）。
 - 更丰富的 tool output display。
 - TUI permission modal 和更丰富 approval 选项。
 
@@ -577,4 +577,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 4. ✅ 会话恢复(`--resume`/`--continue`)+ 增量上下文压缩(摘要逐字保留,不重复重总结)。
 5. ✅ OpenAI 兼容 provider(`--provider openai`,直连 Chat Completions HTTP/SSE,支持各类兼容端点)。
 
-后续可选大方向:settings-backed 权限策略持久化(allow project / denylist)、slash 命令系统(`/model`、`/compact`、`/cost`)、MCP/hooks/skills/sub-agents。
+后续可选大方向:更多 slash 命令(`/model`、`/cost`)、MCP/hooks/skills/sub-agents。

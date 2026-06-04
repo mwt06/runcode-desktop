@@ -90,7 +90,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗与 rich tool output（输出摘要 + Edit/Write 行级 diff），但还没有 diff viewer、文件树、transcript 浏览器或多行输入。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/exit`），但 `/compact`、`/model`、`/cost` 等功能命令尚未实现；没有 MCP、hooks、sub-agents 或 skills。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/compact`、`/exit`）；`/model`、`/cost` 尚未实现；没有 MCP、hooks、sub-agents 或 skills。
 
 ## 已实现工具
 

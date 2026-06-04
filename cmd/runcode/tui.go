@@ -139,6 +139,14 @@ func (s *tuiSessionService) Reset(context.Context) error {
 	return nil
 }
 
+func (s *tuiSessionService) Compact(ctx context.Context) (ui.CompactResult, error) {
+	before, after, err := s.session.Compact(ctx)
+	if err != nil {
+		return ui.CompactResult{}, err
+	}
+	return ui.CompactResult{Before: before, After: after}, nil
+}
+
 func (s *tuiSessionService) Close(ctx context.Context) error {
 	if s.closed {
 		return nil

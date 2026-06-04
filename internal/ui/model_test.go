@@ -11,9 +11,11 @@ import (
 )
 
 type fakeService struct {
-	status     Status
-	resetCount int
-	closeCount int
+	status        Status
+	resetCount    int
+	closeCount    int
+	compactResult CompactResult
+	compactErr    error
 }
 
 func (s *fakeService) RunTurn(context.Context, string) (TurnResult, error) {
@@ -28,6 +30,10 @@ func (s *fakeService) Reset(context.Context) error {
 func (s *fakeService) Close(context.Context) error {
 	s.closeCount++
 	return nil
+}
+
+func (s *fakeService) Compact(context.Context) (CompactResult, error) {
+	return s.compactResult, s.compactErr
 }
 
 func (s *fakeService) Status() Status {

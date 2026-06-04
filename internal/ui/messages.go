@@ -90,6 +90,14 @@ type resetErrorMsg struct {
 	Err error
 }
 
+type compactDoneMsg struct {
+	Result CompactResult
+}
+
+type compactErrorMsg struct {
+	Err error
+}
+
 type closedMsg struct{}
 
 type closeErrorMsg struct {
