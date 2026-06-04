@@ -48,6 +48,7 @@ ANTHROPIC_API_KEY=... \
 - `--api-key` / `ANTHROPIC_API_KEY`，或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`。
 - `--base-url` / `ANTHROPIC_BASE_URL`。
 - `--max-retries` / `RUNCODE_MAX_RETRIES`：provider 瞬时失败重试次数（0 = 默认，负数 = 禁用）。
+- `--input-price` / `--output-price`（`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`）：每百万 token 单价，用于 TUI `/cost` 估算。
 - `--cwd` / `RUNCODE_CWD`：工具工作目录。
 - `--loop`：在 stdin 多轮输入中复用同一个内存 session；可用 `/clear` 清空该内存 history。
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`：限制每轮发送给 provider 的内存 history 消息数（`0` 表示不限制，为默认值）。裁剪会完整保留当前 turn，绝不拆散 `tool_use`/`tool_result` 配对，也不影响 transcript 文件。
@@ -90,7 +91,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗与 rich tool output（输出摘要 + Edit/Write 行级 diff），但还没有 diff viewer、文件树、transcript 浏览器或多行输入。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/compact`、`/exit`）；`/model`、`/cost` 尚未实现；没有 MCP、hooks、sub-agents 或 skills。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/compact`、`/cost`、`/exit`）；`/model` 尚未实现；没有 MCP、hooks、sub-agents 或 skills。
 
 ## 已实现工具
 

@@ -33,18 +33,20 @@ const (
 // Config is the on-disk TOML schema. Empty string and nil pointer fields mean
 // "not set" and let lower-priority sources (env, defaults) take over.
 type Config struct {
-	Provider           string `toml:"provider"`
-	Model              string `toml:"model"`
-	BaseURL            string `toml:"base_url"`
-	MaxTokens          *int   `toml:"max_tokens"`
-	PermissionMode     string `toml:"permission_mode"`
-	Telemetry          string `toml:"telemetry"`
-	Transcript         string `toml:"transcript"`
-	MaxHistoryMessages *int   `toml:"max_history_messages"`
-	MaxContextTokens   *int   `toml:"max_context_tokens"`
-	MaxRetries         *int   `toml:"max_retries"`
-	APIKey             string `toml:"api_key"`
-	AuthToken          string `toml:"auth_token"`
+	Provider           string   `toml:"provider"`
+	Model              string   `toml:"model"`
+	BaseURL            string   `toml:"base_url"`
+	MaxTokens          *int     `toml:"max_tokens"`
+	PermissionMode     string   `toml:"permission_mode"`
+	Telemetry          string   `toml:"telemetry"`
+	Transcript         string   `toml:"transcript"`
+	MaxHistoryMessages *int     `toml:"max_history_messages"`
+	MaxContextTokens   *int     `toml:"max_context_tokens"`
+	MaxRetries         *int     `toml:"max_retries"`
+	InputPrice         *float64 `toml:"input_price"`
+	OutputPrice        *float64 `toml:"output_price"`
+	APIKey             string   `toml:"api_key"`
+	AuthToken          string   `toml:"auth_token"`
 }
 
 // LoadOptions controls config discovery.
@@ -197,6 +199,12 @@ func merge(base Config, override Config) Config {
 	}
 	if override.MaxRetries != nil {
 		out.MaxRetries = override.MaxRetries
+	}
+	if override.InputPrice != nil {
+		out.InputPrice = override.InputPrice
+	}
+	if override.OutputPrice != nil {
+		out.OutputPrice = override.OutputPrice
 	}
 	if override.APIKey != "" {
 		out.APIKey = override.APIKey

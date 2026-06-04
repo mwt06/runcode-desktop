@@ -46,4 +46,9 @@ type Status struct {
 	GitDiff          DiffStats
 	SupportsEdits    bool
 	ThinkingMode     string
+	// InputPricePerMTok and OutputPricePerMTok price tokens per million for the
+	// /cost estimate. Zero means unpriced (compatible endpoints have no standard
+	// pricing), and /cost then shows tokens only.
+	InputPricePerMTok  float64
+	OutputPricePerMTok float64
 }

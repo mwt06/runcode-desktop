@@ -52,6 +52,8 @@ type chatConfig struct {
 	Continue           bool
 	PersistSession     bool
 	MaxRetries         int
+	InputPrice         float64
+	OutputPrice        float64
 }
 
 type chatIO struct {
@@ -157,6 +159,8 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
 	cmd.Flags().Int("max-context-tokens", 0, "Context token budget that triggers compaction (0 = disabled)")
 	cmd.Flags().Int("max-retries", 0, "Provider transient-failure retries (0 = default, negative = disabled)")
+	cmd.Flags().Float64("input-price", 0, "Input token price per million tokens, for the /cost estimate")
+	cmd.Flags().Float64("output-price", 0, "Output token price per million tokens, for the /cost estimate")
 	cmd.Flags().String("resume", "", "Resume a saved session by id and continue it")
 	cmd.Flags().Bool("continue", false, "Resume the most recent saved session")
 	cmd.Flags().Bool("no-session", false, "Disable saving full session history for resume")
@@ -365,6 +369,14 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	inputPrice, err := floatFlagEnvFile(cmd, "input-price", "RUNCODE_INPUT_PRICE", file.InputPrice)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	outputPrice, err := floatFlagEnvFile(cmd, "output-price", "RUNCODE_OUTPUT_PRICE", file.OutputPrice)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 	resumeID, err := cmd.Flags().GetString("resume")
 	if err != nil {
 		return chatConfig{}, empty, err
@@ -396,6 +408,8 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		Continue:           continueSession,
 		PersistSession:     !noSession,
 		MaxRetries:         maxRetries,
+		InputPrice:         inputPrice,
+		OutputPrice:        outputPrice,
 	}, resolved, nil
 }
 
@@ -445,6 +459,24 @@ func intFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *int)
 	}
 	if value := os.Getenv(env); value != "" {
 		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", env, err)
+		}
+		return parsed, nil
+	}
+	if fileValue != nil {
+		return *fileValue, nil
+	}
+	return 0, nil
+}
+
+// floatFlagEnvFile resolves a float64 with precedence flag > env > config file > default(0).
+func floatFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *float64) (float64, error) {
+	if cmd.Flags().Changed(name) {
+		return cmd.Flags().GetFloat64(name)
+	}
+	if value := os.Getenv(env); value != "" {
+		parsed, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return 0, fmt.Errorf("parse %s: %w", env, err)
 		}

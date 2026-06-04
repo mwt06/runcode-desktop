@@ -148,6 +148,16 @@ func defaultSlashRegistry() *slashRegistry {
 	})
 
 	r.register(&slashCommand{
+		name:    "cost",
+		summary: "show token usage and estimated cost",
+		run: func(m Model, _ []string) (Model, tea.Cmd) {
+			m.appendMessage(RoleSystem, costText(m.totalInputTokens, m.totalOutputTokens, m.status.InputPricePerMTok, m.status.OutputPricePerMTok))
+			m.refreshViewport()
+			return m, nil
+		},
+	})
+
+	r.register(&slashCommand{
 		name:    "exit",
 		aliases: []string{"quit"},
 		summary: "quit",
@@ -162,6 +172,23 @@ func defaultSlashRegistry() *slashRegistry {
 	})
 
 	return r
+}
+
+// costText renders cumulative token usage and, when prices are configured, an
+// estimated cost. Prices are per million tokens.
+func costText(inputTokens int, outputTokens int, inputPrice float64, outputPrice float64) string {
+	var b strings.Builder
+	b.WriteString("Session usage\n")
+	fmt.Fprintf(&b, "  input tokens:  %d\n", inputTokens)
+	fmt.Fprintf(&b, "  output tokens: %d\n", outputTokens)
+	fmt.Fprintf(&b, "  total tokens:  %d", inputTokens+outputTokens)
+	if inputPrice > 0 || outputPrice > 0 {
+		cost := float64(inputTokens)/1e6*inputPrice + float64(outputTokens)/1e6*outputPrice
+		fmt.Fprintf(&b, "\n  estimated cost: $%.4f (in $%.2f/Mtok, out $%.2f/Mtok)", cost, inputPrice, outputPrice)
+	} else {
+		b.WriteString("\n  (set input_price / output_price per million tokens to estimate cost)")
+	}
+	return b.String()
 }
 
 func statusText(status Status, state string, turnCount int, messageCount int, inputTokens int, outputTokens int, reasoningScenario string, reasoningConfidence string) string {

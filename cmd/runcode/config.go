@@ -30,6 +30,8 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  max_history_messages: %d\n", cfg.MaxHistoryMessages)
 			fmt.Fprintf(out, "  max_context_tokens:   %d\n", cfg.MaxContextTokens)
 			fmt.Fprintf(out, "  max_retries:          %d\n", cfg.MaxRetries)
+			fmt.Fprintf(out, "  input_price:          %g\n", cfg.InputPrice)
+			fmt.Fprintf(out, "  output_price:         %g\n", cfg.OutputPrice)
 			fmt.Fprintf(out, "  cwd:                  %s\n", cfg.CWD)
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)

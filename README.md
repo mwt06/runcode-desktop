@@ -48,6 +48,7 @@ Useful flags and environment variables:
 - `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
 - `--base-url` / `ANTHROPIC_BASE_URL`.
 - `--max-retries` / `RUNCODE_MAX_RETRIES`: provider transient-failure retries (0 = default, negative = disabled).
+- `--input-price` / `--output-price` (`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`): token prices per million, for the TUI `/cost` estimate.
 - `--cwd` / `RUNCODE_CWD`: workspace for tools.
 - `--loop`: keep one in-memory session alive across stdin prompts; use `/clear` to reset that in-memory history.
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`: bound how many in-memory history messages are sent to the provider each turn (`0` = unlimited, the default). Trimming keeps the current turn intact, never splits `tool_use`/`tool_result` pairs, and does not touch transcript files.
@@ -90,7 +91,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal and rich tool output (output excerpts plus Edit/Write line diffs), but no file tree, transcript browser, or multi-line input yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/compact`, `/exit`); `/model` and `/cost` are not implemented yet; no MCP, hooks, sub-agents, or skills.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/compact`, `/cost`, `/exit`); `/model` is not implemented yet; no MCP, hooks, sub-agents, or skills.
 
 ## Implemented tools
 

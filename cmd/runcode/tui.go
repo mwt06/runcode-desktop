@@ -157,11 +157,13 @@ func (s *tuiSessionService) Close(ctx context.Context) error {
 
 func (s *tuiSessionService) Status() ui.Status {
 	return ui.Status{
-		Model:          s.cfg.Model,
-		CWD:            s.cfg.CWD,
-		PermissionMode: s.cfg.PermissionMode,
-		Transcript:     s.cfg.Transcript,
-		SessionID:      s.resources.SessionID,
+		Model:              s.cfg.Model,
+		CWD:                s.cfg.CWD,
+		PermissionMode:     s.cfg.PermissionMode,
+		Transcript:         s.cfg.Transcript,
+		SessionID:          s.resources.SessionID,
+		InputPricePerMTok:  s.cfg.InputPrice,
+		OutputPricePerMTok: s.cfg.OutputPrice,
 	}
 }
 

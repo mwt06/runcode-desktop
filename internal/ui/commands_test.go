@@ -160,3 +160,31 @@ func TestCompactCommandNothingToCompact(t *testing.T) {
 		t.Fatalf("expected nothing-to-compact message, got %q", last.Text)
 	}
 }
+
+func TestCostText(t *testing.T) {
+	t.Parallel()
+	unpriced := costText(1000, 500, 0, 0)
+	if !strings.Contains(unpriced, "total tokens:  1500") || !strings.Contains(unpriced, "set input_price") {
+		t.Fatalf("unpriced cost text = %q", unpriced)
+	}
+	// 1M in * $3/Mtok + 1M out * $15/Mtok = $18.
+	priced := costText(1_000_000, 1_000_000, 3, 15)
+	if !strings.Contains(priced, "$18.0000") {
+		t.Fatalf("priced cost text = %q", priced)
+	}
+}
+
+func TestCostCommandShowsUsage(t *testing.T) {
+	t.Parallel()
+	model := New(&fakeService{status: Status{InputPricePerMTok: 3, OutputPricePerMTok: 15}})
+	model.totalInputTokens = 1000
+	model.totalOutputTokens = 500
+	model.input.SetValue("/cost")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	last := model.messages[len(model.messages)-1]
+	if !strings.Contains(last.Text, "1500") || !strings.Contains(last.Text, "estimated cost") {
+		t.Fatalf("cost message = %q", last.Text)
+	}
+}
