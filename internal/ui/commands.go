@@ -222,7 +222,7 @@ func defaultSlashRegistry() *slashRegistry {
 		name:    "cost",
 		summary: "show token usage and estimated cost",
 		run: func(m Model, _ []string) (Model, tea.Cmd) {
-			m.appendMessage(RoleSystem, costText(m.totalInputTokens, m.totalOutputTokens, m.status.InputPricePerMTok, m.status.OutputPricePerMTok))
+			m.appendMessage(RoleSystem, costText(m.totalInputTokens, m.totalOutputTokens, m.status.InputPricePerMTok, m.status.OutputPricePerMTok, m.status.PricingSource, m.status.Model))
 			m.refreshViewport()
 			return m, nil
 		},
@@ -246,8 +246,10 @@ func defaultSlashRegistry() *slashRegistry {
 }
 
 // costText renders cumulative token usage and, when prices are configured, an
-// estimated cost. Prices are per million tokens.
-func costText(inputTokens int, outputTokens int, inputPrice float64, outputPrice float64) string {
+// estimated cost. Prices are per million tokens. pricingSource notes where the
+// prices came from ("builtin"/"explicit"/"") so a built-in default is not
+// mistaken for an exact, user-set rate.
+func costText(inputTokens int, outputTokens int, inputPrice float64, outputPrice float64, pricingSource string, model string) string {
 	var b strings.Builder
 	b.WriteString("Session usage\n")
 	fmt.Fprintf(&b, "  input tokens:  %d\n", inputTokens)
@@ -256,6 +258,9 @@ func costText(inputTokens int, outputTokens int, inputPrice float64, outputPrice
 	if inputPrice > 0 || outputPrice > 0 {
 		cost := float64(inputTokens)/1e6*inputPrice + float64(outputTokens)/1e6*outputPrice
 		fmt.Fprintf(&b, "\n  estimated cost: $%.4f (in $%.2f/Mtok, out $%.2f/Mtok)", cost, inputPrice, outputPrice)
+		if pricingSource == "builtin" {
+			fmt.Fprintf(&b, "\n  (approximate built-in pricing for %s; set input_price / output_price to override)", model)
+		}
 	} else {
 		b.WriteString("\n  (set input_price / output_price per million tokens to estimate cost)")
 	}

@@ -48,7 +48,7 @@ ANTHROPIC_API_KEY=... \
 - `--api-key` / `ANTHROPIC_API_KEY`，或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`。
 - `--base-url` / `ANTHROPIC_BASE_URL`。
 - `--max-retries` / `RUNCODE_MAX_RETRIES`：provider 瞬时失败重试次数（0 = 默认，负数 = 禁用）。
-- `--input-price` / `--output-price`（`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`）：每百万 token 单价，用于 TUI `/cost` 估算。
+- `--input-price` / `--output-price`（`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`）：每百万 token 单价，用于 TUI `/cost` 估算。未设置时按 model 名从内置定价表查找（Claude 4.x 家族与常见 OpenAI 模型）；显式单价始终优先，未知 model（如自托管端点）保持不计价。内置单价为近似值——需精确账单请显式设置。
 - `--cwd` / `RUNCODE_CWD`：工具工作目录。
 - `--loop`：在 stdin 多轮输入中复用同一个内存 session；可用 `/clear` 清空该内存 history。
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`：限制每轮发送给 provider 的内存 history 消息数（`0` 表示不限制，为默认值）。裁剪会完整保留当前 turn，绝不拆散 `tool_use`/`tool_result` 配对，也不影响 transcript 文件。
@@ -212,7 +212,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：`internal/hooks`、SQLite transcript persistence、`internal/cost`、`pkg/agent`、`pkg/skill`、`pkg/command`、`pkg/plugin`、`prompts/*`。
+仍是脚手架或未实现：`internal/hooks`、SQLite transcript persistence、`pkg/agent`、`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
 
 ## 贡献
 

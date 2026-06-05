@@ -164,14 +164,19 @@ func TestCompactCommandNothingToCompact(t *testing.T) {
 
 func TestCostText(t *testing.T) {
 	t.Parallel()
-	unpriced := costText(1000, 500, 0, 0)
+	unpriced := costText(1000, 500, 0, 0, "", "")
 	if !strings.Contains(unpriced, "total tokens:  1500") || !strings.Contains(unpriced, "set input_price") {
 		t.Fatalf("unpriced cost text = %q", unpriced)
 	}
 	// 1M in * $3/Mtok + 1M out * $15/Mtok = $18.
-	priced := costText(1_000_000, 1_000_000, 3, 15)
+	priced := costText(1_000_000, 1_000_000, 3, 15, "explicit", "claude-sonnet-4-6")
 	if !strings.Contains(priced, "$18.0000") {
 		t.Fatalf("priced cost text = %q", priced)
+	}
+	// Built-in pricing carries an "approximate" note naming the model.
+	builtin := costText(1_000_000, 0, 15, 75, "builtin", "claude-opus-4-8")
+	if !strings.Contains(builtin, "approximate built-in pricing for claude-opus-4-8") {
+		t.Fatalf("built-in cost text missing source note = %q", builtin)
 	}
 }
 

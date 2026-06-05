@@ -181,6 +181,7 @@ func (s *tuiSessionService) Status() ui.Status {
 		SessionID:          s.resources.SessionID,
 		InputPricePerMTok:  s.cfg.InputPrice,
 		OutputPricePerMTok: s.cfg.OutputPrice,
+		PricingSource:      s.cfg.PriceSource,
 	}
 }
 

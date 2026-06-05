@@ -32,7 +32,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  max_history_messages: %d\n", cfg.MaxHistoryMessages)
 			fmt.Fprintf(out, "  max_context_tokens:   %d\n", cfg.MaxContextTokens)
 			fmt.Fprintf(out, "  max_retries:          %d\n", cfg.MaxRetries)
-			fmt.Fprintf(out, "  input_price:          %g\n", cfg.InputPrice)
+			fmt.Fprintf(out, "  input_price:          %g%s\n", cfg.InputPrice, priceSourceNote(cfg))
 			fmt.Fprintf(out, "  output_price:         %g\n", cfg.OutputPrice)
 			fmt.Fprintf(out, "  cwd:                  %s\n", cfg.CWD)
 			fmt.Fprintf(out, "  mcp_servers:          %s\n", mcpServerSummary(cfg.MCPServers))
@@ -60,6 +60,19 @@ func mcpServerSummary(servers []mcp.ServerConfig) string {
 		parts[i] = fmt.Sprintf("%s (%s)", s.Name, s.Transport)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// priceSourceNote annotates the effective pricing with where it came from, so a
+// built-in default is not mistaken for a user-configured price.
+func priceSourceNote(cfg chatConfig) string {
+	switch cfg.PriceSource {
+	case "builtin":
+		return "  (built-in pricing for " + cfg.Model + ")"
+	case "explicit":
+		return "  (explicit)"
+	default:
+		return "  (unset — no built-in price for this model)"
+	}
 }
 
 // skillSummary lists the loaded skill names (tagging project-sourced ones)

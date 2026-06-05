@@ -48,7 +48,7 @@ Useful flags and environment variables:
 - `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
 - `--base-url` / `ANTHROPIC_BASE_URL`.
 - `--max-retries` / `RUNCODE_MAX_RETRIES`: provider transient-failure retries (0 = default, negative = disabled).
-- `--input-price` / `--output-price` (`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`): token prices per million, for the TUI `/cost` estimate.
+- `--input-price` / `--output-price` (`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`): token prices per million, for the TUI `/cost` estimate. When unset, the price is looked up from a built-in table by model name (Claude 4.x family and common OpenAI models); an explicit price always wins, and an unknown model (e.g. a self-hosted endpoint) stays unpriced. Built-in prices are approximate — set explicit prices for billing-grade accuracy.
 - `--cwd` / `RUNCODE_CWD`: workspace for tools.
 - `--loop`: keep one in-memory session alive across stdin prompts; use `/clear` to reset that in-memory history.
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`: bound how many in-memory history messages are sent to the provider each turn (`0` = unlimited, the default). Trimming keeps the current turn intact, never splits `tool_use`/`tool_result` pairs, and does not touch transcript files.
@@ -212,7 +212,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: `internal/hooks`, SQLite transcript persistence, `internal/cost`, `pkg/agent`, `pkg/skill`, `pkg/command`, `pkg/plugin`, and `prompts/*`.
+Scaffolded but not implemented yet: `internal/hooks`, SQLite transcript persistence, `pkg/agent`, `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
 
 ## Contributing
 

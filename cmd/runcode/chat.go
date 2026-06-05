@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/cost"
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
@@ -56,7 +57,11 @@ type chatConfig struct {
 	MaxRetries         int
 	InputPrice         float64
 	OutputPrice        float64
-	MCPServers         []mcp.ServerConfig
+	// PriceSource records where the effective prices came from: "explicit" (set
+	// via flag/env/config), "builtin" (the model matched the built-in pricing
+	// table), or "" (unpriced).
+	PriceSource string
+	MCPServers  []mcp.ServerConfig
 }
 
 type chatIO struct {
@@ -382,6 +387,22 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	// Resolve the effective pricing: an explicit price (flag/env/config) wins; if
+	// neither price is set, fall back to the built-in table by model name; an
+	// unknown model stays unpriced.
+	priceSource := ""
+	priceExplicit := floatSet(cmd, "input-price", "RUNCODE_INPUT_PRICE", file.InputPrice) ||
+		floatSet(cmd, "output-price", "RUNCODE_OUTPUT_PRICE", file.OutputPrice)
+	switch {
+	case priceExplicit:
+		priceSource = "explicit"
+	default:
+		if price, ok := cost.Lookup(model); ok {
+			inputPrice = price.InputPerMTok
+			outputPrice = price.OutputPerMTok
+			priceSource = "builtin"
+		}
+	}
 	resumeID, err := cmd.Flags().GetString("resume")
 	if err != nil {
 		return chatConfig{}, empty, err
@@ -419,6 +440,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		MaxRetries:         maxRetries,
 		InputPrice:         inputPrice,
 		OutputPrice:        outputPrice,
+		PriceSource:        priceSource,
 		MCPServers:         mcpServers,
 	}, resolved, nil
 }
@@ -481,6 +503,13 @@ func intFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *int)
 }
 
 // floatFlagEnvFile resolves a float64 with precedence flag > env > config file > default(0).
+// floatSet reports whether a float value was provided by any layer (flag, env,
+// or config file), distinguishing an explicit 0 from an unset value — which the
+// resolved float alone cannot.
+func floatSet(cmd *cobra.Command, name string, env string, fileValue *float64) bool {
+	return cmd.Flags().Changed(name) || os.Getenv(env) != "" || fileValue != nil
+}
+
 func floatFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *float64) (float64, error) {
 	if cmd.Flags().Changed(name) {
 		return cmd.Flags().GetFloat64(name)

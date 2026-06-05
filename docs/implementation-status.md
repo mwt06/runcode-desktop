@@ -472,7 +472,6 @@ cmd/runcode chat
 - `internal/persistence/migrate`
 - `internal/coordinator`
 - `internal/session`
-- `internal/cost`
 - `internal/hooks`
 - `pkg/agent`
 - `pkg/command`
@@ -487,7 +486,7 @@ cmd/runcode chat
 - 完整 TUI 产品能力：diff viewer、transcript browser、文件树、语法高亮(permission modal、rich tool output、多行输入和 `/model` 运行时切换已实现)。
 - SQLite transcript backend。
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
-- 更细的 cost tracking（按模型定价表自动估算）。当前已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）；`internal/cost` 包仍是空壳。
+- cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
 - hooks。
 - MCP prompts / sampling / roots（tools 与 resources 原语已实现：stdio + Streamable HTTP，作为 external 操作需审批；server 仅用户级配置；resources 经 `ListMcpResources`/`ReadMcpResource` 两工具按需访问，仅在 server 声明 resources 能力时出现）。
 - sub-agents。

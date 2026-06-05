@@ -53,4 +53,8 @@ type Status struct {
 	// pricing), and /cost then shows tokens only.
 	InputPricePerMTok  float64
 	OutputPricePerMTok float64
+	// PricingSource notes where the prices came from for the /cost display:
+	// "builtin" (the built-in table matched the model), "explicit" (user-set), or
+	// "" (unpriced).
+	PricingSource string
 }
