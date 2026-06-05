@@ -50,10 +50,11 @@ type ServerInfo struct {
 
 // Client is a connected MCP client for a single server.
 type Client struct {
-	conn           *conn
-	serverInfo     ServerInfo
-	serverProtocol string
-	instructions   string
+	conn              *conn
+	serverInfo        ServerInfo
+	serverProtocol    string
+	instructions      string
+	supportsResources bool
 }
 
 // newClient wraps a transport in a JSON-RPC connection. The caller must call
@@ -73,9 +74,22 @@ type initializeParams struct {
 type clientCapabilities struct{}
 
 type initializeResult struct {
-	ProtocolVersion string     `json:"protocolVersion"`
-	ServerInfo      ServerInfo `json:"serverInfo"`
-	Instructions    string     `json:"instructions,omitempty"`
+	ProtocolVersion string             `json:"protocolVersion"`
+	ServerInfo      ServerInfo         `json:"serverInfo"`
+	Instructions    string             `json:"instructions,omitempty"`
+	Capabilities    serverCapabilities `json:"capabilities"`
+}
+
+// serverCapabilities captures the subset of advertised capabilities runcode
+// acts on. A present (even empty) resources object means the server supports the
+// resources primitive.
+type serverCapabilities struct {
+	Resources *resourceCapability `json:"resources"`
+}
+
+type resourceCapability struct {
+	Subscribe   bool `json:"subscribe"`
+	ListChanged bool `json:"listChanged"`
 }
 
 // Initialize performs the MCP handshake: an initialize request followed by the
@@ -95,6 +109,7 @@ func (c *Client) Initialize(ctx context.Context) error {
 	c.serverInfo = result.ServerInfo
 	c.serverProtocol = result.ProtocolVersion
 	c.instructions = result.Instructions
+	c.supportsResources = result.Capabilities.Resources != nil
 	if err := c.conn.notify(ctx, "notifications/initialized", struct{}{}); err != nil {
 		return fmt.Errorf("mcp: send initialized: %w", err)
 	}
@@ -150,6 +165,81 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMe
 	}
 	return result, nil
 }
+
+// ResourceDescriptor is a resource advertised by an MCP server.
+type ResourceDescriptor struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+type listResourcesParams struct {
+	Cursor string `json:"cursor,omitempty"`
+}
+
+type listResourcesResult struct {
+	Resources  []ResourceDescriptor `json:"resources"`
+	NextCursor string               `json:"nextCursor,omitempty"`
+}
+
+// ListResources returns every resource the server offers, following pagination
+// cursors. It is bounded by the same page cap as tool listing.
+func (c *Client) ListResources(ctx context.Context) ([]ResourceDescriptor, error) {
+	var all []ResourceDescriptor
+	cursor := ""
+	for page := 0; page < maxToolListPages; page++ {
+		raw, err := c.conn.call(ctx, "resources/list", listResourcesParams{Cursor: cursor})
+		if err != nil {
+			return nil, fmt.Errorf("mcp: resources/list: %w", err)
+		}
+		var result listResourcesResult
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return nil, fmt.Errorf("mcp: decode resources/list: %w", err)
+		}
+		all = append(all, result.Resources...)
+		if result.NextCursor == "" {
+			return all, nil
+		}
+		cursor = result.NextCursor
+	}
+	return all, fmt.Errorf("mcp: resources/list exceeded %d pages", maxToolListPages)
+}
+
+// ResourceContents is one content item of a resources/read result. Text carries
+// inline text; Blob carries base64-encoded binary data.
+type ResourceContents struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
+}
+
+// ReadResourceResult is the result of a resources/read.
+type ReadResourceResult struct {
+	Contents []ResourceContents `json:"contents"`
+}
+
+type readResourceParams struct {
+	URI string `json:"uri"`
+}
+
+// ReadResource fetches a resource's contents by URI.
+func (c *Client) ReadResource(ctx context.Context, uri string) (ReadResourceResult, error) {
+	raw, err := c.conn.call(ctx, "resources/read", readResourceParams{URI: uri})
+	if err != nil {
+		return ReadResourceResult{}, fmt.Errorf("mcp: resources/read %q: %w", uri, err)
+	}
+	var result ReadResourceResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return ReadResourceResult{}, fmt.Errorf("mcp: decode resources/read %q: %w", uri, err)
+	}
+	return result, nil
+}
+
+// SupportsResources reports whether the server advertised the resources
+// capability during initialize.
+func (c *Client) SupportsResources() bool { return c.supportsResources }
 
 // ServerInfo returns the connected server's identity (valid after Initialize).
 func (c *Client) ServerInfo() ServerInfo {

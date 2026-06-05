@@ -49,6 +49,8 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return resolveMCP(req), nil
 	}
 	switch req.ToolName {
+	case mcpListResourcesTool, mcpReadResourceTool:
+		return resolveMCPResource(req), nil
 	case "Read":
 		return resolveRead(req)
 	case "Glob", "Grep":
@@ -243,6 +245,41 @@ func resolveMCP(req ResolveRequest) Action {
 		action.Metadata = map[string]any{
 			MetadataMCPServer: server,
 			MetadataMCPTool:   tool,
+		}
+	}
+	return action
+}
+
+type mcpResourceInput struct {
+	Server string `json:"server"`
+	URI    string `json:"uri"`
+}
+
+// resolveMCPResource classifies a built-in MCP resource tool (ListMcpResources /
+// ReadMcpResource) as an external operation requiring approval, mirroring server
+// tool calls. The server and a target (the resource uri, or a list sentinel) are
+// carried as metadata for approval display and per-server/per-resource grants.
+func resolveMCPResource(req ResolveRequest) Action {
+	action := Action{
+		ToolName:  req.ToolName,
+		Operation: OperationExternal,
+		Risk:      RiskHigh,
+		Resources: []Resource{{Type: ResourceExternal, Scope: ResourceScopeOutside}},
+	}
+	var input mcpResourceInput
+	_ = json.Unmarshal(req.Input, &input)
+	server := strings.TrimSpace(input.Server)
+	target := strings.TrimSpace(input.URI)
+	if req.ToolName == mcpListResourcesTool {
+		// Listing has no uri; key per server so a session grant remembers "list
+		// this server". Listing across all servers (no server given) carries no
+		// key and is approved each time.
+		target = "resources/list"
+	}
+	if server != "" && target != "" {
+		action.Metadata = map[string]any{
+			MetadataMCPServer: server,
+			MetadataMCPTool:   target,
 		}
 	}
 	return action

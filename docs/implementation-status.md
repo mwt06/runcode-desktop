@@ -172,7 +172,7 @@ cmd/runcode chat
 
 最小化缺口：
 
-- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP）；skills 以渐进式披露接入（catalog 进 prompt + `Skill` 工具按需加载正文，约定目录发现）；plugin 与 workspace 配置动态工具尚未实现。
+- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP），server 支持 resources 时再加 `ListMcpResources`/`ReadMcpResource` 两工具；skills 以渐进式披露接入（catalog 进 prompt + `Skill` 工具按需加载正文，约定目录发现）；plugin 与 workspace 配置动态工具尚未实现。
 - executor 会通过 tool event channel 发送 started/completed/failed 生命周期事件，并为 ReadSet diff 附带安全文件摘要；Glob/Grep 会发送匹配文件摘要事件，但内置工具暂未普遍发送更细粒度 output。
 - prompt 中只列工具 name 和 description，没有丰富 usage notes。
 - 工具不会根据权限模式动态隐藏；safe 模式下 Write/Edit/Bash 仍会暴露给模型，但 prompt 会提示限制，运行时仍会被权限层拒绝。
@@ -489,7 +489,7 @@ cmd/runcode chat
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - 更细的 cost tracking（按模型定价表自动估算）。当前已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）；`internal/cost` 包仍是空壳。
 - hooks。
-- MCP resources / prompts / sampling（tools 原语已实现：stdio + Streamable HTTP，作为 external 操作需审批；server 仅用户级配置）。
+- MCP prompts / sampling / roots（tools 与 resources 原语已实现：stdio + Streamable HTTP，作为 external 操作需审批；server 仅用户级配置；resources 经 `ListMcpResources`/`ReadMcpResource` 两工具按需访问，仅在 server 声明 resources 能力时出现）。
 - sub-agents。
 - slash commands。
 - plugins。
@@ -583,4 +583,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 6. ✅ skills(约定目录发现 + 渐进式披露:catalog 进 prompt + `Skill` 工具按需加载正文,项目级生效并标注来源)。
 
-后续可选大方向:hooks/sub-agents、WebSearch、MCP 的 resources/prompts/sampling、可执行 skill。
+后续可选大方向:hooks/sub-agents、WebSearch、MCP 的 prompts/sampling/roots、可执行 skill。

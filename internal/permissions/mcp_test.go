@@ -2,6 +2,7 @@ package permissions
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -22,6 +23,51 @@ func TestResolveMCPToolIsExternal(t *testing.T) {
 	}
 	if got := metadataString(action.Metadata, MetadataMCPTool); got != "read_file" {
 		t.Fatalf("tool = %q, want read_file", got)
+	}
+}
+
+func TestResolveMCPResourceToolsAreExternal(t *testing.T) {
+	t.Parallel()
+	// ReadMcpResource carries server + uri so a grant is per resource.
+	read, err := DefaultResolver{}.Resolve(context.Background(), ResolveRequest{
+		ToolName: mcpReadResourceTool,
+		Input:    json.RawMessage(`{"server":"docs","uri":"file:///readme"}`),
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if read.Operation != OperationExternal || read.Risk != RiskHigh {
+		t.Fatalf("read action = %#v, want external/high", read)
+	}
+	if got := metadataString(read.Metadata, MetadataMCPServer); got != "docs" {
+		t.Fatalf("server = %q, want docs", got)
+	}
+	if got := metadataString(read.Metadata, MetadataMCPTool); got != "file:///readme" {
+		t.Fatalf("target = %q, want the uri", got)
+	}
+	if DefaultSessionKey(read) != ExternalSessionKey("docs", "file:///readme") {
+		t.Fatalf("read session key mismatch")
+	}
+
+	// ListMcpResources keys per server via a list sentinel.
+	list, _ := DefaultResolver{}.Resolve(context.Background(), ResolveRequest{
+		ToolName: mcpListResourcesTool,
+		Input:    json.RawMessage(`{"server":"docs"}`),
+	})
+	if list.Operation != OperationExternal {
+		t.Fatalf("list operation = %q, want external", list.Operation)
+	}
+	if got := metadataString(list.Metadata, MetadataMCPTool); got != "resources/list" {
+		t.Fatalf("list target = %q, want resources/list sentinel", got)
+	}
+
+	// Listing across all servers (no server) carries no grant key.
+	listAll, _ := DefaultResolver{}.Resolve(context.Background(), ResolveRequest{
+		ToolName: mcpListResourcesTool,
+		Input:    json.RawMessage(`{}`),
+	})
+	if DefaultSessionKey(listAll) != "" {
+		t.Fatalf("listing all servers must not be remembered, got key %q", DefaultSessionKey(listAll))
 	}
 }
 

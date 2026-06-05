@@ -15,6 +15,14 @@ const (
 // foundational permission model stays decoupled from the MCP implementation.
 const mcpToolNamePrefix = "mcp__"
 
+// mcpListResourcesTool and mcpReadResourceTool mirror the built-in resource tool
+// names from internal/mcp. Like server tools, they contact an external MCP
+// server, so they are classified as external operations requiring approval.
+const (
+	mcpListResourcesTool = "ListMcpResources"
+	mcpReadResourceTool  = "ReadMcpResource"
+)
+
 // parseMCPToolName splits a namespaced MCP tool name into its server and
 // server-side tool, splitting on the first "__" after the prefix.
 func parseMCPToolName(full string) (server, tool string, ok bool) {

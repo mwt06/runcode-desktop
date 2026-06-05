@@ -37,11 +37,21 @@ func respondStdioHelper(line string) {
 	var result any
 	switch msg.Method {
 	case "initialize":
-		result = initializeResult{ProtocolVersion: protocolVersion, ServerInfo: ServerInfo{Name: "stdio-fake", Version: "0.1"}}
+		init := initializeResult{ProtocolVersion: protocolVersion, ServerInfo: ServerInfo{Name: "stdio-fake", Version: "0.1"}}
+		// Advertise resources only when asked, so tests that do not expect resource
+		// tools (the default) keep a stable tool set.
+		if os.Getenv("MCP_STDIO_RESOURCES") == "1" {
+			init.Capabilities = serverCapabilities{Resources: &resourceCapability{}}
+		}
+		result = init
 	case "tools/list":
 		result = listToolsResult{Tools: []ToolDescriptor{{Name: "ping", Description: "ping"}}}
 	case "tools/call":
 		result = ToolResult{Content: []Content{{Type: "text", Text: "pong"}}}
+	case "resources/list":
+		result = listResourcesResult{Resources: []ResourceDescriptor{{URI: "file:///hello", Name: "hello", Description: "greeting"}}}
+	case "resources/read":
+		result = ReadResourceResult{Contents: []ResourceContents{{URI: "file:///hello", MimeType: "text/plain", Text: "hi there"}}}
 	default:
 		result = struct{}{}
 	}

@@ -56,9 +56,10 @@ type Manager struct {
 }
 
 type serverConn struct {
-	name   string
-	client *Client
-	tools  []tool.Tool
+	name              string
+	client            *Client
+	tools             []tool.Tool
+	supportsResources bool
 }
 
 // dialFunc connects one server. It is a seam so tests can inject fake servers.
@@ -90,6 +91,11 @@ func openWith(ctx context.Context, configs []ServerConfig, dial dialFunc) (*Mana
 			seen[t.Name()] = struct{}{}
 			m.tools = append(m.tools, t)
 		}
+	}
+	// Expose the built-in resource tools once, when at least one connected server
+	// supports the resources primitive.
+	if rs := newResourceServers(m.conns); !rs.empty() {
+		m.tools = append(m.tools, rs.tools()...)
 	}
 	return m, errs
 }
@@ -137,7 +143,12 @@ func dialServer(ctx context.Context, cfg ServerConfig) (*serverConn, error) {
 		_ = client.Close()
 		return nil, err
 	}
-	return &serverConn{name: cfg.Name, client: client, tools: buildTools(cfg.Name, client, descriptors)}, nil
+	return &serverConn{
+		name:              cfg.Name,
+		client:            client,
+		tools:             buildTools(cfg.Name, client, descriptors),
+		supportsResources: client.SupportsResources(),
+	}, nil
 }
 
 func newTransport(cfg ServerConfig) (messageStream, error) {

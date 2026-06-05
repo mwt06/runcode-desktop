@@ -104,6 +104,44 @@ func TestOpenRealStdioServer(t *testing.T) {
 	}
 }
 
+// TestOpenRealStdioServerResources exercises the production dial path against a
+// resource-capable subprocess: the manager should add the built-in resource
+// tools, and reading a resource through ReadMcpResource should round-trip.
+func TestOpenRealStdioServerResources(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("executable: %v", err)
+	}
+	mgr, errs := Open(context.Background(), []ServerConfig{{
+		Name:      "docs",
+		Transport: TransportStdio,
+		Command:   exe,
+		Args:      []string{"-test.run=TestStdioHelperProcess"},
+		Env:       []string{"MCP_STDIO_HELPER=1", "MCP_STDIO_RESOURCES=1"},
+	}})
+	defer mgr.Close(context.Background())
+	if len(errs) != 0 {
+		t.Fatalf("startup errors = %v, want none", errs)
+	}
+
+	var read tool.Tool
+	for _, tl := range mgr.Tools() {
+		if tl.Name() == ReadResourceToolName {
+			read = tl
+		}
+	}
+	if read == nil {
+		t.Fatalf("resource tools not added: %v", toolNames(mgr.Tools()))
+	}
+	result, err := read.Run(context.Background(), json.RawMessage(`{"server":"docs","uri":"file:///hello"}`), nil, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(result.Content) != 1 || result.Content[0].Text != "hi there" {
+		t.Fatalf("result = %#v, want the resource body", result)
+	}
+}
+
 func TestManagerNilSafe(t *testing.T) {
 	t.Parallel()
 	var m *Manager

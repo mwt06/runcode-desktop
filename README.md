@@ -87,6 +87,8 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 
 A server's tools appear to the model as `mcp__<server>__<tool>`. They are classified as an **external** permission operation: every call requires approval (so safe mode denies them), and "allow for session/project" remembers a grant per server+tool. A server that fails to connect is reported as a warning and skipped — it never aborts the session. Server names must use letters, digits, `-`, or `_` and contain no `__`.
 
+If a connected server advertises the **resources** capability, two built-in tools are exposed: `ListMcpResources` (list each server's resources — uri, name, description — optionally filtered to one server) and `ReadMcpResource` (read a resource's contents by server + uri). Inline text passes through; binary contents are noted as a placeholder. Like server tool calls, both are external operations requiring approval; a read grant is remembered per server+uri. The resource tools appear only when at least one server supports resources. MCP prompts, sampling, roots, resource templates, and subscriptions are not implemented yet.
+
 ### Skills
 
 A **skill** is a reusable workflow: a directory holding a `SKILL.md` whose frontmatter declares a `name` and `description` and whose body is detailed instructions. Skills are discovered from two convention directories — `<userConfigDir>/runcode/skills/` (user-level) and `<workspace>/.runcode/skills/` (project-level) — with a user skill shadowing a project skill of the same name. No configuration is needed; just drop a directory in.
@@ -132,7 +134,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)); no hooks or sub-agents, and no MCP resources/prompts/sampling yet.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources (`ListMcpResources`/`ReadMcpResource`); no hooks or sub-agents, and no MCP prompts/sampling/roots yet.
 
 ## Implemented tools
 
