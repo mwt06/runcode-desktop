@@ -38,10 +38,13 @@ func respondStdioHelper(line string) {
 	switch msg.Method {
 	case "initialize":
 		init := initializeResult{ProtocolVersion: protocolVersion, ServerInfo: ServerInfo{Name: "stdio-fake", Version: "0.1"}}
-		// Advertise resources only when asked, so tests that do not expect resource
-		// tools (the default) keep a stable tool set.
+		// Advertise resources/prompts only when asked, so tests that do not expect
+		// those tools (the default) keep a stable tool set.
 		if os.Getenv("MCP_STDIO_RESOURCES") == "1" {
-			init.Capabilities = serverCapabilities{Resources: &resourceCapability{}}
+			init.Capabilities.Resources = &resourceCapability{}
+		}
+		if os.Getenv("MCP_STDIO_PROMPTS") == "1" {
+			init.Capabilities.Prompts = &promptCapability{}
 		}
 		result = init
 	case "tools/list":
@@ -52,6 +55,10 @@ func respondStdioHelper(line string) {
 		result = listResourcesResult{Resources: []ResourceDescriptor{{URI: "file:///hello", Name: "hello", Description: "greeting"}}}
 	case "resources/read":
 		result = ReadResourceResult{Contents: []ResourceContents{{URI: "file:///hello", MimeType: "text/plain", Text: "hi there"}}}
+	case "prompts/list":
+		result = listPromptsResult{Prompts: []PromptDescriptor{{Name: "greet", Description: "greeting"}}}
+	case "prompts/get":
+		result = GetPromptResult{Messages: []PromptMessage{{Role: "user", Content: Content{Type: "text", Text: "say hello"}}}}
 	default:
 		result = struct{}{}
 	}

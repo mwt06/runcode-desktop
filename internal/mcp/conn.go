@@ -5,7 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"time"
 )
+
+// serverRequestTimeout bounds how long a response to a server-initiated request
+// may take to write before it is abandoned, so a stuck transport cannot leak a
+// goroutine forever.
+const serverRequestTimeout = 10 * time.Second
+
+// requestHandler answers a server-initiated request (e.g. roots/list, ping). A
+// nil handler, or one that returns a nil result and nil error, falls back to a
+// method-not-found error.
+type requestHandler func(method string, params json.RawMessage) (result any, rpcErr *rpcError)
 
 // ErrConnClosed is returned by a call whose connection closed before a response
 // arrived.
@@ -14,7 +25,8 @@ var ErrConnClosed = errors.New("mcp: connection closed")
 // conn is a JSON-RPC 2.0 client connection over a messageStream. It correlates
 // responses to outstanding requests by id and is safe for concurrent calls.
 type conn struct {
-	stream messageStream
+	stream  messageStream
+	handler requestHandler
 
 	mu      sync.Mutex
 	nextID  int64
@@ -30,9 +42,10 @@ type rpcResult struct {
 	err    *rpcError
 }
 
-func newConn(stream messageStream) *conn {
+func newConn(stream messageStream, handler requestHandler) *conn {
 	c := &conn{
 		stream:  stream,
+		handler: handler,
 		pending: make(map[int64]chan rpcResult),
 		closed:  make(chan struct{}),
 	}
@@ -54,11 +67,17 @@ func (c *conn) dispatch(frame []byte) {
 	if err := json.Unmarshal(frame, &msg); err != nil {
 		return // ignore malformed frames rather than tearing down the connection
 	}
+	// A method-bearing frame is server-initiated: a request when it has an id, a
+	// notification when it does not. Routing on the method first keeps a server's
+	// request id space from colliding with our own outstanding-call ids.
+	if msg.Method != "" {
+		if msg.ID != nil {
+			go c.handleServerRequest(msg)
+		}
+		return // server notifications are not consumed in this increment
+	}
 	id, ok := messageID(msg.ID)
 	if !ok {
-		// A notification (no id) or a server→client request (id + method). We do
-		// not implement server-initiated requests for the tools-only client, so
-		// both are ignored.
 		return
 	}
 	c.mu.Lock()
@@ -68,6 +87,41 @@ func (c *conn) dispatch(frame []byte) {
 	if ch != nil {
 		ch <- rpcResult{result: msg.Result, err: msg.Error}
 	}
+}
+
+// handleServerRequest answers a server-initiated request via the registered
+// handler and writes the response, echoing the request id. It runs in its own
+// goroutine so a slow handler or write never stalls the read loop.
+func (c *conn) handleServerRequest(msg rpcMessage) {
+	var (
+		result any
+		rpcErr *rpcError
+	)
+	if c.handler != nil {
+		result, rpcErr = c.handler(msg.Method, msg.Params)
+	}
+	if result == nil && rpcErr == nil {
+		rpcErr = &rpcError{Code: -32601, Message: "method not supported: " + msg.Method}
+	}
+
+	resp := rpcMessage{JSONRPC: jsonRPCVersion, ID: msg.ID}
+	if rpcErr != nil {
+		resp.Error = rpcErr
+	} else {
+		raw, err := json.Marshal(result)
+		if err != nil {
+			resp.Error = &rpcError{Code: -32603, Message: "encode response"}
+		} else {
+			resp.Result = raw
+		}
+	}
+	frame, err := json.Marshal(resp)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), serverRequestTimeout)
+	defer cancel()
+	_ = c.stream.Write(ctx, frame)
 }
 
 // call sends a request and waits for its response, honoring ctx cancellation and

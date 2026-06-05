@@ -87,7 +87,9 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 
 服务器的工具以 `mcp__<server>__<tool>` 暴露给模型。它们被归类为 **external** 权限操作：每次调用都需审批（safe 模式拒绝），「本会话/项目允许」按 server+tool 记忆。连接失败的服务器会作为 warning 报告并跳过，绝不中断会话。服务器名只能用字母、数字、`-`、`_`，且不含 `__`。
 
-若连接的服务器声明了 **resources** 能力,会额外暴露两个内置工具:`ListMcpResources`(列出各 server 的资源——uri、name、description,可按 server 过滤)与 `ReadMcpResource`(按 server + uri 读取资源内容)。文本直通,二进制内容以占位提示。与 server 工具调用一样,两者都是 external 操作需审批;读取按 server+uri 记忆 grant。资源工具仅在至少一个 server 支持 resources 时出现。MCP prompts、sampling、roots、资源模板与订阅暂未实现。
+若连接的服务器声明了 **resources** 能力,会额外暴露两个内置工具:`ListMcpResources`(列出各 server 的资源——uri、name、description,可按 server 过滤)与 `ReadMcpResource`(按 server + uri 读取资源内容)。文本直通,二进制内容以占位提示。同理,声明 **prompts** 的 server 会获得 `ListMcpPrompts` 与 `GetMcpPrompt`(按 server + name 渲染提示模板,参数为字符串映射)。与 server 工具调用一样,这四个都是 external 操作需审批;读取/获取按 server + uri/name 记忆 grant。这些工具仅在对应能力被 server 声明时出现。
+
+runcode 还提供 **roots**:向 server 声明工作区,并以工作区的 `file://` 根回应 `roots/list`(也回应 `ping`),让文件系统类 server 能得知 runcode 操作的目录。MCP sampling、资源模板与订阅暂未实现。
 
 ### Skills（技能）
 
@@ -134,7 +136,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources（`ListMcpResources`/`ReadMcpResource`）；尚无 hooks、sub-agents,也暂无 MCP prompts/sampling/roots。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）及 roots；尚无 hooks、sub-agents,也暂无 MCP sampling。
 
 ## 已实现工具
 

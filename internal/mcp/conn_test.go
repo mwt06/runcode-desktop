@@ -11,7 +11,7 @@ import (
 func TestConnNotify(t *testing.T) {
 	t.Parallel()
 	s := newChanStream()
-	c := newConn(s)
+	c := newConn(s, nil)
 	defer c.close()
 
 	if err := c.notify(context.Background(), "notifications/initialized", nil); err != nil {
@@ -33,7 +33,7 @@ func TestConnNotify(t *testing.T) {
 
 func TestConnNotifyAfterShutdownFails(t *testing.T) {
 	t.Parallel()
-	c := newConn(newChanStream())
+	c := newConn(newChanStream(), nil)
 	c.shutdown(errors.New("gone"))
 
 	if err := c.notify(context.Background(), "x", nil); err == nil || err.Error() != "gone" {
@@ -47,7 +47,7 @@ func TestConnNotifyAfterShutdownFails(t *testing.T) {
 func TestConnDispatchIgnoresNoise(t *testing.T) {
 	t.Parallel()
 	s := newChanStream()
-	c := newConn(s)
+	c := newConn(s, nil)
 
 	// Malformed frames, server notifications (no id), and responses to unknown ids
 	// must all be ignored without tearing down the connection.

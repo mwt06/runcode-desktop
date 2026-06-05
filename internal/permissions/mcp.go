@@ -15,12 +15,14 @@ const (
 // foundational permission model stays decoupled from the MCP implementation.
 const mcpToolNamePrefix = "mcp__"
 
-// mcpListResourcesTool and mcpReadResourceTool mirror the built-in resource tool
-// names from internal/mcp. Like server tools, they contact an external MCP
-// server, so they are classified as external operations requiring approval.
+// These mirror the built-in resource and prompt tool names from internal/mcp.
+// Like server tools, they contact an external MCP server, so they are classified
+// as external operations requiring approval.
 const (
 	mcpListResourcesTool = "ListMcpResources"
 	mcpReadResourceTool  = "ReadMcpResource"
+	mcpListPromptsTool   = "ListMcpPrompts"
+	mcpGetPromptTool     = "GetMcpPrompt"
 )
 
 // parseMCPToolName splits a namespaced MCP tool name into its server and

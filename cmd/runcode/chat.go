@@ -749,7 +749,8 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	}
 	// Connect configured MCP servers and merge their tools with the builtins.
 	// Startup is tolerant: a server that fails to connect is reported and skipped.
-	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers)
+	// The workspace is advertised to servers as a root via roots/list.
+	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers, mcp.Options{Roots: workspaceRoots(cfg.CWD)})
 	reportMCPStartupErrors(opts.Runtime, mcpErrs)
 	resources.MCP = mcpManager
 	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)

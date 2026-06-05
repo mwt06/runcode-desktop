@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/wt68/runcode/pkg/tool"
@@ -85,7 +86,7 @@ func TestOpenRealStdioServer(t *testing.T) {
 		Command:   exe,
 		Args:      []string{"-test.run=TestStdioHelperProcess"},
 		Env:       []string{"MCP_STDIO_HELPER=1"},
-	}})
+	}}, Options{})
 	defer mgr.Close(context.Background())
 
 	if len(errs) != 0 {
@@ -118,7 +119,7 @@ func TestOpenRealStdioServerResources(t *testing.T) {
 		Command:   exe,
 		Args:      []string{"-test.run=TestStdioHelperProcess"},
 		Env:       []string{"MCP_STDIO_HELPER=1", "MCP_STDIO_RESOURCES=1"},
-	}})
+	}}, Options{})
 	defer mgr.Close(context.Background())
 	if len(errs) != 0 {
 		t.Fatalf("startup errors = %v, want none", errs)
@@ -139,6 +140,44 @@ func TestOpenRealStdioServerResources(t *testing.T) {
 	}
 	if len(result.Content) != 1 || result.Content[0].Text != "hi there" {
 		t.Fatalf("result = %#v, want the resource body", result)
+	}
+}
+
+// TestOpenRealStdioServerPrompts exercises the production dial path against a
+// prompt-capable subprocess (also advertising roots from the manager Options):
+// the prompt tools should be added and GetMcpPrompt should round-trip.
+func TestOpenRealStdioServerPrompts(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("executable: %v", err)
+	}
+	mgr, errs := Open(context.Background(), []ServerConfig{{
+		Name:      "code",
+		Transport: TransportStdio,
+		Command:   exe,
+		Args:      []string{"-test.run=TestStdioHelperProcess"},
+		Env:       []string{"MCP_STDIO_HELPER=1", "MCP_STDIO_PROMPTS=1"},
+	}}, Options{Roots: []Root{{URI: "file:///work", Name: "workspace"}}})
+	defer mgr.Close(context.Background())
+	if len(errs) != 0 {
+		t.Fatalf("startup errors = %v, want none", errs)
+	}
+
+	var get tool.Tool
+	for _, tl := range mgr.Tools() {
+		if tl.Name() == GetPromptToolName {
+			get = tl
+		}
+	}
+	if get == nil {
+		t.Fatalf("prompt tools not added: %v", toolNames(mgr.Tools()))
+	}
+	result, err := get.Run(context.Background(), json.RawMessage(`{"server":"code","name":"greet"}`), nil, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "say hello") {
+		t.Fatalf("result = %#v, want the rendered prompt", result)
 	}
 }
 

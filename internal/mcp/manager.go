@@ -60,6 +60,14 @@ type serverConn struct {
 	client            *Client
 	tools             []tool.Tool
 	supportsResources bool
+	supportsPrompts   bool
+}
+
+// Options configures a Manager beyond the per-server list.
+type Options struct {
+	// Roots are the filesystem boundaries runcode exposes to every server via
+	// roots/list, so a server can learn the workspace it operates in.
+	Roots []Root
 }
 
 // dialFunc connects one server. It is a seam so tests can inject fake servers.
@@ -69,8 +77,11 @@ type dialFunc func(ctx context.Context, cfg ServerConfig) (*serverConn, error)
 // Manager exposing the aggregated tools plus a list of per-server startup errors
 // (the caller decides how to surface them). The Manager must be Closed to stop
 // the subprocesses/connections.
-func Open(ctx context.Context, configs []ServerConfig) (*Manager, []StartupError) {
-	return openWith(ctx, configs, dialServer)
+func Open(ctx context.Context, configs []ServerConfig, opts Options) (*Manager, []StartupError) {
+	dial := func(ctx context.Context, cfg ServerConfig) (*serverConn, error) {
+		return dialServer(ctx, cfg, opts.Roots)
+	}
+	return openWith(ctx, configs, dial)
 }
 
 func openWith(ctx context.Context, configs []ServerConfig, dial dialFunc) (*Manager, []StartupError) {
@@ -92,10 +103,13 @@ func openWith(ctx context.Context, configs []ServerConfig, dial dialFunc) (*Mana
 			m.tools = append(m.tools, t)
 		}
 	}
-	// Expose the built-in resource tools once, when at least one connected server
-	// supports the resources primitive.
+	// Expose the built-in resource and prompt tools once, when at least one
+	// connected server supports the corresponding primitive.
 	if rs := newResourceServers(m.conns); !rs.empty() {
 		m.tools = append(m.tools, rs.tools()...)
+	}
+	if ps := newPromptServers(m.conns); !ps.empty() {
+		m.tools = append(m.tools, ps.tools()...)
 	}
 	return m, errs
 }
@@ -124,13 +138,13 @@ func (m *Manager) Close(context.Context) error {
 }
 
 // dialServer is the production dialer: it builds the transport, performs the
-// handshake, lists tools, and adapts them.
-func dialServer(ctx context.Context, cfg ServerConfig) (*serverConn, error) {
+// handshake, lists tools, and adapts them. roots are advertised to the server.
+func dialServer(ctx context.Context, cfg ServerConfig, roots []Root) (*serverConn, error) {
 	stream, err := newTransport(cfg)
 	if err != nil {
 		return nil, err
 	}
-	client := newClient(stream)
+	client := newClientWithRoots(stream, roots)
 	dialCtx, cancel := context.WithTimeout(ctx, defaultDialTimeout)
 	defer cancel()
 
@@ -148,6 +162,7 @@ func dialServer(ctx context.Context, cfg ServerConfig) (*serverConn, error) {
 		client:            client,
 		tools:             buildTools(cfg.Name, client, descriptors),
 		supportsResources: client.SupportsResources(),
+		supportsPrompts:   client.SupportsPrompts(),
 	}, nil
 }
 

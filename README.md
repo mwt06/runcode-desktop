@@ -87,7 +87,9 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 
 A server's tools appear to the model as `mcp__<server>__<tool>`. They are classified as an **external** permission operation: every call requires approval (so safe mode denies them), and "allow for session/project" remembers a grant per server+tool. A server that fails to connect is reported as a warning and skipped — it never aborts the session. Server names must use letters, digits, `-`, or `_` and contain no `__`.
 
-If a connected server advertises the **resources** capability, two built-in tools are exposed: `ListMcpResources` (list each server's resources — uri, name, description — optionally filtered to one server) and `ReadMcpResource` (read a resource's contents by server + uri). Inline text passes through; binary contents are noted as a placeholder. Like server tool calls, both are external operations requiring approval; a read grant is remembered per server+uri. The resource tools appear only when at least one server supports resources. MCP prompts, sampling, roots, resource templates, and subscriptions are not implemented yet.
+If a connected server advertises the **resources** capability, two built-in tools are exposed: `ListMcpResources` (list each server's resources — uri, name, description — optionally filtered to one server) and `ReadMcpResource` (read a resource's contents by server + uri). Inline text passes through; binary contents are noted as a placeholder. Likewise, a server advertising **prompts** gets `ListMcpPrompts` and `GetMcpPrompt` (render a prompt template by server + name with a string-argument map). Like server tool calls, all four are external operations requiring approval; a read/get grant is remembered per server + uri/name. These tools appear only when a connected server supports the matching capability.
+
+runcode also exposes **roots**: it advertises the workspace to servers and answers `roots/list` with the workspace as a `file://` root (and answers `ping`), so a server such as a filesystem server can learn the directory runcode operates in. MCP sampling, resource templates, and subscriptions are not implemented yet.
 
 ### Skills
 
@@ -134,7 +136,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources (`ListMcpResources`/`ReadMcpResource`); no hooks or sub-agents, and no MCP prompts/sampling/roots yet.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`) plus roots; no hooks or sub-agents, and no MCP sampling yet.
 
 ## Implemented tools
 

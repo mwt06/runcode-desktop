@@ -71,6 +71,36 @@ func TestResolveMCPResourceToolsAreExternal(t *testing.T) {
 	}
 }
 
+func TestResolveMCPPromptToolsAreExternal(t *testing.T) {
+	t.Parallel()
+	// GetMcpPrompt carries server + prompt name so a grant is per prompt.
+	get, err := DefaultResolver{}.Resolve(context.Background(), ResolveRequest{
+		ToolName: mcpGetPromptTool,
+		Input:    json.RawMessage(`{"server":"code","name":"review"}`),
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if get.Operation != OperationExternal || get.Risk != RiskHigh {
+		t.Fatalf("get action = %#v, want external/high", get)
+	}
+	if metadataString(get.Metadata, MetadataMCPServer) != "code" || metadataString(get.Metadata, MetadataMCPTool) != "review" {
+		t.Fatalf("get metadata = %#v, want server=code tool=review", get.Metadata)
+	}
+	if DefaultSessionKey(get) != ExternalSessionKey("code", "review") {
+		t.Fatalf("get session key mismatch")
+	}
+
+	// ListMcpPrompts keys per server via a list sentinel.
+	list, _ := DefaultResolver{}.Resolve(context.Background(), ResolveRequest{
+		ToolName: mcpListPromptsTool,
+		Input:    json.RawMessage(`{"server":"code"}`),
+	})
+	if metadataString(list.Metadata, MetadataMCPTool) != "prompts/list" {
+		t.Fatalf("list target = %q, want prompts/list sentinel", metadataString(list.Metadata, MetadataMCPTool))
+	}
+}
+
 func TestPolicyExternalRequiresApproval(t *testing.T) {
 	t.Parallel()
 	action := Action{ToolName: "mcp__x__y", Operation: OperationExternal, Risk: RiskHigh}
