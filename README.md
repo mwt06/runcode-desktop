@@ -13,7 +13,7 @@
 
 `runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
 
-The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; many planned systems — MCP, hooks, sub-agents, skills, SQLite transcripts, context compaction, richer TUI permissions/tool UI, and multi-provider support — are still scaffolds or deferred work.
+The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; many planned systems — hooks, sub-agents, SQLite transcripts, richer TUI permissions/tool UI, and broader multi-provider support — are still scaffolds or deferred work.
 
 ## Quick start
 
@@ -87,6 +87,26 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 
 A server's tools appear to the model as `mcp__<server>__<tool>`. They are classified as an **external** permission operation: every call requires approval (so safe mode denies them), and "allow for session/project" remembers a grant per server+tool. A server that fails to connect is reported as a warning and skipped — it never aborts the session. Server names must use letters, digits, `-`, or `_` and contain no `__`.
 
+### Skills
+
+A **skill** is a reusable workflow: a directory holding a `SKILL.md` whose frontmatter declares a `name` and `description` and whose body is detailed instructions. Skills are discovered from two convention directories — `<userConfigDir>/runcode/skills/` (user-level) and `<workspace>/.runcode/skills/` (project-level) — with a user skill shadowing a project skill of the same name. No configuration is needed; just drop a directory in.
+
+```text
+~/.config/runcode/skills/code-review/SKILL.md   # or %AppData%\runcode\skills\... on Windows
+```
+
+```markdown
+---
+name: code-review
+description: Review the current diff for correctness and clarity
+---
+
+1. Read the diff with `git diff`.
+2. Check each change for ...
+```
+
+To keep context cheap, only a compact **catalog** (each skill's name and description, with a `[project]` tag for workspace skills) is injected into the system prompt. The model loads a skill's full instructions on demand by calling the built-in **`Skill`** tool with its name — so unused skills cost no context. The `Skill` tool only returns in-memory text (it launches nothing and touches no files), so it runs without approval. A malformed or oversized skill is skipped with a warning rather than breaking the session. Project skills are honored so teams can share workflows in-repo, but their text enters the prompt, so they are attributed as `[project]`. `runcode config` lists the loaded skill names (project ones tagged) without printing any body.
+
 Run `runcode config` to print the effective configuration and which files were loaded (credential values are never printed).
 
 ```toml
@@ -112,7 +132,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)); no hooks, sub-agents, or skills, and no MCP resources/prompts/sampling yet.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)); no hooks or sub-agents, and no MCP resources/prompts/sampling yet.
 
 ## Implemented tools
 
@@ -129,7 +149,7 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
 | `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); a network operation that requires approval (shown per host). |
 
-MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)). WebSearch and plugin tools are not implemented yet.
+MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), and the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)). WebSearch and plugin tools are not implemented yet.
 
 ## Permissions and safety
 

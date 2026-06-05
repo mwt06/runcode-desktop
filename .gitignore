@@ -27,8 +27,11 @@ vendor/
 *.local
 /runcode.toml
 
-# Session history, transcripts, and other runtime data
-/.runcode/
+# Session history, transcripts, permissions, and other runtime data. The
+# skills/ subdirectory is the exception: project skills are meant to be shared
+# in-repo, so they are tracked while everything else under .runcode stays local.
+/.runcode/*
+!/.runcode/skills/
 
 # Runtime data
 *.db

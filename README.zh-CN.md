@@ -13,7 +13,7 @@
 
 `runcode` 是一个面向终端的 Go 版 AI 编程伴侣。当前版本刻意保持小范围：通过 `runcode chat` 调用 Anthropic provider，暴露一组受限本地工具，并在文件修改和命令执行前经过内部权限层。
 
-长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；MCP、hooks、sub-agents、skills、SQLite transcript、上下文压缩、更完整的 TUI 权限/工具界面、多 provider 等系统目前仍是脚手架或后续工作。
+长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；hooks、sub-agents、SQLite transcript、更完整的 TUI 权限/工具界面、更广的多 provider 等系统目前仍是脚手架或后续工作。
 
 ## 快速开始
 
@@ -87,6 +87,26 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 
 服务器的工具以 `mcp__<server>__<tool>` 暴露给模型。它们被归类为 **external** 权限操作：每次调用都需审批（safe 模式拒绝），「本会话/项目允许」按 server+tool 记忆。连接失败的服务器会作为 warning 报告并跳过，绝不中断会话。服务器名只能用字母、数字、`-`、`_`，且不含 `__`。
 
+### Skills（技能）
+
+**skill** 是一个可复用工作流：一个目录,内含 `SKILL.md`,其 frontmatter 声明 `name` 与 `description`,正文是详细指令。skills 从两个约定目录发现——`<userConfigDir>/runcode/skills/`（用户级）与 `<workspace>/.runcode/skills/`（项目级）——同名时用户级 skill 覆盖项目级。无需任何配置,放一个目录进去即可。
+
+```text
+~/.config/runcode/skills/code-review/SKILL.md   # Windows 上为 %AppData%\runcode\skills\...
+```
+
+```markdown
+---
+name: code-review
+description: Review the current diff for correctness and clarity
+---
+
+1. 用 `git diff` 读取改动。
+2. 逐项检查 ...
+```
+
+为节省上下文,只把一段紧凑的 **catalog**（每个 skill 的名字与描述,项目级标注 `[project]`）注入 system prompt。模型在需要时调用内置 **`Skill`** 工具并传入名字来按需加载该 skill 的完整指令——未用到的 skill 不占上下文。`Skill` 工具只返回内存中的文本（不启动任何进程、不碰文件）,因此免审批运行。格式错误或超大的 skill 会被跳过并告警,而非中断会话。项目级 skill 生效(便于团队在仓库内共享工作流),但其文本会进入 prompt,故标注 `[project]`。`runcode config` 会列出已加载的 skill 名字（项目级带标注）,不打印任何正文。
+
 运行 `runcode config` 可查看生效配置和已加载的配置文件路径（凭证值绝不打印）。
 
 ```toml
@@ -112,7 +132,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）；尚无 hooks、sub-agents、skills,也暂无 MCP resources/prompts/sampling。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）；尚无 hooks、sub-agents,也暂无 MCP resources/prompts/sampling。
 
 ## 已实现工具
 
@@ -129,7 +149,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 | `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
 | `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；网络操作，需审批（按 host 显示）。 |
 
-配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）。WebSearch 和插件工具尚未实现。
+配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）。WebSearch 和插件工具尚未实现。
 
 ## 权限与安全
 

@@ -36,7 +36,7 @@ cmd/runcode chat
 - opt-in JSONL transcript store。
 - 最小 Bubble Tea TUI MVP：Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help` / `/clear` / `/status` / `/exit`。
 
-但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer、hooks、skills、sub-agents 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP tools 已实现。）
+但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer、hooks、sub-agents 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP tools、skills 已实现。）
 
 ## 当前已实现模块
 
@@ -172,7 +172,7 @@ cmd/runcode chat
 
 最小化缺口：
 
-- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP）；plugin 与 workspace 配置动态工具尚未实现。
+- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP）；skills 以渐进式披露接入（catalog 进 prompt + `Skill` 工具按需加载正文，约定目录发现）；plugin 与 workspace 配置动态工具尚未实现。
 - executor 会通过 tool event channel 发送 started/completed/failed 生命周期事件，并为 ReadSet diff 附带安全文件摘要；Glob/Grep 会发送匹配文件摘要事件，但内置工具暂未普遍发送更细粒度 output。
 - prompt 中只列工具 name 和 description，没有丰富 usage notes。
 - 工具不会根据权限模式动态隐藏；safe 模式下 Write/Edit/Bash 仍会暴露给模型，但 prompt 会提示限制，运行时仍会被权限层拒绝。
@@ -477,10 +477,9 @@ cmd/runcode chat
 - `pkg/agent`
 - `pkg/command`
 - `pkg/plugin`
-- `pkg/skill`
 - `prompts/templates`
 - `prompts/agents`
-- `prompts/skills`
+- `prompts/skills`（skills 已实现，但从约定目录发现，不内置示例 skill）
 - `examples/custom-tool`
 
 对应未实现能力：
@@ -494,7 +493,7 @@ cmd/runcode chat
 - sub-agents。
 - slash commands。
 - plugins。
-- skills。
+- 可执行 skill / 语义匹配 / 远程 skill 仓库（指令型 skills 已实现：约定目录发现 + 渐进式披露 + `Skill` 工具按需加载，作为 manage 操作免审批）。
 - custom tool example。
 
 ## 主要缺口按优先级
@@ -582,4 +581,6 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 4. ✅ 会话恢复(`--resume`/`--continue`)+ 增量上下文压缩(摘要逐字保留,不重复重总结)。
 5. ✅ OpenAI 兼容 provider(`--provider openai`,直连 Chat Completions HTTP/SSE,支持各类兼容端点)。
 
-后续可选大方向:hooks/skills/sub-agents、WebSearch、MCP 的 resources/prompts/sampling。
+6. ✅ skills(约定目录发现 + 渐进式披露:catalog 进 prompt + `Skill` 工具按需加载正文,项目级生效并标注来源)。
+
+后续可选大方向:hooks/sub-agents、WebSearch、MCP 的 resources/prompts/sampling、可执行 skill。

@@ -20,6 +20,22 @@ func TestTodoWriteAuthorizedWithoutApproval(t *testing.T) {
 	}
 }
 
+func TestSkillAuthorizedWithoutApproval(t *testing.T) {
+	t.Parallel()
+	// Loading a skill returns in-memory instruction text only, so it is allowed
+	// without approval even in safe mode.
+	action, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Skill",
+		Input:    json.RawMessage(`{"name":"deploy"}`),
+	})
+	if action.Operation != OperationManage {
+		t.Fatalf("operation = %q, want manage", action.Operation)
+	}
+	if decision.FinalEffect != EffectAllow || decision.Reason != ReasonAllowedManage {
+		t.Fatalf("decision = %#v, want allow/allowed_manage", decision)
+	}
+}
+
 func TestManageOperationAllowedBySafeMode(t *testing.T) {
 	t.Parallel()
 	// A manage operation must not require approval, so even safe (non-interactive)

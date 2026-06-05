@@ -24,6 +24,7 @@ import (
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/llm/providers/anthropic"
 	"github.com/wt68/runcode/pkg/llm/providers/openai"
+	"github.com/wt68/runcode/pkg/skill"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
 )
@@ -723,6 +724,13 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	reportMCPStartupErrors(opts.Runtime, mcpErrs)
 	resources.MCP = mcpManager
 	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)
+	// Discover skills from the convention directories; the catalog goes into the
+	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
+	skillSet, skillProblems := loadSkills(cfg.CWD, userConfigDir())
+	reportSkillProblems(opts.Runtime, skillProblems)
+	if skillSet.Len() > 0 {
+		sessionTools = append(sessionTools, skill.NewTool(skillSet))
+	}
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store)
@@ -750,6 +758,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 			CWD:            cfg.CWD,
 			Date:           time.Now().Format("2006-01-02"),
 			ShellInfo:      shellInfo(),
+			Skills:         skill.Catalog(skillSet),
 			ProjectCtx:     projectContext,
 			PermissionMode: cfg.PermissionMode,
 		},

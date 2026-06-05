@@ -12,6 +12,7 @@ type AssemblerOpts struct {
 	CWD               string
 	Date              string
 	Tools             []tool.Tool
+	Skills            string
 	ProjectCtx        string
 	Memory            string
 	ShellInfo         string
@@ -29,6 +30,7 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 		sections.Intro(),
 		sections.System(),
 		sections.UsingTools(opts.Tools),
+		opts.Skills,
 		sections.Actions(),
 		sections.ToneAndStyle(),
 	}

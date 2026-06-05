@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/mcp"
+	"github.com/wt68/runcode/pkg/skill"
 )
 
 func configCmd() *cobra.Command {
@@ -35,6 +36,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  output_price:         %g\n", cfg.OutputPrice)
 			fmt.Fprintf(out, "  cwd:                  %s\n", cfg.CWD)
 			fmt.Fprintf(out, "  mcp_servers:          %s\n", mcpServerSummary(cfg.MCPServers))
+			fmt.Fprintf(out, "  skills:               %s\n", skillSummary(cfg.CWD))
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Config files:")
@@ -56,6 +58,25 @@ func mcpServerSummary(servers []mcp.ServerConfig) string {
 	parts := make([]string, len(servers))
 	for i, s := range servers {
 		parts[i] = fmt.Sprintf("%s (%s)", s.Name, s.Transport)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// skillSummary lists the loaded skill names (tagging project-sourced ones)
+// without printing any skill body. Loading problems are ignored here; they are
+// surfaced as warnings when a session starts.
+func skillSummary(cwd string) string {
+	set, _ := loadSkills(cwd, userConfigDir())
+	if set.Len() == 0 {
+		return "<none>"
+	}
+	parts := make([]string, 0, set.Len())
+	for _, sk := range set.All() {
+		label := sk.Name
+		if sk.Source == skill.SourceProject {
+			label += " (project)"
+		}
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, ", ")
 }

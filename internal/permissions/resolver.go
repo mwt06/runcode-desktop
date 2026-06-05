@@ -61,6 +61,11 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return resolveBash(req)
 	case "TodoWrite":
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "Skill":
+		// Loading a skill only returns in-memory instruction text — no files,
+		// commands, or network — so it is side-effect-free management and allowed
+		// without approval.
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "WebFetch":
 		return resolveWebFetch(req)
 	default:

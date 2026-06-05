@@ -156,6 +156,43 @@ func TestBuildSystemPromptWithTools(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesSkillsAsStatic(t *testing.T) {
+	t.Parallel()
+
+	const catalog = "Skill: deploy\nDescription: ship the service"
+	blocks, err := BuildSystemPrompt(AssemblerOpts{Tools: tools.Builtins(), Skills: catalog})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+
+	staticText, dynamicText := splitBlockText(t, blocks)
+	if !strings.Contains(staticText, "Skill: deploy") {
+		t.Fatalf("static prompt missing skill catalog: %q", staticText)
+	}
+	if strings.Contains(dynamicText, "Skill: deploy") {
+		t.Fatalf("skill catalog should be static, found in dynamic: %q", dynamicText)
+	}
+	// The catalog sits after the tool section and before the actions section.
+	toolIdx := strings.Index(staticText, "Tool: Read")
+	skillIdx := strings.Index(staticText, "Skill: deploy")
+	if toolIdx < 0 || skillIdx < 0 || toolIdx > skillIdx {
+		t.Fatalf("skill catalog not placed after tools (tool=%d skill=%d)", toolIdx, skillIdx)
+	}
+}
+
+func TestBuildSystemPromptWithoutSkills(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{Tools: tools.Builtins()})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	staticText, _ := splitBlockText(t, blocks)
+	if strings.Contains(staticText, "Skill:") {
+		t.Fatalf("expected no skill catalog, got %q", staticText)
+	}
+}
+
 func TestBuildSystemPromptWithoutTools(t *testing.T) {
 	t.Parallel()
 
