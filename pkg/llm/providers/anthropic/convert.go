@@ -60,24 +60,57 @@ func convertSystem(blocks []llm.ContentBlock) ([]sdk.TextBlockParam, error) {
 	return converted, nil
 }
 
+// anthropicRole is the message role the Anthropic API sees. Both neutral user
+// and tool-result messages map to "user".
+type anthropicRole string
+
+const (
+	roleUser      anthropicRole = "user"
+	roleAssistant anthropicRole = "assistant"
+)
+
+type roleGroup struct {
+	role   anthropicRole
+	blocks []sdk.ContentBlockParamUnion
+}
+
+// convertMessages maps neutral messages to Anthropic message params, merging
+// consecutive messages that resolve to the same role into one. The Anthropic API
+// requires strictly alternating user/assistant turns, so a history that places
+// two same-role messages back to back (e.g. a compaction summary message
+// immediately before the first kept user turn) would otherwise be rejected.
 func convertMessages(messages []llm.Message) ([]sdk.MessageParam, error) {
-	converted := make([]sdk.MessageParam, 0, len(messages))
+	var groups []roleGroup
 	for _, message := range messages {
 		blocks, err := convertContentBlocks(message.Content)
 		if err != nil {
 			return nil, err
 		}
+		var role anthropicRole
 		switch message.Role {
-		case llm.RoleUser:
-			converted = append(converted, sdk.NewUserMessage(blocks...))
+		case llm.RoleUser, llm.RoleTool:
+			role = roleUser
 		case llm.RoleAssistant:
-			converted = append(converted, sdk.NewAssistantMessage(blocks...))
-		case llm.RoleTool:
-			converted = append(converted, sdk.NewUserMessage(blocks...))
+			role = roleAssistant
 		case llm.RoleSystem:
 			return nil, fmt.Errorf("%w: system role belongs in request system blocks", ErrUnsupportedContent)
 		default:
 			return nil, fmt.Errorf("%w: role %q", ErrUnsupportedContent, message.Role)
+		}
+		if n := len(groups); n > 0 && groups[n-1].role == role {
+			groups[n-1].blocks = append(groups[n-1].blocks, blocks...)
+			continue
+		}
+		groups = append(groups, roleGroup{role: role, blocks: blocks})
+	}
+
+	converted := make([]sdk.MessageParam, 0, len(groups))
+	for _, group := range groups {
+		switch group.role {
+		case roleUser:
+			converted = append(converted, sdk.NewUserMessage(group.blocks...))
+		case roleAssistant:
+			converted = append(converted, sdk.NewAssistantMessage(group.blocks...))
 		}
 	}
 	return converted, nil

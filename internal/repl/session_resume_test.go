@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -145,6 +146,54 @@ func TestCompactionTriggersAndSummarizes(t *testing.T) {
 	}
 	if messageText(history[1]) != "q2" {
 		t.Fatalf("retained tail should start at q2, got %q", messageText(history[1]))
+	}
+}
+
+func TestCompactionSummaryRequestIsToolFree(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProviderSequence(fakeProviderResponse{events: textEvents("SUMMARY")})
+	session := newTestSession(t, SessionOptions{Provider: provider})
+
+	// The aged-out turns include a tool call and result. The summary request must
+	// not carry tool_use/tool_result blocks (which require tools to be declared
+	// and make providers reject the request) — it must be one plain user message.
+	older := []llm.Message{
+		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "read main.go"}}},
+		{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeToolUse, ID: "t1", Name: "Read", Input: json.RawMessage(`{"path":"main.go"}`)}}},
+		{Role: llm.RoleTool, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeToolResult, ToolUseID: "t1", Text: "package main"}}},
+		{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "it is the entrypoint"}}},
+	}
+
+	summary, err := session.summarizeForCompaction("turn")(context.Background(), older)
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if summary != "SUMMARY" {
+		t.Fatalf("summary = %q, want SUMMARY", summary)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(provider.requests))
+	}
+	req := provider.requests[0]
+	if len(req.Tools) != 0 {
+		t.Fatalf("summary request must declare no tools, got %d", len(req.Tools))
+	}
+	if len(req.Messages) != 1 || req.Messages[0].Role != llm.RoleUser {
+		t.Fatalf("summary request should be a single user message, got %#v", req.Messages)
+	}
+	for _, m := range req.Messages {
+		for _, b := range m.Content {
+			if b.Type != llm.ContentBlockTypeText {
+				t.Fatalf("summary request carried a non-text block %q", b.Type)
+			}
+		}
+	}
+	text := req.Messages[0].Content[0].Text
+	for _, want := range []string{"read main.go", "Read", "it is the entrypoint", "package main"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered transcript missing %q:\n%s", want, text)
+		}
 	}
 }
 

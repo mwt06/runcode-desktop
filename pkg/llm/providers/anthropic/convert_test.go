@@ -40,6 +40,34 @@ func TestBuildMessageParamsTextRequest(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesMergesConsecutiveSameRole(t *testing.T) {
+	t.Parallel()
+
+	// A compaction summary (user) immediately before the first kept user turn
+	// would be two consecutive user messages, which the Anthropic API rejects.
+	// They must be merged into a single user message preserving both blocks.
+	out, err := convertMessages([]llm.Message{
+		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "summary"}}},
+		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "real question"}}},
+		{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "answer"}}},
+	})
+	if err != nil {
+		t.Fatalf("convertMessages: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("messages = %d, want 2 (merged user + assistant)", len(out))
+	}
+	if out[0].Role != sdk.MessageParamRoleUser || len(out[0].Content) != 2 {
+		t.Fatalf("first message = %#v, want a merged user message with two blocks", out[0])
+	}
+	if out[0].Content[0].OfText.Text != "summary" || out[0].Content[1].OfText.Text != "real question" {
+		t.Fatalf("merged blocks not preserved in order: %#v", out[0].Content)
+	}
+	if out[1].Role != sdk.MessageParamRoleAssistant {
+		t.Fatalf("second message role = %v, want assistant", out[1].Role)
+	}
+}
+
 func TestBuildMessageParamsUsesDefaultMaxTokens(t *testing.T) {
 	t.Parallel()
 

@@ -388,10 +388,17 @@ func (s *Session) Compact(ctx context.Context) (before int, after int, err error
 
 func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
 	return func(ctx context.Context, messages []llm.Message) (string, error) {
-		conversation := append(cloneMessages(messages), userMessage(compactionInstruction))
+		// Render the turns to a plain-text transcript and summarize that as a
+		// single user message. Sending the raw messages would carry tool_use /
+		// tool_result blocks, which require the tools to be declared on the request
+		// — many providers (Anthropic, several OpenAI-compatible endpoints) reject
+		// tool blocks with no tools defined, which would make compaction fail on
+		// every real (tool-using) session.
+		rendered := renderConversationForSummary(messages)
+		prompt := compactionInstruction + "\n\nConversation to summarize:\n\n" + rendered
 		req := llm.Request{
 			Model:     s.currentModel(),
-			Messages:  conversation,
+			Messages:  []llm.Message{userMessage(prompt)},
 			System:    []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: compactionSystemPrompt}},
 			MaxTokens: compactionSummaryMaxTokens,
 			Metadata:  s.metadata,
@@ -402,6 +409,71 @@ func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
 		}
 		return llm.TextContent(assistant), nil
 	}
+}
+
+// summaryToolResultCap bounds how much of a tool result is kept in the
+// summarization transcript: enough to convey what happened, not the verbatim
+// output (which the summary prompt asks to omit).
+const summaryToolResultCap = 300
+
+// renderConversationForSummary flattens messages into a plain-text transcript for
+// summarization, dropping tool_use/tool_result block structure so the summary
+// request carries no tool blocks. Tool calls are noted by name and tool results
+// are included as a bounded snippet.
+func renderConversationForSummary(messages []llm.Message) string {
+	var b strings.Builder
+	for _, m := range messages {
+		switch m.Role {
+		case llm.RoleUser:
+			fmt.Fprintf(&b, "User: %s\n", strings.TrimSpace(llm.TextContent(m)))
+		case llm.RoleAssistant:
+			line := "Assistant:"
+			if text := strings.TrimSpace(llm.TextContent(m)); text != "" {
+				line += " " + text
+			}
+			if calls := toolUseNames(m); len(calls) > 0 {
+				line += " [used tools: " + strings.Join(calls, ", ") + "]"
+			}
+			b.WriteString(line + "\n")
+		case llm.RoleTool:
+			if text := toolResultSnippet(m); text != "" {
+				fmt.Fprintf(&b, "Tool result: %s\n", text)
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func toolUseNames(m llm.Message) []string {
+	var names []string
+	for _, block := range m.Content {
+		if block.Type == llm.ContentBlockTypeToolUse && block.Name != "" {
+			names = append(names, block.Name)
+		}
+	}
+	return names
+}
+
+func toolResultSnippet(m llm.Message) string {
+	var parts []string
+	for _, block := range m.Content {
+		if block.Type != llm.ContentBlockTypeToolResult {
+			continue
+		}
+		if block.Text != "" {
+			parts = append(parts, block.Text)
+		}
+		for _, inner := range block.Content {
+			if inner.Type == llm.ContentBlockTypeText && inner.Text != "" {
+				parts = append(parts, inner.Text)
+			}
+		}
+	}
+	text := strings.TrimSpace(strings.Join(parts, " "))
+	if len(text) > summaryToolResultCap {
+		text = text[:summaryToolResultCap] + "…"
+	}
+	return text
 }
 
 func (s *Session) recordTranscriptTurn(ctx context.Context, turnID string, userText string, result TurnResult) error {
