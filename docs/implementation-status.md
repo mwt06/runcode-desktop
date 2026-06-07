@@ -36,7 +36,7 @@ cmd/runcode chat
 - opt-in JSONL transcript store。
 - 最小 Bubble Tea TUI MVP：Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help` / `/clear` / `/status` / `/exit`。
 
-但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer、sub-agents 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP 全原语、skills、hooks 已实现。）
+但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP 全原语、skills、hooks、sub-agents 已实现。）
 
 ## 当前已实现模块
 
@@ -172,7 +172,7 @@ cmd/runcode chat
 
 最小化缺口：
 
-- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP），server 支持 resources/prompts 时再加 `ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`,并向 server 反向暴露 roots；skills 以渐进式披露接入（catalog 进 prompt + `Skill` 工具按需加载正文，约定目录发现）；plugin 与 workspace 配置动态工具尚未实现。
+- 内置工具静态注册；MCP 服务器工具已可动态接入（`mcp__<server>__<tool>`，stdio + HTTP），server 支持 resources/prompts 时再加 `ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`,并向 server 反向暴露 roots；skills 以渐进式披露接入（catalog 进 prompt + `Skill` 工具按需加载正文，约定目录发现）；sub-agents 以 `Task` 工具委托接入（命名子代理跑受限子会话，约定目录发现，内置 general-purpose 兜底，不嵌套）；plugin 与 workspace 配置动态工具尚未实现。
 - executor 会通过 tool event channel 发送 started/completed/failed 生命周期事件，并为 ReadSet diff 附带安全文件摘要；Glob/Grep 会发送匹配文件摘要事件，但内置工具暂未普遍发送更细粒度 output。
 - prompt 中只列工具 name 和 description，没有丰富 usage notes。
 - 工具不会根据权限模式动态隐藏；safe 模式下 Write/Edit/Bash 仍会暴露给模型，但 prompt 会提示限制，运行时仍会被权限层拒绝。
@@ -381,7 +381,7 @@ cmd/runcode chat
 - `Memory` 仍只是调用方传入字符串。
 - 已有 TOML settings loader(`internal/persistence/settings`)供 CLI/TUI 配置;尚未用于 prompt memory 或 settings-backed policy guidance。
 - 没有 prompt templates / go:embed。
-- 没有 agent/skill prompt。
+- skills catalog 已注入 system prompt（`Skill` 工具按需披露正文）；sub-agent 通过 `Task` 工具委托时，子会话以 agent persona 作为系统提示，并清空父会话的 agent catalog（不向下传递委托能力）。
 - 只注入固定 permission mode guidance，还没有更丰富的审批摘要或 settings-backed policy guidance。
 - 如果未来工具集动态变化，cache boundary 需要重审。
 - 没有 token budget / compaction。
@@ -472,7 +472,6 @@ cmd/runcode chat
 - `internal/persistence/migrate`
 - `internal/coordinator`
 - `internal/session`
-- `pkg/agent`
 - `pkg/command`
 - `pkg/plugin`
 - `prompts/templates`
@@ -488,7 +487,7 @@ cmd/runcode chat
 - cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
 - hooks 已实现:PreToolUse/PostToolUse/UserPromptSubmit 三事件,argv 直接执行(无 shell)、JSON payload 经 stdin、退出码语义(非零=拦截/反馈,infra 失败 fail-open+告警);仅用户级配置(项目剥离);工具钩子在 executor 集成(覆盖内置/MCP/skill 工具)。后续可做:SessionStart/End 等更多事件、结构化 JSON 决策、matcher glob/正则。
 - MCP 全部核心原语已实现:tools / resources / prompts / roots / sampling（stdio + Streamable HTTP；tools/resources/prompts 作为 external 操作需审批,经内置工具按需访问;roots 由 client 反向回应 `roots/list`;sampling 默认关、`--allow-mcp-sampling` 显式开启、safe 模式一律拒,server 用 runcode 的 provider 生成,不共享对话/不带 tools;server 仅用户级配置）。后续可做:每请求交互式 sampling 审批、资源模板与订阅。
-- sub-agents。
+- sub-agents 已实现：`Task` 工具把独立任务委托给命名子代理。定义从约定目录发现（`<userConfigDir>/runcode/agents/*.md`、`<workspace>/.runcode/agents/*.md`，优先级 user > project > builtin，内置 `general-purpose` 兜底；`README.md` 视作目录文档而跳过），frontmatter 声明 name/description/可选 tools 白名单/可选 model，正文为系统提示。委托运行一个临时子 `repl.Session`：受限工具集、独立 read-set、共用父权限服务（safe/interactive 与 PreToolUse/PostToolUse 钩子仍逐一门控每个子工具调用）、不持久化 transcript/可恢复 session，最终助手文本作为工具结果返回。子代理不获得 `Task` 工具（委托恰好一层、不嵌套）；`Task` 作为 manage 操作免审批（真正门控在子工具）。`runcode config` 列出可用子代理，项目级 agents 经 `.gitignore` 在仓库内共享，示例见 `examples/agents/`。v1 串行执行。后续可做：并行 fan-out、跨 provider、按 agent 上下文预算。
 - slash commands。
 - plugins。
 - 可执行 skill / 语义匹配 / 远程 skill 仓库（指令型 skills 已实现：约定目录发现 + 渐进式披露 + `Skill` 工具按需加载，作为 manage 操作免审批）。
@@ -581,4 +580,6 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 6. ✅ skills(约定目录发现 + 渐进式披露:catalog 进 prompt + `Skill` 工具按需加载正文,项目级生效并标注来源)。
 
-后续可选大方向:sub-agents、WebSearch、可执行 skill。
+7. ✅ sub-agents(`Task` 工具委托给命名子代理:约定目录发现 + 受限子会话 + 共用权限/钩子 + 不嵌套,内置 general-purpose 兜底)。
+
+后续可选大方向:WebSearch、可执行 skill、子代理并行 fan-out。

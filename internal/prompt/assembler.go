@@ -13,12 +13,17 @@ type AssemblerOpts struct {
 	Date              string
 	Tools             []tool.Tool
 	Skills            string
+	Agents            string
 	ProjectCtx        string
 	Memory            string
 	ShellInfo         string
 	Reasoning         string
 	PermissionMode    string
 	PermissionContext string
+	// AgentInstructions, when set, marks this session as a sub-agent and carries
+	// its persona/system instructions. It is placed prominently near the top of
+	// the prompt so the sub-agent's role dominates its behavior.
+	AgentInstructions string
 	// SupportsCacheControl marks static prompt sections with ephemeral cache
 	// hints. It should reflect the provider's capability: enabling it for a
 	// provider that ignores cache control (e.g. OpenAI) only adds no-op metadata.
@@ -29,8 +34,10 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 	staticSections := []string{
 		sections.Intro(),
 		sections.System(),
+		opts.AgentInstructions,
 		sections.UsingTools(opts.Tools),
 		opts.Skills,
+		opts.Agents,
 		sections.Actions(),
 		sections.ToneAndStyle(),
 	}

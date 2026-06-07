@@ -2,7 +2,7 @@
 
 本文档基于当前代码实现整理，用于快速理解 `runcode` 的 CLI 执行链路、ReAct 工具数据流、权限边界、telemetry 和 system prompt 拼接方式。
 
-当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic / OpenAI 兼容 provider、`internal/repl.Session`、内置工具、MCP 工具、权限系统和 telemetry；`cmd/runcode tui` 已接入 Bubble Tea TUI MVP；但还没有 diff viewer、transcript resume、hooks、sub-agents、skills 或 MCP 的 resources/prompts/sampling。
+当前范围是 v0.1-alpha 的最小可运行闭环：`cmd/runcode chat` 已接入 Anthropic / OpenAI 兼容 provider、`internal/repl.Session`、内置工具、MCP 工具、权限系统和 telemetry；`cmd/runcode tui` 已接入 Bubble Tea TUI MVP；hooks、skills、sub-agents、MCP 全原语（resources/prompts/roots/sampling）、session resume 与 context compaction 均已实现；仍未做的是 diff viewer、SQLite transcript backend 与 plugins。
 
 ## 1. CLI 到 Session 的数据流
 
@@ -112,10 +112,13 @@ Session.RunTurn(ctx, userText)
 
 1. intro
 2. system behavior
-3. built-in tool descriptions
-4. action guidance
-5. tone/style guidance
-6. `__RUNCODE_DYNAMIC_BOUNDARY__`
+3. （仅子代理）agent persona / 系统指令
+4. built-in tool descriptions
+5. skills catalog（有 skill 时）
+6. sub-agent catalog（有子代理时；子会话中清空，子代理不可再委托）
+7. action guidance
+8. tone/style guidance
+9. `__RUNCODE_DYNAMIC_BOUNDARY__`
 
 动态 section：
 
@@ -139,7 +142,7 @@ Cache 策略：
 - `Memory` 仍只是调用方传入字符串。
 - 没有 settings loader。
 - 没有 prompt template embed。
-- 没有 agent/skill prompt。
+- skills catalog 与 sub-agent catalog 已注入 system prompt；子代理被委托时,子会话以该 agent 的 persona 作为系统指令,并清空 sub-agent catalog（委托不嵌套）。
 - 当前 permission mode 和关键权限约束会注入动态 prompt，但工具 spec 仍不会按 permission mode 动态隐藏。
 - 未来 MCP/plugin 动态工具接入后，需要重新评估工具描述的 cache boundary。
 
@@ -380,12 +383,8 @@ internal/persistence/sqlite
 internal/persistence/migrate
 internal/coordinator
 internal/session
-internal/cost
-internal/hooks
-pkg/agent
 pkg/command
 pkg/plugin
-pkg/skill
 prompts/templates
 prompts/agents
 prompts/skills
@@ -395,19 +394,12 @@ examples/custom-tool
 对应未实现能力：
 
 - 完整 TUI 产品能力：diff viewer、transcript browser、文件树、语法高亮（permission modal、rich tool output、多行输入和 `/model` 运行时切换已实现）。
-- SQLite transcript backend 和 session resume。
-- settings persistence。
-- context compaction。
-- cost tracking。
-- hooks。
-- MCP resources / prompts / sampling（tools 原语已实现）。
-- sub-agents。
-- slash commands。
+- SQLite transcript backend（JSONL transcript + 完整 session 持久化与 `--resume`/`--continue` 已实现）。
+- settings-backed 权限策略持久化（TOML 配置读取已实现）。
 - plugins。
-- skills。
-- OpenAI provider。
-- TodoWrite。
 - custom tool example。
+
+（此前列在此处的 hooks、skills、sub-agents、MCP resources/prompts/sampling、OpenAI provider、TodoWrite、context compaction、cost tracking、slash commands 均已实现，详见 CHANGELOG 与各模块说明。）
 
 ## 11. 当前最应该补的缺口
 

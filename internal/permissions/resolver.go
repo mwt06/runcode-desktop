@@ -68,6 +68,13 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		// commands, or network — so it is side-effect-free management and allowed
 		// without approval.
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "Task":
+		// Delegating to a sub-agent is orchestration: the call itself touches no
+		// files, commands, or network. Every tool the sub-agent runs is authorized
+		// individually by this same permission service inside the child session, so
+		// the wrapper is side-effect-free management and allowed without approval
+		// (the real gating happens on the child's tool calls).
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "WebFetch":
 		return resolveWebFetch(req)
 	default:

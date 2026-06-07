@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/mcp"
+	"github.com/wt68/runcode/pkg/agent"
 	"github.com/wt68/runcode/pkg/skill"
 )
 
@@ -39,6 +40,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  mcp_servers:          %s\n", mcpServerSummary(cfg.MCPServers))
 			fmt.Fprintf(out, "  mcp_sampling:         %s\n", mcpSamplingSummary(cfg))
 			fmt.Fprintf(out, "  skills:               %s\n", skillSummary(cfg.CWD))
+			fmt.Fprintf(out, "  agents:               %s\n", agentSummary(cfg.CWD))
 			fmt.Fprintf(out, "  hooks:                %s\n", hookSummary(cfg.Hooks))
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)
@@ -121,6 +123,29 @@ func skillSummary(cwd string) string {
 		label := sk.Name
 		if sk.Source == skill.SourceProject {
 			label += " (project)"
+		}
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// agentSummary lists the available sub-agent names (tagging user/project-sourced
+// ones) without printing any prompt body. The built-in general-purpose agent is
+// always present, so this never reports <none>. Loading problems are ignored here;
+// they are surfaced as warnings when a session starts.
+func agentSummary(cwd string) string {
+	set, _ := loadAgents(cwd, userConfigDir())
+	if set.Len() == 0 {
+		return "<none>"
+	}
+	parts := make([]string, 0, set.Len())
+	for _, a := range set.All() {
+		label := a.Name
+		switch a.Source {
+		case agent.SourceProject:
+			label += " (project)"
+		case agent.SourceUser:
+			label += " (user)"
 		}
 		parts = append(parts, label)
 	}

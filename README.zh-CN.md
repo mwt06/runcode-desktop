@@ -113,6 +113,27 @@ description: Review the current diff for correctness and clarity
 
 为节省上下文,只把一段紧凑的 **catalog**（每个 skill 的名字与描述,项目级标注 `[project]`）注入 system prompt。模型在需要时调用内置 **`Skill`** 工具并传入名字来按需加载该 skill 的完整指令——未用到的 skill 不占上下文。`Skill` 工具只返回内存中的文本（不启动任何进程、不碰文件）,因此免审批运行。格式错误或超大的 skill 会被跳过并告警,而非中断会话。项目级 skill 生效(便于团队在仓库内共享工作流),但其文本会进入 prompt,故标注 `[project]`。`runcode config` 会列出已加载的 skill 名字（项目级带标注）,不打印任何正文。
 
+### Sub-agents（子代理）
+
+**子代理**是主代理可以委托一项独立任务的专注助手。它以自己的 system prompt、受限工具集、可选的自有模型运行一个完整的 ReAct 循环,最后返回一份报告。子代理定义为 `*.md` 文件,放在两个约定目录——`<userConfigDir>/runcode/agents/`（用户级）与 `<workspace>/.runcode/agents/`（项目级）。内置的 `general-purpose` 代理始终可用,优先级为 用户 > 项目 > 内置,因此你自己的同名定义会覆盖它。
+
+```text
+~/.config/runcode/agents/reviewer.md   # Windows 上为 %AppData%\runcode\agents\...
+```
+
+```markdown
+---
+name: reviewer
+description: Reviews a diff for correctness bugs and reports concrete findings
+tools: Read, Grep, Glob       # 可选；省略或用 "*" 表示继承全部工具
+model: claude-opus-4-8        # 可选；省略则继承父会话模型
+---
+
+你是一名严谨的代码评审者。深入分析 diff,用 file:line 引用报告具体、可操作的问题。
+```
+
+主代理通过调用内置 **`Task`** 工具来委托,传入 `subagent_type`（代理名字）、简短的 `description` 和完整自洽的 `prompt`。只把一段紧凑的 **catalog**（每个代理的名字与描述,项目级标注 `[project]`）注入 prompt。每次委托运行一个临时子会话：它共用父会话的权限服务（因此 safe/interactive 规则与 PreToolUse hook 仍逐一门控每个子工具调用）、拥有全新的 read-set,且**不会**拿到 `Task` 工具本身——所以委托恰好一层深（不嵌套）。子会话不写入 transcript 或可恢复的 session 日志。格式错误的定义会被跳过并告警。`runcode config` 会列出可用的子代理（用户/项目级带标注）。可直接复制的示例定义见 [`examples/agents/`](examples/agents/)。并行 fan-out 与跨 provider 子代理尚未实现。
+
 ### Hooks（钩子）
 
 **Hook** 在生命周期事件触发时执行用户配置的命令,让你无需改 runcode 即可加策略、审计或注入上下文。支持三个事件:
@@ -163,7 +184,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling。已支持生命周期 hooks（PreToolUse/PostToolUse/UserPromptSubmit,见 [Hooks](#hooks钩子)）；尚无 sub-agents。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling。已支持生命周期 hooks（PreToolUse/PostToolUse/UserPromptSubmit,见 [Hooks](#hooks钩子)）,也已支持 sub-agents（经 `Task` 工具委托,见 [Sub-agents](#sub-agents子代理)）。
 
 ## 已实现工具
 
@@ -179,8 +200,9 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 | `Bash` | 权限审批后，在 workspace 内执行单行非交互 Bash 命令。 |
 | `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
 | `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；网络操作，需审批（按 host 显示）。 |
+| `Task` | 把一项独立任务委托给指定子代理（自有会话、受限工具、可选模型）并返回其报告；属编排,免审批,因为每个子工具调用都被单独鉴权（见 [Sub-agents](#sub-agents子代理)）。 |
 
-配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）。WebSearch 和插件工具尚未实现。
+配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）,`Task` 工具则委托给子代理（见 [Sub-agents](#sub-agents子代理)）。WebSearch 和插件工具尚未实现。
 
 ## 权限与安全
 

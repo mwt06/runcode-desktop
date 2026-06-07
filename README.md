@@ -113,6 +113,28 @@ description: Review the current diff for correctness and clarity
 
 To keep context cheap, only a compact **catalog** (each skill's name and description, with a `[project]` tag for workspace skills) is injected into the system prompt. The model loads a skill's full instructions on demand by calling the built-in **`Skill`** tool with its name — so unused skills cost no context. The `Skill` tool only returns in-memory text (it launches nothing and touches no files), so it runs without approval. A malformed or oversized skill is skipped with a warning rather than breaking the session. Project skills are honored so teams can share workflows in-repo, but their text enters the prompt, so they are attributed as `[project]`. `runcode config` lists the loaded skill names (project ones tagged) without printing any body.
 
+### Sub-agents
+
+A **sub-agent** is a focused assistant the main agent can delegate a self-contained task to. It runs its own ReAct loop with its own system prompt, a restricted tool set, and optionally its own model, then returns a single report. Sub-agents are defined as `*.md` files in two convention directories — `<userConfigDir>/runcode/agents/` (user-level) and `<workspace>/.runcode/agents/` (project-level). A built-in `general-purpose` agent is always available, and the precedence is user > project > builtin, so your own definition shadows a same-named one.
+
+```text
+~/.config/runcode/agents/reviewer.md   # or %AppData%\runcode\agents\... on Windows
+```
+
+```markdown
+---
+name: reviewer
+description: Reviews a diff for correctness bugs and reports concrete findings
+tools: Read, Grep, Glob       # optional; omit or use "*" to inherit every tool
+model: claude-opus-4-8        # optional; inherits the parent model otherwise
+---
+
+You are a meticulous code reviewer. Investigate the diff and report concrete,
+actionable issues with file:line references.
+```
+
+The main agent delegates by calling the built-in **`Task`** tool with a `subagent_type` (the agent's name), a short `description`, and a complete, standalone `prompt`. Only a compact **catalog** (each agent's name and description, `[project]`-tagged for workspace agents) is injected into the prompt. Each delegation runs an ephemeral child session: it shares the parent's permission service (so safe/interactive rules and PreToolUse hooks still gate every child tool call), gets a fresh read-set, and is **not** given the `Task` tool itself — so delegation is exactly one level deep (no nesting). Child sessions are not persisted to transcripts or the resumable session log. A malformed definition is skipped with a warning. `runcode config` lists the available sub-agents (user/project ones tagged). Ready-to-copy example definitions live in [`examples/agents/`](examples/agents/). Parallel fan-out and cross-provider sub-agents are not implemented yet.
+
 ### Hooks
 
 **Hooks** run a user-configured command at a lifecycle event, so you can enforce policy, audit, or inject context without changing runcode. Three events are supported:
@@ -163,7 +185,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling. Lifecycle hooks (PreToolUse/PostToolUse/UserPromptSubmit — see [Hooks](#hooks)) are supported; no sub-agents yet.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling. Lifecycle hooks (PreToolUse/PostToolUse/UserPromptSubmit — see [Hooks](#hooks)) are supported, as are sub-agents (delegation via the `Task` tool — see [Sub-agents](#sub-agents)).
 
 ## Implemented tools
 
@@ -179,8 +201,9 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `Bash` | Runs a single-line non-interactive bash command in the workspace after permission approval. |
 | `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
 | `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); a network operation that requires approval (shown per host). |
+| `Task` | Delegates a self-contained task to a named sub-agent (its own session, restricted tools, optional model) and returns the sub-agent's report; orchestration allowed without approval, since each child tool call is authorized individually (see [Sub-agents](#sub-agents)). |
 
-MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), and the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)). WebSearch and plugin tools are not implemented yet.
+MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)), and the `Task` tool delegates to sub-agents (see [Sub-agents](#sub-agents)). WebSearch and plugin tools are not implemented yet.
 
 ## Permissions and safety
 

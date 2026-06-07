@@ -22,7 +22,9 @@ import (
 	"github.com/wt68/runcode/internal/projectctx"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/repl"
+	"github.com/wt68/runcode/internal/subagent"
 	"github.com/wt68/runcode/internal/telemetry"
+	"github.com/wt68/runcode/pkg/agent"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/llm/providers/anthropic"
 	"github.com/wt68/runcode/pkg/llm/providers/openai"
@@ -800,14 +802,6 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	})
 	reportMCPStartupErrors(opts.Runtime, mcpErrs)
 	resources.MCP = mcpManager
-	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)
-	// Discover skills from the convention directories; the catalog goes into the
-	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
-	skillSet, skillProblems := loadSkills(cfg.CWD, userConfigDir())
-	reportSkillProblems(opts.Runtime, skillProblems)
-	if skillSet.Len() > 0 {
-		sessionTools = append(sessionTools, skill.NewTool(skillSet))
-	}
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store)
@@ -821,6 +815,48 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 			return nil, sessionResources{}, err
 		}
 	}
+	hookRunner := newHookRunner(cfg.Hooks, opts.Runtime)
+
+	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)
+	// Discover skills from the convention directories; the catalog goes into the
+	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
+	skillSet, skillProblems := loadSkills(cfg.CWD, userConfigDir())
+	reportSkillProblems(opts.Runtime, skillProblems)
+	if skillSet.Len() > 0 {
+		sessionTools = append(sessionTools, skill.NewTool(skillSet))
+	}
+
+	promptOpts := prompt.AssemblerOpts{
+		CWD:            cfg.CWD,
+		Date:           time.Now().Format("2006-01-02"),
+		ShellInfo:      shellInfo(),
+		Skills:         skill.Catalog(skillSet),
+		ProjectCtx:     projectContext,
+		PermissionMode: cfg.PermissionMode,
+	}
+
+	// Sub-agents: the Task tool delegates a self-contained task to a child session
+	// running a restricted tool set. The launcher receives every tool a sub-agent
+	// may use (builtins + MCP + Skill) — captured here, before the Task tool is
+	// added, so sub-agents never get Task and cannot nest. The agent set always
+	// holds at least the built-in general-purpose agent, so Task is always offered.
+	eligibleSubagentTools := make([]tool.Tool, len(sessionTools))
+	copy(eligibleSubagentTools, sessionTools)
+	agentSet, agentProblems := loadAgents(cfg.CWD, userConfigDir())
+	reportAgentProblems(opts.Runtime, agentProblems)
+	launcher := subagent.NewLauncher(subagent.Options{
+		Provider:      provider,
+		Model:         cfg.Model,
+		MaxTokens:     cfg.MaxTokens,
+		BasePrompt:    promptOpts,
+		EligibleTools: eligibleSubagentTools,
+		Permissions:   permissionService,
+		Telemetry:     recorder,
+		Hooks:         hookRunner,
+	})
+	sessionTools = append(sessionTools, subagent.NewTool(agentSet, launcher))
+	promptOpts.Agents = agent.Catalog(agentSet)
+
 	streamDelta := opts.StreamDelta
 	if streamDelta == nil && opts.Runtime.Out != nil {
 		out := opts.Runtime.Out
@@ -831,14 +867,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		Model:     cfg.Model,
 		Tools:     sessionTools,
 		MaxTokens: cfg.MaxTokens,
-		Prompt: prompt.AssemblerOpts{
-			CWD:            cfg.CWD,
-			Date:           time.Now().Format("2006-01-02"),
-			ShellInfo:      shellInfo(),
-			Skills:         skill.Catalog(skillSet),
-			ProjectCtx:     projectContext,
-			PermissionMode: cfg.PermissionMode,
-		},
+		Prompt:    promptOpts,
 		ToolContext: &tool.Context{
 			WorkingDirectory: cfg.CWD,
 			ReadSet:          map[string]tool.ReadFile{},
@@ -853,7 +882,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		InitialHistory:     initialHistory,
 		SessionStore:       store,
 		MaxContextTokens:   cfg.MaxContextTokens,
-		Hooks:              newHookRunner(cfg.Hooks, opts.Runtime),
+		Hooks:              hookRunner,
 	})
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store, mcpManager)

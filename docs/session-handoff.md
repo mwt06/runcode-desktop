@@ -1202,3 +1202,58 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 ### 当前状态一句话总结
 
 `runcode` 现在已经有真实 Bash 内置工具，但它仍被权限系统默认安全地包住：safe 模式不会执行，interactive 只能审批非硬拒绝命令，运行期也限制在 workspace cwd、无 stdin、timeout 和输出截断边界内。
+
+---
+
+## 2026-06-07 续作：Sub-agents 子代理系统已完成
+
+> 注：本 handoff 日志在 Bash 工具轮后未持续记录。其间落地的 MCP（tools/resources/prompts/roots/sampling 全原语）、skills、hooks、OpenAI 兼容 provider、context compaction、cost tracking、slash commands、权限持久化等，权威记录见 `CHANGELOG.md`。本章节仅记录 sub-agents 一轮。
+
+### 本轮目标
+
+让主代理能把独立、自洽的任务委托给专注的子代理（对标 Claude Code 的 Task / sub-agent），复用现有 `repl.Session` 作为子代理运行时。
+
+### 设计与分层（高内聚、低耦合、无循环依赖）
+
+- `pkg/agent`（纯定义层，镜像 `pkg/skill`）：`agent.go` / `parse.go` / `load.go`。Agent = name / description / 可选 tools 白名单 / 可选 model + body(系统提示)。约定目录发现、frontmatter 解析、容错加载、catalog 渲染、工具策略（`*`/省略=继承全部）。
+- `internal/subagent`（运行时层）：`launcher.go`（用受限工具集 + persona + 指定模型构建并运行子 `repl.Session`）、`tool.go`（`Task` 工具）、`default.go`（内置 `general-purpose`）、`events.go`（子代理工具事件 → 归属父 `Task` 行的进度桥接）。
+- `cmd/runcode`：`agents.go`（约定目录 + builtin 合并）、`chat.go` 装配（捕获“不含 Task”的可委托工具集 → 构建 Launcher → 追加 `Task` 工具并把 agent catalog 注入 prompt；TUI 共用此路径）、`config.go`（列出可用子代理）。
+- prompt 装配：`AssemblerOpts` 新增 `Agents`(父会话 catalog) 与 `AgentInstructions`(子会话 persona)。
+- 权限：`Task` 归类 `OperationManage` / `RiskLow`（编排本身免审批；真正门控在每个子工具调用上）。
+
+### 关键设计决策
+
+- **不嵌套**：子代理永不获得 `Task` 工具，委托恰好一层深。
+- **权限统一**：子会话共用父权限服务；PreToolUse/PostToolUse 钩子对子工具仍逐一生效，但**屏蔽 UserPromptSubmit**（子任务 prompt 是内部委托，非用户输入）。
+- **临时性**：子会话不持久化 transcript / 可恢复 session，但记录独立 trace 的 telemetry。
+- **优先级 user > project > builtin**；agents 目录中的 `README.md` 视作文档而跳过。
+- 项目级 agents 经 `.gitignore` 放行在仓库内共享（对等 `.runcode/skills/`）；可复制示例置于 `examples/agents/`。
+- **v1 串行**（`Task` 非并发安全）；并行 fan-out、跨 provider、按 agent 上下文预算留待后续。
+
+### 顺带修复的语义 bug
+
+`loadAgents` 合并顺序错误：原先把 builtin `append` 在最前，而 `NewSet` 是“先插入者胜”，会让内置 `general-purpose` 反向覆盖用户同名定义。改为 `append(discovered.All(), BuiltinAgents()...)`，确立正确优先级 user > project > builtin，并修正三处自相矛盾的注释。
+
+### 已验证命令
+
+```bash
+go build ./...
+go vet ./...
+go test ./...
+go run ./cmd/runcode config   # 输出含 “agents: general-purpose”
+```
+
+### 测试覆盖
+
+- `pkg/agent`：frontmatter 解析、容错加载、README 跳过、去重/排序/优先级、工具策略、catalog、仓库示例解析。
+- `internal/subagent`：launcher 工具集过滤、模型覆盖、persona 进系统提示且不泄露父 catalog、`Task` 输入校验与代理解析、hook 作用域（仅工具钩子）、事件桥转发与 nil-parent 不死锁。
+- `cmd/runcode`：`agentRoots` 顺序/降级、`loadAgents` 始终含 builtin、项目发现、user 覆盖 builtin。
+
+### 当前注意事项
+
+- `prompts/agents/` 仍是占位空目录：约定加载目录是 `<workspace>/.runcode/agents/` 与 `<userConfigDir>/runcode/agents/`，并非 `prompts/agents/`；`examples/agents/` 是模板，不会被自动加载。
+- 本轮已同步 `docs/architecture.md`、`docs/implementation-status.md`、`docs/data-flow-and-prompt.md` 中与 sub-agents 相关的条目，但这些状态文档可能仍残留更早功能的过时描述；权威记录以 `CHANGELOG.md` 为准。
+
+### 当前状态一句话总结
+
+主代理现在可经内置 `Task` 工具把任务委托给命名子代理：子代理在受限工具集、独立上下文、共用父权限/钩子的临时子会话中自主完成任务并返回单条报告，委托恰好一层、不嵌套，安全语义与主会话一致。

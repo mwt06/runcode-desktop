@@ -25,12 +25,15 @@ Implemented:
 - `internal/persistence/transcript`: opt-in append-only JSONL transcript recorder with whitelisted turn summaries.
 - `internal/prompt`: system prompt boundary, assembler, and static/dynamic prompt sections.
 - `pkg/llm/providers/anthropic`: Anthropic SDK-backed provider skeleton with request and stream conversion tests.
+- `internal/hooks`: user-configured lifecycle commands (PreToolUse/PostToolUse/UserPromptSubmit) run around tool execution and prompt submission.
+- `pkg/skill`: convention-directory skills with progressive disclosure — a compact catalog in the prompt and a `Skill` tool that loads a skill body on demand.
+- `pkg/agent` + `internal/subagent`: sub-agents delegated via the built-in `Task` tool, each running a restricted child `repl.Session` with its own persona prompt and optional model; delegation is one level deep (sub-agents never receive `Task`), and children share the parent permission service and tool hooks.
 
 Not implemented yet:
 
 - Full TUI product features beyond the MVP: diff viewer, file tree, transcript browser, and syntax highlighting (permission modal, rich tool output cards, multi-line input, and runtime model switching are implemented).
 - Persistent permission policy configuration.
-- Hooks, sub-agents, skills, SQLite persistence, and transcript-backed session resume (MCP tools and compaction are implemented; MCP resources/prompts/sampling are not).
+- SQLite persistence and transcript-backed session resume (MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented).
 - Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.
 - Bash background tasks, streaming terminal output, custom cwd/env, interactive stdin, and persistent command approval policy.
 
@@ -174,6 +177,8 @@ The current scaffold should be validated through tests rather than through a rea
 | `internal/persistence/transcript` | JSONL append behavior, session id validation, and transcript sanitizer whitelist |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |
+| `pkg/agent` | frontmatter parsing, tolerant directory loading, README skip, name precedence/dedup, tool-policy filtering, catalog rendering, and shipped example definitions |
+| `internal/subagent` | launcher tool-set filtering, model override, persona/system-prompt assembly, `Task` input validation and agent resolution, hook scoping (tool hooks only, no UserPromptSubmit), and child progress event bridging |
 | `cmd/runcode` | `version` output, chat prompt input, `chat --loop` behavior, config parsing, fake-runner output, approval prompt behavior, shared line input, runtime IO propagation, and error propagation |
 
 Recommended validation commands:
