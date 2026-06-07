@@ -31,6 +31,7 @@ func buildChatRequest(req llm.Request, defaultMaxTokens int, includeUsage bool) 
 		}
 		messages = append(messages, converted...)
 	}
+	messages = mergeConsecutiveTextMessages(messages)
 
 	tools, err := convertTools(req.Tools)
 	if err != nil {
@@ -57,6 +58,44 @@ func buildChatRequest(req llm.Request, defaultMaxTokens int, includeUsage bool) 
 		out.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
 	return out, nil
+}
+
+// mergeConsecutiveTextMessages combines adjacent user (or assistant) messages
+// that both carry plain string content into one. A compacted history places the
+// summary user message immediately before the first kept user turn — two
+// consecutive user messages, which some strict OpenAI-compatible endpoints
+// reject. Messages with tool calls, tool results, or multimodal content parts
+// are left untouched (those never arise consecutively from compaction).
+func mergeConsecutiveTextMessages(messages []chatMessage) []chatMessage {
+	out := make([]chatMessage, 0, len(messages))
+	for _, message := range messages {
+		if n := len(out); n > 0 && mergeableText(out[n-1], message) {
+			out[n-1].Content = textContent(out[n-1].Content) + "\n\n" + textContent(message.Content)
+			continue
+		}
+		out = append(out, message)
+	}
+	return out
+}
+
+func mergeableText(a, b chatMessage) bool {
+	if a.Role != b.Role || (a.Role != "user" && a.Role != "assistant") {
+		return false
+	}
+	if len(a.ToolCalls) > 0 || len(b.ToolCalls) > 0 || a.ToolCallID != "" || b.ToolCallID != "" {
+		return false
+	}
+	return isStringContent(a.Content) && isStringContent(b.Content)
+}
+
+func isStringContent(v any) bool {
+	_, ok := v.(string)
+	return ok
+}
+
+func textContent(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 // convertSystem joins system text blocks into a single system message body.

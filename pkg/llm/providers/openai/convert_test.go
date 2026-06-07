@@ -147,6 +147,46 @@ func TestConvertToolMessageFansOut(t *testing.T) {
 	}
 }
 
+func TestBuildChatRequestMergesConsecutiveUserMessages(t *testing.T) {
+	t.Parallel()
+	// A compaction summary (user) directly before the first kept user turn must
+	// be merged into one user message so strict endpoints do not reject two
+	// consecutive same-role messages.
+	out, err := buildChatRequest(llm.Request{Messages: []llm.Message{
+		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "summary"}}},
+		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "real question"}}},
+		{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "answer"}}},
+	}}, 4096, false)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(out.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2 (merged user + assistant)", len(out.Messages))
+	}
+	if out.Messages[0].Role != "user" || out.Messages[0].Content != "summary\n\nreal question" {
+		t.Fatalf("merged user message = %#v", out.Messages[0])
+	}
+	if out.Messages[1].Role != "assistant" {
+		t.Fatalf("second message = %#v, want assistant", out.Messages[1])
+	}
+}
+
+func TestBuildChatRequestKeepsToolMessageSeparate(t *testing.T) {
+	t.Parallel()
+	// A user message followed by a tool result must not be merged (different
+	// roles), and the assistant tool_call message stays intact.
+	out, err := buildChatRequest(llm.Request{Messages: []llm.Message{
+		{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeToolUse, ID: "t1", Name: "Read", Input: []byte(`{}`)}}},
+		{Role: llm.RoleTool, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeToolResult, ToolUseID: "t1", Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "body"}}}}},
+	}}, 4096, false)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(out.Messages) != 2 || out.Messages[0].Role != "assistant" || out.Messages[1].Role != "tool" {
+		t.Fatalf("messages = %#v, want assistant + tool kept separate", out.Messages)
+	}
+}
+
 func TestConvertUserImageBecomesDataURL(t *testing.T) {
 	t.Parallel()
 	msg := llm.Message{Role: llm.RoleUser, Content: []llm.ContentBlock{
