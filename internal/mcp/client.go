@@ -52,6 +52,8 @@ type ServerInfo struct {
 type Client struct {
 	conn              *conn
 	roots             []Root
+	sampler           Sampler
+	serverName        string
 	serverInfo        ServerInfo
 	serverProtocol    string
 	instructions      string
@@ -66,24 +68,38 @@ type Root struct {
 	Name string `json:"name,omitempty"`
 }
 
+// clientConfig configures a Client beyond its transport.
+type clientConfig struct {
+	roots      []Root
+	sampler    Sampler
+	serverName string
+}
+
 // newClient wraps a transport in a JSON-RPC connection. The caller must call
 // Initialize before listing or calling tools.
 func newClient(stream messageStream) *Client {
-	return newClientWithRoots(stream, nil)
+	return newClientWith(stream, clientConfig{})
 }
 
 // newClientWithRoots is newClient plus the roots the client advertises and serves
 // to the server. With no roots, the roots capability is not advertised.
 func newClientWithRoots(stream messageStream, roots []Root) *Client {
-	c := &Client{roots: roots}
+	return newClientWith(stream, clientConfig{roots: roots})
+}
+
+// newClientWith builds a Client with the given configuration. The roots and
+// sampling capabilities are advertised only when roots / a sampler are provided.
+func newClientWith(stream messageStream, cfg clientConfig) *Client {
+	c := &Client{roots: cfg.roots, sampler: cfg.sampler, serverName: cfg.serverName}
 	c.conn = newConn(stream, c.serveRequest)
 	return c
 }
 
 // serveRequest answers server-initiated requests. runcode supports roots/list
-// (returning the configured workspace roots) and ping; anything else is reported
-// as method-not-found so the server can adapt.
-func (c *Client) serveRequest(method string, _ json.RawMessage) (any, *rpcError) {
+// (returning the configured workspace roots), ping, and — when a sampler is
+// configured — sampling/createMessage. Anything else is reported as
+// method-not-found so the server can adapt.
+func (c *Client) serveRequest(ctx context.Context, method string, params json.RawMessage) (any, *rpcError) {
 	switch method {
 	case "roots/list":
 		roots := c.roots
@@ -93,6 +109,8 @@ func (c *Client) serveRequest(method string, _ json.RawMessage) (any, *rpcError)
 		return rootsListResult{Roots: roots}, nil
 	case "ping":
 		return struct{}{}, nil
+	case "sampling/createMessage":
+		return c.handleSampling(ctx, params)
 	default:
 		return nil, &rpcError{Code: -32601, Message: "method not supported: " + method}
 	}
@@ -109,15 +127,19 @@ type initializeParams struct {
 }
 
 // clientCapabilities advertises what runcode offers a server. runcode is mainly
-// a consumer, but it advertises roots when it has any to expose so a server can
-// learn the workspace boundaries via roots/list.
+// a consumer, but it advertises roots when it has any to expose (so a server can
+// learn the workspace boundaries via roots/list) and sampling when a sampler is
+// configured (so a server may request a model completion).
 type clientCapabilities struct {
-	Roots *rootsCapability `json:"roots,omitempty"`
+	Roots    *rootsCapability    `json:"roots,omitempty"`
+	Sampling *samplingCapability `json:"sampling,omitempty"`
 }
 
 type rootsCapability struct {
 	ListChanged bool `json:"listChanged"`
 }
+
+type samplingCapability struct{}
 
 type initializeResult struct {
 	ProtocolVersion string             `json:"protocolVersion"`
@@ -149,6 +171,9 @@ func (c *Client) Initialize(ctx context.Context) error {
 	caps := clientCapabilities{}
 	if len(c.roots) > 0 {
 		caps.Roots = &rootsCapability{ListChanged: false}
+	}
+	if c.sampler != nil {
+		caps.Sampling = &samplingCapability{}
 	}
 	raw, err := c.conn.call(ctx, "initialize", initializeParams{
 		ProtocolVersion: protocolVersion,

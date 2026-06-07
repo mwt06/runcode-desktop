@@ -62,6 +62,9 @@ type chatConfig struct {
 	// table), or "" (unpriced).
 	PriceSource string
 	MCPServers  []mcp.ServerConfig
+	// AllowMCPSampling opts in to serving MCP servers' sampling requests. Even
+	// when true, safe mode refuses sampling.
+	AllowMCPSampling bool
 }
 
 type chatIO struct {
@@ -174,6 +177,7 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("resume", "", "Resume a saved session by id and continue it")
 	cmd.Flags().Bool("continue", false, "Resume the most recent saved session")
 	cmd.Flags().Bool("no-session", false, "Disable saving full session history for resume")
+	cmd.Flags().Bool("allow-mcp-sampling", false, "Allow MCP servers to request model completions (sampling); off by default, always denied in safe mode")
 }
 
 func closeChatRunner(ctx context.Context, runner chatRunner) error {
@@ -419,6 +423,10 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	allowMCPSampling, err := boolFlagEnvFile(cmd, "allow-mcp-sampling", "RUNCODE_ALLOW_MCP_SAMPLING", file.MCP.AllowSampling)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 
 	return chatConfig{
 		Provider:           provider,
@@ -442,6 +450,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		OutputPrice:        outputPrice,
 		PriceSource:        priceSource,
 		MCPServers:         mcpServers,
+		AllowMCPSampling:   allowMCPSampling,
 	}, resolved, nil
 }
 
@@ -500,6 +509,27 @@ func intFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *int)
 		return *fileValue, nil
 	}
 	return 0, nil
+}
+
+// boolFlagEnvFile resolves a bool with precedence flag > env > config file > default(false).
+func boolFlagEnvFile(cmd *cobra.Command, name string, env string, fileValue *bool) (bool, error) {
+	if cmd.Flags().Changed(name) {
+		return cmd.Flags().GetBool(name)
+	}
+	if value := os.Getenv(env); value != "" {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "1", "true", "on", "yes":
+			return true, nil
+		case "0", "false", "off", "no":
+			return false, nil
+		default:
+			return false, fmt.Errorf("parse %s: invalid boolean %q", env, value)
+		}
+	}
+	if fileValue != nil {
+		return *fileValue, nil
+	}
+	return false, nil
 }
 
 // floatFlagEnvFile resolves a float64 with precedence flag > env > config file > default(0).
@@ -749,8 +779,17 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	}
 	// Connect configured MCP servers and merge their tools with the builtins.
 	// Startup is tolerant: a server that fails to connect is reported and skipped.
-	// The workspace is advertised to servers as a root via roots/list.
-	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers, mcp.Options{Roots: workspaceRoots(cfg.CWD)})
+	// The workspace is advertised to servers as a root via roots/list. Sampling
+	// (a server using runcode's model) is served only when the user opts in and
+	// the permission mode is not safe.
+	var sampler mcp.Sampler
+	if cfg.AllowMCPSampling && cfg.PermissionMode != "safe" {
+		sampler = repl.NewMCPSampler(provider, cfg.Model, cfg.MaxTokens)
+	}
+	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers, mcp.Options{
+		Roots:   workspaceRoots(cfg.CWD),
+		Sampler: sampler,
+	})
 	reportMCPStartupErrors(opts.Runtime, mcpErrs)
 	resources.MCP = mcpManager
 	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)

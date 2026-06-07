@@ -56,6 +56,10 @@ type Config struct {
 // MCPConfig groups the configured MCP servers keyed by a short name.
 type MCPConfig struct {
 	Servers map[string]MCPServerConfig `toml:"servers"`
+	// AllowSampling opts in to serving server sampling/createMessage requests
+	// (a server using runcode's model). Default false; honored only from the
+	// user-level file, like the rest of the MCP config.
+	AllowSampling *bool `toml:"allow_sampling"`
 }
 
 // MCPServerConfig describes one MCP server. String values support ${VAR}

@@ -80,7 +80,7 @@ func TestStdioStreamDiagnosticsNilBuffer(t *testing.T) {
 func TestDialServerTransportError(t *testing.T) {
 	t.Parallel()
 	// A stdio config with no command fails in newTransport; dialServer surfaces it.
-	if _, err := dialServer(context.Background(), ServerConfig{Name: "x", Transport: TransportStdio}, nil); err == nil {
+	if _, err := dialServer(context.Background(), ServerConfig{Name: "x", Transport: TransportStdio}, nil, nil); err == nil {
 		t.Fatal("expected dialServer to fail when the transport cannot be built")
 	}
 }

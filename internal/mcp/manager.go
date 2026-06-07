@@ -68,6 +68,10 @@ type Options struct {
 	// Roots are the filesystem boundaries runcode exposes to every server via
 	// roots/list, so a server can learn the workspace it operates in.
 	Roots []Root
+	// Sampler, when set, lets servers request a model completion via
+	// sampling/createMessage. Leaving it nil (the default) means the sampling
+	// capability is not advertised and such requests are refused.
+	Sampler Sampler
 }
 
 // dialFunc connects one server. It is a seam so tests can inject fake servers.
@@ -79,7 +83,7 @@ type dialFunc func(ctx context.Context, cfg ServerConfig) (*serverConn, error)
 // the subprocesses/connections.
 func Open(ctx context.Context, configs []ServerConfig, opts Options) (*Manager, []StartupError) {
 	dial := func(ctx context.Context, cfg ServerConfig) (*serverConn, error) {
-		return dialServer(ctx, cfg, opts.Roots)
+		return dialServer(ctx, cfg, opts.Roots, opts.Sampler)
 	}
 	return openWith(ctx, configs, dial)
 }
@@ -138,13 +142,14 @@ func (m *Manager) Close(context.Context) error {
 }
 
 // dialServer is the production dialer: it builds the transport, performs the
-// handshake, lists tools, and adapts them. roots are advertised to the server.
-func dialServer(ctx context.Context, cfg ServerConfig, roots []Root) (*serverConn, error) {
+// handshake, lists tools, and adapts them. roots are advertised to the server,
+// and the sampler (when set) lets the server request model completions.
+func dialServer(ctx context.Context, cfg ServerConfig, roots []Root, sampler Sampler) (*serverConn, error) {
 	stream, err := newTransport(cfg)
 	if err != nil {
 		return nil, err
 	}
-	client := newClientWithRoots(stream, roots)
+	client := newClientWith(stream, clientConfig{roots: roots, sampler: sampler, serverName: cfg.Name})
 	dialCtx, cancel := context.WithTimeout(ctx, defaultDialTimeout)
 	defer cancel()
 

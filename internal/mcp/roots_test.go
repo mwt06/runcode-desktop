@@ -60,7 +60,7 @@ func TestClientServeRequest(t *testing.T) {
 	c := newClientWithRoots(newChanStream(), []Root{{URI: "file:///work", Name: "workspace"}})
 	defer c.Close()
 
-	res, rpcErr := c.serveRequest("roots/list", nil)
+	res, rpcErr := c.serveRequest(context.Background(), "roots/list", nil)
 	if rpcErr != nil {
 		t.Fatalf("roots/list rpcErr = %v", rpcErr)
 	}
@@ -68,11 +68,12 @@ func TestClientServeRequest(t *testing.T) {
 	if !ok || len(roots.Roots) != 1 || roots.Roots[0].URI != "file:///work" {
 		t.Fatalf("roots/list result = %#v", res)
 	}
-	if _, rpcErr := c.serveRequest("ping", nil); rpcErr != nil {
+	if _, rpcErr := c.serveRequest(context.Background(), "ping", nil); rpcErr != nil {
 		t.Fatalf("ping rpcErr = %v", rpcErr)
 	}
-	if _, rpcErr := c.serveRequest("sampling/createMessage", nil); rpcErr == nil {
-		t.Fatal("an unsupported server method must return a method-not-found error")
+	// No sampler configured, so sampling is unsupported.
+	if _, rpcErr := c.serveRequest(context.Background(), "sampling/createMessage", nil); rpcErr == nil {
+		t.Fatal("sampling without a configured sampler must return an error")
 	}
 }
 
@@ -81,7 +82,7 @@ func TestClientServeRequestEmptyRoots(t *testing.T) {
 	// With no roots configured, roots/list returns an empty (non-nil) list.
 	c := newClientWithRoots(newChanStream(), nil)
 	defer c.Close()
-	res, _ := c.serveRequest("roots/list", nil)
+	res, _ := c.serveRequest(context.Background(), "roots/list", nil)
 	roots := res.(rootsListResult)
 	if roots.Roots == nil || len(roots.Roots) != 0 {
 		t.Fatalf("empty roots = %#v, want a non-nil empty slice", roots.Roots)

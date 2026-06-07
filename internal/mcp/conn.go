@@ -13,10 +13,15 @@ import (
 // goroutine forever.
 const serverRequestTimeout = 10 * time.Second
 
-// requestHandler answers a server-initiated request (e.g. roots/list, ping). A
-// nil handler, or one that returns a nil result and nil error, falls back to a
-// method-not-found error.
-type requestHandler func(method string, params json.RawMessage) (result any, rpcErr *rpcError)
+// serverHandlerTimeout bounds how long the handler itself may run. It is generous
+// because sampling (server-requested model completion) can take many seconds, but
+// still bounded so a hung handler cannot leak a goroutine forever.
+const serverHandlerTimeout = 2 * time.Minute
+
+// requestHandler answers a server-initiated request (e.g. roots/list, ping,
+// sampling/createMessage). A nil handler, or one that returns a nil result and
+// nil error, falls back to a method-not-found error.
+type requestHandler func(ctx context.Context, method string, params json.RawMessage) (result any, rpcErr *rpcError)
 
 // ErrConnClosed is returned by a call whose connection closed before a response
 // arrived.
@@ -93,12 +98,15 @@ func (c *conn) dispatch(frame []byte) {
 // handler and writes the response, echoing the request id. It runs in its own
 // goroutine so a slow handler or write never stalls the read loop.
 func (c *conn) handleServerRequest(msg rpcMessage) {
+	hctx, hcancel := context.WithTimeout(context.Background(), serverHandlerTimeout)
+	defer hcancel()
+
 	var (
 		result any
 		rpcErr *rpcError
 	)
 	if c.handler != nil {
-		result, rpcErr = c.handler(msg.Method, msg.Params)
+		result, rpcErr = c.handler(hctx, msg.Method, msg.Params)
 	}
 	if result == nil && rpcErr == nil {
 		rpcErr = &rpcError{Code: -32601, Message: "method not supported: " + msg.Method}
@@ -119,9 +127,9 @@ func (c *conn) handleServerRequest(msg rpcMessage) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), serverRequestTimeout)
-	defer cancel()
-	_ = c.stream.Write(ctx, frame)
+	wctx, wcancel := context.WithTimeout(context.Background(), serverRequestTimeout)
+	defer wcancel()
+	_ = c.stream.Write(wctx, frame)
 }
 
 // call sends a request and waits for its response, honoring ctx cancellation and

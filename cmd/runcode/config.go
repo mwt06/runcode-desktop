@@ -36,6 +36,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  output_price:         %g\n", cfg.OutputPrice)
 			fmt.Fprintf(out, "  cwd:                  %s\n", cfg.CWD)
 			fmt.Fprintf(out, "  mcp_servers:          %s\n", mcpServerSummary(cfg.MCPServers))
+			fmt.Fprintf(out, "  mcp_sampling:         %s\n", mcpSamplingSummary(cfg))
 			fmt.Fprintf(out, "  skills:               %s\n", skillSummary(cfg.CWD))
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)
@@ -60,6 +61,19 @@ func mcpServerSummary(servers []mcp.ServerConfig) string {
 		parts[i] = fmt.Sprintf("%s (%s)", s.Name, s.Transport)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// mcpSamplingSummary reports whether MCP servers may request model completions,
+// reflecting that safe mode always refuses regardless of the opt-in.
+func mcpSamplingSummary(cfg chatConfig) string {
+	switch {
+	case !cfg.AllowMCPSampling:
+		return "off"
+	case cfg.PermissionMode == "safe":
+		return "off (denied in safe mode)"
+	default:
+		return "on"
+	}
 }
 
 // priceSourceNote annotates the effective pricing with where it came from, so a

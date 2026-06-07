@@ -488,7 +488,7 @@ cmd/runcode chat
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
 - hooks。
-- MCP sampling（tools / resources / prompts / roots 原语已实现：stdio + Streamable HTTP；tools/resources/prompts 作为 external 操作需审批,经内置工具按需访问,仅在 server 声明对应能力时出现;roots 由 client 反向回应 `roots/list`,把工作区 `file://` 根告知 server;server 仅用户级配置）。sampling 需 server 反调模型,留作后续。
+- MCP 全部核心原语已实现:tools / resources / prompts / roots / sampling（stdio + Streamable HTTP；tools/resources/prompts 作为 external 操作需审批,经内置工具按需访问;roots 由 client 反向回应 `roots/list`;sampling 默认关、`--allow-mcp-sampling` 显式开启、safe 模式一律拒,server 用 runcode 的 provider 生成,不共享对话/不带 tools;server 仅用户级配置）。后续可做:每请求交互式 sampling 审批、资源模板与订阅。
 - sub-agents。
 - slash commands。
 - plugins。
@@ -582,4 +582,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 6. ✅ skills(约定目录发现 + 渐进式披露:catalog 进 prompt + `Skill` 工具按需加载正文,项目级生效并标注来源)。
 
-后续可选大方向:hooks/sub-agents、WebSearch、MCP 的 sampling、可执行 skill。
+后续可选大方向:hooks/sub-agents、WebSearch、可执行 skill。
