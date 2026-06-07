@@ -132,7 +132,7 @@ model: claude-opus-4-8        # 可选；省略则继承父会话模型
 你是一名严谨的代码评审者。深入分析 diff,用 file:line 引用报告具体、可操作的问题。
 ```
 
-主代理通过调用内置 **`Task`** 工具来委托,传入 `subagent_type`（代理名字）、简短的 `description` 和完整自洽的 `prompt`。只把一段紧凑的 **catalog**（每个代理的名字与描述,项目级标注 `[project]`）注入 prompt。每次委托运行一个临时子会话：它共用父会话的权限服务（因此 safe/interactive 规则与 PreToolUse hook 仍逐一门控每个子工具调用）、拥有全新的 read-set,且**不会**拿到 `Task` 工具本身——所以委托恰好一层深（不嵌套）。子会话不写入 transcript 或可恢复的 session 日志。格式错误的定义会被跳过并告警。`runcode config` 会列出可用的子代理（用户/项目级带标注）。可直接复制的示例定义见 [`examples/agents/`](examples/agents/)。并行 fan-out 与跨 provider 子代理尚未实现。
+主代理通过调用内置 **`Task`** 工具来委托,传入 `subagent_type`（代理名字）、简短的 `description` 和完整自洽的 `prompt`。只把一段紧凑的 **catalog**（每个代理的名字与描述,项目级标注 `[project]`）注入 prompt。每次委托运行一个临时子会话：它共用父会话的权限服务（因此 safe/interactive 规则与 PreToolUse hook 仍逐一门控每个子工具调用）、拥有全新的 read-set,且**不会**拿到 `Task` 工具本身——所以委托恰好一层深（不嵌套）。子会话不写入 transcript 或可恢复的 session 日志。格式错误的定义会被跳过并告警。`runcode config` 会列出可用的子代理（用户/项目级带标注）。可直接复制的示例定义见 [`examples/agents/`](examples/agents/)。在一条回复里发出多个 `Task` 调用会 fan-out 并发执行（受并发上限约束；interactive 权限模式下自动串行,以保证审批弹窗连贯）。跨 provider 子代理尚未实现。
 
 ### Hooks（钩子）
 

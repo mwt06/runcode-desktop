@@ -1228,7 +1228,7 @@ go -C "D:/我的AI/runcode" build ./cmd/runcode
 - **临时性**：子会话不持久化 transcript / 可恢复 session，但记录独立 trace 的 telemetry。
 - **优先级 user > project > builtin**；agents 目录中的 `README.md` 视作文档而跳过。
 - 项目级 agents 经 `.gitignore` 放行在仓库内共享（对等 `.runcode/skills/`）；可复制示例置于 `examples/agents/`。
-- **v1 串行**（`Task` 非并发安全）；并行 fan-out、跨 provider、按 agent 上下文预算留待后续。
+- **并发 fan-out**：`Task` 标为并发安全,一条 turn 内多个 `Task` 调用经父 executor 的并发批处理并行执行,Launcher 用信号量限制同时运行的子会话数（默认 4，可配置）；interactive 模式因 `ApprovalAvailable` 自动串行,以保证审批弹窗连贯。跨 provider、按 agent 上下文预算留待后续。
 
 ### 顺带修复的语义 bug
 

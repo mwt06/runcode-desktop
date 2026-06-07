@@ -3,8 +3,11 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/prompt"
@@ -155,16 +158,87 @@ func TestTaskToolValidatesInput(t *testing.T) {
 	}
 }
 
-func TestTaskToolNotConcurrencySafe(t *testing.T) {
+func TestTaskToolConcurrencySafe(t *testing.T) {
 	t.Parallel()
 
 	tt := NewTool(agent.NewSet(BuiltinAgents()), nil)
-	if tt.IsConcurrencySafe() {
-		t.Fatal("Task must not be concurrency-safe in v1")
+	if !tt.IsConcurrencySafe() {
+		t.Fatal("Task should be concurrency-safe so delegations can fan out")
 	}
 	if tt.Name() != ToolName {
 		t.Fatalf("name = %q", tt.Name())
 	}
+}
+
+func TestLauncherLimitsConcurrency(t *testing.T) {
+	t.Parallel()
+
+	const capacity = 2
+	const launches = 5
+	prov := newBlockingProvider()
+	l := NewLauncher(Options{Provider: prov, Model: "m", MaxConcurrent: capacity})
+	pctx := toolCtx(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < launches; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = l.Launch(context.Background(), agent.Agent{Name: "x", Prompt: "p"}, "task", pctx, nil)
+		}()
+	}
+
+	// Let the launches saturate the cap, then confirm no extra slipped through.
+	waitFor(t, func() bool { return prov.peak() >= capacity }, time.Second)
+	time.Sleep(50 * time.Millisecond)
+	if got := prov.peak(); got > capacity {
+		t.Fatalf("peak concurrent sub-agents = %d, want <= %d", got, capacity)
+	}
+
+	close(prov.gate) // release all blocked streams
+	wg.Wait()
+	if got := prov.peak(); got > capacity {
+		t.Fatalf("final peak concurrent sub-agents = %d, want <= %d", got, capacity)
+	}
+}
+
+func TestLauncherAcquireRespectsContextCancel(t *testing.T) {
+	t.Parallel()
+
+	// One blocked launch saturates the single slot; a second launch must return
+	// when its own context is cancelled instead of blocking forever on the
+	// semaphore.
+	prov := newBlockingProvider()
+	l := NewLauncher(Options{Provider: prov, Model: "m", MaxConcurrent: 1})
+	pctx := toolCtx(t)
+
+	var first sync.WaitGroup
+	first.Add(1)
+	go func() {
+		defer first.Done()
+		_, _ = l.Launch(context.Background(), agent.Agent{Name: "a", Prompt: "p"}, "t", pctx, nil)
+	}()
+	waitFor(t, func() bool { return prov.peak() >= 1 }, time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := l.Launch(ctx, agent.Agent{Name: "b", Prompt: "p"}, "t", pctx, nil)
+		done <- err
+	}()
+	cancel() // the second launch is blocked on the saturated semaphore
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("blocked launch returned %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled launch did not return; acquire ignored ctx")
+	}
+
+	close(prov.gate)
+	first.Wait()
 }
 
 func TestToolOnlyHooksSuppressUserPromptSubmit(t *testing.T) {
@@ -341,6 +415,64 @@ func (p *fakeProvider) Stream(_ context.Context, req llm.Request) (llm.Stream, e
 	}
 	close(ch)
 	return &fakeStream{events: ch}, nil
+}
+
+// blockingProvider holds every Stream call open on a shared gate so a test can
+// observe how many sub-agents run at once. It records the peak concurrency.
+type blockingProvider struct {
+	gate chan struct{}
+	mu   sync.Mutex
+	cur  int
+	max  int
+}
+
+func newBlockingProvider() *blockingProvider { return &blockingProvider{gate: make(chan struct{})} }
+
+func (p *blockingProvider) Name() string                   { return "blocking" }
+func (p *blockingProvider) Capabilities() llm.Capabilities { return llm.Capabilities{} }
+
+func (p *blockingProvider) Stream(ctx context.Context, _ llm.Request) (llm.Stream, error) {
+	p.mu.Lock()
+	p.cur++
+	if p.cur > p.max {
+		p.max = p.cur
+	}
+	p.mu.Unlock()
+
+	select {
+	case <-p.gate:
+	case <-ctx.Done():
+	}
+
+	p.mu.Lock()
+	p.cur--
+	p.mu.Unlock()
+
+	ev := textEvents("ok")
+	ch := make(chan llm.StreamEvent, len(ev))
+	for _, e := range ev {
+		ch <- e
+	}
+	close(ch)
+	return &fakeStream{events: ch}, nil
+}
+
+func (p *blockingProvider) peak() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.max
+}
+
+func waitFor(t *testing.T, cond func() bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("condition not met within timeout")
 }
 
 type fakeStream struct{ events chan llm.StreamEvent }

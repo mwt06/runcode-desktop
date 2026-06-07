@@ -31,6 +31,13 @@ import (
 // multi-step work, so they get a deeper loop than a single parent turn by default.
 const DefaultMaxIterations = 16
 
+// DefaultMaxConcurrent bounds how many sub-agents run at once. The Task tool is
+// concurrency-safe, so a single turn can fan out several delegations; this cap
+// keeps that fan-out from opening an unbounded number of full child sessions (each
+// its own model stream and tool runs) at the same time. Excess launches block
+// until a slot frees up.
+const DefaultMaxConcurrent = 4
+
 // Launcher builds and runs sub-agent child sessions. It is constructed once at
 // session wiring time with everything a child needs that cannot be derived from a
 // per-call tool.Context: the provider, the delegatable tool set, the shared
@@ -47,6 +54,8 @@ type Launcher struct {
 	telemetry     telemetry.Recorder
 	hooks         hooks.Runner
 	maxIterations int
+	// sem bounds concurrent Launch calls. A nil sem means unbounded.
+	sem chan struct{}
 }
 
 // Options configures a Launcher.
@@ -74,6 +83,9 @@ type Options struct {
 	// MaxIterations overrides the sub-agent ReAct budget (DefaultMaxIterations when
 	// <= 0).
 	MaxIterations int
+	// MaxConcurrent caps how many sub-agents run at once (DefaultMaxConcurrent when
+	// <= 0). Set it negative to disable the cap entirely.
+	MaxConcurrent int
 }
 
 // NewLauncher constructs a Launcher from Options.
@@ -93,6 +105,16 @@ func NewLauncher(opts Options) *Launcher {
 	if recorder == nil {
 		recorder = telemetry.Noop()
 	}
+	// A negative cap disables limiting (nil sem); 0 falls back to the default.
+	var sem chan struct{}
+	switch {
+	case opts.MaxConcurrent < 0:
+		sem = nil
+	case opts.MaxConcurrent == 0:
+		sem = make(chan struct{}, DefaultMaxConcurrent)
+	default:
+		sem = make(chan struct{}, opts.MaxConcurrent)
+	}
 	return &Launcher{
 		provider:      opts.Provider,
 		model:         opts.Model,
@@ -105,7 +127,30 @@ func NewLauncher(opts Options) *Launcher {
 		telemetry:     recorder,
 		hooks:         hookRunner,
 		maxIterations: maxIter,
+		sem:           sem,
 	}
+}
+
+// acquire blocks until a concurrency slot is free or ctx is cancelled. A nil sem
+// (cap disabled) never blocks. release returns the slot; it must be paired with a
+// successful acquire.
+func (l *Launcher) acquire(ctx context.Context) error {
+	if l.sem == nil {
+		return nil
+	}
+	select {
+	case l.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (l *Launcher) release() {
+	if l.sem == nil {
+		return
+	}
+	<-l.sem
 }
 
 // Launch runs the sub-agent described by def against taskPrompt and returns its
@@ -119,6 +164,14 @@ func (l *Launcher) Launch(ctx context.Context, def agent.Agent, taskPrompt strin
 	if l.provider == nil {
 		return "", errors.New("subagent launcher has no provider")
 	}
+
+	// Bound concurrent sub-agents: a fan-out turn may issue many Task calls, but
+	// only MaxConcurrent child sessions run at once. A cancelled context here is
+	// returned so the parent treats it as unrecoverable (like a cancelled run).
+	if err := l.acquire(ctx); err != nil {
+		return "", err
+	}
+	defer l.release()
 
 	childTools := l.toolsFor(def)
 

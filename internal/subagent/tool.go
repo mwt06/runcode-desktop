@@ -32,7 +32,7 @@ func NewTool(set *agent.Set, launcher *Launcher) *Tool {
 func (t *Tool) Name() string { return ToolName }
 
 func (t *Tool) Description() string {
-	return "Delegate a focused, self-contained task to a sub-agent and receive its final report. Choose a sub-agent by its name (subagent_type) from the sub-agent catalog in the system prompt. The sub-agent runs autonomously with its own tools and instructions and cannot ask follow-up questions, so provide a complete, standalone prompt describing exactly what to do and what to report back. Use this to offload well-scoped investigations or multi-step work and keep your own context focused."
+	return "Delegate a focused, self-contained task to a sub-agent and receive its final report. Choose a sub-agent by its name (subagent_type) from the sub-agent catalog in the system prompt. The sub-agent runs autonomously with its own tools and instructions and cannot ask follow-up questions, so provide a complete, standalone prompt describing exactly what to do and what to report back. Use this to offload well-scoped investigations or multi-step work and keep your own context focused. You can issue several Task calls in a single response to delegate independent tasks at once; they run concurrently."
 }
 
 func (t *Tool) InputSchema() tool.Schema {
@@ -56,10 +56,15 @@ func (t *Tool) InputSchema() tool.Schema {
 	}
 }
 
-// IsConcurrencySafe reports false: a sub-agent runs a full session with real tool
-// side effects and may require interactive approval, so Task calls run serially in
-// v1 to keep streaming output and approval prompts coherent.
-func (t *Tool) IsConcurrencySafe() bool { return false }
+// IsConcurrencySafe reports true so several Task calls in one turn fan out and run
+// their sub-agents concurrently. This is safe because each sub-agent runs an
+// isolated child session (its own history, tool context, and read-set) over
+// stateless shared tools and the shared permission service. The launcher caps how
+// many run at once. Note the parent only batches concurrency-safe tools when no
+// interactive approval is available, so under interactive mode Task calls still run
+// serially — which is what we want, since concurrent approval prompts cannot
+// interleave coherently.
+func (t *Tool) IsConcurrencySafe() bool { return true }
 
 type taskInput struct {
 	Description  string `json:"description"`

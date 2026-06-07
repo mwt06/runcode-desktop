@@ -487,7 +487,7 @@ cmd/runcode chat
 - cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
 - hooks 已实现:PreToolUse/PostToolUse/UserPromptSubmit 三事件,argv 直接执行(无 shell)、JSON payload 经 stdin、退出码语义(非零=拦截/反馈,infra 失败 fail-open+告警);仅用户级配置(项目剥离);工具钩子在 executor 集成(覆盖内置/MCP/skill 工具)。后续可做:SessionStart/End 等更多事件、结构化 JSON 决策、matcher glob/正则。
 - MCP 全部核心原语已实现:tools / resources / prompts / roots / sampling（stdio + Streamable HTTP；tools/resources/prompts 作为 external 操作需审批,经内置工具按需访问;roots 由 client 反向回应 `roots/list`;sampling 默认关、`--allow-mcp-sampling` 显式开启、safe 模式一律拒,server 用 runcode 的 provider 生成,不共享对话/不带 tools;server 仅用户级配置）。后续可做:每请求交互式 sampling 审批、资源模板与订阅。
-- sub-agents 已实现：`Task` 工具把独立任务委托给命名子代理。定义从约定目录发现（`<userConfigDir>/runcode/agents/*.md`、`<workspace>/.runcode/agents/*.md`，优先级 user > project > builtin，内置 `general-purpose` 兜底；`README.md` 视作目录文档而跳过），frontmatter 声明 name/description/可选 tools 白名单/可选 model，正文为系统提示。委托运行一个临时子 `repl.Session`：受限工具集、独立 read-set、共用父权限服务（safe/interactive 与 PreToolUse/PostToolUse 钩子仍逐一门控每个子工具调用）、不持久化 transcript/可恢复 session，最终助手文本作为工具结果返回。子代理不获得 `Task` 工具（委托恰好一层、不嵌套）；`Task` 作为 manage 操作免审批（真正门控在子工具）。`runcode config` 列出可用子代理，项目级 agents 经 `.gitignore` 在仓库内共享，示例见 `examples/agents/`。v1 串行执行。后续可做：并行 fan-out、跨 provider、按 agent 上下文预算。
+- sub-agents 已实现：`Task` 工具把独立任务委托给命名子代理。定义从约定目录发现（`<userConfigDir>/runcode/agents/*.md`、`<workspace>/.runcode/agents/*.md`，优先级 user > project > builtin，内置 `general-purpose` 兜底；`README.md` 视作目录文档而跳过），frontmatter 声明 name/description/可选 tools 白名单/可选 model，正文为系统提示。委托运行一个临时子 `repl.Session`：受限工具集、独立 read-set、共用父权限服务（safe/interactive 与 PreToolUse/PostToolUse 钩子仍逐一门控每个子工具调用）、不持久化 transcript/可恢复 session，最终助手文本作为工具结果返回。子代理不获得 `Task` 工具（委托恰好一层、不嵌套）；`Task` 作为 manage 操作免审批（真正门控在子工具）。`runcode config` 列出可用子代理，项目级 agents 经 `.gitignore` 在仓库内共享，示例见 `examples/agents/`。一次 turn 内多个 `Task` 调用会 fan-out 并发执行（受可配置并发上限约束；interactive 模式下因 `ApprovalAvailable` 自动串行,以保证审批连贯）。后续可做：跨 provider、按 agent 上下文预算。
 - slash commands。
 - plugins。
 - 可执行 skill / 语义匹配 / 远程 skill 仓库（指令型 skills 已实现：约定目录发现 + 渐进式披露 + `Skill` 工具按需加载，作为 manage 操作免审批）。
@@ -582,4 +582,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 7. ✅ sub-agents(`Task` 工具委托给命名子代理:约定目录发现 + 受限子会话 + 共用权限/钩子 + 不嵌套,内置 general-purpose 兜底)。
 
-后续可选大方向:WebSearch、可执行 skill、子代理并行 fan-out。
+后续可选大方向:WebSearch、可执行 skill、跨 provider 子代理。
