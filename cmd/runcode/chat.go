@@ -28,6 +28,7 @@ import (
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/llm/providers/anthropic"
 	"github.com/wt68/runcode/pkg/llm/providers/openai"
+	"github.com/wt68/runcode/pkg/memory"
 	"github.com/wt68/runcode/pkg/skill"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
@@ -826,11 +827,22 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		sessionTools = append(sessionTools, skill.NewTool(skillSet))
 	}
 
+	// Memory: persistent notes saved across sessions, loaded once at startup and
+	// injected into the prompt (sub-agents read it too). The Remember tool, added
+	// below after the sub-agent snapshot, lets the main session append to it.
+	memStore := memoryStore(cfg.CWD, userConfigDir())
+	memLoaded, err := memStore.Load()
+	if err != nil {
+		closeRecorders(context.Background(), recorder, trecorder, store, mcpManager)
+		return nil, sessionResources{}, err
+	}
+
 	promptOpts := prompt.AssemblerOpts{
 		CWD:            cfg.CWD,
 		Date:           time.Now().Format("2006-01-02"),
 		ShellInfo:      shellInfo(),
 		Skills:         skill.Catalog(skillSet),
+		Memory:         memory.Format(memLoaded),
 		ProjectCtx:     projectContext,
 		PermissionMode: cfg.PermissionMode,
 	}
@@ -855,6 +867,10 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		Hooks:         hookRunner,
 	})
 	sessionTools = append(sessionTools, subagent.NewTool(agentSet, launcher))
+	// Remember writes persistent memory; like Task it is added after the sub-agent
+	// snapshot, so sub-agents read memory but cannot write it — only the main
+	// session saves new memories.
+	sessionTools = append(sessionTools, memory.NewTool(memStore))
 	promptOpts.Agents = agent.Catalog(agentSet)
 
 	streamDelta := opts.StreamDelta

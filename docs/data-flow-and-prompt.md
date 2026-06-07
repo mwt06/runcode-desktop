@@ -139,7 +139,7 @@ Cache 策略：
 当前限制：
 
 - `ProjectCtx` 由 `cmd/runcode chat` 从 workspace 中首个命中的 `RUNCODE.md` / `CLAUDE.md` 加载，读取上限 64 KiB，超出会截断。
-- `Memory` 仍只是调用方传入字符串。
+- `Memory` 已落地:`cmd/runcode` 从用户级 `<userConfigDir>/runcode/memory.md` 与项目级 `<workspace>/.runcode/memory.md` 加载并注入;模型经 `Remember` 工具增量保存(去重、`manage` 免审批),子代理只读不可写。
 - 没有 settings loader。
 - 没有 prompt template embed。
 - skills catalog 与 sub-agent catalog 已注入 system prompt；子代理被委托时,子会话以该 agent 的 persona 作为系统指令,并清空 sub-agent catalog（委托不嵌套）。

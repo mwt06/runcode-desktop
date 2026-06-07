@@ -28,6 +28,7 @@ Implemented:
 - `internal/hooks`: user-configured lifecycle commands (PreToolUse/PostToolUse/UserPromptSubmit) run around tool execution and prompt submission.
 - `pkg/skill`: convention-directory skills with progressive disclosure — a compact catalog in the prompt and a `Skill` tool that loads a skill body on demand.
 - `pkg/agent` + `internal/subagent`: sub-agents delegated via the built-in `Task` tool, each running a restricted child `repl.Session` with its own persona prompt and optional model; delegation is one level deep (sub-agents never receive `Task`), and children share the parent permission service and tool hooks.
+- `pkg/memory`: persistent cross-session memory. The `Remember` tool appends a de-duplicated fact to the user/project memory file (fixed paths, never a caller path, so it is `manage`-classified), and saved facts are injected into the prompt's `Memory` section at startup.
 
 Not implemented yet:
 
@@ -179,6 +180,7 @@ The current scaffold should be validated through tests rather than through a rea
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |
 | `pkg/agent` | frontmatter parsing, tolerant directory loading, README skip, name precedence/dedup, tool-policy filtering, catalog rendering, and shipped example definitions |
 | `internal/subagent` | launcher tool-set filtering, model override, persona/system-prompt assembly, `Task` input validation and agent resolution, hook scoping (tool hooks only, no UserPromptSubmit), and child progress event bridging |
+| `pkg/memory` | scope rendering, bullet parsing, entry normalization, store load/append with case-insensitive de-dup, scope availability, truncation, and Remember tool validation |
 | `cmd/runcode` | `version` output, chat prompt input, `chat --loop` behavior, config parsing, fake-runner output, approval prompt behavior, shared line input, runtime IO propagation, and error propagation |
 
 Recommended validation commands:

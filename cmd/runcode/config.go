@@ -41,6 +41,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  mcp_sampling:         %s\n", mcpSamplingSummary(cfg))
 			fmt.Fprintf(out, "  skills:               %s\n", skillSummary(cfg.CWD))
 			fmt.Fprintf(out, "  agents:               %s\n", agentSummary(cfg.CWD))
+			fmt.Fprintf(out, "  memory:               %s\n", memorySummary(cfg.CWD))
 			fmt.Fprintf(out, "  hooks:                %s\n", hookSummary(cfg.Hooks))
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)

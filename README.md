@@ -135,6 +135,17 @@ actionable issues with file:line references.
 
 The main agent delegates by calling the built-in **`Task`** tool with a `subagent_type` (the agent's name), a short `description`, and a complete, standalone `prompt`. Only a compact **catalog** (each agent's name and description, `[project]`-tagged for workspace agents) is injected into the prompt. Each delegation runs an ephemeral child session: it shares the parent's permission service (so safe/interactive rules and PreToolUse hooks still gate every child tool call), gets a fresh read-set, and is **not** given the `Task` tool itself — so delegation is exactly one level deep (no nesting). Child sessions are not persisted to transcripts or the resumable session log. A malformed definition is skipped with a warning. `runcode config` lists the available sub-agents (user/project ones tagged). Ready-to-copy example definitions live in [`examples/agents/`](examples/agents/). Issuing several `Task` calls in one response fans them out to run concurrently, bounded by a concurrency cap; under interactive permission mode they run serially so approval prompts stay coherent. Cross-provider sub-agents are not implemented yet.
 
+### Memory
+
+Memory is runcode's own running notebook — distinct from project context (a human-authored `RUNCODE.md` / `CLAUDE.md` checked into the repo). When the model learns a durable fact (a user preference, a project convention, a recurring gotcha), it calls the built-in **`Remember`** tool to save it; saved memories are injected into the system prompt at the start of every later session.
+
+Memory has two scopes, each a Markdown file of one-line bullet entries:
+
+- **Project** (the `Remember` default): `<workspace>/.runcode/memory.md` — facts specific to this repo. It lives under `.runcode/`, which is git-ignored, so it stays a local notebook rather than a committed file.
+- **User**: `<userConfigDir>/runcode/memory.md` — preferences that apply across all projects (`Remember` with `scope: "user"`).
+
+`Remember` only ever writes these fixed runcode-owned files (it never takes a path), so it is classified as side-effect-free management and works even in safe mode. Equivalent facts are de-duplicated, sub-agents read memory but cannot write it, and `runcode config` reports how many memories are saved per scope without printing their text. Memory is loaded once at startup, so a fact saved mid-session is recalled from the next session on.
+
 ### Hooks
 
 **Hooks** run a user-configured command at a lifecycle event, so you can enforce policy, audit, or inject context without changing runcode. Three events are supported:
@@ -185,7 +196,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling. Lifecycle hooks (PreToolUse/PostToolUse/UserPromptSubmit — see [Hooks](#hooks)) are supported, as are sub-agents (delegation via the `Task` tool — see [Sub-agents](#sub-agents)).
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling. Lifecycle hooks (PreToolUse/PostToolUse/UserPromptSubmit — see [Hooks](#hooks)) are supported, as are sub-agents (delegation via the `Task` tool — see [Sub-agents](#sub-agents)), and persistent cross-session memory (the `Remember` tool — see [Memory](#memory)).
 
 ## Implemented tools
 
@@ -202,6 +213,7 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 | `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
 | `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); a network operation that requires approval (shown per host). |
 | `Task` | Delegates a self-contained task to a named sub-agent (its own session, restricted tools, optional model) and returns the sub-agent's report; orchestration allowed without approval, since each child tool call is authorized individually (see [Sub-agents](#sub-agents)). |
+| `Remember` | Saves a durable fact to runcode's persistent memory (project by default, or user scope) so it is recalled in future sessions; runcode-managed metadata written to a fixed path, allowed without approval (see [Memory](#memory)). |
 
 MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)), and the `Task` tool delegates to sub-agents (see [Sub-agents](#sub-agents)). WebSearch and plugin tools are not implemented yet.
 
@@ -264,7 +276,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: SQLite transcript persistence, `pkg/agent`, `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
+Scaffolded but not implemented yet: SQLite transcript persistence, `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
 
 ## Contributing
 

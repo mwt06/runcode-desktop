@@ -75,6 +75,13 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		// the wrapper is side-effect-free management and allowed without approval
 		// (the real gating happens on the child's tool calls).
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "Remember":
+		// Saving a memory writes only runcode's own memory file at a fixed,
+		// scope-derived path (the tool never accepts a path and touches no user
+		// code, commands, or network). It is runcode-managed metadata, like the todo
+		// list, so it is side-effect-free management allowed without approval — a
+		// note-taking action should work even in safe mode.
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "WebFetch":
 		return resolveWebFetch(req)
 	default:

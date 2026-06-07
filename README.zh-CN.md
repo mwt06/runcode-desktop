@@ -134,6 +134,17 @@ model: claude-opus-4-8        # 可选；省略则继承父会话模型
 
 主代理通过调用内置 **`Task`** 工具来委托,传入 `subagent_type`（代理名字）、简短的 `description` 和完整自洽的 `prompt`。只把一段紧凑的 **catalog**（每个代理的名字与描述,项目级标注 `[project]`）注入 prompt。每次委托运行一个临时子会话：它共用父会话的权限服务（因此 safe/interactive 规则与 PreToolUse hook 仍逐一门控每个子工具调用）、拥有全新的 read-set,且**不会**拿到 `Task` 工具本身——所以委托恰好一层深（不嵌套）。子会话不写入 transcript 或可恢复的 session 日志。格式错误的定义会被跳过并告警。`runcode config` 会列出可用的子代理（用户/项目级带标注）。可直接复制的示例定义见 [`examples/agents/`](examples/agents/)。在一条回复里发出多个 `Task` 调用会 fan-out 并发执行（受并发上限约束；interactive 权限模式下自动串行,以保证审批弹窗连贯）。跨 provider 子代理尚未实现。
 
+### Memory（记忆）
+
+记忆是 runcode 自己的随手笔记——区别于项目上下文（仓库内人写的 `RUNCODE.md` / `CLAUDE.md`）。当模型了解到一个长期有用的事实（用户偏好、项目约定、易踩的坑）时,它调用内置 **`Remember`** 工具保存;保存的记忆会在之后每次会话开始时注入 system prompt。
+
+记忆分两个 scope,各是一个 Markdown 文件,每条记忆一行 bullet:
+
+- **项目级**（`Remember` 默认）:`<workspace>/.runcode/memory.md`——本仓库特定的事实。它位于 git-ignored 的 `.runcode/` 下,所以是本地笔记而非提交进仓库的文件。
+- **用户级**:`<userConfigDir>/runcode/memory.md`——跨所有项目的偏好（`Remember` 传 `scope: "user"`）。
+
+`Remember` 只写这些固定的 runcode 自有文件（从不接受路径）,因此被归类为无副作用的 management 操作,safe 模式下也能用。等价的事实会去重,子代理只读记忆不可写,`runcode config` 报告每个 scope 保存了多少条记忆而不打印内容。记忆在启动时一次性加载,所以会话中途保存的事实从下次会话起生效。
+
 ### Hooks（钩子）
 
 **Hook** 在生命周期事件触发时执行用户配置的命令,让你无需改 runcode 即可加策略、审计或注入上下文。支持三个事件:
@@ -184,7 +195,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling。已支持生命周期 hooks（PreToolUse/PostToolUse/UserPromptSubmit,见 [Hooks](#hooks钩子)）,也已支持 sub-agents（经 `Task` 工具委托,见 [Sub-agents](#sub-agents子代理)）。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling。已支持生命周期 hooks（PreToolUse/PostToolUse/UserPromptSubmit,见 [Hooks](#hooks钩子)）,也已支持 sub-agents（经 `Task` 工具委托,见 [Sub-agents](#sub-agents子代理)）,以及跨会话持久记忆（`Remember` 工具,见 [Memory](#memory记忆)）。
 
 ## 已实现工具
 
@@ -201,6 +212,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 | `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
 | `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；网络操作，需审批（按 host 显示）。 |
 | `Task` | 把一项独立任务委托给指定子代理（自有会话、受限工具、可选模型）并返回其报告；属编排,免审批,因为每个子工具调用都被单独鉴权（见 [Sub-agents](#sub-agents子代理)）。 |
+| `Remember` | 把一条长期事实保存到 runcode 的持久记忆（默认项目级,或 user scope）,供未来会话回忆;写固定路径的 runcode 元数据,免审批（见 [Memory](#memory记忆)）。 |
 
 配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）,`Task` 工具则委托给子代理（见 [Sub-agents](#sub-agents子代理)）。WebSearch 和插件工具尚未实现。
 
@@ -263,7 +275,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：SQLite transcript persistence、`pkg/agent`、`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
+仍是脚手架或未实现：SQLite transcript persistence、`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
 
 ## 贡献
 

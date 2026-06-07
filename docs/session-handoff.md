@@ -1257,3 +1257,38 @@ go run ./cmd/runcode config   # 输出含 “agents: general-purpose”
 ### 当前状态一句话总结
 
 主代理现在可经内置 `Task` 工具把任务委托给命名子代理：子代理在受限工具集、独立上下文、共用父权限/钩子的临时子会话中自主完成任务并返回单条报告，委托恰好一层、不嵌套，安全语义与主会话一致。
+
+---
+
+## 2026-06-07 续作：Memory 记忆系统已完成
+
+### 本轮目标
+
+落地 `prompt.AssemblerOpts` 里一直空着的 `Memory` 字段：让 runcode 跨会话记住稳定事实（用户偏好、项目约定、易踩的坑）。
+
+### 设计与分层
+
+- `pkg/memory`（纯逻辑,镜像 `pkg/skill`）：`memory.go`（`Scope` / `Loaded` / `Format` / bullet 解析）、`store.go`（`Store`：两-scope 加载 + 去重追加 + 原子写,`mu` 串行化读-改-写）、`tool.go`（`Remember` 工具）。
+- 两 scope,各一个 Markdown bullet 文件：用户级 `<userConfigDir>/runcode/memory.md`、项目级 `<workspace>/.runcode/memory.md`（在 git-ignored 的 `.runcode/` 下,本地笔记不入库）。
+- `cmd/runcode/memory.go` 装配 Store 与 summary；`chat.go` 启动加载 → `AssemblerOpts.Memory`,并在子代理工具快照之后注册 `Remember`（子代理只读不可写）；`config.go` 显示每 scope 条数；`resolver.go` 把 `Remember` 归 `manage` 免审批（只写固定路径的 runcode 自有元数据）。
+
+### 关键设计决策
+
+- `Remember` 只写固定 scope 路径（从不接受任意路径）→ `manage` 免审批,safe 模式也能记笔记。
+- 子代理**读**记忆（遵守既有约定）但不获得 `Remember`（临时会话不污染持久记忆）。
+- v1 启动加载快照：会话中途存的记忆靠工具结果留在上下文中可见,下次会话从文件生效；每-turn 实时重载留待后续。
+- 大小写不敏感去重；单条与单文件大小上限。
+
+### 已验证
+
+- `go test ./...` + `go vet` 全绿；`go test -race ./...`（WinLibs gcc 16.1.0）全 33 包零 data race（含 sub-agents 并发 fan-out 与 memory store 锁）。
+- `pkg/memory`：Format/解析/normalize、Store 加载/去重/scope/截断、`Remember` 工具校验。
+- `cmd/runcode`：`memoryStore` 路径与 scope 禁用、`memorySummary` 计数。
+
+### 后续
+
+每-turn 实时重载、条目编辑/遗忘、语义召回。
+
+### 当前状态一句话总结
+
+runcode 现在有了跨会话记忆：模型用 `Remember` 把稳定事实存入项目级/用户级 markdown 笔记,下次会话自动注入 prompt；写的是 runcode 自有的固定路径文件,故 safe 模式下也免审批,子代理只读不可写。

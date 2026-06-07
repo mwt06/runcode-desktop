@@ -378,7 +378,7 @@ cmd/runcode chat
 缺口：
 
 - project context loader 只读取第一个命中的 `RUNCODE.md` / `CLAUDE.md`，读取上限 64 KiB；不合并多个文件，也不支持 include。
-- `Memory` 仍只是调用方传入字符串。
+- `Memory` 已落地:`cmd/runcode` 从 `<userConfigDir>/runcode/memory.md`(用户级)与 `<workspace>/.runcode/memory.md`(项目级)加载并注入 prompt;模型经 `Remember` 工具增量保存(去重、`manage` 免审批),子代理只读不可写。后续:每-turn 实时重载、条目编辑/遗忘、语义召回。
 - 已有 TOML settings loader(`internal/persistence/settings`)供 CLI/TUI 配置;尚未用于 prompt memory 或 settings-backed policy guidance。
 - 没有 prompt templates / go:embed。
 - skills catalog 已注入 system prompt（`Skill` 工具按需披露正文）；sub-agent 通过 `Task` 工具委托时，子会话以 agent persona 作为系统提示，并清空父会话的 agent catalog（不向下传递委托能力）。
@@ -509,9 +509,10 @@ cmd/runcode chat
 
 `ProjectCtx` 已由 `RUNCODE.md` / `CLAUDE.md` loader 接入，但 prompt 上下文仍缺少：
 
-- settings loader。
-- memory loader。
+- settings loader 注入 prompt（TOML 配置读取已实现,但尚未用于 prompt memory / policy guidance）。
 - 更丰富的 permission summary 注入 prompt。
+
+（memory loader 已实现:见上文「Prompt 系统状态」与 `pkg/memory`。）
 
 ### 4. CLI / TUI 交互体验
 
