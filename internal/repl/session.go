@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/wt68/runcode/internal/compaction"
+	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/persistence/transcript"
@@ -29,7 +30,13 @@ const DefaultMaxIterations = 8
 var (
 	ErrInvalidSession = errors.New("invalid session")
 	ErrMaxIterations  = errors.New("max react iterations reached")
+	// ErrPromptBlockedByHook is returned from RunTurn when a UserPromptSubmit hook
+	// rejects the prompt. Its message carries the hook's feedback.
+	ErrPromptBlockedByHook = errors.New("prompt blocked by hook")
 )
+
+// hookContextPrefix labels context a UserPromptSubmit hook injects into a turn.
+const hookContextPrefix = "Additional context from a UserPromptSubmit hook:\n"
 
 type SessionOptions struct {
 	Provider      llm.Provider
@@ -64,6 +71,9 @@ type SessionOptions struct {
 	// MaxContextTokens enables context compaction once a turn's input tokens
 	// approach this budget. 0 (default) disables compaction.
 	MaxContextTokens int
+	// Hooks runs lifecycle hooks (PreToolUse/PostToolUse via the executor, and
+	// UserPromptSubmit at the start of a turn). nil means no hooks.
+	Hooks hooks.Runner
 }
 
 type Session struct {
@@ -92,6 +102,7 @@ type Session struct {
 	streamDelta        func(delta string)
 	sessionStore       sessions.Store
 	maxContextTokens   int
+	hooks              hooks.Runner
 }
 
 type TurnResult struct {
@@ -124,8 +135,12 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		return nil, err
 	}
 
+	hookRunner := opts.Hooks
+	if hookRunner == nil {
+		hookRunner = hooks.Noop{}
+	}
 	tools := cloneTools(opts.Tools)
-	executor, err := NewExecutorWithOptions(ExecutorOptions{Tools: tools, Permissions: opts.Permissions})
+	executor, err := NewExecutorWithOptions(ExecutorOptions{Tools: tools, Permissions: opts.Permissions, Hooks: hookRunner})
 	if err != nil {
 		return nil, err
 	}
@@ -173,15 +188,27 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		streamDelta:        opts.StreamDelta,
 		sessionStore:       sessionStore,
 		maxContextTokens:   opts.MaxContextTokens,
+		hooks:              hookRunner,
 	}, nil
 }
 
 func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, error) {
-	messages := cloneMessages(s.history)
-	messages = append(messages, userMessage(userText))
-	currentUserIndex := len(messages) - 1
-	promptOpts := s.prompt
 	var result TurnResult
+
+	// A UserPromptSubmit hook may reject the prompt (non-zero exit) or inject
+	// additional context for the turn (its output on a clean exit).
+	hookContext, err := s.runUserPromptSubmitHook(ctx, userText)
+	if err != nil {
+		return result, err
+	}
+
+	messages := cloneMessages(s.history)
+	currentUserIndex := len(messages)
+	if hookContext != "" {
+		messages = append(messages, userMessage(hookContextPrefix+hookContext))
+	}
+	messages = append(messages, userMessage(userText))
+	promptOpts := s.prompt
 	turn := s.startTurn(ctx, userText)
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -258,6 +285,27 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 	}
 
 	return result, turn.error(ctx, result, ErrMaxIterations)
+}
+
+// runUserPromptSubmitHook fires the UserPromptSubmit hooks. It returns the
+// injected context (the hooks' output) on success, or ErrPromptBlockedByHook
+// (carrying the feedback) when a hook rejects the prompt.
+func (s *Session) runUserPromptSubmitHook(ctx context.Context, userText string) (string, error) {
+	if s.hooks == nil {
+		return "", nil
+	}
+	decision := s.hooks.Run(ctx, hooks.Input{
+		Event:  hooks.EventUserPromptSubmit,
+		Prompt: userText,
+		CWD:    workingDirectory(s.toolContext),
+	})
+	if decision.Block {
+		if decision.Output == "" {
+			return "", ErrPromptBlockedByHook
+		}
+		return "", fmt.Errorf("%w: %s", ErrPromptBlockedByHook, decision.Output)
+	}
+	return decision.Output, nil
 }
 
 func (s *Session) History() []llm.Message {

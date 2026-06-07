@@ -13,7 +13,7 @@
 
 `runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
 
-The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; many planned systems — hooks, sub-agents, SQLite transcripts, richer TUI permissions/tool UI, and broader multi-provider support — are still scaffolds or deferred work.
+The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; some planned systems — sub-agents, SQLite transcripts, richer TUI permissions/tool UI, and broader multi-provider support — are still scaffolds or deferred work.
 
 ## Quick start
 
@@ -113,6 +113,31 @@ description: Review the current diff for correctness and clarity
 
 To keep context cheap, only a compact **catalog** (each skill's name and description, with a `[project]` tag for workspace skills) is injected into the system prompt. The model loads a skill's full instructions on demand by calling the built-in **`Skill`** tool with its name — so unused skills cost no context. The `Skill` tool only returns in-memory text (it launches nothing and touches no files), so it runs without approval. A malformed or oversized skill is skipped with a warning rather than breaking the session. Project skills are honored so teams can share workflows in-repo, but their text enters the prompt, so they are attributed as `[project]`. `runcode config` lists the loaded skill names (project ones tagged) without printing any body.
 
+### Hooks
+
+**Hooks** run a user-configured command at a lifecycle event, so you can enforce policy, audit, or inject context without changing runcode. Three events are supported:
+
+- **PreToolUse** — fires after a tool call is authorized, before it runs. A non-zero exit **blocks** the tool; the command's output is returned to the model.
+- **PostToolUse** — fires after a tool runs. Its output is appended to the result as feedback (it cannot un-run the tool).
+- **UserPromptSubmit** — fires when you submit a prompt. A non-zero exit **rejects** the prompt; otherwise the output is injected as additional context for the turn.
+
+Hooks are configured in the **user-level** config only — like MCP servers, a project file can never register one, since hooks run arbitrary commands. The command runs directly (no shell) with the event payload as JSON on stdin; output is bounded and sanitized. A hook that runs and exits non-zero is a deliberate block; one that *fails to run* (missing binary, timeout) fails open with a warning so a broken hook never bricks the session.
+
+```toml
+# user config.toml
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"            # tool name, or "*" for all
+command = ["python3", "/abs/path/audit.py"]
+timeout_ms = 5000
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = ["/abs/path/inject-git-status.sh"]
+```
+
+Tool hooks cover builtin, MCP, and skill tool calls. `runcode config` lists the configured hooks as `event:matcher` without printing their commands. Session lifecycle events and structured-JSON decisions are not implemented yet.
+
 Run `runcode config` to print the effective configuration and which files were loaded (credential values are never printed).
 
 ```toml
@@ -138,7 +163,7 @@ Current limitations:
 
 - TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
 - No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling; no hooks or sub-agents yet.
+- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling. Lifecycle hooks (PreToolUse/PostToolUse/UserPromptSubmit — see [Hooks](#hooks)) are supported; no sub-agents yet.
 
 ## Implemented tools
 
@@ -216,7 +241,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: `internal/hooks`, SQLite transcript persistence, `pkg/agent`, `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
+Scaffolded but not implemented yet: SQLite transcript persistence, `pkg/agent`, `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
 
 ## Contributing
 

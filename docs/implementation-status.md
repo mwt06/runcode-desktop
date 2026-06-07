@@ -36,7 +36,7 @@ cmd/runcode chat
 - opt-in JSONL transcript store。
 - 最小 Bubble Tea TUI MVP：Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的单行输入、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 `/help` / `/clear` / `/status` / `/exit`。
 
-但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer、hooks、sub-agents 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP tools、skills 已实现。）
+但整体仍是 `v0.1-alpha` 最小实现。一些目录仍是空壳，部分能力只做到安全可验证的第一版，尚无 diff viewer、sub-agents 等。（permission modal、rich tool output、context compaction、OpenAI provider、MCP 全原语、skills、hooks 已实现。）
 
 ## 当前已实现模块
 
@@ -472,7 +472,6 @@ cmd/runcode chat
 - `internal/persistence/migrate`
 - `internal/coordinator`
 - `internal/session`
-- `internal/hooks`
 - `pkg/agent`
 - `pkg/command`
 - `pkg/plugin`
@@ -487,7 +486,7 @@ cmd/runcode chat
 - SQLite transcript backend。
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
-- hooks。
+- hooks 已实现:PreToolUse/PostToolUse/UserPromptSubmit 三事件,argv 直接执行(无 shell)、JSON payload 经 stdin、退出码语义(非零=拦截/反馈,infra 失败 fail-open+告警);仅用户级配置(项目剥离);工具钩子在 executor 集成(覆盖内置/MCP/skill 工具)。后续可做:SessionStart/End 等更多事件、结构化 JSON 决策、matcher glob/正则。
 - MCP 全部核心原语已实现:tools / resources / prompts / roots / sampling（stdio + Streamable HTTP；tools/resources/prompts 作为 external 操作需审批,经内置工具按需访问;roots 由 client 反向回应 `roots/list`;sampling 默认关、`--allow-mcp-sampling` 显式开启、safe 模式一律拒,server 用 runcode 的 provider 生成,不共享对话/不带 tools;server 仅用户级配置）。后续可做:每请求交互式 sampling 审批、资源模板与订阅。
 - sub-agents。
 - slash commands。
@@ -582,4 +581,4 @@ modal（`[p] allow project`）均可选。grain 与 session 一致（Write/Edit 
 
 6. ✅ skills(约定目录发现 + 渐进式披露:catalog 进 prompt + `Skill` 工具按需加载正文,项目级生效并标注来源)。
 
-后续可选大方向:hooks/sub-agents、WebSearch、可执行 skill。
+后续可选大方向:sub-agents、WebSearch、可执行 skill。

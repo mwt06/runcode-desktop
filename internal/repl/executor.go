@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/internal/toolpath"
@@ -33,11 +34,15 @@ const (
 type Executor struct {
 	tools       map[string]tool.Tool
 	permissions *permissions.Service
+	hooks       hooks.Runner
 }
 
 type ExecutorOptions struct {
 	Tools       []tool.Tool
 	Permissions *permissions.Service
+	// Hooks runs PreToolUse/PostToolUse hooks around tool execution. Nil means no
+	// hooks (a Noop runner).
+	Hooks hooks.Runner
 }
 
 type ExecuteRequest struct {
@@ -81,7 +86,11 @@ func NewExecutorWithOptions(opts ExecutorOptions) (*Executor, error) {
 	if permissionService == nil {
 		permissionService = permissions.DefaultService()
 	}
-	return &Executor{tools: indexed, permissions: permissionService}, nil
+	hookRunner := opts.Hooks
+	if hookRunner == nil {
+		hookRunner = hooks.Noop{}
+	}
+	return &Executor{tools: indexed, permissions: permissionService, hooks: hookRunner}, nil
 }
 
 func isNilTool(candidate tool.Tool) bool {
@@ -148,6 +157,19 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "permission denied"))
 		return permissionDeniedResult(req.Name, tctx.ToolUseID, decision), nil
 	}
+
+	// A PreToolUse hook may block an authorized tool (its non-zero exit is a
+	// deliberate policy decision); the hook output is returned to the model.
+	if pre := e.hooks.Run(ctx, hooks.Input{
+		Event:     hooks.EventPreToolUse,
+		ToolName:  req.Name,
+		ToolUseID: tctx.ToolUseID,
+		ToolInput: req.Input,
+		CWD:       workingDirectory(tctx),
+	}); pre.Block {
+		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "blocked by hook"))
+		return hookBlockedResult(req.Name, tctx.ToolUseID, pre.Output), nil
+	}
 	emitToolEvent(req.Events, executorToolEvent(tool.EventTypeStarted, req.Name, tctx.ToolUseID, "started"))
 
 	recorder.Record(ctx, telemetry.Event{
@@ -184,6 +206,19 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		attachToolOutput(&event, outputLines, outputTotal, outputTruncated)
 		emitToolEvent(req.Events, event)
 		return toolRunErrorResult(req, tctx, err), nil
+	}
+
+	// A PostToolUse hook cannot un-run the tool, but its output is surfaced to the
+	// model as feedback (and a non-zero exit marks the result as an error).
+	if post := e.hooks.Run(ctx, hooks.Input{
+		Event:     hooks.EventPostToolUse,
+		ToolName:  req.Name,
+		ToolUseID: tctx.ToolUseID,
+		ToolInput: req.Input,
+		CWD:       workingDirectory(tctx),
+	}); post.Output != "" || post.Block {
+		result = appendHookFeedback(result, post.Output, post.Block)
+		outputLines, outputTotal, outputTruncated = toolOutputForEvents(req.Name, result)
 	}
 
 	recorder.Record(ctx, telemetry.Event{
@@ -242,6 +277,33 @@ func toolRunErrorResult(req ExecuteRequest, tctx *tool.Context, err error) Execu
 
 func isUnrecoverableToolError(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func hookBlockedResult(toolName string, toolUseID string, output string) ExecuteResult {
+	text := "Blocked by a PreToolUse hook."
+	if output != "" {
+		text += "\n" + output
+	}
+	return ExecuteResult{
+		ToolName:  toolName,
+		ToolUseID: toolUseID,
+		Result: tool.Result{
+			IsError: true,
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}},
+		},
+	}
+}
+
+// appendHookFeedback adds a PostToolUse hook's output to the tool result so the
+// model sees it. A blocking post hook also marks the result as an error.
+func appendHookFeedback(result tool.Result, output string, block bool) tool.Result {
+	if output != "" {
+		result.Content = append(result.Content, tool.ResultContent{Type: tool.ResultContentTypeText, Text: "[PostToolUse hook]\n" + output})
+	}
+	if block {
+		result.IsError = true
+	}
+	return result
 }
 
 func permissionDeniedResult(toolName string, toolUseID string, decision permissions.Decision) ExecuteResult {

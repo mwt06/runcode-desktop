@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/cost"
+	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
@@ -65,6 +66,8 @@ type chatConfig struct {
 	// AllowMCPSampling opts in to serving MCP servers' sampling requests. Even
 	// when true, safe mode refuses sampling.
 	AllowMCPSampling bool
+	// Hooks are the validated lifecycle hooks (user-level config only).
+	Hooks []hooks.Hook
 }
 
 type chatIO struct {
@@ -427,6 +430,10 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	hookList, err := hooksFromConfig(file.Hooks)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 
 	return chatConfig{
 		Provider:           provider,
@@ -451,6 +458,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		PriceSource:        priceSource,
 		MCPServers:         mcpServers,
 		AllowMCPSampling:   allowMCPSampling,
+		Hooks:              hookList,
 	}, resolved, nil
 }
 
@@ -845,6 +853,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		InitialHistory:     initialHistory,
 		SessionStore:       store,
 		MaxContextTokens:   cfg.MaxContextTokens,
+		Hooks:              newHookRunner(cfg.Hooks, opts.Runtime),
 	})
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store, mcpManager)

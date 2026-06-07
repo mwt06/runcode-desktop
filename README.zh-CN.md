@@ -13,7 +13,7 @@
 
 `runcode` 是一个面向终端的 Go 版 AI 编程伴侣。当前版本刻意保持小范围：通过 `runcode chat` 调用 Anthropic provider，暴露一组受限本地工具，并在文件修改和命令执行前经过内部权限层。
 
-长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；hooks、sub-agents、SQLite transcript、更完整的 TUI 权限/工具界面、更广的多 provider 等系统目前仍是脚手架或后续工作。
+长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；sub-agents、SQLite transcript、更完整的 TUI 权限/工具界面、更广的多 provider 等系统目前仍是脚手架或后续工作。
 
 ## 快速开始
 
@@ -113,6 +113,31 @@ description: Review the current diff for correctness and clarity
 
 为节省上下文,只把一段紧凑的 **catalog**（每个 skill 的名字与描述,项目级标注 `[project]`）注入 system prompt。模型在需要时调用内置 **`Skill`** 工具并传入名字来按需加载该 skill 的完整指令——未用到的 skill 不占上下文。`Skill` 工具只返回内存中的文本（不启动任何进程、不碰文件）,因此免审批运行。格式错误或超大的 skill 会被跳过并告警,而非中断会话。项目级 skill 生效(便于团队在仓库内共享工作流),但其文本会进入 prompt,故标注 `[project]`。`runcode config` 会列出已加载的 skill 名字（项目级带标注）,不打印任何正文。
 
+### Hooks（钩子）
+
+**Hook** 在生命周期事件触发时执行用户配置的命令,让你无需改 runcode 即可加策略、审计或注入上下文。支持三个事件:
+
+- **PreToolUse** —— 工具授权后、运行前触发。非零退出**拦截**该工具,命令输出回灌模型。
+- **PostToolUse** —— 工具运行后触发。输出作为反馈追加到结果(无法撤销已执行的工具)。
+- **UserPromptSubmit** —— 提交 prompt 时触发。非零退出**拒绝**该 prompt;否则输出作为本轮附加上下文注入。
+
+hook **仅用户级配置生效**——像 MCP server 一样,项目文件绝不能注册 hook(hook 执行任意命令)。命令以 argv **直接执行(无 shell)**,事件 payload 以 JSON 经 **stdin** 传入;输出有界且脱敏。**运行后非零退出**是刻意拦截;**无法运行**(缺二进制、超时)则 fail-open 并告警,broken hook 不会拖垮会话。
+
+```toml
+# 用户 config.toml
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"            # 工具名,或 "*" 全匹配
+command = ["python3", "/abs/path/audit.py"]
+timeout_ms = 5000
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = ["/abs/path/inject-git-status.sh"]
+```
+
+工具钩子覆盖内置 / MCP / skill 工具调用。`runcode config` 以 `event:matcher` 列出已配置 hook,不打印命令。会话生命周期事件与结构化 JSON 决策暂未实现。
+
 运行 `runcode config` 可查看生效配置和已加载的配置文件路径（凭证值绝不打印）。
 
 ```toml
@@ -138,7 +163,7 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 - TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
 - 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling；尚无 hooks、sub-agents。
+- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling。已支持生命周期 hooks（PreToolUse/PostToolUse/UserPromptSubmit,见 [Hooks](#hooks钩子)）；尚无 sub-agents。
 
 ## 已实现工具
 
@@ -216,7 +241,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：`internal/hooks`、SQLite transcript persistence、`pkg/agent`、`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
+仍是脚手架或未实现：SQLite transcript persistence、`pkg/agent`、`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
 
 ## 贡献
 

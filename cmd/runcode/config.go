@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/pkg/skill"
 )
@@ -38,6 +39,7 @@ func configCmd() *cobra.Command {
 			fmt.Fprintf(out, "  mcp_servers:          %s\n", mcpServerSummary(cfg.MCPServers))
 			fmt.Fprintf(out, "  mcp_sampling:         %s\n", mcpSamplingSummary(cfg))
 			fmt.Fprintf(out, "  skills:               %s\n", skillSummary(cfg.CWD))
+			fmt.Fprintf(out, "  hooks:                %s\n", hookSummary(cfg.Hooks))
 			fmt.Fprintf(out, "  credentials:          %s\n", credentialStatus(cfg))
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Config files:")
@@ -59,6 +61,23 @@ func mcpServerSummary(servers []mcp.ServerConfig) string {
 	parts := make([]string, len(servers))
 	for i, s := range servers {
 		parts[i] = fmt.Sprintf("%s (%s)", s.Name, s.Transport)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// hookSummary lists the configured hooks as "event:matcher" without printing the
+// commands they run.
+func hookSummary(hookList []hooks.Hook) string {
+	if len(hookList) == 0 {
+		return "<none>"
+	}
+	parts := make([]string, len(hookList))
+	for i, h := range hookList {
+		matcher := h.Matcher
+		if matcher == "" {
+			matcher = "*"
+		}
+		parts[i] = fmt.Sprintf("%s:%s", h.Event, matcher)
 	}
 	return strings.Join(parts, ", ")
 }

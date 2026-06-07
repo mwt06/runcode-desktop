@@ -51,6 +51,19 @@ type Config struct {
 	// user-level file (like credentials): a project file must not be able to make
 	// runcode launch subprocesses or connect to endpoints just by being present.
 	MCP MCPConfig `toml:"mcp"`
+	// Hooks configures lifecycle hook commands. Like MCP, it is honored only from
+	// the user-level file: a project file must not be able to run arbitrary
+	// commands just by being opened.
+	Hooks []HookConfig `toml:"hooks"`
+}
+
+// HookConfig describes one lifecycle hook. The command is run directly (no
+// shell) with the event payload on stdin.
+type HookConfig struct {
+	Event     string   `toml:"event"`      // PreToolUse | PostToolUse | UserPromptSubmit
+	Matcher   string   `toml:"matcher"`    // tool name or "*" (tool events only)
+	Command   []string `toml:"command"`    // executable + args
+	TimeoutMS int      `toml:"timeout_ms"` // 0 = default
 }
 
 // MCPConfig groups the configured MCP servers keyed by a short name.
@@ -123,6 +136,9 @@ func Load(opts LoadOptions) (Resolved, error) {
 		// let a cloned repo launch arbitrary subprocesses or reach endpoints just
 		// by being opened. They are user-level only.
 		projectCfg.MCP = MCPConfig{}
+		// Hooks run arbitrary commands, so they are user-level only too — a cloned
+		// repo must not be able to run commands just by being opened.
+		projectCfg.Hooks = nil
 		resolved.Config = merge(resolved.Config, projectCfg)
 		resolved.ProjectPath = projectPath
 	}
