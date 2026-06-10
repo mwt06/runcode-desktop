@@ -9,7 +9,7 @@ runcode is a v0.1-alpha scaffold. It has the core package boundaries needed for 
 Implemented:
 
 - `cmd/runcode`: Cobra CLI entry point with `version`, a minimal provider-backed `chat` command with optional in-memory `--loop` mode, and a minimal `tui` command.
-- `internal/ui`: minimal Bubble Tea TUI MVP with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, single-line input with top and bottom dividers, streaming assistant Markdown rendering, tree-style tool progress cards with safe file summaries, and `/help` / `/clear` / `/status` / `/exit`.
+- `internal/ui`: Bubble Tea TUI MVP with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, multi-line input with readline-style history recall, streaming assistant Markdown rendering, tree-style tool progress cards with sanitized output summaries and Edit/Write line diffs, an interactive permission modal (allow once / session / project / deny), and slash commands `/help` / `/clear` / `/compact` / `/status` / `/mode` / `/model` / `/cost` / `/exit`.
 - `pkg/tool`: public tool SDK boundary, including tool context, schema, events, and result types.
 - `pkg/llm`: provider-neutral LLM request, message, stream, content block, cache, and tool spec types.
 - `tools/registry.go`: single registration point for built-in tools.
@@ -29,14 +29,23 @@ Implemented:
 - `pkg/skill`: convention-directory skills with progressive disclosure — a compact catalog in the prompt and a `Skill` tool that loads a skill body on demand.
 - `pkg/agent` + `internal/subagent`: sub-agents delegated via the built-in `Task` tool, each running a restricted child `repl.Session` with its own persona prompt and optional model; delegation is one level deep (sub-agents never receive `Task`), and children share the parent permission service and tool hooks.
 - `pkg/memory`: persistent cross-session memory. The `Remember` tool appends a de-duplicated fact to the user/project memory file (fixed paths, never a caller path, so it is `manage`-classified), and saved facts are injected into the prompt's `Memory` section at startup.
+- `tools/todo`: side-effect-free `TodoWrite` task-list tool; the model replaces the full list each call and the UI shows a progress summary.
+- `tools/webfetch`: `WebFetch` http(s)-to-text fetch tool, gated as a `network` operation requiring per-host approval.
+- `internal/mcp`: MCP client (stdio + Streamable HTTP) covering tools, resources, prompts, roots, and opt-in sampling.
+- `pkg/llm/providers/openai`: OpenAI-compatible Chat Completions provider with SSE streaming and connection-phase retry/backoff.
+- `internal/compaction`: token-budget-triggered semantic history compaction (LLM-summarized oldest turns, incremental summaries).
+- `internal/persistence/sessions`: append-only full-history JSONL session store backing `--resume` / `--continue`.
+- `internal/persistence/settings`: TOML settings loader (project `runcode.toml` + user `config.toml`, flag > env > project > user precedence).
+- `internal/cost`: built-in model pricing table and token cost estimation behind `/cost`.
+- `internal/hooks` configuration is user-level only; tool hooks run for built-in, MCP, and skill tools.
 
 Not implemented yet:
 
 - Full TUI product features beyond the MVP: diff viewer, file tree, transcript browser, and syntax highlighting (permission modal, rich tool output cards, multi-line input, and runtime model switching are implemented).
-- Persistent permission policy configuration.
-- SQLite persistence and transcript-backed session resume (MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented).
-- Built-in tools beyond `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash`.
-- Bash background tasks, streaming terminal output, custom cwd/env, interactive stdin, and persistent command approval policy.
+- User-level (global) persistent permission policy (project-level allow/deny rules persist in `<workspace>/.runcode/permissions.json` and are managed via `runcode permissions`).
+- SQLite persistence and a transcript/session browser (resume itself is implemented via the `internal/persistence/sessions` JSONL store; MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented).
+- Built-in tools beyond the current eight (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `TodoWrite`, `WebFetch`), e.g. WebSearch.
+- Bash background tasks, streaming terminal output, custom cwd/env, and interactive stdin.
 
 ## Current data flow
 
@@ -71,7 +80,7 @@ This keeps tool implementation, tool execution, model-facing tool schemas, and p
 
 `runcode chat --loop` keeps one process-local session alive across prompts. Args become the first prompt, subsequent prompts are read line-by-line from stdin, and EOF or `/exit` / `/quit` / `exit` / `quit` exits cleanly. `/clear` resets only the in-memory history. The loop does not start a Bubble Tea UI, resume transcript-backed sessions, or compact history.
 
-`runcode tui` starts a minimal Bubble Tea UI. It reuses the same chat config flags and session construction path, but routes `SessionOptions.StreamDelta` into Bubble Tea messages instead of writing deltas directly to stdout. The MVP supports safe permission mode only and handles `/help`, `/clear`, `/status`, and `/exit` locally.
+`runcode tui` starts a Bubble Tea UI. It reuses the same chat config flags and session construction path, but routes `SessionOptions.StreamDelta` into Bubble Tea messages instead of writing deltas directly to stdout. In `--permission-mode interactive` it shows a permission modal (allow once / allow session / allow project / deny) with session-level memory and project-level persistence; slash commands (`/help`, `/clear`, `/compact`, `/status`, `/mode`, `/model`, `/cost`, `/exit`) are handled locally.
 
 The `chat` command remains shell-friendly. Assistant text is written to stdout. Loop prompt markers, interactive permission approval, and `RUNCODE_TELEMETRY=jsonl` / `--telemetry jsonl` output are written to stderr. Loop prompt input and approval input share the same line reader so they do not lose buffered stdin data. `RUNCODE_TRANSCRIPT=jsonl` / `--transcript jsonl` writes append-only records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; `--session-id` / `RUNCODE_SESSION_ID` can choose the file name.
 
@@ -142,7 +151,7 @@ Runtime telemetry recorders are no-op by default. JSONL telemetry mode uses a bo
 
 Transcript recording is opt-in through `--transcript jsonl` or `RUNCODE_TRANSCRIPT=jsonl`. The JSONL recorder writes one whitelisted turn summary per successful turn under `<workspace>/.runcode/transcripts/<session-id>.jsonl`; failed turns are not written. If no session id is provided, runcode generates one. `/clear` only resets in-memory history and does not delete or rotate the transcript file.
 
-Transcript records include user text, final assistant text, stop reason, token usage, iteration count, tool call id/name summaries, Bash command strings, and bounded tool result counts/byte sizes. They intentionally exclude system prompts, provider requests, credentials, base URLs, generic tool raw input, full tool output, thinking content, and image data. Current transcripts are not sufficient for resume; resume and compaction remain future persistence work.
+Transcript records include user text, final assistant text, stop reason, token usage, iteration count, tool call id/name summaries, Bash command strings, and bounded tool result counts/byte sizes. They intentionally exclude system prompts, provider requests, credentials, base URLs, generic tool raw input, full tool output, thinking content, and image data. Transcripts are not used for resume; session resume is backed by the separate full-history store in `internal/persistence/sessions` (`.runcode/sessions/<id>.jsonl`, on by default) together with `--resume` / `--continue`, and over-budget working history is compacted by `internal/compaction`.
 
 ## Provider-neutral LLM model
 
@@ -163,7 +172,7 @@ The current scaffold should be validated through tests rather than through a rea
 
 | Area | What is verified |
 |------|------------------|
-| `tools` | built-in tool list, unique names, tool metadata, and current `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` registration |
+| `tools` | built-in tool list, unique names, tool metadata, concurrency-safety expectations, and current `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash`/`TodoWrite`/`WebFetch` registration |
 | `tools/read` | file reading, line numbering, offset/limit behavior, relative paths, complete/partial `ReadSet`, errors, CRLF, cancellation, and output bounds |
 | `tools/write` | file creation, fresh-read overwrite, missing/partial/stale read rejection, workspace containment, and missing parent rejection |
 | `tools/edit` | exact replace, replace-all behavior, unique match enforcement, invalid input rejection, fresh-read requirement, and workspace containment |
@@ -186,7 +195,7 @@ The current scaffold should be validated through tests rather than through a rea
 Recommended validation commands:
 
 ```bash
-go -C "D:/我的AI/runcode" test ./...
-go -C "D:/我的AI/runcode" test -race ./...
-go -C "D:/我的AI/runcode" build ./cmd/runcode
+go test ./...
+go test -race ./...
+go build ./cmd/runcode
 ```

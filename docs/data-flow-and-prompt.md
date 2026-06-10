@@ -140,7 +140,7 @@ Cache 策略：
 
 - `ProjectCtx` 由 `cmd/runcode chat` 从 workspace 中首个命中的 `RUNCODE.md` / `CLAUDE.md` 加载，读取上限 64 KiB，超出会截断。
 - `Memory` 已落地:`cmd/runcode` 从用户级 `<userConfigDir>/runcode/memory.md` 与项目级 `<workspace>/.runcode/memory.md` 加载并注入;模型经 `Remember` 工具增量保存(去重、`manage` 免审批),子代理只读不可写。
-- 没有 settings loader。
+- 已有 TOML settings loader（`internal/persistence/settings`），但 settings 尚未注入 prompt（不用于 prompt memory 或 policy guidance）。
 - 没有 prompt template embed。
 - skills catalog 与 sub-agent catalog 已注入 system prompt；子代理被委托时,子会话以该 agent 的 persona 作为系统指令,并清空 sub-agent catalog（委托不嵌套）。
 - 当前 permission mode 和关键权限约束会注入动态 prompt，但工具 spec 仍不会按 permission mode 动态隐藏。
@@ -161,6 +161,8 @@ Edit
 Glob
 Grep
 Bash
+TodoWrite
+WebFetch
 ```
 
 这些工具同时流向三个地方：
@@ -176,7 +178,7 @@ tools.Builtins()
 
 当前限制：
 
-- 工具是静态注册，没有 MCP、plugin 或配置驱动的动态工具。
+- 内置工具是静态注册；MCP server 工具（`mcp__<server>__<tool>`）、`Skill`、`Task`、`Remember` 与 MCP resources/prompts 访问工具会在 session 构建时动态追加；尚无 plugin 或 workspace 配置驱动的自定义工具。
 - Prompt 中只列 tool name 和 description，不列完整 schema 或详细 usage notes。
 - 工具不会根据 permission mode 动态隐藏；safe 模式下 Write/Edit/Bash 仍暴露给模型，但动态 prompt 会提示这些动作会被拒绝，执行时仍由权限层兜底。
 
@@ -224,7 +226,7 @@ Executor.Execute(ctx, req)
 
 审批与 telemetry：
 
-- `interactive` 模式通过 CLI stderr prompt 询问 allow once / deny。
+- `interactive` 模式通过 CLI stderr prompt 或 TUI modal 询问 allow once / allow session / allow project / deny；allow project 持久化到 `<workspace>/.runcode/permissions.json`。
 - hard deny 不会进入审批。
 - Permission telemetry 只记录受控摘要，不记录 raw path、raw command、tool input/output、file content、credential 或 URL。
 
@@ -277,6 +279,22 @@ Executor.Execute(ctx, req)
 效果：在 workspace root 执行单行非交互 Bash 命令；有 timeout、stdout/stderr 捕获、输出截断；非零 exit/timeout/cancel 返回 `IsError` tool result。
 
 缺口：不支持 background task、streaming output、stdin、自定义 cwd/env、shell session、sandbox 或完整 shell parser。
+
+### TodoWrite
+
+文件：`tools/todo/todo.go`
+
+效果：模型每次传入完整任务清单（pending/in_progress/completed，至多一项 in_progress）替换上一份；工具本身无副作用——校验后回显清单并发送 progress event 供 UI 展示，清单的连续性由对话历史承载；`manage` 分类免审批。
+
+缺口：清单不持久化、不跨 session；UI 只显示进度摘要事件，没有专门的 todo 面板。
+
+### WebFetch
+
+文件：`tools/webfetch/webfetch.go`
+
+效果：抓取 http(s) URL，HTML 还原为纯文本；有 30s timeout、5 MiB 读取上限、50k rune 输出上限、最多 5 次重定向（仅允许 http/https）。作为 `network` 操作需审批，按 host 显示与记忆。
+
+缺口：不阻断私网/链路本地地址（127.0.0.1、10.0.0.0/8、169.254.169.254 等），重定向也可指向内网 host；无 robots/缓存/正文提炼。
 
 ## 7. LLM provider 数据流
 

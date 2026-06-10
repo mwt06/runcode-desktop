@@ -1,6 +1,6 @@
 # runcode 当前实现状态与缺口
 
-日期：2026-06-02
+日期：2026-06-10
 
 本文档记录当前代码已经真实实现了什么、具体效果是什么、哪些地方只是为了保持最小化而做了半闭环，以及后续还缺少哪些能力。它是一个当前状态快照，不替代 `docs/architecture.md` 的架构说明，也不替代 `docs/session-handoff.md` 的历史日志。
 
@@ -163,6 +163,8 @@ cmd/runcode chat
 4. `Glob`
 5. `Grep`
 6. `Bash`
+7. `TodoWrite`
+8. `WebFetch`
 
 `tools.Builtins()` 是当前工具可用性的单一注册源。它同时用于：
 
@@ -312,6 +314,36 @@ cmd/runcode chat
 - 没有 sandbox/container/seccomp。
 - 命令分类很保守，不是完整 shell parser。
 - 管道、`;`、`&&`、`||`、backtick、`$()` 等复杂 shell control 会被拒绝。
+
+### TodoWrite
+
+关键文件：`tools/todo/todo.go`
+
+已实现效果：
+
+- 模型每次传入完整任务清单（pending/in_progress/completed，至多一项 in_progress）替换上一份。
+- 工具无副作用：校验后回显清单文本，并发送 progress event 供 UI 展示进度摘要；清单连续性由对话历史承载。
+- `manage` 分类免审批；上限 100 项。
+
+缺口：
+
+- 清单不持久化、不跨 session。
+- UI 只显示进度摘要事件，没有专门 todo 面板。
+
+### WebFetch
+
+关键文件：`tools/webfetch/webfetch.go`
+
+已实现效果：
+
+- 抓取 http(s) URL；HTML 经 DOM 遍历还原为纯文本，text/json/xml 直接返回。
+- 30s timeout、5 MiB 读取上限、50k rune 输出上限、最多 5 次重定向且只允许 http/https scheme。
+- 作为 `network` 操作需审批，按 host 显示与记忆（可 allow session / allow project）。
+
+缺口：
+
+- 不阻断私网/链路本地地址（如 `127.0.0.1`、`10.0.0.0/8`、`169.254.169.254`），重定向也可指向内网 host（SSRF 面）。
+- 没有 robots 处理、缓存或正文智能提炼。
 
 ## 权限系统状态
 
