@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/ui"
 	"github.com/wt68/runcode/pkg/llm"
@@ -39,11 +41,55 @@ func newTuiCmd(runner tuiRunner) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			pick, _ := cmd.Flags().GetBool("pick")
+			if pick && cfg.Resume == "" && !cfg.Continue {
+				chosen, cancelled, err := pickSessionForTUI(cfg.CWD)
+				if err != nil {
+					return err
+				}
+				if cancelled {
+					return nil
+				}
+				cfg.Resume = chosen // "" leaves a fresh session
+			}
 			return runner.Run(cmd.Context(), cfg)
 		},
 	}
 	addChatConfigFlags(cmd)
+	cmd.Flags().Bool("pick", false, "choose a saved session to resume at startup (interactive picker)")
 	return cmd
+}
+
+// pickSessionForTUI lists the workspace's saved sessions and runs the interactive
+// picker. With no saved sessions it returns an empty id (start fresh) without
+// showing a picker. A returned cancelled=true means the user aborted and the TUI
+// should not launch.
+func pickSessionForTUI(cwd string) (chosenID string, cancelled bool, err error) {
+	infos, err := sessions.List(cwd)
+	if err != nil {
+		return "", false, err
+	}
+	if len(infos) == 0 {
+		return "", false, nil
+	}
+	summaries := make([]ui.SessionSummary, len(infos))
+	for i, info := range infos {
+		preview := info.LastUser
+		if preview == "" {
+			preview = info.FirstUser
+		}
+		summaries[i] = ui.SessionSummary{
+			ID:      info.ID,
+			When:    humanizeSince(time.Since(info.ModTime)),
+			Turns:   info.Turns,
+			Preview: preview,
+		}
+	}
+	res, err := ui.PickSession(summaries)
+	if err != nil {
+		return "", false, err
+	}
+	return res.SessionID, res.Cancelled, nil
 }
 
 func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {

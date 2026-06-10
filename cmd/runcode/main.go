@@ -34,6 +34,7 @@ This is the v0.1 alpha scaffold.`,
 	root.AddCommand(tuiCmd())
 	root.AddCommand(configCmd())
 	root.AddCommand(permissionsCmd())
+	root.AddCommand(sessionsCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

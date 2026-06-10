@@ -34,7 +34,8 @@ Implemented:
 - `internal/mcp`: MCP client (stdio + Streamable HTTP) covering tools, resources, prompts, roots, and opt-in sampling.
 - `pkg/llm/providers/openai`: OpenAI-compatible Chat Completions provider with SSE streaming and connection-phase retry/backoff.
 - `internal/compaction`: token-budget-triggered semantic history compaction (LLM-summarized oldest turns, incremental summaries).
-- `internal/persistence/sessions`: append-only full-history JSONL session store backing `--resume` / `--continue`.
+- `internal/persistence/sessions`: append-only full-history JSONL session store backing `--resume` / `--continue`, plus a `List`/`Describe` metadata API (streaming, no full reconstruction) that backs the `runcode sessions` command and the TUI startup picker.
+- `internal/ui` session picker: an opt-in interactive startup list (`runcode tui --pick`) to resume a saved session or start fresh.
 - `internal/persistence/settings`: TOML settings loader (project `runcode.toml` + user `config.toml`, flag > env > project > user precedence).
 - `internal/cost`: built-in model pricing table and token cost estimation behind `/cost`.
 - `internal/hooks` configuration is user-level only; tool hooks run for built-in, MCP, and skill tools.
@@ -43,7 +44,7 @@ Not implemented yet:
 
 - Full TUI product features beyond the MVP: diff viewer, file tree, transcript browser, and syntax highlighting (permission modal, rich tool output cards, multi-line input, and runtime model switching are implemented).
 - User-level (global) persistent permission policy (project-level allow/deny rules persist in `<workspace>/.runcode/permissions.json` and are managed via `runcode permissions`).
-- SQLite persistence and a transcript/session browser (resume itself is implemented via the `internal/persistence/sessions` JSONL store; MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented).
+- SQLite persistence (resume, plus a `runcode sessions` CLI browser and a TUI startup picker, are implemented over the `internal/persistence/sessions` JSONL store; MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented).
 - Built-in tools beyond the current eight (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `TodoWrite`, `WebFetch`), e.g. WebSearch.
 - Bash background tasks, streaming terminal output, custom cwd/env, and interactive stdin.
 
@@ -185,6 +186,7 @@ The current scaffold should be validated through tests rather than through a rea
 | `internal/prompt` | boundary behavior, static/dynamic ordering, cache policy, environment isolation, and tool description injection |
 | `internal/telemetry` | event model, JSONL output, async flush/drop behavior, memory recorder, and ID generation |
 | `internal/persistence/transcript` | JSONL append behavior, session id validation, and transcript sanitizer whitelist |
+| `internal/persistence/sessions` | append/load round-trip, latest-session selection, and `List`/`Describe` metadata (ordering, turn counting, preview collapse/truncate) |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |
 | `pkg/agent` | frontmatter parsing, tolerant directory loading, README skip, name precedence/dedup, tool-policy filtering, catalog rendering, and shipped example definitions |
