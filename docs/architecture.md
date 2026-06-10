@@ -22,7 +22,7 @@ Implemented:
 - `internal/repl`: finite ReAct session controller, permission-aware tool executor, tool result conversion, and tool-spec conversion for future model tool exposure.
 - `internal/permissions`: internal permission boundary with action/resource/risk modeling, default safe policy, non-interactive and interactive authorizers, approval model, and permission telemetry helpers.
 - `internal/telemetry`: internal observability foundation with event model, no-op recorder, bounded async recorder, memory recorder, stderr JSONL support, and permission decision events.
-- `internal/persistence/transcript`: opt-in append-only JSONL transcript recorder with whitelisted turn summaries.
+- `internal/persistence/transcript`: opt-in transcript recorder of whitelisted turn summaries, with a JSONL backend (one file per session) and a searchable SQLite backend (`--transcript sqlite`) read by the `runcode transcript` list/search command.
 - `internal/prompt`: system prompt boundary, assembler, and static/dynamic prompt sections.
 - `pkg/llm/providers/anthropic`: Anthropic SDK-backed provider skeleton with request and stream conversion tests.
 - `internal/hooks`: user-configured lifecycle commands (PreToolUse/PostToolUse/UserPromptSubmit) run around tool execution and prompt submission.
@@ -44,7 +44,7 @@ Not implemented yet:
 
 - Full TUI product features beyond the MVP: diff viewer, file tree, transcript browser, and syntax highlighting (permission modal, rich tool output cards, multi-line input, and runtime model switching are implemented).
 - User-level (global) persistent permission policy (project-level allow/deny rules persist in `<workspace>/.runcode/permissions.json` and are managed via `runcode permissions`).
-- A SQLite transcript/audit backend (the **session-history** SQLite backend is implemented; resume, the `runcode sessions` CLI browser, and the TUI startup picker run over either the JSONL or SQLite session backend; MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented).
+- (Session-history and transcript SQLite backends are both implemented: resume, the `runcode sessions` CLI browser, and the TUI startup picker run over either the JSONL or SQLite session backend; `--transcript sqlite` plus the `runcode transcript` search/list command provide the audit backend; MCP tools/resources/prompts/roots/sampling, compaction, hooks, skills, and sub-agents are implemented.)
 - Built-in tools beyond the current eight (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `TodoWrite`, `WebFetch`), e.g. WebSearch.
 - Bash background tasks, streaming terminal output, custom cwd/env, and interactive stdin.
 
@@ -150,7 +150,7 @@ Runtime telemetry recorders are no-op by default. JSONL telemetry mode uses a bo
 
 ## Transcript boundary
 
-Transcript recording is opt-in through `--transcript jsonl` or `RUNCODE_TRANSCRIPT=jsonl`. The JSONL recorder writes one whitelisted turn summary per successful turn under `<workspace>/.runcode/transcripts/<session-id>.jsonl`; failed turns are not written. If no session id is provided, runcode generates one. `/clear` only resets in-memory history and does not delete or rotate the transcript file.
+Transcript recording is opt-in through `--transcript jsonl|sqlite` or `RUNCODE_TRANSCRIPT`. The JSONL backend writes one whitelisted turn summary per successful turn under `<workspace>/.runcode/transcripts/<session-id>.jsonl`; the SQLite backend writes the same sanitized records into a single indexed `<workspace>/.runcode/transcripts.db` (full record JSON plus denormalized session/time/model/user/assistant columns) that the `runcode transcript list`/`search` command reads. Failed turns are not written. If no session id is provided, runcode generates one. `/clear` only resets in-memory history and does not delete or rotate the transcript.
 
 Transcript records include user text, final assistant text, stop reason, token usage, iteration count, tool call id/name summaries, Bash command strings, and bounded tool result counts/byte sizes. They intentionally exclude system prompts, provider requests, credentials, base URLs, generic tool raw input, full tool output, thinking content, and image data. Transcripts are not used for resume; session resume is backed by the separate full-history store in `internal/persistence/sessions` (`.runcode/sessions/<id>.jsonl`, on by default) together with `--resume` / `--continue`, and over-budget working history is compacted by `internal/compaction`.
 
@@ -185,7 +185,7 @@ The current scaffold should be validated through tests rather than through a rea
 | `internal/permissions` | action/resource resolution, workspace containment, command classification, default safe policy, non-interactive and interactive authorization, approval fallback behavior, and sanitized decision data |
 | `internal/prompt` | boundary behavior, static/dynamic ordering, cache policy, environment isolation, and tool description injection |
 | `internal/telemetry` | event model, JSONL output, async flush/drop behavior, memory recorder, and ID generation |
-| `internal/persistence/transcript` | JSONL append behavior, session id validation, and transcript sanitizer whitelist |
+| `internal/persistence/transcript` | JSONL append behavior, session id validation, transcript sanitizer whitelist, and the SQLite recorder (record/search/list, reopen persistence, LIKE-wildcard escaping) |
 | `internal/persistence/sessions` | append/load round-trip, latest-session selection, `List`/`Describe` metadata (ordering, turn counting, preview collapse/truncate), and JSONL↔SQLite backend parity plus SQLite reopen persistence |
 | `pkg/llm` | provider/stream interfaces and neutral content block contracts |
 | `pkg/llm/providers/anthropic` | provider contract, request conversion, tool use/result mapping, stream event conversion, usage, stop reasons, and error/close behavior |

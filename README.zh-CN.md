@@ -13,7 +13,7 @@
 
 `runcode` 是一个面向终端的 Go 版 AI 编程伴侣。当前版本刻意保持小范围：通过 `runcode chat` 调用 Anthropic provider，暴露一组受限本地工具，并在文件修改和命令执行前经过内部权限层。
 
-长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；sub-agents、SQLite transcript、更完整的 TUI 权限/工具界面、更广的多 provider 等系统目前仍是脚手架或后续工作。
+长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；更完整的 TUI 权限/工具界面、更广的多 provider 等系统目前仍是脚手架或后续工作。
 
 ## 快速开始
 
@@ -54,7 +54,7 @@ ANTHROPIC_API_KEY=... \
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`：限制每轮发送给 provider 的内存 history 消息数（`0` 表示不限制，为默认值）。裁剪会完整保留当前 turn，绝不拆散 `tool_use`/`tool_result` 配对，也不影响 transcript 文件。
 - `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`。
 - `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`。
-- `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT`：可选把 JSONL transcript 写入 `<workspace>/.runcode/transcripts/`。
+- `--transcript off|jsonl|sqlite` / `RUNCODE_TRANSCRIPT`：可选记录脱敏 transcript——`jsonl` 按会话写文件到 `<workspace>/.runcode/transcripts/`，`sqlite` 写入可检索的 `<workspace>/.runcode/transcripts.db`（用 `runcode transcript list` / `search <query>` 浏览）。
 - `--session-id` / `RUNCODE_SESSION_ID`：开启 transcript 时指定 transcript 文件名。
 
 ### 配置文件
@@ -237,6 +237,8 @@ Telemetry 只记录 operation、risk、resource scope、permission effect、comm
 
 Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把 append-only turn record 写到 `<workspace>/.runcode/transcripts/<session-id>.jsonl`；记录包含用户文本、最终 assistant 文本、受限工具摘要和 Bash command 字符串，但不记录 system prompt、凭证、普通工具 raw input 或完整工具输出。
 
+`--transcript sqlite` 则把同样的脱敏记录写入单个带索引的 `<workspace>/.runcode/transcripts.db`。无需开聊天即可浏览检索：`runcode transcript list` 汇总已记录会话，`runcode transcript search <query>` 按用户/助手文本倒序返回匹配轮次（大小写不敏感子串，`--session` 限定会话、`--limit` 截断）。读命令不会创建空库——若无库会提示如何开启记录。
+
 ## 架构一览
 
 ```text
@@ -279,7 +281,7 @@ tools/                 内置工具和 registry
 docs/                  当前架构、数据流、handoff、状态说明
 ```
 
-仍是脚手架或未实现：SQLite transcript persistence、`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
+仍是脚手架或未实现：`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
 
 ## 贡献
 

@@ -300,7 +300,7 @@ func TestChatCommandTranscriptFlagOverridesEnv(t *testing.T) {
 func TestChatCommandRejectsUnsupportedTranscriptMode(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "token")
 	cmd := newChatCmd(&fakeChatRunner{})
-	cmd.SetArgs([]string{"--model", "claude-test", "--transcript", "sqlite", "hello"})
+	cmd.SetArgs([]string{"--model", "claude-test", "--transcript", "csv", "hello"})
 
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported transcript mode") {
 		t.Fatalf("err = %v, want unsupported transcript mode", err)

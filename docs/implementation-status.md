@@ -72,7 +72,7 @@ cmd/runcode chat
 - slash 命令已有可扩展基座（含 `/mode`、`/model`、`/compact`、`/cost`）；后续可加更多命令。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
-- 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;并有会话浏览:`sessions.List`/`Describe` 元数据 API + `runcode sessions list`/`show <id|编号>` CLI + `runcode tui --pick` 交互式启动选择器;尚无全文检索与 transcript 浏览界面。
+- 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;并有会话浏览:`sessions.List`/`Describe` 元数据 API + `runcode sessions list`/`show <id|编号>` CLI + `runcode tui --pick` 交互式启动选择器;transcript 审计日志可经 `--transcript sqlite` 落 SQLite 并用 `runcode transcript list`/`search` 检索(LIKE 子串,尚无 FTS5 全文)。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。
 - 只支持 Anthropic provider。
 
@@ -439,10 +439,12 @@ cmd/runcode chat
 - 不记录 system prompt、provider request、credential、base URL、普通工具 raw input、完整工具输出、thinking 内容或 image data。
 - `/clear` 只清空内存 history，不删除或轮转 transcript。
 
+已有两种后端：JSONL（逐会话 `.jsonl` 文件，默认）与 SQLite（`--transcript sqlite`，单库 `<workspace>/.runcode/transcripts.db`，存完整 TurnRecord JSON + 反范式 session/time/model/user/assistant 列 + 索引，`PRAGMA user_version` 版本化）。`runcode transcript list` 汇总已记录会话，`runcode transcript search <query>` 按用户/助手文本检索（大小写不敏感子串，LIKE 通配符转义为字面量，`--session` 限定、`--limit` 截断）；读命令不会创建空库，缺库时提示如何开启。
+
 缺口：
 
-- transcript 不能用于 session resume。
-- 没有 SQLite backend、索引、查询命令、rotation、compaction 或 migration。
+- transcript 不能用于 session resume（resume 用 `internal/persistence/sessions` 完整历史）。
+- 检索是 LIKE 子串，非 FTS5 全文索引；无 rotation/compaction、无按工具命令检索。
 - Bash command 字符串可能包含用户自己输入的 secret；后续可做 command redaction。
 
 ## Telemetry 状态
@@ -514,7 +516,7 @@ cmd/runcode chat
 对应未实现能力：
 
 - 完整 TUI 产品能力：diff viewer、transcript browser、文件树、语法高亮(permission modal、rich tool output、多行输入和 `/model` 运行时切换已实现)。
-- SQLite transcript backend（会话历史的 SQLite 后端已实现，见 `sessions.Backend`；transcript 审计日志的 SQLite 后端仍未做）。
+- （会话历史与 transcript 审计日志的 SQLite 后端均已实现：见 `sessions.Backend` 与 `transcript.OpenSQLite` + `runcode transcript` 检索命令。）
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
 - hooks 已实现:PreToolUse/PostToolUse/UserPromptSubmit 三事件,argv 直接执行(无 shell)、JSON payload 经 stdin、退出码语义(非零=拦截/反馈,infra 失败 fail-open+告警);仅用户级配置(项目剥离);工具钩子在 executor 集成(覆盖内置/MCP/skill 工具)。后续可做:SessionStart/End 等更多事件、结构化 JSON 决策、matcher glob/正则。
@@ -535,7 +537,7 @@ cmd/runcode chat
 
 已实现可切换会话后端:`sessions.Backend` 接口(写 `Store` + `LoadHistory`/`List`/`Describe`/`Latest`)有 JSONL(默认,逐会话 `.jsonl`)与 SQLite(`<workspace>/.runcode/sessions.db`,纯 Go `modernc.org/sqlite`,逐消息存原始 JSON + 反范式 role/user_text 列让 List/Describe 走索引查询,事务+互斥写入,`PRAGMA user_version` 版本化)两种实现,经 `--session-backend` / `RUNCODE_SESSION_BACKEND` / `session_backend` 选择;`runcode sessions` 与 TUI picker 经 `--backend`/配置同源识别。
 
-后续仍可做:全文检索、transcript 浏览/SQLite 后端、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
+后续仍可做:transcript FTS5 全文检索(当前为 LIKE 子串)、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
 
 ### 2. 模型可自我修正能力
 

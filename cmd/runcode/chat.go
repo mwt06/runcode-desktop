@@ -178,7 +178,7 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cwd", "", "Working directory for tools")
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
 	cmd.Flags().String("permission-mode", "", "Permission mode: safe or interactive")
-	cmd.Flags().String("transcript", "", "Transcript mode: off or jsonl")
+	cmd.Flags().String("transcript", "", "Transcript mode: off, jsonl, or sqlite")
 	cmd.Flags().String("session-id", "", "Session id for transcript and history files")
 	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
 	cmd.Flags().Int("max-context-tokens", 0, "Context token budget that triggers compaction (0 = disabled)")
@@ -662,8 +662,10 @@ func normalizeTranscriptMode(value string) (string, error) {
 		return "off", nil
 	case "jsonl":
 		return "jsonl", nil
+	case "sqlite":
+		return "sqlite", nil
 	default:
-		return "", fmt.Errorf("unsupported transcript mode %q", value)
+		return "", fmt.Errorf("unsupported transcript mode %q (want off, jsonl, or sqlite)", value)
 	}
 }
 
@@ -717,10 +719,14 @@ func resolveSessionID(cfg chatConfig, backend sessions.Backend) (string, error) 
 }
 
 func transcriptRecorderForID(cfg chatConfig, sessionID string) (transcript.Recorder, error) {
-	if cfg.Transcript != "jsonl" {
+	switch cfg.Transcript {
+	case "jsonl":
+		return transcript.OpenJSONL(cfg.CWD, sessionID)
+	case "sqlite":
+		return transcript.OpenSQLite(cfg.CWD)
+	default:
 		return transcript.Noop(), nil
 	}
-	return transcript.OpenJSONL(cfg.CWD, sessionID)
 }
 
 func openSessionStore(cfg chatConfig, backend sessions.Backend, sessionID string) (sessions.Store, error) {

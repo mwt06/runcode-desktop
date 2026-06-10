@@ -13,7 +13,7 @@
 
 `runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
 
-The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; some planned systems — sub-agents, SQLite transcripts, richer TUI permissions/tool UI, and broader multi-provider support — are still scaffolds or deferred work.
+The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; some planned systems — richer TUI permissions/tool UI and broader multi-provider support — are still scaffolds or deferred work.
 
 ## Quick start
 
@@ -54,7 +54,7 @@ Useful flags and environment variables:
 - `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`: bound how many in-memory history messages are sent to the provider each turn (`0` = unlimited, the default). Trimming keeps the current turn intact, never splits `tool_use`/`tool_result` pairs, and does not touch transcript files.
 - `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`.
 - `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`.
-- `--transcript off|jsonl` / `RUNCODE_TRANSCRIPT`: optionally write JSONL transcripts under `<workspace>/.runcode/transcripts/`.
+- `--transcript off|jsonl|sqlite` / `RUNCODE_TRANSCRIPT`: optionally record sanitized transcripts — `jsonl` writes per-session files under `<workspace>/.runcode/transcripts/`, `sqlite` writes a searchable `<workspace>/.runcode/transcripts.db` (browse with `runcode transcript list` / `search <query>`).
 - `--session-id` / `RUNCODE_SESSION_ID`: choose the transcript file name when transcript recording is enabled.
 
 ### Configuration files
@@ -238,6 +238,8 @@ Telemetry records bounded metadata such as operation, risk, resource scope, perm
 
 Transcript recording is off by default. When enabled with `--transcript jsonl`, runcode writes append-only turn records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; records include user text, final assistant text, bounded tool summaries, and Bash command strings, but not system prompts, credentials, generic tool raw input, or full tool output.
 
+`--transcript sqlite` records the same sanitized records into a single indexed `<workspace>/.runcode/transcripts.db` instead. Browse and search it without opening a chat: `runcode transcript list` summarizes recorded sessions, and `runcode transcript search <query>` returns matching turns newest-first (case-insensitive substring over user/assistant text, `--session` to scope, `--limit` to cap). Read commands never create a database — if none exists they tell you how to enable recording.
+
 ## Architecture at a glance
 
 ```text
@@ -280,7 +282,7 @@ tools/                 built-in tools and registry
 docs/                  current architecture, data flow, handoff, and status notes
 ```
 
-Scaffolded but not implemented yet: SQLite transcript persistence, `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
+Scaffolded but not implemented yet: `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
 
 ## Contributing
 

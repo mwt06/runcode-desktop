@@ -35,6 +35,7 @@ This is the v0.1 alpha scaffold.`,
 	root.AddCommand(configCmd())
 	root.AddCommand(permissionsCmd())
 	root.AddCommand(sessionsCmd())
+	root.AddCommand(transcriptCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
