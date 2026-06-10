@@ -158,6 +158,17 @@ func TestTaskToolValidatesInput(t *testing.T) {
 	}
 }
 
+func TestTaskToolRejectsOversizedPrompt(t *testing.T) {
+	t.Parallel()
+
+	tt := NewTool(agent.NewSet(BuiltinAgents()), NewLauncher(Options{Provider: newFakeProvider(textEvents("x")), Model: "m"}))
+	huge := strings.Repeat("a", maxPromptBytes+1)
+	result := runTask(t, tt, taskInput{Description: "d", SubagentType: GeneralPurposeName, Prompt: huge})
+	if !result.IsError || !strings.Contains(resultText(result), "too long") {
+		t.Fatalf("expected oversized-prompt error, got %#v", result)
+	}
+}
+
 func TestTaskToolConcurrencySafe(t *testing.T) {
 	t.Parallel()
 

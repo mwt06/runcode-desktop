@@ -14,6 +14,11 @@ import (
 // ToolName is the model-facing name of the delegation tool.
 const ToolName = "Task"
 
+// maxPromptBytes caps a delegated task prompt so a runaway generation cannot blow
+// up the sub-agent's context window. It is returned as an is_error result (not a
+// Go error) so the model can retry with a shorter prompt.
+const maxPromptBytes = 128 << 10 // 128 KiB
+
 // Tool is the Task tool: it lets the main agent delegate a self-contained task to
 // a named sub-agent. The tool resolves the requested sub-agent from the catalog
 // and runs it via the Launcher, returning the sub-agent's final message as the
@@ -88,6 +93,9 @@ func (t *Tool) Run(ctx context.Context, input json.RawMessage, tctx *tool.Contex
 	taskPrompt := strings.TrimSpace(in.Prompt)
 	if taskPrompt == "" {
 		return errorResult("Task requires a non-empty \"prompt\" describing the task for the sub-agent"), nil
+	}
+	if len(taskPrompt) > maxPromptBytes {
+		return errorResult(fmt.Sprintf("Task \"prompt\" is too long (%d bytes; limit %d) — state the task more concisely", len(taskPrompt), maxPromptBytes)), nil
 	}
 	def, ok := t.set.Get(subagentType)
 	if !ok {

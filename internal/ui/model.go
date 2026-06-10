@@ -356,6 +356,7 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 	m.turnCancel = cancel
 	m.inFlight = true
 	m.lastError = ""
+	m.trimHistory()
 	m.appendMessage(RoleUser, text)
 	m.messages = append(m.messages, ChatMessage{Role: RoleAssistant, Streaming: true})
 	m.currentAssistant = len(m.messages) - 1
@@ -389,6 +390,27 @@ func (m *Model) relayout() {
 
 func (m *Model) appendMessage(role Role, text string) {
 	m.messages = append(m.messages, ChatMessage{Role: role, Text: text})
+}
+
+// maxRetainedMessages bounds how many chat entries the UI keeps in memory. A very
+// long session would otherwise grow m.messages without limit.
+const maxRetainedMessages = 1000
+
+// trimHistory drops the oldest entries once the buffer exceeds the cap, leaving a
+// marker so the user knows earlier history scrolled off. It must be called only
+// between turns: no streaming index (currentAssistant, tool message indices) may
+// be live, since trimming shifts every absolute index. currentAssistant is reset
+// to -1 because nothing is streaming between turns.
+func (m *Model) trimHistory() {
+	if len(m.messages) <= maxRetainedMessages {
+		return
+	}
+	remove := len(m.messages) - maxRetainedMessages
+	trimmed := make([]ChatMessage, 0, maxRetainedMessages+1)
+	trimmed = append(trimmed, ChatMessage{Role: RoleSystem, Text: "earlier messages trimmed"})
+	trimmed = append(trimmed, m.messages[remove:]...)
+	m.messages = trimmed
+	m.currentAssistant = -1
 }
 
 func (m *Model) appendAssistantDelta(text string) {

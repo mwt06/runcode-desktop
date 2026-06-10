@@ -10,6 +10,41 @@ import (
 	"github.com/wt68/runcode/pkg/tool"
 )
 
+func TestTrimHistoryCapsMessages(t *testing.T) {
+	t.Parallel()
+	m := New(&fakeService{})
+	m.messages = make([]ChatMessage, maxRetainedMessages+50)
+	for i := range m.messages {
+		m.messages[i] = ChatMessage{Role: RoleUser, Text: "x"}
+	}
+	m.currentAssistant = len(m.messages) - 1
+
+	m.trimHistory()
+
+	if len(m.messages) != maxRetainedMessages+1 {
+		t.Fatalf("messages = %d, want %d (cap + marker)", len(m.messages), maxRetainedMessages+1)
+	}
+	if m.messages[0].Role != RoleSystem || !strings.Contains(m.messages[0].Text, "trimmed") {
+		t.Fatalf("first message should be the trim marker, got %#v", m.messages[0])
+	}
+	if m.currentAssistant != -1 {
+		t.Fatalf("currentAssistant = %d, want -1 after trim", m.currentAssistant)
+	}
+}
+
+func TestTrimHistoryNoopUnderCap(t *testing.T) {
+	t.Parallel()
+	m := New(&fakeService{})
+	m.messages = []ChatMessage{{Role: RoleUser, Text: "a"}, {Role: RoleAssistant, Text: "b"}}
+	m.currentAssistant = 1
+
+	m.trimHistory()
+
+	if len(m.messages) != 2 || m.currentAssistant != 1 {
+		t.Fatalf("under-cap history should be untouched: len=%d currentAssistant=%d", len(m.messages), m.currentAssistant)
+	}
+}
+
 type fakeService struct {
 	status              Status
 	resetCount          int

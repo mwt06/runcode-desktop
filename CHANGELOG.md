@@ -86,6 +86,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Permission denial tool results now include sanitized reason and final-effect details so the model can self-correct without exposing raw inputs.
 - Shared line input avoids buffered stdin loss between `chat --loop` prompts and interactive approval prompts.
 - Session history cloning deep-copies raw tool input and image data.
+- Remembered memory entries and agent definition bodies that exceed their byte caps are truncated on a UTF-8 rune boundary instead of mid-rune, so trimming no longer leaves invalid UTF-8 (notably for CJK text).
+- The TUI bounds its in-memory chat history (oldest entries are trimmed between turns, leaving a marker) so a very long session no longer grows the message buffer without limit.
+- The `Task` tool rejects an over-long delegated prompt (>128 KiB) as a self-correctable `is_error` result, so a runaway generation cannot blow up a sub-agent's context.
 
 ### Security
 
@@ -95,6 +98,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Bash commands are classified before execution; unknown, privileged, destructive, outside-write, and complex shell-control commands are denied before approval.
 - The default `safe` permission mode does not execute approval-requiring writes, edits, or Bash commands.
 - Transcript records use a whitelist schema and omit system prompts, credentials, generic tool raw input, and full tool output; enabled transcripts may still contain user prompts, assistant text, and Bash command strings.
+- `WebFetch` blocks server-side request forgery: a `net.Dialer` control hook checks the resolved IP just before connect and refuses non-public addresses (loopback, RFC 1918 / ULA private, link-local including the `169.254.169.254` cloud-metadata endpoint, carrier-grade NAT, multicast, and unspecified). The check covers the initial request, every redirect hop, and DNS rebinding; no HTTP proxy is configured so the real destination IP stays visible to the check.
 
 ## [0.1.0-alpha] - TBD
 
