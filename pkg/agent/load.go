@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wt68/runcode/internal/toolpath"
 )
@@ -147,7 +148,7 @@ func loadAgent(root, path string, source Source, maxBody int) (Agent, bool, *Pro
 	}
 	truncated := len(data) > maxBody
 	if truncated {
-		data = data[:maxBody]
+		data = truncateUTF8Bytes(data, maxBody)
 	}
 
 	p, err := parseAgent(string(data))
@@ -164,6 +165,23 @@ func loadAgent(root, path string, source Source, maxBody int) (Agent, bool, *Pro
 		Source:      source,
 		Truncated:   truncated,
 	}, true, nil
+}
+
+// truncateUTF8Bytes caps b to at most maxBytes bytes without splitting a
+// multi-byte rune at the boundary, which would otherwise leave invalid UTF-8 at
+// the end of the agent prompt.
+func truncateUTF8Bytes(b []byte, maxBytes int) []byte {
+	if len(b) <= maxBytes {
+		return b
+	}
+	b = b[:maxBytes]
+	for len(b) > 0 {
+		if r, size := utf8.DecodeLastRune(b); r != utf8.RuneError || size > 1 {
+			break
+		}
+		b = b[:len(b)-1]
+	}
+	return b
 }
 
 func normalizeDir(dir string) (string, error) {

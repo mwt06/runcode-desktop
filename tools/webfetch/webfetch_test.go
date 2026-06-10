@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,13 +13,16 @@ import (
 	"github.com/wt68/runcode/pkg/tool"
 )
 
+// fetch uses a permissive client (no SSRF block) so tests can reach httptest
+// servers, which always listen on loopback. The production defaultClient blocks
+// loopback; that path is covered by TestWebFetchBlocksNonPublicAddress.
 func fetch(t *testing.T, url string) (tool.Result, error) {
 	t.Helper()
 	raw, err := json.Marshal(input{URL: url})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
-	return Tool{}.Run(context.Background(), raw, nil, nil)
+	return Tool{client: &http.Client{}}.Run(context.Background(), raw, nil, nil)
 }
 
 func TestWebFetchExtractsHTMLText(t *testing.T) {
@@ -95,6 +99,52 @@ func TestWebFetchRejectsBinary(t *testing.T) {
 
 	if _, err := fetch(t, srv.URL); err == nil {
 		t.Fatal("binary content type should be rejected")
+	}
+}
+
+func TestWebFetchBlocksNonPublicAddress(t *testing.T) {
+	t.Parallel()
+	// The default client (returned by New) must refuse to reach loopback, which is
+	// where httptest binds. This is the SSRF guard for model-driven fetches.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "secret internal service")
+	}))
+	defer srv.Close()
+
+	raw, err := json.Marshal(input{URL: srv.URL})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	if _, err := New().Run(context.Background(), raw, nil, nil); err == nil {
+		t.Fatal("fetching a loopback address should be refused")
+	}
+}
+
+func TestIsPublicIP(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"8.8.8.8":         true,
+		"1.1.1.1":         true,
+		"2606:4700::1111": true,
+		"127.0.0.1":       false,
+		"::1":             false,
+		"10.0.0.1":        false,
+		"172.16.0.1":      false,
+		"192.168.1.1":     false,
+		"169.254.169.254": false, // cloud metadata endpoint
+		"100.64.0.1":      false, // carrier-grade NAT
+		"0.0.0.0":         false,
+		"fe80::1":         false, // link-local
+		"fc00::1":         false, // unique local
+	}
+	for addr, want := range cases {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			t.Fatalf("bad test IP %q", addr)
+		}
+		if got := isPublicIP(ip); got != want {
+			t.Errorf("isPublicIP(%s) = %t, want %t", addr, got, want)
+		}
 	}
 }
 

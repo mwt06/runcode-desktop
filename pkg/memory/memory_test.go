@@ -3,7 +3,25 @@ package memory
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
+
+func TestNormalizeEntryTruncatesOnRuneBoundary(t *testing.T) {
+	t.Parallel()
+	// A fact of multi-byte runes longer than the byte cap must truncate without
+	// leaving a partial rune (invalid UTF-8) at the boundary.
+	long := strings.Repeat("中", maxEntryLen) // 3 bytes each, well over the cap
+	got, ok := normalizeEntry(long)
+	if !ok {
+		t.Fatal("expected a usable entry")
+	}
+	if len(got) > maxEntryLen {
+		t.Fatalf("entry is %d bytes, want <= %d", len(got), maxEntryLen)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated entry is not valid UTF-8: %q", got)
+	}
+}
 
 func TestScopeValid(t *testing.T) {
 	t.Parallel()

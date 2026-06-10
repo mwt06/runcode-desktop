@@ -15,6 +15,7 @@ package memory
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Scope identifies which memory file an entry belongs to.
@@ -92,9 +93,25 @@ func normalizeEntry(fact string) (string, bool) {
 	}
 	fact = strings.Join(strings.Fields(fact), " ")
 	if len(fact) > maxEntryLen {
-		fact = strings.TrimSpace(fact[:maxEntryLen])
+		fact = strings.TrimSpace(truncateUTF8(fact, maxEntryLen))
 	}
 	return fact, fact != ""
+}
+
+// truncateUTF8 caps s to at most maxBytes bytes without splitting a multi-byte
+// rune at the boundary, which would otherwise leave invalid UTF-8 in the file.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	s = s[:maxBytes]
+	for len(s) > 0 {
+		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size > 1 {
+			break
+		}
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // parseEntries extracts memory bullet lines ("- fact") from a file's content,

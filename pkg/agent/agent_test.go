@@ -5,7 +5,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
+
+func TestTruncateUTF8BytesKeepsRuneBoundary(t *testing.T) {
+	t.Parallel()
+	// "中" is 3 bytes; capping at a byte count that lands mid-rune must back off to
+	// the previous rune boundary rather than emit invalid UTF-8.
+	data := []byte(strings.Repeat("中", 10)) // 30 bytes
+	for _, max := range []int{7, 8, 9, 30, 31} {
+		got := truncateUTF8Bytes(data, max)
+		if len(got) > max {
+			t.Errorf("max=%d: got %d bytes, want <= %d", max, len(got), max)
+		}
+		if !utf8.Valid(got) {
+			t.Errorf("max=%d: result is not valid UTF-8: %q", max, got)
+		}
+	}
+}
 
 func TestParseAgentValid(t *testing.T) {
 	t.Parallel()
