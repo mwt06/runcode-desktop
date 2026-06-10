@@ -188,6 +188,10 @@ runcode saves each session's full conversation to `<workspace>/.runcode/sessions
 - `--continue`: resume the most recent session in this workspace.
 - `--no-session` / `RUNCODE_SESSION_PERSIST=off`: disable history persistence.
 
+Don't remember the id? `runcode sessions list` shows saved sessions (newest first, with a preview), `runcode sessions show <id|number>` prints one, and `runcode tui --pick` opens an interactive picker at startup.
+
+Choose where history is stored with `--session-backend` / `RUNCODE_SESSION_BACKEND` / `session_backend`: `jsonl` (default, one `.jsonl` file per session) or `sqlite` (a single indexed `<workspace>/.runcode/sessions.db`, pure-Go driver — no CGo). The `runcode sessions` command and the picker read whichever backend is configured (`runcode sessions --backend sqlite ...`).
+
 Set `--max-context-tokens` (or `max_context_tokens` in config) to cap context: when a turn's input tokens approach the budget, runcode summarizes the oldest turns into one message and keeps recent turns verbatim. Compaction affects only the in-memory working set — the on-disk history stays complete. `/clear` clears the in-memory context, but the on-disk session log remains a full append-only record.
 
 The session log is loss-less and may contain file contents and command output; it is written `0600` inside the workspace and ignored via `.gitignore`.

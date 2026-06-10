@@ -58,6 +58,9 @@ type chatConfig struct {
 	Resume             string
 	Continue           bool
 	PersistSession     bool
+	// SessionBackend selects the session-history store: "jsonl" (default) or
+	// "sqlite". It governs where history is written and read for resume/browse.
+	SessionBackend string
 	MaxRetries         int
 	InputPrice         float64
 	OutputPrice        float64
@@ -89,11 +92,12 @@ type resettableChatRunner interface {
 }
 
 type defaultChatRunner struct {
-	session    *repl.Session
-	recorder   telemetry.Recorder
-	transcript transcript.Recorder
-	sessions   sessions.Store
-	mcp        *mcp.Manager
+	session        *repl.Session
+	recorder       telemetry.Recorder
+	transcript     transcript.Recorder
+	sessions       sessions.Store
+	sessionBackend sessions.Backend
+	mcp            *mcp.Manager
 }
 
 type sessionFactoryOptions struct {
@@ -108,6 +112,7 @@ type sessionResources struct {
 	Telemetry  telemetry.Recorder
 	Transcript transcript.Recorder
 	Sessions   sessions.Store
+	Backend    sessions.Backend
 	MCP        *mcp.Manager
 	SessionID  string
 }
@@ -183,6 +188,7 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("resume", "", "Resume a saved session by id and continue it")
 	cmd.Flags().Bool("continue", false, "Resume the most recent saved session")
 	cmd.Flags().Bool("no-session", false, "Disable saving full session history for resume")
+	cmd.Flags().String("session-backend", "", "Session history backend: jsonl (default) or sqlite")
 	cmd.Flags().Bool("allow-mcp-sampling", false, "Allow MCP servers to request model completions (sampling); off by default, always denied in safe mode")
 }
 
@@ -425,6 +431,14 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	sessionBackend, err := stringFlagEnvFile(cmd, "session-backend", "RUNCODE_SESSION_BACKEND", file.SessionBackend, sessions.BackendJSONL)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	sessionBackend, err = normalizeSessionBackend(sessionBackend)
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 	mcpServers, err := mcpServersFromConfig(file.MCP)
 	if err != nil {
 		return chatConfig{}, empty, err
@@ -455,6 +469,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		Resume:             strings.TrimSpace(resumeID),
 		Continue:           continueSession,
 		PersistSession:     !noSession,
+		SessionBackend:     sessionBackend,
 		MaxRetries:         maxRetries,
 		InputPrice:         inputPrice,
 		OutputPrice:        outputPrice,
@@ -652,6 +667,17 @@ func normalizeTranscriptMode(value string) (string, error) {
 	}
 }
 
+func normalizeSessionBackend(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", sessions.BackendJSONL:
+		return sessions.BackendJSONL, nil
+	case sessions.BackendSQLite:
+		return sessions.BackendSQLite, nil
+	default:
+		return "", fmt.Errorf("unsupported session backend %q (want %q or %q)", value, sessions.BackendJSONL, sessions.BackendSQLite)
+	}
+}
+
 func telemetryRecorder(mode string) telemetry.Recorder {
 	return telemetryRecorderWithRuntime(mode, chatIO{Err: os.Stderr})
 }
@@ -668,13 +694,14 @@ func telemetryRecorderWithRuntime(mode string, runtime chatIO) telemetry.Recorde
 }
 
 // resolveSessionID determines the id for this session, honoring --resume and
-// --continue, falling back to --session-id or a freshly generated id.
-func resolveSessionID(cfg chatConfig) (string, error) {
+// --continue, falling back to --session-id or a freshly generated id. --continue
+// asks the backend for its most recent session.
+func resolveSessionID(cfg chatConfig, backend sessions.Backend) (string, error) {
 	if cfg.Resume != "" {
 		return cfg.Resume, nil
 	}
 	if cfg.Continue {
-		latest, err := sessions.LatestSessionID(cfg.CWD)
+		latest, err := backend.Latest()
 		if err != nil {
 			return "", err
 		}
@@ -696,11 +723,11 @@ func transcriptRecorderForID(cfg chatConfig, sessionID string) (transcript.Recor
 	return transcript.OpenJSONL(cfg.CWD, sessionID)
 }
 
-func openSessionStore(cfg chatConfig, sessionID string) (sessions.Store, error) {
+func openSessionStore(cfg chatConfig, backend sessions.Backend, sessionID string) (sessions.Store, error) {
 	if !cfg.PersistSession {
 		return sessions.Noop(), nil
 	}
-	return sessions.OpenJSONL(cfg.CWD, sessionID)
+	return backend.OpenStore(sessionID)
 }
 
 func chatPrompt(cmd *cobra.Command, args []string) (string, error) {
@@ -748,6 +775,7 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	r.recorder = resources.Telemetry
 	r.transcript = resources.Transcript
 	r.sessions = resources.Sessions
+	r.sessionBackend = resources.Backend
 	r.mcp = resources.MCP
 	r.session = session
 	return session, nil
@@ -759,33 +787,38 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		telemetryRuntime = opts.Runtime
 	}
 	recorder := telemetryRecorderWithRuntime(cfg.Telemetry, telemetryRuntime)
-	sessionID, err := resolveSessionID(cfg)
+	backend, err := sessions.OpenBackend(cfg.CWD, cfg.SessionBackend)
 	if err != nil {
 		closeRecorders(context.Background(), recorder)
+		return nil, sessionResources{}, err
+	}
+	sessionID, err := resolveSessionID(cfg, backend)
+	if err != nil {
+		closeRecorders(context.Background(), recorder, backend)
 		return nil, sessionResources{}, err
 	}
 	trecorder, err := transcriptRecorderForID(cfg, sessionID)
 	if err != nil {
-		closeRecorders(context.Background(), recorder)
+		closeRecorders(context.Background(), recorder, backend)
 		return nil, sessionResources{}, err
 	}
-	store, err := openSessionStore(cfg, sessionID)
+	store, err := openSessionStore(cfg, backend, sessionID)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder)
+		closeRecorders(context.Background(), recorder, trecorder, backend)
 		return nil, sessionResources{}, err
 	}
 	var initialHistory []llm.Message
 	if cfg.Resume != "" || cfg.Continue {
-		initialHistory, err = sessions.LoadHistory(cfg.CWD, sessionID)
+		initialHistory, err = backend.LoadHistory(sessionID)
 		if err != nil {
-			closeRecorders(context.Background(), recorder, trecorder, store)
+			closeRecorders(context.Background(), recorder, trecorder, store, backend)
 			return nil, sessionResources{}, err
 		}
 	}
-	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, Sessions: store, SessionID: sessionID}
+	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, Sessions: store, Backend: backend, SessionID: sessionID}
 	provider, err := buildProvider(cfg)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store)
+		closeRecorders(context.Background(), recorder, trecorder, store, backend)
 		return nil, sessionResources{}, err
 	}
 	// Connect configured MCP servers and merge their tools with the builtins.
@@ -805,14 +838,14 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	resources.MCP = mcpManager
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store)
+		closeRecorders(context.Background(), recorder, trecorder, store, backend)
 		return nil, sessionResources{}, err
 	}
 	permissionService := opts.Permissions
 	if permissionService == nil {
 		permissionService, err = permissionServiceForMode(cfg.PermissionMode, opts.Runtime, cfg.CWD)
 		if err != nil {
-			closeRecorders(context.Background(), recorder, trecorder, store)
+			closeRecorders(context.Background(), recorder, trecorder, store, backend)
 			return nil, sessionResources{}, err
 		}
 	}
@@ -833,7 +866,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	memStore := memoryStore(cfg.CWD, userConfigDir())
 	memLoaded, err := memStore.Load()
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, mcpManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)
 		return nil, sessionResources{}, err
 	}
 
@@ -901,7 +934,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		Hooks:              hookRunner,
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, mcpManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)
 		return nil, sessionResources{}, err
 	}
 	return session, resources, nil
@@ -965,7 +998,7 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {
-	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.mcp)
+	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.sessionBackend, r.mcp)
 }
 
 func closeRecorders(ctx context.Context, recorders ...interface{ Close(context.Context) error }) error {

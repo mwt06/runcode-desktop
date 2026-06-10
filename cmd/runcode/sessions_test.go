@@ -38,6 +38,7 @@ func runSessionsCmd(t *testing.T, args ...string) string {
 }
 
 func TestSessionsListAndShow(t *testing.T) {
+	isolateConfigEnv(t)
 	dir := t.TempDir()
 	seedSession(t, dir, "sess_demo", []llm.Message{
 		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "fix the bug"}}},
@@ -70,13 +71,50 @@ func TestSessionsListAndShow(t *testing.T) {
 }
 
 func TestSessionsListEmpty(t *testing.T) {
+	isolateConfigEnv(t)
 	out := runSessionsCmd(t, "list", "--cwd", t.TempDir())
 	if !strings.Contains(out, "No saved sessions") {
 		t.Fatalf("want empty notice, got:\n%s", out)
 	}
 }
 
+func TestSessionsListWithSQLiteBackend(t *testing.T) {
+	isolateConfigEnv(t)
+	dir := t.TempDir()
+
+	backend, err := sessions.OpenBackend(dir, sessions.BackendSQLite)
+	if err != nil {
+		t.Fatalf("open sqlite backend: %v", err)
+	}
+	store, err := backend.OpenStore("sess_sql")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := store.Append(context.Background(), []llm.Message{
+		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "hello sqlite"}}},
+		{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "hi"}}},
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	store.Close(context.Background())
+	backend.Close(context.Background())
+
+	list := runSessionsCmd(t, "list", "--cwd", dir, "--backend", "sqlite")
+	if !strings.Contains(list, "sess_sql") || !strings.Contains(list, "hello sqlite") {
+		t.Fatalf("sqlite list output:\n%s", list)
+	}
+	show := runSessionsCmd(t, "show", "1", "--cwd", dir, "--backend", "sqlite")
+	if !strings.Contains(show, "hello sqlite") {
+		t.Fatalf("sqlite show output:\n%s", show)
+	}
+	// The jsonl backend (default) sees no sessions for this workspace.
+	if jsonl := runSessionsCmd(t, "list", "--cwd", dir); !strings.Contains(jsonl, "No saved sessions") {
+		t.Fatalf("jsonl backend should not see the sqlite session:\n%s", jsonl)
+	}
+}
+
 func TestSessionsShowUnknownNumberErrors(t *testing.T) {
+	isolateConfigEnv(t)
 	dir := t.TempDir()
 	seedSession(t, dir, "sess_one", []llm.Message{
 		{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "hi"}}},

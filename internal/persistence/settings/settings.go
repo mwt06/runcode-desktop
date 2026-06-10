@@ -40,6 +40,7 @@ type Config struct {
 	PermissionMode     string   `toml:"permission_mode"`
 	Telemetry          string   `toml:"telemetry"`
 	Transcript         string   `toml:"transcript"`
+	SessionBackend     string   `toml:"session_backend"`
 	MaxHistoryMessages *int     `toml:"max_history_messages"`
 	MaxContextTokens   *int     `toml:"max_context_tokens"`
 	MaxRetries         *int     `toml:"max_retries"`
@@ -236,6 +237,9 @@ func merge(base Config, override Config) Config {
 	}
 	if override.Transcript != "" {
 		out.Transcript = override.Transcript
+	}
+	if override.SessionBackend != "" {
+		out.SessionBackend = override.SessionBackend
 	}
 	if override.MaxHistoryMessages != nil {
 		out.MaxHistoryMessages = override.MaxHistoryMessages

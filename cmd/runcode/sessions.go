@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/persistence/sessions"
+	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/pkg/llm"
 )
 
@@ -34,9 +37,40 @@ func sessionsCmd() *cobra.Command {
 		},
 	}
 	cmd.PersistentFlags().String("cwd", "", "workspace directory (default: current directory; env RUNCODE_CWD)")
+	cmd.PersistentFlags().String("backend", "", "session backend: jsonl (default) or sqlite (env RUNCODE_SESSION_BACKEND, or session_backend in config)")
 	cmd.AddCommand(sessionsListCmd())
 	cmd.AddCommand(sessionsShowCmd())
 	return cmd
+}
+
+// openSessionBackend resolves the workspace and the configured session backend
+// (flag > env > config file > jsonl), opening it for a browse command. The caller
+// must Close it.
+func openSessionBackend(cmd *cobra.Command) (sessions.Backend, error) {
+	cwd, err := cwdConfig(cmd)
+	if err != nil {
+		return nil, err
+	}
+	kind, err := resolveSessionBackendKind(cmd, cwd)
+	if err != nil {
+		return nil, err
+	}
+	return sessions.OpenBackend(cwd, kind)
+}
+
+func resolveSessionBackendKind(cmd *cobra.Command, cwd string) (string, error) {
+	if cmd.Flags().Changed("backend") {
+		v, _ := cmd.Flags().GetString("backend")
+		return normalizeSessionBackend(v)
+	}
+	if v := os.Getenv("RUNCODE_SESSION_BACKEND"); v != "" {
+		return normalizeSessionBackend(v)
+	}
+	resolved, err := settings.Load(settings.LoadOptions{CWD: cwd, UserConfigDir: userConfigDir()})
+	if err != nil {
+		return "", err
+	}
+	return normalizeSessionBackend(resolved.Config.SessionBackend)
 }
 
 func sessionsListCmd() *cobra.Command {
@@ -58,15 +92,16 @@ func sessionsShowCmd() *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := cwdConfig(cmd)
+			backend, err := openSessionBackend(cmd)
 			if err != nil {
 				return err
 			}
-			id, err := resolveSessionRef(cwd, args[0])
+			defer backend.Close(context.Background())
+			id, err := resolveSessionRef(backend, args[0])
 			if err != nil {
 				return err
 			}
-			history, err := sessions.LoadHistory(cwd, id)
+			history, err := backend.LoadHistory(id)
 			if err != nil {
 				return err
 			}
@@ -80,11 +115,12 @@ func sessionsShowCmd() *cobra.Command {
 }
 
 func runSessionsList(cmd *cobra.Command) error {
-	cwd, err := cwdConfig(cmd)
+	backend, err := openSessionBackend(cmd)
 	if err != nil {
 		return err
 	}
-	infos, err := sessions.List(cwd)
+	defer backend.Close(context.Background())
+	infos, err := backend.List()
 	if err != nil {
 		return err
 	}
@@ -111,8 +147,8 @@ func runSessionsList(cmd *cobra.Command) error {
 
 // resolveSessionRef accepts either a 1-based number from `sessions list` (newest
 // first) or a raw session id. A bare id is returned as-is; LoadHistory validates
-// it and reports a missing file.
-func resolveSessionRef(cwd, ref string) (string, error) {
+// it and reports a missing session.
+func resolveSessionRef(backend sessions.Backend, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", errors.New("empty session reference")
@@ -121,7 +157,7 @@ func resolveSessionRef(cwd, ref string) (string, error) {
 		if n < 1 {
 			return "", fmt.Errorf("invalid session number %q", ref)
 		}
-		infos, err := sessions.List(cwd)
+		infos, err := backend.List()
 		if err != nil {
 			return "", err
 		}

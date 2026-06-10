@@ -500,7 +500,7 @@ cmd/runcode chat
 
 - `internal/app/components`
 - `internal/persistence/claudemd`
-- `internal/persistence/sqlite`
+- `internal/persistence/sqlite`（仍为空壳；会话历史的 SQLite 后端实现在 `internal/persistence/sessions/sqlite.go`，schema 版本化用包内 `PRAGMA user_version`，未单独建 sqlite/migrate 包）
 - `internal/persistence/migrate`
 - `internal/coordinator`
 - `internal/session`
@@ -514,7 +514,7 @@ cmd/runcode chat
 对应未实现能力：
 
 - 完整 TUI 产品能力：diff viewer、transcript browser、文件树、语法高亮(permission modal、rich tool output、多行输入和 `/model` 运行时切换已实现)。
-- SQLite transcript backend。
+- SQLite transcript backend（会话历史的 SQLite 后端已实现，见 `sessions.Backend`；transcript 审计日志的 SQLite 后端仍未做）。
 - 配置写入命令 / settings-backed 权限策略持久化(TOML 配置读取已实现)。
 - cost tracking：已实现 token 累计 + `/cost` + 手动单价（`--input-price`/`--output-price`/`input_price`/`output_price`）+ `internal/cost` 内置定价表（按 model 名最长前缀匹配，未设单价时自动填，显式价优先、未知 model 不计价，`/cost` 与 `runcode config` 标注来源）。后续可做：缓存 token 计价、按 provider 自动推断。
 - hooks 已实现:PreToolUse/PostToolUse/UserPromptSubmit 三事件,argv 直接执行(无 shell)、JSON payload 经 stdin、退出码语义(非零=拦截/反馈,infra 失败 fail-open+告警);仅用户级配置(项目剥离);工具钩子在 executor 集成(覆盖内置/MCP/skill 工具)。后续可做:SessionStart/End 等更多事件、结构化 JSON 决策、matcher glob/正则。
@@ -533,7 +533,9 @@ cmd/runcode chat
 
 已实现会话浏览/恢复:`sessions.List`/`Describe` 元数据 API(单遍流式扫描:id、修改时间、大小、消息数、用户轮数、首/末条用户提问预览)、`runcode sessions list`/`show` CLI、`runcode tui --pick` 启动选择器(列出已存会话 + “开新会话”一行,选中即 resume;`--pick` 为可选,普通 `runcode tui` 仍开新会话)。
 
-后续仍可做:全文检索、transcript 浏览界面、SQLite 后端、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
+已实现可切换会话后端:`sessions.Backend` 接口(写 `Store` + `LoadHistory`/`List`/`Describe`/`Latest`)有 JSONL(默认,逐会话 `.jsonl`)与 SQLite(`<workspace>/.runcode/sessions.db`,纯 Go `modernc.org/sqlite`,逐消息存原始 JSON + 反范式 role/user_text 列让 List/Describe 走索引查询,事务+互斥写入,`PRAGMA user_version` 版本化)两种实现,经 `--session-backend` / `RUNCODE_SESSION_BACKEND` / `session_backend` 选择;`runcode sessions` 与 TUI picker 经 `--backend`/配置同源识别。
+
+后续仍可做:全文检索、transcript 浏览/SQLite 后端、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
 
 ### 2. 模型可自我修正能力
 

@@ -96,7 +96,12 @@ func TestResolveSessionIDContinuePicksLatest(t *testing.T) {
 		t.Fatalf("chtimes sess_two: %v", err)
 	}
 
-	id, err := resolveSessionID(chatConfig{CWD: dir, Continue: true})
+	backend, err := sessions.OpenBackend(dir, sessions.BackendJSONL)
+	if err != nil {
+		t.Fatalf("open backend: %v", err)
+	}
+	defer backend.Close(context.Background())
+	id, err := resolveSessionID(chatConfig{CWD: dir, Continue: true}, backend)
 	if err != nil {
 		t.Fatalf("resolveSessionID: %v", err)
 	}
@@ -106,14 +111,25 @@ func TestResolveSessionIDContinuePicksLatest(t *testing.T) {
 }
 
 func TestResolveSessionIDContinueNoSessions(t *testing.T) {
-	if _, err := resolveSessionID(chatConfig{CWD: t.TempDir(), Continue: true}); err == nil {
+	dir := t.TempDir()
+	backend, err := sessions.OpenBackend(dir, sessions.BackendJSONL)
+	if err != nil {
+		t.Fatalf("open backend: %v", err)
+	}
+	defer backend.Close(context.Background())
+	if _, err := resolveSessionID(chatConfig{CWD: dir, Continue: true}, backend); err == nil {
 		t.Fatal("want error when no session to continue")
 	}
 }
 
 func TestOpenSessionStorePersistsByDefault(t *testing.T) {
 	dir := t.TempDir()
-	store, err := openSessionStore(chatConfig{CWD: dir, PersistSession: true}, "sess_persist")
+	backend, err := sessions.OpenBackend(dir, sessions.BackendJSONL)
+	if err != nil {
+		t.Fatalf("open backend: %v", err)
+	}
+	defer backend.Close(context.Background())
+	store, err := openSessionStore(chatConfig{CWD: dir, PersistSession: true}, backend, "sess_persist")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -128,7 +144,12 @@ func TestOpenSessionStorePersistsByDefault(t *testing.T) {
 
 func TestOpenSessionStoreDisabled(t *testing.T) {
 	dir := t.TempDir()
-	store, err := openSessionStore(chatConfig{CWD: dir, PersistSession: false}, "sess_off")
+	backend, err := sessions.OpenBackend(dir, sessions.BackendJSONL)
+	if err != nil {
+		t.Fatalf("open backend: %v", err)
+	}
+	defer backend.Close(context.Background())
+	store, err := openSessionStore(chatConfig{CWD: dir, PersistSession: false}, backend, "sess_off")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

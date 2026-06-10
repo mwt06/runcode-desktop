@@ -43,7 +43,7 @@ func newTuiCmd(runner tuiRunner) *cobra.Command {
 			}
 			pick, _ := cmd.Flags().GetBool("pick")
 			if pick && cfg.Resume == "" && !cfg.Continue {
-				chosen, cancelled, err := pickSessionForTUI(cfg.CWD)
+				chosen, cancelled, err := pickSessionForTUI(cfg)
 				if err != nil {
 					return err
 				}
@@ -64,8 +64,13 @@ func newTuiCmd(runner tuiRunner) *cobra.Command {
 // picker. With no saved sessions it returns an empty id (start fresh) without
 // showing a picker. A returned cancelled=true means the user aborted and the TUI
 // should not launch.
-func pickSessionForTUI(cwd string) (chosenID string, cancelled bool, err error) {
-	infos, err := sessions.List(cwd)
+func pickSessionForTUI(cfg chatConfig) (chosenID string, cancelled bool, err error) {
+	backend, err := sessions.OpenBackend(cfg.CWD, cfg.SessionBackend)
+	if err != nil {
+		return "", false, err
+	}
+	defer backend.Close(context.Background())
+	infos, err := backend.List()
 	if err != nil {
 		return "", false, err
 	}
@@ -215,7 +220,7 @@ func (s *tuiSessionService) Close(ctx context.Context) error {
 		return nil
 	}
 	s.closed = true
-	return closeRecorders(ctx, s.resources.Telemetry, s.resources.Transcript, s.resources.Sessions, s.resources.MCP)
+	return closeRecorders(ctx, s.resources.Telemetry, s.resources.Transcript, s.resources.Sessions, s.resources.Backend, s.resources.MCP)
 }
 
 func (s *tuiSessionService) Status() ui.Status {
