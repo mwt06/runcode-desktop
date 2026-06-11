@@ -58,6 +58,7 @@ func transcriptSearchCmd() *cobra.Command {
 	}
 	cmd.Flags().String("session", "", "restrict the search to one session id")
 	cmd.Flags().Int("limit", 0, "maximum results (default 50)")
+	cmd.Flags().Bool("tool", false, "match only tool names/commands (e.g. a Bash command), not prose")
 	return cmd
 }
 
@@ -134,9 +135,11 @@ func runTranscriptSearch(cmd *cobra.Command, query string) error {
 
 	session, _ := cmd.Flags().GetString("session")
 	limit, _ := cmd.Flags().GetInt("limit")
+	toolOnly, _ := cmd.Flags().GetBool("tool")
 	hits, err := rec.Search(transcript.SearchOptions{
 		Query:     query,
 		SessionID: strings.TrimSpace(session),
+		ToolOnly:  toolOnly,
 		Limit:     limit,
 	})
 	if err != nil {
@@ -148,6 +151,12 @@ func runTranscriptSearch(cmd *cobra.Command, query string) error {
 	}
 	for _, h := range hits {
 		fmt.Fprintf(out, "%s  %s\n", h.SessionID, humanizeSince(time.Since(h.Time)))
+		if toolOnly {
+			// A tool search matched a command/name, so lead with the tool text.
+			if tl := previewLine(h.ToolText); tl != "" {
+				fmt.Fprintf(out, "  tool: %s\n", tl)
+			}
+		}
 		if u := previewLine(h.UserText); u != "" {
 			fmt.Fprintf(out, "  user: %s\n", u)
 		}

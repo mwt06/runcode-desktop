@@ -237,7 +237,7 @@ Telemetry 只记录 operation、risk、resource scope、permission effect、comm
 
 Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把 append-only turn record 写到 `<workspace>/.runcode/transcripts/<session-id>.jsonl`；记录包含用户文本、最终 assistant 文本、受限工具摘要和 Bash command 字符串，但不记录 system prompt、凭证、普通工具 raw input 或完整工具输出。
 
-`--transcript sqlite` 则把同样的脱敏记录写入单个带索引的 `<workspace>/.runcode/transcripts.db`。无需开聊天即可浏览检索：`runcode transcript list` 汇总已记录会话，`runcode transcript search <query>` 按用户/助手文本倒序返回匹配轮次（大小写不敏感子串，`--session` 限定会话、`--limit` 截断）。读命令不会创建空库——若无库会提示如何开启记录。
+`--transcript sqlite` 则把同样的脱敏记录写入单个带索引的 `<workspace>/.runcode/transcripts.db`。无需开聊天即可浏览检索：`runcode transcript list` 汇总已记录会话，`runcode transcript search <query>` 倒序返回匹配轮次。检索基于 FTS5 trigram 索引，覆盖用户文本、助手文本与工具文本——对大体量 transcript 也快、支持子串与中文，并且会索引每轮的工具调用（工具名 + Bash 命令），因此 `search "git push"` 能按所跑命令找到对应轮次。`--tool` 只匹配工具命令，`--session` 限定会话，`--limit` 截断；不足 3 个字符的查询回退 LIKE 扫描。读命令不会创建空库——若无库会提示如何开启记录。
 
 ## 架构一览
 

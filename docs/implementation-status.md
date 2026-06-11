@@ -72,7 +72,7 @@ cmd/runcode chat
 - slash 命令已有可扩展基座（含 `/mode`、`/model`、`/compact`、`/cost`）；后续可加更多命令。
 - 已有 TUI permission modal（allow once / allow session / deny）、会话级权限记忆，以及 rich tool output（输出摘要 + Edit/Write 行级 diff）；仍缺权限策略持久化、syntax highlighting 与 side-by-side diff。
 - 已有 TOML 配置文件系统(项目级 `runcode.toml` + 用户级 `config.toml`,优先级 flag > env > 项目 > 用户 > 默认,凭证仅用户级)与 `runcode config` 查看命令;尚无配置写入命令、热重载或迁移。
-- 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;并有会话浏览:`sessions.List`/`Describe` 元数据 API + `runcode sessions list`/`show <id|编号>` CLI + `runcode tui --pick` 交互式启动选择器;transcript 审计日志可经 `--transcript sqlite` 落 SQLite 并用 `runcode transcript list`/`search` 检索(LIKE 子串,尚无 FTS5 全文)。
+- 已有完整会话历史持久化(`.runcode/sessions/<id>.jsonl`,默认开启)与 `--resume`/`--continue` 跨进程恢复;并有会话浏览:`sessions.List`/`Describe` 元数据 API + `runcode sessions list`/`show <id|编号>` CLI + `runcode tui --pick` 交互式启动选择器;transcript 审计日志可经 `--transcript sqlite` 落 SQLite 并用 `runcode transcript list`/`search` 检索(FTS5 trigram 全文 + 工具命令检索 + `--tool`,<3 码点回退 LIKE)。
 - 非 loop 且无 args 时会读取 stdin 到 EOF，不是交互式输入体验。
 - 只支持 Anthropic provider。
 
@@ -439,12 +439,12 @@ cmd/runcode chat
 - 不记录 system prompt、provider request、credential、base URL、普通工具 raw input、完整工具输出、thinking 内容或 image data。
 - `/clear` 只清空内存 history，不删除或轮转 transcript。
 
-已有两种后端：JSONL（逐会话 `.jsonl` 文件，默认）与 SQLite（`--transcript sqlite`，单库 `<workspace>/.runcode/transcripts.db`，存完整 TurnRecord JSON + 反范式 session/time/model/user/assistant 列 + 索引，`PRAGMA user_version` 版本化）。`runcode transcript list` 汇总已记录会话，`runcode transcript search <query>` 按用户/助手文本检索（大小写不敏感子串，LIKE 通配符转义为字面量，`--session` 限定、`--limit` 截断）；读命令不会创建空库，缺库时提示如何开启。
+已有两种后端：JSONL（逐会话 `.jsonl` 文件，默认）与 SQLite（`--transcript sqlite`，单库 `<workspace>/.runcode/transcripts.db`，存完整 TurnRecord JSON + 反范式 session/time/model/user/assistant/tool 列 + FTS5 trigram 全文索引，`PRAGMA user_version` 版本化，v1→v2 迁移会回填 tool_text 与索引）。`runcode transcript list` 汇总已记录会话；`runcode transcript search <query>` 经 FTS5 trigram 索引检索用户/助手/工具文本（工具名 + Bash 命令也入索引，故可按所跑命令检索，`--tool` 限定只匹配工具命令），查询以字面短语匹配（FTS 运算符/LIKE 通配符不泄漏），<3 码点的短查询回退 LIKE；`--session` 限定、`--limit` 截断；读命令不会创建空库，缺库时提示如何开启。
 
 缺口：
 
 - transcript 不能用于 session resume（resume 用 `internal/persistence/sessions` 完整历史）。
-- 检索是 LIKE 子串，非 FTS5 全文索引；无 rotation/compaction、无按工具命令检索。
+- 无 rotation/compaction；trigram 索引对 <3 码点查询退化为 LIKE 扫描。
 - Bash command 字符串可能包含用户自己输入的 secret；后续可做 command redaction。
 
 ## Telemetry 状态
@@ -537,7 +537,7 @@ cmd/runcode chat
 
 已实现可切换会话后端:`sessions.Backend` 接口(写 `Store` + `LoadHistory`/`List`/`Describe`/`Latest`)有 JSONL(默认,逐会话 `.jsonl`)与 SQLite(`<workspace>/.runcode/sessions.db`,纯 Go `modernc.org/sqlite`,逐消息存原始 JSON + 反范式 role/user_text 列让 List/Describe 走索引查询,事务+互斥写入,`PRAGMA user_version` 版本化)两种实现,经 `--session-backend` / `RUNCODE_SESSION_BACKEND` / `session_backend` 选择;`runcode sessions` 与 TUI picker 经 `--backend`/配置同源识别。
 
-后续仍可做:transcript FTS5 全文检索(当前为 LIKE 子串)、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
+后续仍可做:transcript 相关性排序(当前按时间倒序)、按模型自动推断上下文窗口、`/clear` 轮转独立 session 文件(当前 `/clear` 仅清内存、磁盘保持完整日志)、图像大块外部化。
 
 ### 2. 模型可自我修正能力
 

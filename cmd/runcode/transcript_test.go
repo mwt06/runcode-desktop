@@ -69,6 +69,28 @@ func TestTranscriptListAndSearch(t *testing.T) {
 	}
 }
 
+func TestTranscriptSearchToolFlag(t *testing.T) {
+	isolateConfigEnv(t)
+	dir := t.TempDir()
+	rec, err := transcript.OpenSQLite(dir)
+	if err != nil {
+		t.Fatalf("open transcript db: %v", err)
+	}
+	if err := rec.RecordTurn(context.Background(), transcript.TurnRecord{
+		SessionID: "sess_t", Time: time.Unix(1_700_000_000, 0).UTC(), Model: "m",
+		UserText: "ship it", AssistantText: "done",
+		ToolCalls: []transcript.ToolCallSummary{{Name: "Bash", Command: "git push origin main"}},
+	}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	rec.Close(context.Background())
+
+	out := runTranscriptCmd(t, "search", "git push", "--tool", "--cwd", dir)
+	if !strings.Contains(out, "sess_t") || !strings.Contains(out, "tool:") || !strings.Contains(out, "git push") {
+		t.Fatalf("tool search output:\n%s", out)
+	}
+}
+
 func TestTranscriptSearchDoesNotCreateDB(t *testing.T) {
 	isolateConfigEnv(t)
 	dir := t.TempDir()
