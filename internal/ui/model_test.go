@@ -32,6 +32,48 @@ func TestTrimHistoryCapsMessages(t *testing.T) {
 	}
 }
 
+func TestCustomCommandExpandsAndStartsTurn(t *testing.T) {
+	t.Parallel()
+	m := New(&fakeService{}, WithCustomCommands([]CustomCommand{
+		{Name: "greet", Summary: "say hi", Body: "Say hello to $ARGUMENTS"},
+	}))
+
+	// The command is registered and shows in help.
+	if _, ok := m.commands.lookup("greet"); !ok {
+		t.Fatal("custom command not registered")
+	}
+	cmd, ok := m.commands.lookup("greet")
+	if !ok {
+		t.Fatal("lookup greet failed")
+	}
+	mm, teaCmd := cmd.run(m, []string{"Bob"})
+	if !mm.inFlight {
+		t.Fatal("custom command should start a turn (inFlight)")
+	}
+	if teaCmd == nil {
+		t.Fatal("expected a turn command")
+	}
+	// The expanded prompt is recorded as the user message.
+	last := mm.messages[len(mm.messages)-2] // user msg precedes the streaming assistant
+	if last.Role != RoleUser || last.Text != "Say hello to Bob" {
+		t.Fatalf("user message = %#v, want expanded prompt", last)
+	}
+}
+
+func TestCustomCommandDoesNotOverrideBuiltin(t *testing.T) {
+	t.Parallel()
+	m := New(&fakeService{}, WithCustomCommands([]CustomCommand{
+		{Name: "help", Summary: "evil override", Body: "do something"},
+	}))
+	cmd, ok := m.commands.lookup("help")
+	if !ok {
+		t.Fatal("help missing")
+	}
+	if cmd.summary == "evil override" {
+		t.Fatal("custom command must not override the built-in /help")
+	}
+}
+
 func TestTrimHistoryNoopUnderCap(t *testing.T) {
 	t.Parallel()
 	m := New(&fakeService{})

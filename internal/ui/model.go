@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/wt68/runcode/pkg/command"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -66,7 +67,39 @@ type Model struct {
 	menuSelected int
 }
 
-func New(service Service) Model {
+// Option customizes a Model at construction.
+type Option func(*Model)
+
+// CustomCommand is a user-defined slash command: its name, a one-line summary for
+// help, and a prompt-template body expanded and submitted on invocation.
+type CustomCommand struct {
+	Name    string
+	Summary string
+	Body    string
+}
+
+// WithCustomCommands registers user-defined slash commands. A custom command
+// whose name collides with a built-in is skipped so built-ins always win.
+func WithCustomCommands(cmds []CustomCommand) Option {
+	return func(m *Model) {
+		for _, c := range cmds {
+			if _, exists := m.commands.lookup(c.Name); exists {
+				continue
+			}
+			body := c.Body
+			m.commands.register(&slashCommand{
+				name:    c.Name,
+				summary: c.Summary,
+				run: func(mm Model, args []string) (Model, tea.Cmd) {
+					model, cmd := mm.startTurn(command.Expand(body, args))
+					return model.(Model), cmd
+				},
+			})
+		}
+	}
+}
+
+func New(service Service, opts ...Option) Model {
 	input := textarea.New()
 	input.Prompt = "> "
 	input.Placeholder = "输入你的问题，/help 查看命令（alt+enter 或 ctrl+j 换行）"
@@ -87,7 +120,7 @@ func New(service Service) Model {
 	vp := viewport.New(80, 20)
 	vp.MouseWheelEnabled = true
 	vp.MouseWheelDelta = mouseWheelScrollRows
-	return Model{
+	m := Model{
 		service:          service,
 		status:           service.Status(),
 		commands:         defaultSlashRegistry(),
@@ -98,6 +131,10 @@ func New(service Service) Model {
 		events:           make(chan tea.Msg, eventBufferSize),
 		followOutput:     true,
 	}
+	for _, opt := range opts {
+		opt(&m)
+	}
+	return m
 }
 
 func (m Model) Events() chan<- tea.Msg {
@@ -346,6 +383,13 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	return m.startTurn(text)
+}
+
+// startTurn submits text as a user turn: it records the message, marks a turn in
+// flight, and kicks off the streaming command. It is shared by free-text input
+// and custom slash commands (which expand to a prompt).
+func (m Model) startTurn(text string) (tea.Model, tea.Cmd) {
 	if m.inFlight {
 		m.appendMessage(RoleSystem, "assistant is still responding")
 		m.refreshViewport()

@@ -787,7 +787,8 @@ func (r *defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime cha
 	if err != nil {
 		return "", err
 	}
-	result, err := session.RunTurn(ctx, userPrompt)
+	promptText, images := parseImageAttachments(userPrompt, cfg.CWD)
+	result, err := session.RunTurnWithImages(ctx, promptText, images)
 	if err != nil {
 		return "", err
 	}

@@ -59,6 +59,33 @@ func TestNewSessionRejectsNegativeMaxHistoryMessages(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnWithImages(t *testing.T) {
+	t.Parallel()
+
+	provider := newFakeProvider(textEvents("ok"), nil)
+	session := newTestSession(t, SessionOptions{
+		Provider: provider,
+		Model:    "mock-model",
+		Prompt:   prompt.AssemblerOpts{CWD: "/tmp/runcode", Date: "2026-05-19"},
+	})
+
+	images := []llm.ImageSource{{MediaType: "image/png", Data: []byte{1, 2, 3}}}
+	if _, err := session.RunTurnWithImages(context.Background(), "describe", images); err != nil {
+		t.Fatalf("RunTurnWithImages: %v", err)
+	}
+
+	last := provider.request.Messages[len(provider.request.Messages)-1]
+	if last.Role != llm.RoleUser || len(last.Content) != 2 {
+		t.Fatalf("user message = %#v, want text + image blocks", last)
+	}
+	if last.Content[0].Type != llm.ContentBlockTypeText || last.Content[0].Text != "describe" {
+		t.Fatalf("block 0 = %#v, want the text", last.Content[0])
+	}
+	if last.Content[1].Type != llm.ContentBlockTypeImage || last.Content[1].Source == nil || last.Content[1].Source.MediaType != "image/png" {
+		t.Fatalf("block 1 = %#v, want the png image", last.Content[1])
+	}
+}
+
 func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	t.Parallel()
 

@@ -204,6 +204,17 @@ func NewSession(opts SessionOptions) (*Session, error) {
 }
 
 func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, error) {
+	return s.runTurn(ctx, userText, nil)
+}
+
+// RunTurnWithImages runs a turn whose user message carries image attachments
+// alongside the prose, so the model can see them. Providers that cannot accept
+// images degrade per their converter.
+func (s *Session) RunTurnWithImages(ctx context.Context, userText string, images []llm.ImageSource) (TurnResult, error) {
+	return s.runTurn(ctx, userText, images)
+}
+
+func (s *Session) runTurn(ctx context.Context, userText string, images []llm.ImageSource) (TurnResult, error) {
 	var result TurnResult
 
 	// A UserPromptSubmit hook may reject the prompt (non-zero exit) or inject
@@ -218,7 +229,7 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 	if hookContext != "" {
 		messages = append(messages, userMessage(hookContextPrefix+hookContext))
 	}
-	messages = append(messages, userMessage(userText))
+	messages = append(messages, userMessageWithImages(userText, images))
 	promptOpts := s.prompt
 	turn := s.startTurn(ctx, userText)
 	defer func() {
@@ -885,6 +896,24 @@ func cloneTools(tools []tool.Tool) []tool.Tool {
 
 func userMessage(userText string) llm.Message {
 	return llm.Message{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: userText}}}
+}
+
+// userMessageWithImages builds a user message from prose plus image attachments.
+// The text block comes first (omitted only when empty and images are present),
+// followed by one image block per attachment.
+func userMessageWithImages(userText string, images []llm.ImageSource) llm.Message {
+	if len(images) == 0 {
+		return userMessage(userText)
+	}
+	blocks := make([]llm.ContentBlock, 0, len(images)+1)
+	if userText != "" {
+		blocks = append(blocks, llm.ContentBlock{Type: llm.ContentBlockTypeText, Text: userText})
+	}
+	for i := range images {
+		src := images[i]
+		blocks = append(blocks, llm.ContentBlock{Type: llm.ContentBlockTypeImage, Source: &src})
+	}
+	return llm.Message{Role: llm.RoleUser, Content: blocks}
 }
 
 func hasToolUse(message llm.Message) bool {

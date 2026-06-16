@@ -104,7 +104,9 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 	}
 	defer service.Close(ctx)
 
-	model := ui.New(service)
+	customCommands, commandProblems := loadCustomCommands(cfg.CWD, userConfigDir())
+	reportCommandProblems(os.Stderr, commandProblems)
+	model := ui.New(service, ui.WithCustomCommands(uiCustomCommands(customCommands)))
 	events := model.Events()
 	service.onDelta = func(delta string) { events <- ui.AssistantDelta(delta) }
 	if service.approver != nil {
@@ -168,7 +170,8 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 }
 
 func (s *tuiSessionService) RunTurn(ctx context.Context, userText string) (ui.TurnResult, error) {
-	result, err := s.session.RunTurn(ctx, userText)
+	text, images := parseImageAttachments(userText, s.cfg.CWD)
+	result, err := s.session.RunTurnWithImages(ctx, text, images)
 	if err != nil {
 		return ui.TurnResult{}, err
 	}
