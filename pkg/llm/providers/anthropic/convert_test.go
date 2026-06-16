@@ -190,10 +190,59 @@ func TestBuildMessageParamsRejectsUnsupportedContent(t *testing.T) {
 
 	_, err := buildMessageParams(llm.Request{Messages: []llm.Message{{
 		Role:    llm.RoleUser,
-		Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeImage}},
+		Content: []llm.ContentBlock{{Type: llm.ContentBlockType("video")}},
 	}}}, 4096)
 	if !errors.Is(err, ErrUnsupportedContent) {
 		t.Fatalf("expected unsupported content error, got %v", err)
+	}
+}
+
+func TestBuildMessageParamsAcceptsImage(t *testing.T) {
+	t.Parallel()
+
+	// A base64 image and a URL image must both convert without error.
+	_, err := buildMessageParams(llm.Request{Messages: []llm.Message{{
+		Role: llm.RoleUser,
+		Content: []llm.ContentBlock{
+			{Type: llm.ContentBlockTypeImage, Source: &llm.ImageSource{MediaType: "image/png", Data: []byte{1, 2, 3}}},
+			{Type: llm.ContentBlockTypeImage, Source: &llm.ImageSource{URL: "https://example.com/cat.png"}},
+		},
+	}}}, 4096)
+	if err != nil {
+		t.Fatalf("image content should convert, got %v", err)
+	}
+}
+
+func TestBuildMessageParamsRejectsImageWithoutSource(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildMessageParams(llm.Request{Messages: []llm.Message{{
+		Role:    llm.RoleUser,
+		Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeImage}},
+	}}}, 4096)
+	if !errors.Is(err, ErrUnsupportedContent) {
+		t.Fatalf("image without source should error, got %v", err)
+	}
+}
+
+func TestConvertToolResultAcceptsImage(t *testing.T) {
+	t.Parallel()
+
+	// A tool result carrying an image (e.g. a screenshot tool) must convert so the
+	// model can see it, not be rejected.
+	_, err := buildMessageParams(llm.Request{Messages: []llm.Message{{
+		Role: llm.RoleTool,
+		Content: []llm.ContentBlock{{
+			Type:      llm.ContentBlockTypeToolResult,
+			ToolUseID: "toolu_1",
+			Content: []llm.ContentBlock{
+				{Type: llm.ContentBlockTypeText, Text: "here is the screenshot"},
+				{Type: llm.ContentBlockTypeImage, Source: &llm.ImageSource{MediaType: "image/png", Data: []byte{9, 9}}},
+			},
+		}},
+	}}}, 4096)
+	if err != nil {
+		t.Fatalf("tool result with image should convert, got %v", err)
 	}
 }
 

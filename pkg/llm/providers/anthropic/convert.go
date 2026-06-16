@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -146,18 +147,53 @@ func convertContentBlock(block llm.ContentBlock) (sdk.ContentBlockParamUnion, er
 		return convertToolResult(block)
 	case llm.ContentBlockTypeThinking:
 		return sdk.NewThinkingBlock(block.Signature, block.Text), nil
+	case llm.ContentBlockTypeImage:
+		image, err := convertImageSource(block.Source)
+		if err != nil {
+			return sdk.ContentBlockParamUnion{}, err
+		}
+		return sdk.ContentBlockParamUnion{OfImage: image}, nil
 	default:
 		return sdk.ContentBlockParamUnion{}, unsupportedBlock(block.Type)
 	}
 }
 
+// convertImageSource builds an Anthropic image block from the neutral image
+// source, supporting both base64 inline data and a URL reference.
+func convertImageSource(source *llm.ImageSource) (*sdk.ImageBlockParam, error) {
+	if source == nil {
+		return nil, fmt.Errorf("%w: image without source", ErrUnsupportedContent)
+	}
+	if source.URL != "" {
+		block := sdk.NewImageBlock(sdk.URLImageSourceParam{URL: source.URL})
+		return block.OfImage, nil
+	}
+	if len(source.Data) > 0 {
+		mediaType := source.MediaType
+		if mediaType == "" {
+			mediaType = "image/png"
+		}
+		block := sdk.NewImageBlockBase64(mediaType, base64.StdEncoding.EncodeToString(source.Data))
+		return block.OfImage, nil
+	}
+	return nil, fmt.Errorf("%w: image without data or url", ErrUnsupportedContent)
+}
+
 func convertToolResult(block llm.ContentBlock) (sdk.ContentBlockParamUnion, error) {
 	content := make([]sdk.ToolResultBlockParamContentUnion, 0, len(block.Content))
 	for _, nested := range block.Content {
-		if nested.Type != llm.ContentBlockTypeText {
+		switch nested.Type {
+		case llm.ContentBlockTypeText:
+			content = append(content, sdk.ToolResultBlockParamContentUnion{OfText: &sdk.TextBlockParam{Text: nested.Text}})
+		case llm.ContentBlockTypeImage:
+			image, err := convertImageSource(nested.Source)
+			if err != nil {
+				return sdk.ContentBlockParamUnion{}, err
+			}
+			content = append(content, sdk.ToolResultBlockParamContentUnion{OfImage: image})
+		default:
 			return sdk.ContentBlockParamUnion{}, unsupportedBlock(nested.Type)
 		}
-		content = append(content, sdk.ToolResultBlockParamContentUnion{OfText: &sdk.TextBlockParam{Text: nested.Text}})
 	}
 	result := sdk.ToolResultBlockParam{
 		ToolUseID: block.ToolUseID,
