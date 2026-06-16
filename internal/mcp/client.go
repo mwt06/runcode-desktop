@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // protocolVersion is the MCP revision runcode advertises during initialize. A
@@ -20,6 +21,11 @@ const (
 // maxToolListPages bounds tools/list pagination so a misbehaving server cannot
 // loop forever.
 const maxToolListPages = 100
+
+// defaultNotificationTimeout bounds work a notification handler does (e.g. the
+// re-list triggered by tools/list_changed) so a hung server cannot leak the
+// dispatch goroutine.
+const defaultNotificationTimeout = 30 * time.Second
 
 // ToolDescriptor is a tool advertised by an MCP server.
 type ToolDescriptor struct {
@@ -59,6 +65,7 @@ type Client struct {
 	instructions      string
 	supportsResources bool
 	supportsPrompts   bool
+	onToolsChanged    func([]ToolDescriptor)
 }
 
 // Root is a filesystem boundary runcode exposes to a server via roots/list, so a
@@ -73,6 +80,10 @@ type clientConfig struct {
 	roots      []Root
 	sampler    Sampler
 	serverName string
+	// onToolsChanged, when set, is invoked (with the freshly re-listed tools)
+	// after the server sends notifications/tools/list_changed. nil ignores the
+	// notification beyond consuming it.
+	onToolsChanged func([]ToolDescriptor)
 }
 
 // newClient wraps a transport in a JSON-RPC connection. The caller must call
@@ -90,9 +101,33 @@ func newClientWithRoots(stream messageStream, roots []Root) *Client {
 // newClientWith builds a Client with the given configuration. The roots and
 // sampling capabilities are advertised only when roots / a sampler are provided.
 func newClientWith(stream messageStream, cfg clientConfig) *Client {
-	c := &Client{roots: cfg.roots, sampler: cfg.sampler, serverName: cfg.serverName}
+	c := &Client{roots: cfg.roots, sampler: cfg.sampler, serverName: cfg.serverName, onToolsChanged: cfg.onToolsChanged}
 	c.conn = newConn(stream, c.serveRequest)
+	c.conn.onNotify = c.handleNotification
 	return c
+}
+
+// handleNotification consumes a server-initiated notification. Today it acts on
+// tools/list_changed (re-listing the server's tools and reporting them via the
+// onToolsChanged hook); other notifications are consumed without error so they
+// are no longer silently dropped at the protocol layer.
+func (c *Client) handleNotification(method string, _ json.RawMessage) {
+	switch method {
+	case "notifications/tools/list_changed":
+		if c.onToolsChanged == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), defaultNotificationTimeout)
+		defer cancel()
+		descriptors, err := c.ListTools(ctx)
+		if err != nil {
+			return // best-effort: a failed re-list leaves the prior tool set in place
+		}
+		c.onToolsChanged(descriptors)
+	default:
+		// Other notifications (resources/prompts list_changed, message, progress)
+		// are accepted and ignored for now.
+	}
 }
 
 // serveRequest answers server-initiated requests. runcode supports roots/list
@@ -405,6 +440,17 @@ func (c *Client) SupportsResources() bool { return c.supportsResources }
 // ServerInfo returns the connected server's identity (valid after Initialize).
 func (c *Client) ServerInfo() ServerInfo {
 	return c.serverInfo
+}
+
+// alive reports whether the underlying connection is still open. A serverConn
+// uses it to decide whether the next call can reuse this client or must re-dial.
+func (c *Client) alive() bool {
+	select {
+	case <-c.conn.closed:
+		return false
+	default:
+		return true
+	}
 }
 
 // Close shuts down the client and its transport.

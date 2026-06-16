@@ -90,7 +90,7 @@ func TestMCPToolRun(t *testing.T) {
 		}
 		return ToolResult{Content: []Content{{Type: "text", Text: "done"}}}, nil
 	})
-	mt := &mcpTool{name: "mcp__srv__do", serverTool: "do", client: client}
+	mt := &mcpTool{name: "mcp__srv__do", serverTool: "do", caller: client}
 
 	result, err := mt.Run(context.Background(), json.RawMessage(`{"x":1}`), nil, nil)
 	if err != nil {

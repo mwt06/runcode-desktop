@@ -55,14 +55,6 @@ type Manager struct {
 	tools []tool.Tool
 }
 
-type serverConn struct {
-	name              string
-	client            *Client
-	tools             []tool.Tool
-	supportsResources bool
-	supportsPrompts   bool
-}
-
 // Options configures a Manager beyond the per-server list.
 type Options struct {
 	// Roots are the filesystem boundaries runcode exposes to every server via
@@ -99,7 +91,7 @@ func openWith(ctx context.Context, configs []ServerConfig, dial dialFunc) (*Mana
 			continue
 		}
 		m.conns = append(m.conns, conn)
-		for _, t := range conn.tools {
+		for _, t := range conn.toolList() {
 			if _, dup := seen[t.Name()]; dup {
 				continue // never expose a duplicate tool name to the executor
 			}
@@ -134,7 +126,7 @@ func (m *Manager) Close(context.Context) error {
 	}
 	var firstErr error
 	for _, c := range m.conns {
-		if err := c.client.Close(); err != nil && firstErr == nil {
+		if err := c.close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -143,32 +135,56 @@ func (m *Manager) Close(context.Context) error {
 
 // dialServer is the production dialer: it builds the transport, performs the
 // handshake, lists tools, and adapts them. roots are advertised to the server,
-// and the sampler (when set) lets the server request model completions.
+// and the sampler (when set) lets the server request model completions. The
+// returned serverConn carries a redial closure so a dropped connection is
+// re-established on the next call rather than killing the server's tools.
 func dialServer(ctx context.Context, cfg ServerConfig, roots []Root, sampler Sampler) (*serverConn, error) {
-	stream, err := newTransport(cfg)
+	sc := &serverConn{name: cfg.Name}
+	// onToolsChanged keeps the serverConn's tool slice current when the server
+	// announces tools/list_changed (and across reconnects, which reuse this).
+	onToolsChanged := func(descriptors []ToolDescriptor) {
+		sc.setTools(buildTools(cfg.Name, sc, descriptors))
+	}
+	sc.redial = func(ctx context.Context) (*Client, error) {
+		client, _, err := dialClient(ctx, cfg, roots, sampler, onToolsChanged)
+		return client, err
+	}
+	client, descriptors, err := dialClient(ctx, cfg, roots, sampler, onToolsChanged)
 	if err != nil {
 		return nil, err
 	}
-	client := newClientWith(stream, clientConfig{roots: roots, sampler: sampler, serverName: cfg.Name})
+	sc.client = client
+	sc.supportsResources = client.SupportsResources()
+	sc.supportsPrompts = client.SupportsPrompts()
+	// Tools hold the serverConn (not the client) so a later reconnect is
+	// transparent. The descriptors fix the exposed tool set at first dial; a
+	// reconnect reuses it even if the server's list later changes.
+	sc.tools = buildTools(cfg.Name, sc, descriptors)
+	return sc, nil
+}
+
+// dialClient performs one transport dial + handshake + tool listing, returning a
+// ready client and its advertised tools. It is the unit dialServer re-runs to
+// reconnect.
+func dialClient(ctx context.Context, cfg ServerConfig, roots []Root, sampler Sampler, onToolsChanged func([]ToolDescriptor)) (*Client, []ToolDescriptor, error) {
+	stream, err := newTransport(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	client := newClientWith(stream, clientConfig{roots: roots, sampler: sampler, serverName: cfg.Name, onToolsChanged: onToolsChanged})
 	dialCtx, cancel := context.WithTimeout(ctx, defaultDialTimeout)
 	defer cancel()
 
 	if err := client.Initialize(dialCtx); err != nil {
 		_ = client.Close()
-		return nil, withDiagnostics(stream, err)
+		return nil, nil, withDiagnostics(stream, err)
 	}
 	descriptors, err := client.ListTools(dialCtx)
 	if err != nil {
 		_ = client.Close()
-		return nil, err
+		return nil, nil, err
 	}
-	return &serverConn{
-		name:              cfg.Name,
-		client:            client,
-		tools:             buildTools(cfg.Name, client, descriptors),
-		supportsResources: client.SupportsResources(),
-		supportsPrompts:   client.SupportsPrompts(),
-	}, nil
+	return client, descriptors, nil
 }
 
 func newTransport(cfg ServerConfig) (messageStream, error) {
@@ -182,7 +198,7 @@ func newTransport(cfg ServerConfig) (messageStream, error) {
 	}
 }
 
-func buildTools(server string, client *Client, descriptors []ToolDescriptor) []tool.Tool {
+func buildTools(server string, caller toolCaller, descriptors []ToolDescriptor) []tool.Tool {
 	out := make([]tool.Tool, 0, len(descriptors))
 	for _, d := range descriptors {
 		full, ok := toolName(server, d.Name)
@@ -194,7 +210,7 @@ func buildTools(server string, client *Client, descriptors []ToolDescriptor) []t
 			serverTool:  d.Name,
 			description: d.Description,
 			schema:      toolSchema(d.InputSchema),
-			client:      client,
+			caller:      caller,
 		})
 	}
 	return out

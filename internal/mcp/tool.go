@@ -58,15 +58,22 @@ func ParseToolName(full string) (server, name string, ok bool) {
 	return server, name, true
 }
 
+// toolCaller is the subset of a connection an mcpTool needs: a tools/call that
+// transparently reconnects a dropped connection. Both *Client (a direct call,
+// used in tests) and *serverConn (reconnecting, used in production) satisfy it.
+type toolCaller interface {
+	CallTool(ctx context.Context, name string, arguments json.RawMessage) (ToolResult, error)
+}
+
 // mcpTool adapts a server tool descriptor to the runcode tool.Tool interface.
-// Run forwards to the server over the shared client. MCP tools are never marked
+// Run forwards to the server over its connection. MCP tools are never marked
 // concurrency-safe: they are external side effects gated by approval.
 type mcpTool struct {
 	name        string
 	serverTool  string
 	description string
 	schema      tool.Schema
-	client      *Client
+	caller      toolCaller
 }
 
 func (t *mcpTool) Name() string             { return t.name }
@@ -75,7 +82,7 @@ func (t *mcpTool) InputSchema() tool.Schema { return t.schema }
 func (t *mcpTool) IsConcurrencySafe() bool  { return false }
 
 func (t *mcpTool) Run(ctx context.Context, input json.RawMessage, _ *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
-	result, err := t.client.CallTool(ctx, t.serverTool, input)
+	result, err := t.caller.CallTool(ctx, t.serverTool, input)
 	if err != nil {
 		// A transport/protocol failure is returned so the executor reports a
 		// recoverable is_error result and the model can adapt.

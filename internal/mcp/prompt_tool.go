@@ -20,22 +20,23 @@ const (
 )
 
 // promptServers holds the prompt-capable servers by name so the prompt tools can
-// route a request to the right client.
+// route a request to the right connection. Routing to the serverConn (not a bare
+// client) keeps a reconnect after a dropped connection transparent here too.
 type promptServers struct {
 	names   []string
-	clients map[string]*Client
+	servers map[string]*serverConn
 }
 
 func newPromptServers(conns []*serverConn) *promptServers {
-	ps := &promptServers{clients: make(map[string]*Client)}
+	ps := &promptServers{servers: make(map[string]*serverConn)}
 	for _, c := range conns {
 		if c == nil || !c.supportsPrompts || c.client == nil {
 			continue
 		}
-		if _, dup := ps.clients[c.name]; dup {
+		if _, dup := ps.servers[c.name]; dup {
 			continue
 		}
-		ps.clients[c.name] = c.client
+		ps.servers[c.name] = c
 		ps.names = append(ps.names, c.name)
 	}
 	sort.Strings(ps.names)
@@ -83,7 +84,7 @@ func (t *listPromptsTool) Run(ctx context.Context, input json.RawMessage, _ *too
 	var names []string
 	switch {
 	case server != "":
-		if _, ok := t.servers.clients[server]; !ok {
+		if _, ok := t.servers.servers[server]; !ok {
 			return promptErrorResult(fmt.Sprintf("unknown or non-prompt MCP server %q", server)), nil
 		}
 		names = []string{server}
@@ -94,7 +95,12 @@ func (t *listPromptsTool) Run(ctx context.Context, input json.RawMessage, _ *too
 	var b strings.Builder
 	count := 0
 	for _, name := range names {
-		prompts, err := t.servers.clients[name].ListPrompts(ctx)
+		client, err := t.servers.servers[name].live(ctx)
+		if err != nil {
+			fmt.Fprintf(&b, "server %s: unable to list prompts\n\n", name)
+			continue
+		}
+		prompts, err := client.ListPrompts(ctx)
 		if err != nil {
 			fmt.Fprintf(&b, "server %s: unable to list prompts\n\n", name)
 			continue
@@ -168,9 +174,13 @@ func (t *getPromptTool) Run(ctx context.Context, input json.RawMessage, _ *tool.
 	if server == "" || name == "" {
 		return promptErrorResult("GetMcpPrompt requires both \"server\" and \"name\""), nil
 	}
-	client, ok := t.servers.clients[server]
+	sc, ok := t.servers.servers[server]
 	if !ok {
 		return promptErrorResult(fmt.Sprintf("unknown or non-prompt MCP server %q", server)), nil
+	}
+	client, err := sc.live(ctx)
+	if err != nil {
+		return tool.Result{}, err
 	}
 	result, err := client.GetPrompt(ctx, name, in.Arguments)
 	if err != nil {

@@ -20,23 +20,24 @@ const (
 )
 
 // resourceServers holds the resource-capable servers by name so the resource
-// tools can route a request to the right client. Only servers that advertised
-// the resources capability are included.
+// tools can route a request to the right connection. Only servers that advertised
+// the resources capability are included. Routing to the serverConn (not a bare
+// client) means a reconnect after a dropped connection is transparent here too.
 type resourceServers struct {
 	names   []string
-	clients map[string]*Client
+	servers map[string]*serverConn
 }
 
 func newResourceServers(conns []*serverConn) *resourceServers {
-	rs := &resourceServers{clients: make(map[string]*Client)}
+	rs := &resourceServers{servers: make(map[string]*serverConn)}
 	for _, c := range conns {
 		if c == nil || !c.supportsResources || c.client == nil {
 			continue
 		}
-		if _, dup := rs.clients[c.name]; dup {
+		if _, dup := rs.servers[c.name]; dup {
 			continue // a duplicate server name cannot be routed uniquely; keep the first
 		}
-		rs.clients[c.name] = c.client
+		rs.servers[c.name] = c
 		rs.names = append(rs.names, c.name)
 	}
 	sort.Strings(rs.names)
@@ -87,7 +88,7 @@ func (t *listResourcesTool) Run(ctx context.Context, input json.RawMessage, _ *t
 	var names []string
 	switch {
 	case server != "":
-		if _, ok := t.servers.clients[server]; !ok {
+		if _, ok := t.servers.servers[server]; !ok {
 			return resourceErrorResult(fmt.Sprintf("unknown or non-resource MCP server %q", server)), nil
 		}
 		names = []string{server}
@@ -98,7 +99,12 @@ func (t *listResourcesTool) Run(ctx context.Context, input json.RawMessage, _ *t
 	var b strings.Builder
 	count := 0
 	for _, name := range names {
-		descriptors, err := t.servers.clients[name].ListResources(ctx)
+		client, err := t.servers.servers[name].live(ctx)
+		if err != nil {
+			fmt.Fprintf(&b, "server %s: unable to list resources\n\n", name)
+			continue
+		}
+		descriptors, err := client.ListResources(ctx)
 		if err != nil {
 			// Report the failing server without leaking the raw error text.
 			fmt.Fprintf(&b, "server %s: unable to list resources\n\n", name)
@@ -160,9 +166,13 @@ func (t *readResourceTool) Run(ctx context.Context, input json.RawMessage, _ *to
 	if server == "" || uri == "" {
 		return resourceErrorResult("ReadMcpResource requires both \"server\" and \"uri\""), nil
 	}
-	client, ok := t.servers.clients[server]
+	sc, ok := t.servers.servers[server]
 	if !ok {
 		return resourceErrorResult(fmt.Sprintf("unknown or non-resource MCP server %q", server)), nil
+	}
+	client, err := sc.live(ctx)
+	if err != nil {
+		return tool.Result{}, err
 	}
 	result, err := client.ReadResource(ctx, uri)
 	if err != nil {

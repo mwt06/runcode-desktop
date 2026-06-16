@@ -138,7 +138,7 @@ func TestMCPToolRunSurfacesError(t *testing.T) {
 	client := newTestClient(t, func(_ string, _ json.RawMessage) (any, *rpcError) {
 		return nil, &rpcError{Code: -32000, Message: "tool blew up"}
 	})
-	mt := &mcpTool{name: "mcp__srv__do", serverTool: "do", client: client}
+	mt := &mcpTool{name: "mcp__srv__do", serverTool: "do", caller: client}
 	if _, err := mt.Run(context.Background(), nil, nil, nil); err == nil {
 		t.Fatal("expected Run to surface the CallTool error")
 	}

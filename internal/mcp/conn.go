@@ -32,6 +32,10 @@ var ErrConnClosed = errors.New("mcp: connection closed")
 type conn struct {
 	stream  messageStream
 	handler requestHandler
+	// onNotify, when set, receives server-initiated notifications (a method-
+	// bearing frame with no id). It runs in its own goroutine so a slow handler
+	// never stalls the read loop. A nil handler ignores notifications.
+	onNotify notificationHandler
 
 	mu      sync.Mutex
 	nextID  int64
@@ -41,6 +45,10 @@ type conn struct {
 	closed    chan struct{}
 	closeErr  error
 }
+
+// notificationHandler answers a server-initiated notification (no response is
+// sent). Examples: notifications/tools/list_changed, notifications/message.
+type notificationHandler func(method string, params json.RawMessage)
 
 type rpcResult struct {
 	result json.RawMessage
@@ -78,8 +86,13 @@ func (c *conn) dispatch(frame []byte) {
 	if msg.Method != "" {
 		if msg.ID != nil {
 			go c.handleServerRequest(msg)
+		} else if c.onNotify != nil {
+			// A notification has no id and expects no response. Dispatch it off the
+			// read loop so a slow handler (e.g. a re-list triggered by
+			// tools/list_changed) never stalls frame reading.
+			go c.onNotify(msg.Method, msg.Params)
 		}
-		return // server notifications are not consumed in this increment
+		return
 	}
 	id, ok := messageID(msg.ID)
 	if !ok {

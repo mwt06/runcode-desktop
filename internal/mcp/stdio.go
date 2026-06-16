@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 )
 
 // StdioConfig launches a local MCP server as a subprocess and speaks JSON-RPC
@@ -22,19 +23,44 @@ type StdioConfig struct {
 }
 
 // stdioStream is a frameStream bound to a subprocess, plus access to the early
-// stderr tail for diagnosing servers that fail to speak the protocol.
+// stderr tail and the process exit status for diagnosing servers that fail to
+// speak the protocol or crash at runtime.
 type stdioStream struct {
 	*frameStream
 	stderr *boundedBuffer
+
+	waitMu  sync.Mutex
+	waitErr error
+	waited  bool
 }
 
-// Diagnostics returns the captured head of the subprocess's stderr, useful when
-// the handshake fails (e.g. a missing dependency printed to stderr before exit).
+func (s *stdioStream) setWaitResult(err error) {
+	s.waitMu.Lock()
+	s.waitErr = err
+	s.waited = true
+	s.waitMu.Unlock()
+}
+
+// Diagnostics returns the captured head of the subprocess's stderr plus, if the
+// process has exited, its exit status. Useful when the handshake fails (e.g. a
+// missing dependency printed to stderr before exit) or the process crashes at
+// runtime (the exit code explains a dropped connection).
 func (s *stdioStream) Diagnostics() string {
-	if s.stderr == nil {
-		return ""
+	tail := ""
+	if s.stderr != nil {
+		tail = s.stderr.String()
 	}
-	return s.stderr.String()
+	s.waitMu.Lock()
+	waitErr, waited := s.waitErr, s.waited
+	s.waitMu.Unlock()
+	if waited && waitErr != nil {
+		exit := "process exited: " + waitErr.Error()
+		if tail != "" {
+			return exit + "; stderr: " + tail
+		}
+		return exit
+	}
+	return tail
 }
 
 // newStdioTransport starts the configured subprocess and returns a transport
@@ -72,18 +98,33 @@ func newStdioTransport(cfg StdioConfig) (*stdioStream, error) {
 
 	onClose := func() error {
 		// Closing stdin asks a well-behaved server to exit; Kill is the fallback
-		// for one that does not. Wait is reaped in the background to avoid a
-		// zombie without blocking Close on a process that ignores the signal.
+		// for one that ignores it. The process is reaped by the resident wait
+		// goroutine below, so Close never blocks on a process that hangs.
 		_ = stdin.Close()
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		go func() { _ = cmd.Wait() }()
 		return nil
 	}
 
-	return &stdioStream{
+	s := &stdioStream{
 		frameStream: newFrameStream(stdout, stdin, onClose),
 		stderr:      diag,
-	}, nil
+	}
+
+	// Reap the subprocess regardless of how it ends — its own crash or Close's
+	// Kill — so it never lingers as a zombie and its exit status is captured. An
+	// abnormal exit is recorded as the stream's terminal error (kept only if the
+	// read loop has not already set a more specific one), so a dropped connection
+	// surfaces "process exited: …" instead of a bare closed error, and a
+	// reconnect is driven off a true terminal state.
+	go func() {
+		err := cmd.Wait()
+		s.setWaitResult(err)
+		if err != nil {
+			s.frameStream.setErr(fmt.Errorf("mcp: server process exited: %w", err))
+		}
+	}()
+
+	return s, nil
 }

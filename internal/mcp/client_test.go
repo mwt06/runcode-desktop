@@ -96,6 +96,58 @@ func newTestClient(t *testing.T, handler rpcHandler) *Client {
 	return c
 }
 
+func TestClientConsumesToolsListChanged(t *testing.T) {
+	t.Parallel()
+	stream := newChanStream()
+	relisted := make(chan []ToolDescriptor, 1)
+
+	// Fake server: answers tools/list (so a re-list resolves) and otherwise idles.
+	go func() {
+		defer close(stream.toClient)
+		for {
+			select {
+			case <-stream.closed:
+				return
+			case frame := <-stream.toServer:
+				var msg rpcMessage
+				if json.Unmarshal(frame, &msg) != nil || msg.ID == nil {
+					continue
+				}
+				if msg.Method != "tools/list" {
+					continue
+				}
+				raw, _ := json.Marshal(listToolsResult{Tools: []ToolDescriptor{{Name: "refreshed"}}})
+				out, _ := json.Marshal(rpcMessage{JSONRPC: jsonRPCVersion, ID: msg.ID, Result: raw})
+				select {
+				case stream.toClient <- out:
+				case <-stream.closed:
+					return
+				}
+			}
+		}
+	}()
+
+	c := newClientWith(stream, clientConfig{
+		serverName:     "srv",
+		onToolsChanged: func(d []ToolDescriptor) { relisted <- d },
+	})
+	t.Cleanup(func() { _ = c.Close() })
+
+	// The server announces its tool list changed; the client must re-list and
+	// report the fresh tools instead of dropping the notification.
+	note, _ := json.Marshal(rpcMessage{JSONRPC: jsonRPCVersion, Method: "notifications/tools/list_changed"})
+	stream.toClient <- note
+
+	select {
+	case d := <-relisted:
+		if len(d) != 1 || d[0].Name != "refreshed" {
+			t.Fatalf("re-listed tools = %#v, want [refreshed]", d)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("onToolsChanged not invoked after tools/list_changed")
+	}
+}
+
 func TestClientInitialize(t *testing.T) {
 	t.Parallel()
 	client := newTestClient(t, func(method string, _ json.RawMessage) (any, *rpcError) {
