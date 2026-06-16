@@ -97,6 +97,48 @@ func TestLoadCorruptLineErrors(t *testing.T) {
 	}
 }
 
+// TestLoadTornTrailingLineRecovers simulates a crash/disk-full mid-Append that
+// leaves a half-written final record (no terminating newline). LoadHistory and
+// describePath must recover every complete prior message instead of failing.
+func TestLoadTornTrailingLineRecovers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sessDir := filepath.Join(dir, ".runcode", sessionsDirName)
+	if err := os.MkdirAll(sessDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	good, err := json.Marshal(llm.Message{
+		Role:    llm.RoleUser,
+		Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// Two complete records followed by a torn, unterminated JSON fragment.
+	content := append(append(append([]byte{}, good...), '\n'), good...)
+	content = append(content, '\n')
+	content = append(content, []byte(`{"role":"user","cont`)...) // truncated, no '\n'
+	if err := os.WriteFile(filepath.Join(sessDir, "sess_torn.jsonl"), content, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	history, err := LoadHistory(dir, "sess_torn")
+	if err != nil {
+		t.Fatalf("LoadHistory on torn tail: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("recovered %d messages, want 2 (torn tail dropped)", len(history))
+	}
+	info, err := Describe(dir, "sess_torn")
+	if err != nil {
+		t.Fatalf("Describe on torn tail: %v", err)
+	}
+	if info.Messages != 2 {
+		t.Fatalf("Describe counted %d messages, want 2", info.Messages)
+	}
+}
+
 func TestLatestSessionID(t *testing.T) {
 	t.Parallel()
 

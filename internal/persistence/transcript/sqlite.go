@@ -64,9 +64,12 @@ func OpenSQLite(workspace string) (*SQLiteRecorder, error) {
 	if err != nil {
 		return nil, err
 	}
-	// busy_timeout lets a concurrent reader/writer wait out a lock; the path part
-	// keeps OS-native separators (no file: URI) so Windows backslashes are fine.
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	// WAL lets the search/list read paths run concurrently with the background
+	// RecordTurn writer instead of blocking on it; synchronous(NORMAL) is the
+	// durable-and-fast pairing for WAL. busy_timeout lets a connection wait out a
+	// checkpoint/lock instead of failing. The path part keeps OS-native separators
+	// (no file: URI) so Windows backslashes are fine.
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open transcript db: %w", err)
 	}

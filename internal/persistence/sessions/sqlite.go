@@ -63,10 +63,13 @@ func openSQLiteBackend(workspace string) (*sqliteBackend, error) {
 	if err := ensureFileWithinWorkspace(workspace, path); err != nil {
 		return nil, err
 	}
-	// Pass pragmas via the DSN. busy_timeout lets a concurrent reader/writer wait
-	// out a lock instead of failing immediately; the path part keeps OS-native
-	// separators (no file: URI) so Windows backslashes are not misparsed.
-	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	// Pass pragmas via the DSN. WAL lets readers (List/Describe/Latest) run
+	// concurrently with a writer instead of blocking on it, and keeps a partially
+	// written transaction out of the main database file; synchronous(NORMAL) is the
+	// durable-and-fast pairing recommended for WAL. busy_timeout lets a connection
+	// wait out a checkpoint/lock instead of failing immediately. The path part keeps
+	// OS-native separators (no file: URI) so Windows backslashes are not misparsed.
+	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open session db: %w", err)
@@ -197,7 +200,10 @@ SELECT s.id, s.updated_at,
 FROM sessions s`
 
 func (b *sqliteBackend) List() ([]Info, error) {
-	rows, err := b.db.Query(infoSelect + " ORDER BY s.updated_at DESC")
+	// rowid (insertion order) breaks updated_at ties deterministically: with WAL +
+	// synchronous(NORMAL) two appends can land on the same wall-clock tick, so
+	// ordering must not depend on timestamps being unique.
+	rows, err := b.db.Query(infoSelect + " ORDER BY s.updated_at DESC, s.rowid DESC")
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
@@ -234,7 +240,7 @@ func (b *sqliteBackend) Describe(id string) (Info, error) {
 
 func (b *sqliteBackend) Latest() (string, error) {
 	var id string
-	err := b.db.QueryRow("SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1").Scan(&id)
+	err := b.db.QueryRow("SELECT id FROM sessions ORDER BY updated_at DESC, rowid DESC LIMIT 1").Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

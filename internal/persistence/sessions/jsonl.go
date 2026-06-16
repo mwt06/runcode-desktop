@@ -88,7 +88,10 @@ func (s *JSONLStore) Close(context.Context) error {
 }
 
 // LoadHistory reads and reconstructs the full message history of a session. A
-// missing file returns (nil, nil); a corrupt line returns an error.
+// missing file returns (nil, nil). A torn final line left by a crash or
+// disk-full mid-Append is dropped so resume recovers every complete message; a
+// malformed but newline-terminated line is genuine corruption and returns an
+// error (see scanHistory).
 func LoadHistory(workspace string, sessionID string) ([]llm.Message, error) {
 	path, err := sessionFilePath(workspace, sessionID)
 	if err != nil {
@@ -104,26 +107,52 @@ func LoadHistory(workspace string, sessionID string) ([]llm.Message, error) {
 	defer file.Close()
 
 	var history []llm.Message
-	reader := bufio.NewReader(file)
+	if err := scanHistory(file, func(message llm.Message) error {
+		history = append(history, message)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("parse session store: %w", err)
+	}
+	return history, nil
+}
+
+// scanHistory streams one JSON-encoded llm.Message per line from r, invoking fn
+// for each decoded message.
+//
+// Append writes whole records (each terminated by '\n') in a single Write, so a
+// crash or disk-full can only ever truncate the trailing record, leaving an
+// unterminated partial line at EOF. Such a line was never fully committed, so it
+// is dropped and scanning stops cleanly — the session stays loadable up to its
+// last complete message instead of being bricked by a half-written tail. A
+// malformed line that IS newline-terminated cannot come from a torn append; it
+// is treated as real corruption and returned as an error (with its line number).
+func scanHistory(r io.Reader, fn func(llm.Message) error) error {
+	reader := bufio.NewReader(r)
 	lineNum := 0
 	for {
 		line, readErr := reader.ReadBytes('\n')
+		atEOF := errors.Is(readErr, io.EOF)
+		terminated := len(line) > 0 && line[len(line)-1] == '\n'
 		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
 			lineNum++
 			var message llm.Message
 			if err := json.Unmarshal(trimmed, &message); err != nil {
-				return nil, fmt.Errorf("parse session store line %d: %w", lineNum, err)
+				if atEOF && !terminated {
+					return nil // torn trailing write: recover the complete prefix
+				}
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
-			history = append(history, message)
+			if err := fn(message); err != nil {
+				return err
+			}
 		}
 		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
+			if atEOF {
+				return nil
 			}
-			return nil, fmt.Errorf("read session store: %w", readErr)
+			return fmt.Errorf("read: %w", readErr)
 		}
 	}
-	return history, nil
 }
 
 // LatestSessionID returns the id of the most recently modified session file, or

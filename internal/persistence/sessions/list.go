@@ -1,12 +1,8 @@
 package sessions
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -92,31 +88,20 @@ func describePath(path string, id string) (Info, error) {
 	}
 	info := Info{ID: id, ModTime: stat.ModTime(), SizeBytes: stat.Size()}
 
-	reader := bufio.NewReader(file)
-	lineNum := 0
-	for {
-		line, readErr := reader.ReadBytes('\n')
-		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
-			lineNum++
-			var message llm.Message
-			if err := json.Unmarshal(trimmed, &message); err != nil {
-				return Info{}, fmt.Errorf("parse session %q line %d: %w", id, lineNum, err)
+	// Shares scanHistory's torn-trailing-line tolerance with LoadHistory, so a
+	// session's metadata stays describable after a crash-truncated final write.
+	if err := scanHistory(file, func(message llm.Message) error {
+		info.Messages++
+		if prompt := userPrompt(message); prompt != "" {
+			info.Turns++
+			if info.FirstUser == "" {
+				info.FirstUser = prompt
 			}
-			info.Messages++
-			if prompt := userPrompt(message); prompt != "" {
-				info.Turns++
-				if info.FirstUser == "" {
-					info.FirstUser = prompt
-				}
-				info.LastUser = prompt
-			}
+			info.LastUser = prompt
 		}
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			return Info{}, fmt.Errorf("read session %q: %w", id, readErr)
-		}
+		return nil
+	}); err != nil {
+		return Info{}, fmt.Errorf("parse session %q: %w", id, err)
 	}
 	return info, nil
 }
