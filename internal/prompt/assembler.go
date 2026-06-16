@@ -30,27 +30,34 @@ type AssemblerOpts struct {
 	SupportsCacheControl bool
 }
 
+// section is one entry in the system-prompt table. static sections are identical
+// across turns and carry cache hints; they are emitted before the cache
+// boundary. dynamic sections (cwd, date, memory, …) follow it. Adding a section
+// is a single table entry whose placement is explicit in its static flag.
+type section struct {
+	text   string
+	static bool
+}
+
 func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
-	staticSections := []string{
-		sections.Intro(),
-		sections.System(),
-		opts.AgentInstructions,
-		sections.UsingTools(opts.Tools),
-		opts.Skills,
-		opts.Agents,
-		sections.Actions(),
-		sections.ToneAndStyle(),
-	}
 	permissionContext := opts.PermissionContext
 	if permissionContext == "" {
 		permissionContext = sections.PermissionContext(opts.PermissionMode)
 	}
-	dynamicSections := []string{
-		opts.Reasoning,
-		sections.EnvInfo(sections.EnvInfoInput{CWD: opts.CWD, Date: opts.Date, ShellInfo: opts.ShellInfo}),
-		permissionContext,
-		opts.Memory,
-		opts.ProjectCtx,
+	table := []section{
+		{sections.Intro(), true},
+		{sections.System(), true},
+		{opts.AgentInstructions, true},
+		{sections.UsingTools(opts.Tools), true},
+		{opts.Skills, true},
+		{opts.Agents, true},
+		{sections.Actions(), true},
+		{sections.ToneAndStyle(), true},
+		{opts.Reasoning, false},
+		{sections.EnvInfo(sections.EnvInfoInput{CWD: opts.CWD, Date: opts.Date, ShellInfo: opts.ShellInfo}), false},
+		{permissionContext, false},
+		{opts.Memory, false},
+		{opts.ProjectCtx, false},
 	}
 
 	staticCache := llm.CacheControlNone
@@ -58,23 +65,23 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 		staticCache = llm.CacheControlEphemeral
 	}
 
-	blocks := make([]llm.ContentBlock, 0, len(staticSections)+len(dynamicSections)+1)
-	for _, section := range staticSections {
-		if section == "" {
-			continue
+	// Two passes keep the static-before-boundary, dynamic-after invariant
+	// regardless of table order, so a new entry only needs its static flag right.
+	blocks := make([]llm.ContentBlock, 0, len(table)+1)
+	for _, s := range table {
+		if s.static && s.text != "" {
+			blocks = append(blocks, textBlock(s.text, staticCache))
 		}
-		blocks = append(blocks, textBlock(section, staticCache))
 	}
 	if len(blocks) == 0 {
 		return nil, fmt.Errorf("empty system prompt: no static sections provided")
 	}
 
 	blocks = append(blocks, textBlock(DynamicBoundary, staticCache))
-	for _, section := range dynamicSections {
-		if section == "" {
-			continue
+	for _, s := range table {
+		if !s.static && s.text != "" {
+			blocks = append(blocks, textBlock(s.text, llm.CacheControlNone))
 		}
-		blocks = append(blocks, textBlock(section, llm.CacheControlNone))
 	}
 	return blocks, nil
 }

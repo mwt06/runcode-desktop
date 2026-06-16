@@ -12,8 +12,12 @@ import (
 	"github.com/wt68/runcode/tools/write"
 )
 
+// Builtins returns the in-tree tools in a stable, curated order. They are
+// assembled through a tool.Registry so the order is explicit in one place and a
+// duplicate name would fail loudly at startup rather than silently shadow.
 func Builtins() []tool.Tool {
-	return []tool.Tool{
+	r := tool.NewRegistry()
+	for _, t := range []tool.Tool{
 		read.New(),
 		write.New(),
 		edit.New(),
@@ -22,5 +26,8 @@ func Builtins() []tool.Tool {
 		bash.New(),
 		todo.New(),
 		webfetch.New(),
+	} {
+		r.MustRegister(t)
 	}
+	return r.All()
 }
