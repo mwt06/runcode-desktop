@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/wt68/runcode/pkg/llm"
 )
 
 // sequenceDoer returns a scripted sequence of responses/errors across calls.
@@ -88,6 +90,48 @@ func TestStreamDoesNotRetryClientError(t *testing.T) {
 	}
 	if seq.calls != 1 {
 		t.Fatalf("client error must not retry, calls = %d", seq.calls)
+	}
+}
+
+func TestStreamSurfacesNeutralError(t *testing.T) {
+	t.Parallel()
+	// A 401 must surface a non-retryable auth-kind neutral error, and the
+	// envelope's "type" must sharpen classification when the status is generic.
+	cases := []struct {
+		name      string
+		status    int
+		body      string
+		wantKind  llm.ErrorKind
+		retryable bool
+	}{
+		{"auth", 401, `{"error":{"message":"bad key","type":"authentication_error"}}`, llm.ErrorKindAuth, false},
+		{"rate", 429, `{"error":{"message":"slow down","type":"rate_limit_exceeded"}}`, llm.ErrorKindRateLimited, true},
+		{"server", 503, ``, llm.ErrorKindServer, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seq := &sequenceDoer{responses: []*http.Response{newResponse(tc.status, tc.body)}}
+			c := retryClient(seq, noopSleep)
+			// Disable retries so the first terminal error is returned verbatim.
+			c.maxRetries = 0
+			_, err := c.stream(context.Background(), chatRequest{Model: "m"})
+			if err == nil {
+				t.Fatalf("%s: want error", tc.name)
+			}
+			llmErr, ok := llm.AsError(err)
+			if !ok {
+				t.Fatalf("%s: error is not a *llm.Error: %v", tc.name, err)
+			}
+			if llmErr.Kind != tc.wantKind {
+				t.Fatalf("%s: kind = %q, want %q", tc.name, llmErr.Kind, tc.wantKind)
+			}
+			if llmErr.StatusCode != tc.status {
+				t.Fatalf("%s: status = %d, want %d", tc.name, llmErr.StatusCode, tc.status)
+			}
+			if llm.IsRetryable(err) != tc.retryable {
+				t.Fatalf("%s: retryable = %v, want %v", tc.name, llm.IsRetryable(err), tc.retryable)
+			}
+		})
 	}
 }
 

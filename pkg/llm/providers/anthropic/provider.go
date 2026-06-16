@@ -46,6 +46,21 @@ type Provider struct {
 
 var _ llm.Provider = (*Provider)(nil)
 
+// init registers the anthropic factory so callers can build it by name via
+// llm.Build without importing this package's concrete Options type.
+func init() {
+	llm.Register(providerName, func(cfg llm.Config) (llm.Provider, error) {
+		return New(Options{
+			APIKey:           cfg.APIKey,
+			AuthToken:        cfg.AuthToken,
+			BaseURL:          cfg.BaseURL,
+			DefaultMaxTokens: cfg.DefaultMaxTokens,
+			MaxContextTokens: cfg.MaxContextTokens,
+			MaxRetries:       cfg.MaxRetries,
+		})
+	})
+}
+
 func New(opts Options) (*Provider, error) {
 	return newProvider(opts, newSDKClient(opts)), nil
 }
@@ -69,8 +84,10 @@ func (p *Provider) Name() string {
 func (p *Provider) Capabilities() llm.Capabilities {
 	return llm.Capabilities{
 		SupportsCacheControl: true,
-		SupportsThinking:     false,
-		MaxContextTokens:     p.maxContextTokens,
+		// The converter emits thinking blocks (convert.go) and the stream decodes
+		// them (stream.go), so the capability is genuinely supported.
+		SupportsThinking: true,
+		MaxContextTokens: p.maxContextTokens,
 	}
 }
 

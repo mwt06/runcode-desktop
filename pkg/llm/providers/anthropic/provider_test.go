@@ -22,8 +22,8 @@ func TestProviderContract(t *testing.T) {
 	if !capabilities.SupportsCacheControl {
 		t.Fatal("expected cache control support")
 	}
-	if capabilities.SupportsThinking {
-		t.Fatal("skeleton should not advertise thinking request support")
+	if !capabilities.SupportsThinking {
+		t.Fatal("anthropic converts and decodes thinking blocks, so it must advertise thinking support")
 	}
 	if capabilities.MaxContextTokens != 200_000 {
 		t.Fatalf("max context = %d, want 200000", capabilities.MaxContextTokens)

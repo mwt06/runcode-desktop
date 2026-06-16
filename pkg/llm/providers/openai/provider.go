@@ -46,6 +46,22 @@ type Provider struct {
 
 var _ llm.Provider = (*Provider)(nil)
 
+// init registers the openai factory so callers can build it by name via
+// llm.Build without importing this package's concrete Options type.
+func init() {
+	llm.Register(providerName, func(cfg llm.Config) (llm.Provider, error) {
+		return New(Options{
+			APIKey:             cfg.APIKey,
+			AuthToken:          cfg.AuthToken,
+			BaseURL:            cfg.BaseURL,
+			DefaultMaxTokens:   cfg.DefaultMaxTokens,
+			MaxContextTokens:   cfg.MaxContextTokens,
+			MaxRetries:         cfg.MaxRetries,
+			DisableStreamUsage: cfg.Options["disable_stream_usage"] == "true",
+		})
+	})
+}
+
 func New(opts Options) (*Provider, error) {
 	return newProvider(opts, newHTTPClient(opts)), nil
 }

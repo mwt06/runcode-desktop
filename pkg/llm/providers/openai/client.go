@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wt68/runcode/pkg/llm"
 )
 
 // maxSSELine bounds a single SSE data line. Tool-call argument payloads can be
@@ -142,13 +144,21 @@ func (c *httpClient) attempt(ctx context.Context, payload []byte) (sseStream, ti
 
 	resp, err := c.doer.Do(httpReq)
 	if err != nil {
-		return nil, 0, isRetryableErr(ctx, err), fmt.Errorf("openai request: %w", err)
+		retryable := isRetryableErr(ctx, err)
+		return nil, 0, retryable, &llm.Error{
+			Kind:      llm.ErrorKindTransport,
+			Retryable: retryable,
+			Provider:  providerName,
+			Message:   "request failed",
+			Err:       err,
+		}
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return newHTTPSSEStream(resp.Body), 0, false, nil
 	}
 	defer resp.Body.Close()
-	return nil, parseRetryAfter(resp.Header), isRetryableStatus(resp.StatusCode), statusError(resp)
+	retryAfter := parseRetryAfter(resp.Header)
+	return nil, retryAfter, isRetryableStatus(resp.StatusCode), statusError(resp, retryAfter)
 }
 
 // isRetryableStatus reports whether an HTTP status is a transient failure.
@@ -218,15 +228,49 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// statusError reads a bounded error body and formats a provider error without
-// leaking the request or any credentials.
-func statusError(resp *http.Response) error {
+// statusError reads a bounded error body and builds a neutral *llm.Error
+// classified by HTTP status, without leaking the request or any credentials. The
+// API's explicit error type sharpens the classification when present (e.g. it
+// distinguishes an auth error returned with a generic status).
+func statusError(resp *http.Response, retryAfter time.Duration) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	kind, retryable := llm.ClassifyHTTPStatus(resp.StatusCode)
+	message := resp.Status
 	var envelope apiError
 	if json.Unmarshal(body, &envelope) == nil && envelope.Error.Message != "" {
-		return fmt.Errorf("openai error (%s): %s", resp.Status, envelope.Error.Message)
+		message = envelope.Error.Message
+		if k, ok := kindFromOpenAIErrorType(envelope.Error.Type); ok {
+			kind = k
+		}
 	}
-	return fmt.Errorf("openai error (%s)", resp.Status)
+	return &llm.Error{
+		Kind:       kind,
+		Retryable:  retryable,
+		RetryAfter: retryAfter,
+		StatusCode: resp.StatusCode,
+		Provider:   providerName,
+		Message:    message,
+		Err:        errors.New(resp.Status),
+	}
+}
+
+// kindFromOpenAIErrorType maps the API error envelope's "type" field to a neutral
+// kind when it carries information the status code alone may not (some
+// compatible gateways return a generic status with a precise type). Unknown
+// types fall back to the status-based classification.
+func kindFromOpenAIErrorType(t string) (llm.ErrorKind, bool) {
+	switch t {
+	case "insufficient_quota", "rate_limit_exceeded", "rate_limit_error":
+		return llm.ErrorKindRateLimited, true
+	case "invalid_request_error", "invalid_api_key":
+		return llm.ErrorKindInvalidRequest, true
+	case "authentication_error", "permission_error":
+		return llm.ErrorKindAuth, true
+	case "overloaded_error", "server_error", "api_error":
+		return llm.ErrorKindServer, true
+	default:
+		return llm.ErrorKindUnknown, false
+	}
 }
 
 type httpSSEStream struct {

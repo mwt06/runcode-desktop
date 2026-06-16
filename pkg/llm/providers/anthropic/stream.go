@@ -67,7 +67,7 @@ func (s *stream) run() {
 			return
 		}
 	}
-	s.setErr(s.sdkStream.Err())
+	s.setErr(classifyError(s.sdkStream.Err()))
 }
 
 func (s *stream) send(event llm.StreamEvent) bool {
