@@ -160,6 +160,12 @@ func (s *httpStream) Write(ctx context.Context, frame []byte) error {
 		s.setSession(sid)
 	}
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		cancel()
+		return authError(resp.StatusCode, challenge)
+	}
 	if resp.StatusCode >= 400 {
 		resp.Body.Close()
 		cancel()
@@ -230,6 +236,63 @@ func (s *httpStream) readSSE(body io.Reader) {
 			return
 		}
 	}
+}
+
+// authError builds an actionable error for a 401/403 from an MCP HTTP server. It
+// surfaces the WWW-Authenticate challenge (scheme, realm, and the RFC 9728
+// resource_metadata URL identifying the authorization server) so the operator
+// knows how to authorize.
+//
+// The full interactive OAuth 2.1 authorization-code-with-PKCE flow is not
+// implemented yet (it needs token storage and a redirect listener); for now,
+// supply a pre-acquired bearer token via the server's configured headers.
+func authError(status int, challenge string) error {
+	suffix := ""
+	if hint := authChallengeHint(challenge); hint != "" {
+		suffix = " [" + hint + "]"
+	}
+	return fmt.Errorf("mcp: server requires authorization (HTTP %d)%s; supply a bearer token via the server's headers (Authorization: Bearer <token>)", status, suffix)
+}
+
+// authChallengeHint extracts human-useful fields from a WWW-Authenticate header
+// for diagnostics: the auth scheme plus any realm, resource_metadata, error, and
+// error_description parameters.
+func authChallengeHint(challenge string) string {
+	challenge = strings.TrimSpace(challenge)
+	if challenge == "" {
+		return ""
+	}
+	var parts []string
+	if scheme, _, ok := strings.Cut(challenge, " "); ok && scheme != "" {
+		parts = append(parts, "scheme="+scheme)
+	}
+	for _, key := range []string{"realm", "resource_metadata", "error", "error_description"} {
+		if v := authChallengeParam(challenge, key); v != "" {
+			parts = append(parts, key+"="+v)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// authChallengeParam returns the value of key=... in a WWW-Authenticate header,
+// handling both quoted and unquoted forms. It returns "" when the key is absent.
+func authChallengeParam(challenge, key string) string {
+	idx := strings.Index(challenge, key+"=")
+	if idx < 0 {
+		return ""
+	}
+	rest := challenge[idx+len(key)+1:]
+	if strings.HasPrefix(rest, `"`) {
+		rest = rest[1:]
+		if end := strings.IndexByte(rest, '"'); end >= 0 {
+			return rest[:end]
+		}
+		return rest
+	}
+	if end := strings.IndexAny(rest, ", "); end >= 0 {
+		return rest[:end]
+	}
+	return rest
 }
 
 func (s *httpStream) deliver(msg []byte) {

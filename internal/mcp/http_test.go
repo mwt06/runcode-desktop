@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,5 +131,49 @@ func TestHTTPTransportServerError(t *testing.T) {
 func TestHTTPTransportRequiresURL(t *testing.T) {
 	if _, err := newHTTPTransport(HTTPConfig{}); err == nil {
 		t.Fatal("expected error for empty url")
+	}
+}
+
+func TestHTTPTransportUnauthorizedIsActionable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="https://auth.example/.well-known/oauth-protected-resource"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	stream, err := newHTTPTransport(HTTPConfig{URL: server.URL, Client: server.Client()})
+	if err != nil {
+		t.Fatalf("newHTTPTransport: %v", err)
+	}
+	client := newClient(stream)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = client.Initialize(ctx)
+	if err == nil {
+		t.Fatal("expected an authorization error from 401")
+	}
+	for _, want := range []string{"requires authorization", "realm=mcp", "resource_metadata=https://auth.example", "Bearer"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+func TestAuthChallengeParam(t *testing.T) {
+	t.Parallel()
+	h := `Bearer realm="mcp", error=invalid_token, resource_metadata="https://a/b"`
+	if got := authChallengeParam(h, "realm"); got != "mcp" {
+		t.Fatalf("realm = %q", got)
+	}
+	if got := authChallengeParam(h, "error"); got != "invalid_token" {
+		t.Fatalf("error = %q", got)
+	}
+	if got := authChallengeParam(h, "resource_metadata"); got != "https://a/b" {
+		t.Fatalf("resource_metadata = %q", got)
+	}
+	if got := authChallengeParam(h, "absent"); got != "" {
+		t.Fatalf("absent = %q, want empty", got)
 	}
 }
