@@ -20,11 +20,24 @@ const (
 	ResultContentTypeText ResultContentType = "text"
 	// ResultContentTypeJSON represents structured JSON-compatible output.
 	ResultContentTypeJSON ResultContentType = "json"
+	// ResultContentTypeImage represents an inline image, carried in Image. A
+	// provider that cannot accept images in a tool result degrades it to a text
+	// placeholder.
+	ResultContentTypeImage ResultContentType = "image"
 )
 
 // ResultContent is one content block in a tool result.
 type ResultContent struct {
-	Type ResultContentType `json:"type"`
-	Text string            `json:"text,omitempty"`
-	Data any               `json:"data,omitempty"`
+	Type  ResultContentType `json:"type"`
+	Text  string            `json:"text,omitempty"`
+	Data  any               `json:"data,omitempty"`
+	Image *ResultImage      `json:"image,omitempty"`
+}
+
+// ResultImage is inline image data a tool produced (e.g. an MCP server's image
+// content or a screenshot). Either raw Data (with MediaType) or a URL is set.
+type ResultImage struct {
+	MediaType string `json:"media_type,omitempty"`
+	Data      []byte `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
 }

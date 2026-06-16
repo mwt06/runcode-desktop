@@ -46,15 +46,25 @@ func TestParseToolName(t *testing.T) {
 
 func TestMapToolResult(t *testing.T) {
 	t.Parallel()
+	// "AAECAw==" is base64 for the bytes {0,1,2,3}.
 	got := mapToolResult(ToolResult{Content: []Content{
 		{Type: "text", Text: "hello"},
-		{Type: "image", MimeType: "image/png"},
+		{Type: "image", MimeType: "image/png", Data: "AAECAw=="}, // inlined
+		{Type: "image", MimeType: "image/gif"},                   // no data → placeholder
+		{Type: "audio", MimeType: "audio/wav"},                   // non-image → placeholder
 	}})
-	if len(got.Content) != 2 || got.Content[0].Text != "hello" {
+	if len(got.Content) != 4 || got.Content[0].Text != "hello" {
 		t.Fatalf("content[0] = %#v", got.Content)
 	}
-	if got.Content[1].Text != "[image content omitted: image/png]" {
-		t.Fatalf("content[1] = %q, want image placeholder", got.Content[1].Text)
+	img := got.Content[1]
+	if img.Type != tool.ResultContentTypeImage || img.Image == nil || img.Image.MediaType != "image/png" || len(img.Image.Data) != 4 {
+		t.Fatalf("content[1] = %#v, want inlined png image", img)
+	}
+	if got.Content[2].Text != "[image content omitted: image/gif]" {
+		t.Fatalf("content[2] = %q, want image placeholder", got.Content[2].Text)
+	}
+	if got.Content[3].Text != "[audio content omitted: audio/wav]" {
+		t.Fatalf("content[3] = %q, want audio placeholder", got.Content[3].Text)
 	}
 
 	empty := mapToolResult(ToolResult{IsError: true})

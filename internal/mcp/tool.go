@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 
@@ -92,26 +93,54 @@ func (t *mcpTool) Run(ctx context.Context, input json.RawMessage, _ *tool.Contex
 }
 
 // mapToolResult converts an MCP tools/call result into a runcode tool result.
-// Text content passes through; non-text content (image/audio/resource) is noted
-// as a placeholder since binary payloads are not inlined into the model context
-// in this increment.
+// Text passes through and image content is inlined so the model can see it; other
+// binary content (audio/resource) is noted as a placeholder since it has no
+// model-context representation here.
 func mapToolResult(result ToolResult) tool.Result {
 	content := make([]tool.ResultContent, 0, len(result.Content))
 	for _, c := range result.Content {
-		if c.Type == "text" {
+		switch {
+		case c.Type == "text":
 			content = append(content, tool.ResultContent{Type: tool.ResultContentTypeText, Text: c.Text})
-			continue
+		case c.Type == "image":
+			if img := mcpImageContent(c); img != nil {
+				content = append(content, *img)
+				continue
+			}
+			content = append(content, omittedContent(c.Type, c.MimeType))
+		default:
+			content = append(content, omittedContent(c.Type, c.MimeType))
 		}
-		note := "[" + c.Type + " content omitted]"
-		if c.MimeType != "" {
-			note = "[" + c.Type + " content omitted: " + c.MimeType + "]"
-		}
-		content = append(content, tool.ResultContent{Type: tool.ResultContentTypeText, Text: note})
 	}
 	if len(content) == 0 {
 		content = append(content, tool.ResultContent{Type: tool.ResultContentTypeText, Text: "(no content)"})
 	}
 	return tool.Result{Content: content, IsError: result.IsError}
+}
+
+// mcpImageContent decodes an MCP image content block (base64 Data + MimeType)
+// into an inline image result. It returns nil when the data is missing or not
+// decodable, so the caller falls back to a placeholder.
+func mcpImageContent(c Content) *tool.ResultContent {
+	if c.Data == "" {
+		return nil
+	}
+	data, err := base64.StdEncoding.DecodeString(c.Data)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return &tool.ResultContent{
+		Type:  tool.ResultContentTypeImage,
+		Image: &tool.ResultImage{MediaType: c.MimeType, Data: data},
+	}
+}
+
+func omittedContent(contentType, mimeType string) tool.ResultContent {
+	note := "[" + contentType + " content omitted]"
+	if mimeType != "" {
+		note = "[" + contentType + " content omitted: " + mimeType + "]"
+	}
+	return tool.ResultContent{Type: tool.ResultContentTypeText, Text: note}
 }
 
 // toolSchema decodes an MCP input schema (raw JSON Schema) into the runcode

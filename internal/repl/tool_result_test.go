@@ -46,6 +46,28 @@ func TestToolResultBlockConvertsJSONToText(t *testing.T) {
 	}
 }
 
+func TestToolResultBlockConvertsImage(t *testing.T) {
+	t.Parallel()
+
+	block, err := ToolResultBlock(ExecuteResult{
+		ToolUseID: "toolu_img",
+		Result: tool.Result{Content: []tool.ResultContent{{
+			Type:  tool.ResultContentTypeImage,
+			Image: &tool.ResultImage{MediaType: "image/png", Data: []byte{1, 2, 3}},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("ToolResultBlock: %v", err)
+	}
+	if len(block.Content) != 1 {
+		t.Fatalf("content = %#v, want one image block", block.Content)
+	}
+	img := block.Content[0]
+	if img.Type != llm.ContentBlockTypeImage || img.Source == nil || img.Source.MediaType != "image/png" || len(img.Source.Data) != 3 {
+		t.Fatalf("content = %#v, want a png image source", img)
+	}
+}
+
 func TestToolResultBlockPropagatesErrorResult(t *testing.T) {
 	t.Parallel()
 

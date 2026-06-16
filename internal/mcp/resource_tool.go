@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -184,13 +185,17 @@ func (t *readResourceTool) Run(ctx context.Context, input json.RawMessage, _ *to
 }
 
 // mapResourceContents converts a resources/read result into a runcode tool
-// result. Inline text passes through; binary (blob) content is noted as a
-// placeholder since it is not inlined into the model context in this increment.
+// result. Inline text passes through and image blobs are inlined so the model
+// can see them; other binary blobs are noted as a placeholder.
 func mapResourceContents(result ReadResourceResult) tool.Result {
 	content := make([]tool.ResultContent, 0, len(result.Contents))
 	for _, c := range result.Contents {
 		if c.Text != "" {
 			content = append(content, tool.ResultContent{Type: tool.ResultContentTypeText, Text: c.Text})
+			continue
+		}
+		if img := resourceImageContent(c); img != nil {
+			content = append(content, *img)
 			continue
 		}
 		note := "[binary resource omitted"
@@ -204,6 +209,23 @@ func mapResourceContents(result ReadResourceResult) tool.Result {
 		content = append(content, tool.ResultContent{Type: tool.ResultContentTypeText, Text: "(empty resource)"})
 	}
 	return tool.Result{Content: content}
+}
+
+// resourceImageContent inlines an image resource blob (base64 Blob + an image
+// MimeType) so the model can see it. It returns nil for non-image or
+// undecodable blobs so the caller falls back to a placeholder.
+func resourceImageContent(c ResourceContents) *tool.ResultContent {
+	if c.Blob == "" || !strings.HasPrefix(c.MimeType, "image/") {
+		return nil
+	}
+	data, err := base64.StdEncoding.DecodeString(c.Blob)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return &tool.ResultContent{
+		Type:  tool.ResultContentTypeImage,
+		Image: &tool.ResultImage{MediaType: c.MimeType, Data: data},
+	}
 }
 
 func resourceErrorResult(msg string) tool.Result {

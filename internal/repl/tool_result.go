@@ -25,6 +25,18 @@ func ToolResultBlock(result ExecuteResult) (llm.ContentBlock, error) {
 				return llm.ContentBlock{}, fmt.Errorf("marshal tool result json: %w", err)
 			}
 			content = append(content, llm.ContentBlock{Type: llm.ContentBlockTypeText, Text: string(data)})
+		case tool.ResultContentTypeImage:
+			if item.Image == nil {
+				continue
+			}
+			content = append(content, llm.ContentBlock{
+				Type: llm.ContentBlockTypeImage,
+				Source: &llm.ImageSource{
+					MediaType: item.Image.MediaType,
+					Data:      item.Image.Data,
+					URL:       item.Image.URL,
+				},
+			})
 		default:
 			return llm.ContentBlock{}, fmt.Errorf("unknown tool result content type: %q", item.Type)
 		}

@@ -205,10 +205,17 @@ func convertToolMessage(message llm.Message) ([]chatMessage, error) {
 		}
 		var content strings.Builder
 		for _, nested := range block.Content {
-			if nested.Type != llm.ContentBlockTypeText {
+			switch nested.Type {
+			case llm.ContentBlockTypeText:
+				content.WriteString(nested.Text)
+			case llm.ContentBlockTypeImage:
+				// OpenAI tool messages are text-only (images belong to user
+				// messages), so an image in a tool result degrades to a note rather
+				// than failing the whole request.
+				content.WriteString("[image omitted: not supported in an OpenAI tool result]")
+			default:
 				return nil, unsupportedBlock(nested.Type)
 			}
-			content.WriteString(nested.Text)
 		}
 		out = append(out, chatMessage{
 			Role:       "tool",

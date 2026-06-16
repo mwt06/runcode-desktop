@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/wt68/runcode/pkg/tool"
 )
 
 // resourceTestClient builds a client whose fake server answers resources/list
@@ -93,15 +95,21 @@ func TestReadResourceToolValidation(t *testing.T) {
 
 func TestMapResourceContents(t *testing.T) {
 	t.Parallel()
+	// "AAECAw==" is base64 for the bytes {0,1,2,3}.
 	got := mapResourceContents(ReadResourceResult{Contents: []ResourceContents{
 		{Text: "hello"},
-		{MimeType: "image/png", Blob: "base64data"},
+		{MimeType: "image/png", Blob: "AAECAw=="},               // image → inlined
+		{MimeType: "application/octet-stream", Blob: "AAECAw=="}, // non-image → placeholder
 	}})
-	if len(got.Content) != 2 || got.Content[0].Text != "hello" {
+	if len(got.Content) != 3 || got.Content[0].Text != "hello" {
 		t.Fatalf("content[0] = %#v", got.Content)
 	}
-	if got.Content[1].Text != "[binary resource omitted: image/png]" {
-		t.Fatalf("content[1] = %q, want binary placeholder", got.Content[1].Text)
+	img := got.Content[1]
+	if img.Type != tool.ResultContentTypeImage || img.Image == nil || img.Image.MediaType != "image/png" || len(img.Image.Data) != 4 {
+		t.Fatalf("content[1] = %#v, want inlined png image", img)
+	}
+	if got.Content[2].Text != "[binary resource omitted: application/octet-stream]" {
+		t.Fatalf("content[2] = %q, want binary placeholder", got.Content[2].Text)
 	}
 
 	empty := mapResourceContents(ReadResourceResult{})
