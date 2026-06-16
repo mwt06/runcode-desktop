@@ -26,18 +26,21 @@ import (
 	"github.com/wt68/runcode/internal/telemetry"
 	"github.com/wt68/runcode/pkg/agent"
 	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/llm/providers/anthropic"
-	"github.com/wt68/runcode/pkg/llm/providers/openai"
+	// Provider packages are imported for their init() side effect: each registers
+	// its factory with llm.Build. buildProvider then selects by name without a
+	// hardcoded switch over concrete provider types.
+	_ "github.com/wt68/runcode/pkg/llm/providers/anthropic"
+	_ "github.com/wt68/runcode/pkg/llm/providers/openai"
 	"github.com/wt68/runcode/pkg/memory"
 	"github.com/wt68/runcode/pkg/skill"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
 )
 
-const (
-	anthropicProvider = "anthropic"
-	openaiProvider    = "openai"
-)
+// anthropicProvider is the default provider name and the one that strictly
+// requires a credential. Provider names are otherwise resolved through the
+// llm registry rather than enumerated here.
+const anthropicProvider = "anthropic"
 
 var errEmptyPrompt = errors.New("prompt is required")
 
@@ -289,8 +292,8 @@ func chatConfigFromCommand(cmd *cobra.Command) (chatConfig, error) {
 	if err != nil {
 		return chatConfig{}, err
 	}
-	if cfg.Provider != anthropicProvider && cfg.Provider != openaiProvider {
-		return chatConfig{}, fmt.Errorf("unsupported provider %q", cfg.Provider)
+	if !llm.IsRegistered(cfg.Provider) {
+		return chatConfig{}, fmt.Errorf("unsupported provider %q (registered: %v)", cfg.Provider, llm.Registered())
 	}
 	if strings.TrimSpace(cfg.Model) == "" {
 		return chatConfig{}, errors.New("model is required")
@@ -719,14 +722,7 @@ func resolveSessionID(cfg chatConfig, backend sessions.Backend) (string, error) 
 }
 
 func transcriptRecorderForID(cfg chatConfig, sessionID string) (transcript.Recorder, error) {
-	switch cfg.Transcript {
-	case "jsonl":
-		return transcript.OpenJSONL(cfg.CWD, sessionID)
-	case "sqlite":
-		return transcript.OpenSQLite(cfg.CWD)
-	default:
-		return transcript.Noop(), nil
-	}
+	return transcript.OpenRecorder(cfg.Transcript, cfg.CWD, sessionID)
 }
 
 func openSessionStore(cfg chatConfig, backend sessions.Backend, sessionID string) (sessions.Store, error) {
@@ -976,31 +972,22 @@ func boolEnv(name string) bool {
 	}
 }
 
-// buildProvider constructs the configured LLM provider. cfg.Provider has already
-// been validated to be one of the supported names.
+// buildProvider constructs the configured LLM provider from the registry. An
+// unknown provider name is rejected by llm.Build (no silent fallback). Provider-
+// specific escape hatches travel in Config.Options.
 func buildProvider(cfg chatConfig) (llm.Provider, error) {
-	switch cfg.Provider {
-	case openaiProvider:
-		return openai.New(openai.Options{
-			APIKey:           cfg.APIKey,
-			AuthToken:        cfg.AuthToken,
-			BaseURL:          cfg.BaseURL,
-			DefaultMaxTokens: cfg.MaxTokens,
-			MaxContextTokens: cfg.MaxContextTokens,
-			MaxRetries:       cfg.MaxRetries,
-			// Escape hatch for compatible endpoints that reject stream_options.
-			DisableStreamUsage: boolEnv("RUNCODE_OPENAI_DISABLE_USAGE_STREAM"),
-		})
-	default:
-		return anthropic.New(anthropic.Options{
-			APIKey:           cfg.APIKey,
-			AuthToken:        cfg.AuthToken,
-			BaseURL:          cfg.BaseURL,
-			DefaultMaxTokens: cfg.MaxTokens,
-			MaxContextTokens: cfg.MaxContextTokens,
-			MaxRetries:       cfg.MaxRetries,
-		})
-	}
+	return llm.Build(cfg.Provider, llm.Config{
+		APIKey:           cfg.APIKey,
+		AuthToken:        cfg.AuthToken,
+		BaseURL:          cfg.BaseURL,
+		DefaultMaxTokens: cfg.MaxTokens,
+		MaxContextTokens: cfg.MaxContextTokens,
+		MaxRetries:       cfg.MaxRetries,
+		Options: map[string]string{
+			// Escape hatch for OpenAI-compatible endpoints that reject stream_options.
+			"disable_stream_usage": strconv.FormatBool(boolEnv("RUNCODE_OPENAI_DISABLE_USAGE_STREAM")),
+		},
+	})
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {

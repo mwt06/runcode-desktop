@@ -62,27 +62,17 @@ func transcriptSearchCmd() *cobra.Command {
 	return cmd
 }
 
-// openTranscriptRecorder resolves the workspace and opens its transcript database,
+// openTranscriptReader resolves the workspace and opens its searchable transcript,
 // but only if one exists — a read command should not create an empty database or
 // imply transcripts were recorded when they were not. ok=false means there is no
-// database (the caller prints a hint).
-func openTranscriptRecorder(cmd *cobra.Command) (rec *transcript.SQLiteRecorder, ok bool, err error) {
+// searchable transcript (the caller prints a hint). It depends on the
+// transcript.Reader interface, not a concrete backend type.
+func openTranscriptReader(cmd *cobra.Command) (reader transcript.Reader, ok bool, err error) {
 	cwd, err := cwdConfig(cmd)
 	if err != nil {
 		return nil, false, err
 	}
-	exists, err := transcript.HasSQLite(cwd)
-	if err != nil {
-		return nil, false, err
-	}
-	if !exists {
-		return nil, false, nil
-	}
-	rec, err = transcript.OpenSQLite(cwd)
-	if err != nil {
-		return nil, false, err
-	}
-	return rec, true, nil
+	return transcript.OpenReader(cwd)
 }
 
 func transcriptHint(w io.Writer) {
@@ -91,7 +81,7 @@ func transcriptHint(w io.Writer) {
 }
 
 func runTranscriptList(cmd *cobra.Command) error {
-	rec, ok, err := openTranscriptRecorder(cmd)
+	rec, ok, err := openTranscriptReader(cmd)
 	if err != nil {
 		return err
 	}
@@ -122,7 +112,7 @@ func runTranscriptList(cmd *cobra.Command) error {
 }
 
 func runTranscriptSearch(cmd *cobra.Command, query string) error {
-	rec, ok, err := openTranscriptRecorder(cmd)
+	rec, ok, err := openTranscriptReader(cmd)
 	if err != nil {
 		return err
 	}
