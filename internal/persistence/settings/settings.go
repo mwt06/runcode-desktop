@@ -62,7 +62,7 @@ type Config struct {
 // HookConfig describes one lifecycle hook. The command is run directly (no
 // shell) with the event payload on stdin.
 type HookConfig struct {
-	Event     string   `toml:"event"`      // PreToolUse | PostToolUse | UserPromptSubmit
+	Event     string   `toml:"event"`      // PreToolUse|PostToolUse|UserPromptSubmit|Stop|SubagentStop|SessionStart|SessionEnd|PreCompact
 	Matcher   string   `toml:"matcher"`    // tool name or "*" (tool events only)
 	Command   []string `toml:"command"`    // executable + args
 	TimeoutMS int      `toml:"timeout_ms"` // 0 = default

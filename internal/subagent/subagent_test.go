@@ -37,6 +37,46 @@ func TestLauncherReturnsFinalText(t *testing.T) {
 	}
 }
 
+// inputRecordingHooks records every full Input it is asked to run.
+type inputRecordingHooks struct {
+	mu    sync.Mutex
+	calls []hooks.Input
+}
+
+func (r *inputRecordingHooks) Run(_ context.Context, in hooks.Input) hooks.Decision {
+	r.mu.Lock()
+	r.calls = append(r.calls, in)
+	r.mu.Unlock()
+	return hooks.Decision{}
+}
+
+func TestLauncherFiresSubagentStopNotStop(t *testing.T) {
+	t.Parallel()
+	rec := &inputRecordingHooks{}
+	provider := newFakeProvider(textEvents("sub report"))
+	l := NewLauncher(Options{Provider: provider, Model: "m", Hooks: rec})
+
+	if _, err := l.Launch(context.Background(), agent.Agent{Name: "explorer", Prompt: "p"}, "task", toolCtx(t), nil); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	var sawSubagentStop bool
+	for _, c := range rec.calls {
+		switch c.Event {
+		case hooks.EventSubagentStop:
+			sawSubagentStop = true
+			if c.Reason != "explorer" || !strings.Contains(c.AssistantText, "sub report") {
+				t.Fatalf("SubagentStop input = %#v", c)
+			}
+		case hooks.EventStop, hooks.EventSessionStart, hooks.EventSessionEnd, hooks.EventUserPromptSubmit, hooks.EventPreCompact:
+			t.Fatalf("sub-agent must not fire session event %q", c.Event)
+		}
+	}
+	if !sawSubagentStop {
+		t.Fatal("SubagentStop did not fire")
+	}
+}
+
 func TestLauncherAgentModelOverride(t *testing.T) {
 	t.Parallel()
 

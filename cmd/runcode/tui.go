@@ -223,6 +223,9 @@ func (s *tuiSessionService) Close(ctx context.Context) error {
 		return nil
 	}
 	s.closed = true
+	if s.session != nil {
+		s.session.FireSessionEnd(ctx, "exit")
+	}
 	return closeRecorders(ctx, s.resources.Telemetry, s.resources.Transcript, s.resources.Sessions, s.resources.Backend, s.resources.MCP, s.resources.Shells)
 }
 

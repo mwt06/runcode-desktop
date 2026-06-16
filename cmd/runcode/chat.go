@@ -1029,6 +1029,9 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {
+	if r.session != nil {
+		r.session.FireSessionEnd(ctx, "exit")
+	}
 	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.sessionBackend, r.mcp, r.shells)
 }
 

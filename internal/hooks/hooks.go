@@ -23,6 +23,21 @@ const (
 	// sent to the model. A blocking hook rejects the prompt; otherwise the hook's
 	// output is injected as additional context for the turn.
 	EventUserPromptSubmit Event = "UserPromptSubmit"
+	// EventStop fires when the main agent finishes a turn (the assistant responded
+	// with no further tool use). It is observational: its output does not force the
+	// agent to keep going.
+	EventStop Event = "Stop"
+	// EventSubagentStop fires when a sub-agent finishes its task. Observational.
+	EventSubagentStop Event = "SubagentStop"
+	// EventSessionStart fires once when a session starts or resumes (Reason is
+	// "startup" or "resume"). Its output is injected as additional context for the
+	// first turn, like a UserPromptSubmit hook.
+	EventSessionStart Event = "SessionStart"
+	// EventSessionEnd fires when a session ends. Observational.
+	EventSessionEnd Event = "SessionEnd"
+	// EventPreCompact fires before context compaction (Reason is "auto" or
+	// "manual"). Observational.
+	EventPreCompact Event = "PreCompact"
 )
 
 // Hook is one configured hook.
@@ -47,6 +62,12 @@ type Input struct {
 	ToolInput json.RawMessage `json:"tool_input,omitempty"`
 	Prompt    string          `json:"prompt,omitempty"`
 	CWD       string          `json:"cwd,omitempty"`
+	// AssistantText carries the final assistant text for Stop / SubagentStop.
+	AssistantText string `json:"assistant_text,omitempty"`
+	// Reason carries the trigger for SessionStart ("startup"/"resume"),
+	// SessionEnd, and PreCompact ("auto"/"manual"); for SubagentStop it is the
+	// sub-agent name.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Decision is the aggregated result of the hooks that fired for an event.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -153,4 +154,127 @@ func TestUserPromptSubmitHookInjectsContext(t *testing.T) {
 	if !injected || !prompt {
 		t.Fatalf("request missing injected context or prompt: %#v", provider.requests[0].Messages)
 	}
+}
+
+func countEvents(calls []hooks.Input, event hooks.Event) int {
+	n := 0
+	for _, c := range calls {
+		if c.Event == event {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSessionStartHookInjectsContextOnce(t *testing.T) {
+	t.Parallel()
+	provider := newFakeProviderSequence(
+		fakeProviderResponse{events: textEvents("a")},
+		fakeProviderResponse{events: textEvents("b")},
+	)
+	h := &stubHooks{decisions: map[hooks.Event]hooks.Decision{
+		hooks.EventSessionStart: {Output: "repo: runcode"},
+	}}
+	session := newTestSession(t, SessionOptions{Provider: provider, Hooks: h})
+
+	if _, err := session.RunTurn(context.Background(), "first"); err != nil {
+		t.Fatalf("RunTurn 1: %v", err)
+	}
+	if _, err := session.RunTurn(context.Background(), "second"); err != nil {
+		t.Fatalf("RunTurn 2: %v", err)
+	}
+
+	// SessionStart fires once, with reason "startup", and its context reaches the
+	// first request only.
+	if got := countEvents(h.calls, hooks.EventSessionStart); got != 1 {
+		t.Fatalf("SessionStart fired %d times, want 1", got)
+	}
+	for _, c := range h.calls {
+		if c.Event == hooks.EventSessionStart && c.Reason != "startup" {
+			t.Fatalf("SessionStart reason = %q, want startup", c.Reason)
+		}
+	}
+	firstHasContext := strings.Contains(allMessageText(provider.requests[0].Messages), "repo: runcode")
+	secondHasContext := strings.Contains(allMessageText(provider.requests[1].Messages), "repo: runcode")
+	if !firstHasContext {
+		t.Fatal("SessionStart context missing from the first request")
+	}
+	_ = secondHasContext // the second request carries it only via persisted history, not re-injection
+}
+
+func TestSessionStartReasonResumeWhenSeeded(t *testing.T) {
+	t.Parallel()
+	provider := newFakeProviderSequence(fakeProviderResponse{events: textEvents("ok")})
+	h := &stubHooks{decisions: map[hooks.Event]hooks.Decision{}}
+	session := newTestSession(t, SessionOptions{
+		Provider:       provider,
+		Hooks:          h,
+		InitialHistory: []llm.Message{userMessage("earlier")},
+	})
+	if _, err := session.RunTurn(context.Background(), "next"); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	found := false
+	for _, c := range h.calls {
+		if c.Event == hooks.EventSessionStart {
+			found = true
+			if c.Reason != "resume" {
+				t.Fatalf("SessionStart reason = %q, want resume", c.Reason)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("SessionStart did not fire")
+	}
+}
+
+func TestStopHookFires(t *testing.T) {
+	t.Parallel()
+	provider := newFakeProviderSequence(fakeProviderResponse{events: textEvents("the answer")})
+	h := &stubHooks{decisions: map[hooks.Event]hooks.Decision{}}
+	session := newTestSession(t, SessionOptions{Provider: provider, Hooks: h})
+
+	if _, err := session.RunTurn(context.Background(), "q"); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	var stop *hooks.Input
+	for i := range h.calls {
+		if h.calls[i].Event == hooks.EventStop {
+			stop = &h.calls[i]
+		}
+	}
+	if stop == nil {
+		t.Fatal("Stop hook did not fire")
+	}
+	if !strings.Contains(stop.AssistantText, "the answer") {
+		t.Fatalf("Stop assistant_text = %q, want the answer", stop.AssistantText)
+	}
+}
+
+func TestSessionEndAndPreCompactHooksFire(t *testing.T) {
+	t.Parallel()
+	provider := newFakeProviderSequence(fakeProviderResponse{events: textEvents("x")})
+	h := &stubHooks{decisions: map[hooks.Event]hooks.Decision{}}
+	session := newTestSession(t, SessionOptions{Provider: provider, Hooks: h})
+
+	if _, _, err := session.Compact(context.Background()); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	session.FireSessionEnd(context.Background(), "exit")
+
+	if countEvents(h.calls, hooks.EventPreCompact) != 1 {
+		t.Fatalf("PreCompact fired %d times, want 1", countEvents(h.calls, hooks.EventPreCompact))
+	}
+	if countEvents(h.calls, hooks.EventSessionEnd) != 1 {
+		t.Fatalf("SessionEnd fired %d times, want 1", countEvents(h.calls, hooks.EventSessionEnd))
+	}
+}
+
+func allMessageText(messages []llm.Message) string {
+	var b strings.Builder
+	for _, m := range messages {
+		b.WriteString(messageText(m))
+		b.WriteByte('\n')
+	}
+	return b.String()
 }

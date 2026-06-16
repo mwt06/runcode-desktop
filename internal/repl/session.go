@@ -38,6 +38,10 @@ var (
 // hookContextPrefix labels context a UserPromptSubmit hook injects into a turn.
 const hookContextPrefix = "Additional context from a UserPromptSubmit hook:\n"
 
+// sessionStartPrefix labels context a SessionStart hook injects into the first
+// turn.
+const sessionStartPrefix = "Additional context from a SessionStart hook:\n"
+
 type SessionOptions struct {
 	Provider      llm.Provider
 	Model         string
@@ -86,20 +90,20 @@ type Session struct {
 	modelMu sync.RWMutex
 	model   string
 
-	tools              []tool.Tool
-	executor           *Executor
-	prompt             prompt.AssemblerOpts
-	maxTokens          int
-	temperature        *float64
-	metadata           map[string]any
-	toolContext        *tool.Context
-	toolEvents         chan<- tool.Event
-	maxIterations      int
-	reasoning          ReasoningOptions
-	telemetry          telemetry.Recorder
-	traceID            string
-	transcript         transcript.Recorder
-	sessionID          string
+	tools         []tool.Tool
+	executor      *Executor
+	prompt        prompt.AssemblerOpts
+	maxTokens     int
+	temperature   *float64
+	metadata      map[string]any
+	toolContext   *tool.Context
+	toolEvents    chan<- tool.Event
+	maxIterations int
+	reasoning     ReasoningOptions
+	telemetry     telemetry.Recorder
+	traceID       string
+	transcript    transcript.Recorder
+	sessionID     string
 	// historyMu guards history, which a turn goroutine commits to at the end of
 	// RunTurn while the TUI may concurrently read it (History) or replace it
 	// (ResetHistory, Compact). Expensive work (LLM streaming, compaction
@@ -113,6 +117,13 @@ type Session struct {
 	maxContextTokens   int
 	hooks              hooks.Runner
 	thinking           llm.ThinkingConfig
+	// resumed marks a session seeded with prior history, so the SessionStart hook
+	// reports "resume" rather than "startup".
+	resumed bool
+	// startOnce fires the SessionStart hook lazily on the first turn;
+	// sessionStartContext holds its output until the first turn consumes it.
+	startOnce           sync.Once
+	sessionStartContext string
 }
 
 type TurnResult struct {
@@ -200,6 +211,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		maxContextTokens:   opts.MaxContextTokens,
 		hooks:              hookRunner,
 		thinking:           opts.Thinking,
+		resumed:            len(opts.InitialHistory) > 0,
 	}, nil
 }
 
@@ -224,8 +236,13 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 		return result, err
 	}
 
+	startContext := s.ensureSessionStart(ctx)
+
 	messages := s.historySnapshot()
 	currentUserIndex := len(messages)
+	if startContext != "" {
+		messages = append(messages, userMessage(sessionStartPrefix+startContext))
+	}
 	if hookContext != "" {
 		messages = append(messages, userMessage(hookContextPrefix+hookContext))
 	}
@@ -291,6 +308,7 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 			s.setHistory(nextHistory)
 			s.persistTurn(ctx, turn.id, turnMessages)
 			s.setHistory(s.maybeCompact(ctx, turn.id, nextHistory, result.FinalUsage))
+			s.fireStop(ctx, assistant)
 			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
@@ -330,6 +348,57 @@ func (s *Session) runUserPromptSubmitHook(ctx context.Context, userText string) 
 		return "", fmt.Errorf("%w: %s", ErrPromptBlockedByHook, decision.Output)
 	}
 	return decision.Output, nil
+}
+
+// ensureSessionStart fires the SessionStart hook exactly once (on the first turn)
+// and returns its output the first time, to be injected as context. SessionStart
+// cannot block; its output is advisory context.
+func (s *Session) ensureSessionStart(ctx context.Context) string {
+	s.startOnce.Do(func() {
+		reason := "startup"
+		if s.resumed {
+			reason = "resume"
+		}
+		decision := s.hooks.Run(ctx, hooks.Input{
+			Event:  hooks.EventSessionStart,
+			Reason: reason,
+			CWD:    workingDirectory(s.toolContext),
+		})
+		s.sessionStartContext = decision.Output
+	})
+	out := s.sessionStartContext
+	s.sessionStartContext = ""
+	return out
+}
+
+// fireStop fires the Stop hook when the main agent finishes a turn. It is
+// observational — the decision is not used to force the agent to continue.
+func (s *Session) fireStop(ctx context.Context, assistant llm.Message) {
+	s.hooks.Run(ctx, hooks.Input{
+		Event:         hooks.EventStop,
+		AssistantText: llm.TextContent(assistant),
+		CWD:           workingDirectory(s.toolContext),
+	})
+}
+
+// firePreCompact fires the PreCompact hook before compaction (reason "auto" or
+// "manual"). Observational.
+func (s *Session) firePreCompact(ctx context.Context, reason string) {
+	s.hooks.Run(ctx, hooks.Input{
+		Event:  hooks.EventPreCompact,
+		Reason: reason,
+		CWD:    workingDirectory(s.toolContext),
+	})
+}
+
+// FireSessionEnd fires the SessionEnd hook when a session is shutting down. It is
+// called by the session's owner on close. Observational.
+func (s *Session) FireSessionEnd(ctx context.Context, reason string) {
+	s.hooks.Run(ctx, hooks.Input{
+		Event:  hooks.EventSessionEnd,
+		Reason: reason,
+		CWD:    workingDirectory(s.toolContext),
+	})
 }
 
 func (s *Session) History() []llm.Message {
@@ -447,6 +516,7 @@ func (s *Session) maybeCompact(ctx context.Context, turnID string, history []llm
 	if usage.InputTokens <= int(float64(s.maxContextTokens)*compactionThresholdRatio) {
 		return history
 	}
+	s.firePreCompact(ctx, "auto")
 	compacted, err := compaction.Compact(ctx, history, compaction.Options{
 		Summarize:         s.summarizeForCompaction(turnID),
 		SummaryCharBudget: summaryCharBudget(s.maxContextTokens),
@@ -476,6 +546,7 @@ func (s *Session) Compact(ctx context.Context) (before int, after int, err error
 	snapshot := s.historySnapshot()
 	before = len(snapshot)
 	turnID := telemetry.NewTurnID()
+	s.firePreCompact(ctx, "manual")
 	compacted, err := compaction.Compact(ctx, snapshot, compaction.Options{
 		Summarize:         s.summarizeForCompaction(turnID),
 		SummaryCharBudget: summaryCharBudget(s.maxContextTokens),

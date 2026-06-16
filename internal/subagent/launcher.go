@@ -53,6 +53,9 @@ type Launcher struct {
 	permissions   *permissions.Service
 	telemetry     telemetry.Recorder
 	hooks         hooks.Runner
+	// parentHooks is the unwrapped parent runner used to fire SubagentStop (which
+	// the tool-only child runner would otherwise suppress).
+	parentHooks   hooks.Runner
 	maxIterations int
 	// sem bounds concurrent Launch calls. A nil sem means unbounded.
 	sem chan struct{}
@@ -94,13 +97,14 @@ func NewLauncher(opts Options) *Launcher {
 	if maxIter <= 0 {
 		maxIter = DefaultMaxIterations
 	}
-	hookRunner := opts.Hooks
-	if hookRunner == nil {
-		hookRunner = hooks.Noop{}
+	parentHooks := opts.Hooks
+	if parentHooks == nil {
+		parentHooks = hooks.Noop{}
 	}
-	// Tool hooks still gate every child tool call, but a sub-agent's task prompt is
-	// an internal delegation, not a user prompt, so UserPromptSubmit must not fire.
-	hookRunner = toolOnlyHooks{inner: hookRunner}
+	// Tool hooks still gate every child tool call, but a sub-agent's run is an
+	// internal delegation, not a user session, so prompt/stop/session/compact
+	// events must not fire from inside the child; only PreToolUse/PostToolUse do.
+	hookRunner := toolOnlyHooks{inner: parentHooks}
 	recorder := opts.Telemetry
 	if recorder == nil {
 		recorder = telemetry.Noop()
@@ -126,6 +130,7 @@ func NewLauncher(opts Options) *Launcher {
 		permissions:   opts.Permissions,
 		telemetry:     recorder,
 		hooks:         hookRunner,
+		parentHooks:   parentHooks,
 		maxIterations: maxIter,
 		sem:           sem,
 	}
@@ -212,7 +217,23 @@ func (l *Launcher) Launch(ctx context.Context, def agent.Agent, taskPrompt strin
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(llm.TextContent(result.FinalAssistant)), nil
+	text := strings.TrimSpace(llm.TextContent(result.FinalAssistant))
+	// Fire SubagentStop on the parent runner (the child's tool-only runner
+	// suppresses it). Observational, like the main agent's Stop.
+	l.parentHooks.Run(ctx, hooks.Input{
+		Event:         hooks.EventSubagentStop,
+		AssistantText: text,
+		Reason:        def.Name,
+		CWD:           parentWorkingDirectory(parentCtx),
+	})
+	return text, nil
+}
+
+func parentWorkingDirectory(tctx *tool.Context) string {
+	if tctx == nil {
+		return ""
+	}
+	return tctx.WorkingDirectory
 }
 
 // toolsFor filters the eligible tool set down to the agent's allowlist, preserving
@@ -246,17 +267,20 @@ func childToolContext(parent *tool.Context) *tool.Context {
 	}
 }
 
-// toolOnlyHooks wraps a hooks.Runner so a sub-agent fires PreToolUse/PostToolUse
-// hooks (policy, audit, and security gating still apply to every child tool call)
-// but never UserPromptSubmit — that event is for a user's prompt, not a sub-agent's
-// internally generated task prompt.
+// toolOnlyHooks wraps a hooks.Runner so a sub-agent fires only PreToolUse and
+// PostToolUse hooks — policy, audit, and security gating still apply to every
+// child tool call, but session-level events (UserPromptSubmit, Stop,
+// SessionStart/End, PreCompact) belong to the user's session, not a sub-agent's
+// internal run. SubagentStop is fired separately by the Launcher.
 type toolOnlyHooks struct{ inner hooks.Runner }
 
 func (h toolOnlyHooks) Run(ctx context.Context, in hooks.Input) hooks.Decision {
-	if in.Event == hooks.EventUserPromptSubmit {
+	switch in.Event {
+	case hooks.EventPreToolUse, hooks.EventPostToolUse:
+		return h.inner.Run(ctx, in)
+	default:
 		return hooks.Decision{}
 	}
-	return h.inner.Run(ctx, in)
 }
 
 // renderPersona wraps the agent's definition body with framing that establishes

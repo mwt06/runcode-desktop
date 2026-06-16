@@ -36,10 +36,12 @@ func hooksFromConfig(configs []settings.HookConfig) ([]hooks.Hook, error) {
 
 func normalizeHookEvent(event string) (hooks.Event, error) {
 	switch e := hooks.Event(strings.TrimSpace(event)); e {
-	case hooks.EventPreToolUse, hooks.EventPostToolUse, hooks.EventUserPromptSubmit:
+	case hooks.EventPreToolUse, hooks.EventPostToolUse, hooks.EventUserPromptSubmit,
+		hooks.EventStop, hooks.EventSubagentStop, hooks.EventSessionStart,
+		hooks.EventSessionEnd, hooks.EventPreCompact:
 		return e, nil
 	default:
-		return "", fmt.Errorf("unknown hook event %q (want PreToolUse, PostToolUse, or UserPromptSubmit)", event)
+		return "", fmt.Errorf("unknown hook event %q (want PreToolUse, PostToolUse, UserPromptSubmit, Stop, SubagentStop, SessionStart, SessionEnd, or PreCompact)", event)
 	}
 }
 
