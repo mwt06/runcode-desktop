@@ -61,6 +61,12 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return resolveEdit(req)
 	case "Bash":
 		return resolveBash(req)
+	case "BashOutput", "KillShell":
+		// Reading or stopping a background shell the agent already started (via an
+		// approved Bash run_in_background) touches no new files, commands, or
+		// network — it manages runcode's own process bookkeeping, so it is
+		// side-effect-free management allowed without approval.
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "TodoWrite":
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "Skill":

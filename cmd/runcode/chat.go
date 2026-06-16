@@ -35,6 +35,7 @@ import (
 	"github.com/wt68/runcode/pkg/skill"
 	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/tools/bash"
 )
 
 // anthropicProvider is the default provider name and the one that strictly
@@ -107,6 +108,7 @@ type defaultChatRunner struct {
 	sessions       sessions.Store
 	sessionBackend sessions.Backend
 	mcp            *mcp.Manager
+	shells         *bash.Manager
 }
 
 type sessionFactoryOptions struct {
@@ -123,6 +125,7 @@ type sessionResources struct {
 	Sessions   sessions.Store
 	Backend    sessions.Backend
 	MCP        *mcp.Manager
+	Shells     *bash.Manager
 	SessionID  string
 }
 
@@ -807,6 +810,7 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Se
 	r.sessions = resources.Sessions
 	r.sessionBackend = resources.Backend
 	r.mcp = resources.MCP
+	r.shells = resources.Shells
 	r.session = session
 	return session, nil
 }
@@ -881,7 +885,9 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	}
 	hookRunner := newHookRunner(cfg.Hooks, opts.Runtime)
 
-	sessionTools := append(tools.Builtins(), mcpManager.Tools()...)
+	shellManager := bash.NewManager()
+	resources.Shells = shellManager
+	sessionTools := append(tools.BuiltinsWithShells(shellManager), mcpManager.Tools()...)
 	// Discover skills from the convention directories; the catalog goes into the
 	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
 	skillSet, skillProblems := loadSkills(cfg.CWD, userConfigDir())
@@ -896,7 +902,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	memStore := memoryStore(cfg.CWD, userConfigDir())
 	memLoaded, err := memStore.Load()
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
 		return nil, sessionResources{}, err
 	}
 
@@ -967,7 +973,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		Thinking:           cfg.Thinking,
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
 		return nil, sessionResources{}, err
 	}
 	return session, resources, nil
@@ -1022,7 +1028,7 @@ func buildProvider(cfg chatConfig) (llm.Provider, error) {
 }
 
 func (r *defaultChatRunner) Close(ctx context.Context) error {
-	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.sessionBackend, r.mcp)
+	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.sessionBackend, r.mcp, r.shells)
 }
 
 func closeRecorders(ctx context.Context, recorders ...interface{ Close(context.Context) error }) error {

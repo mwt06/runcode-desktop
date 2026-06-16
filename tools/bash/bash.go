@@ -21,14 +21,26 @@ const (
 )
 
 type input struct {
-	Command   string `json:"command"`
-	TimeoutMS int    `json:"timeout_ms,omitempty"`
+	Command         string `json:"command"`
+	TimeoutMS       int    `json:"timeout_ms,omitempty"`
+	RunInBackground bool   `json:"run_in_background,omitempty"`
 }
 
-type Tool struct{}
+// Tool runs bash commands. It holds a Manager so run_in_background launches are
+// tracked and later readable via BashOutput / killable via KillShell.
+type Tool struct {
+	mgr *Manager
+}
 
+// New returns a Bash tool with its own background-shell manager. Callers that
+// also expose BashOutput/KillShell should share one manager via NewWithManager.
 func New() tool.Tool {
-	return Tool{}
+	return Tool{mgr: NewManager()}
+}
+
+// NewWithManager returns a Bash tool sharing the given background-shell manager.
+func NewWithManager(mgr *Manager) tool.Tool {
+	return Tool{mgr: mgr}
 }
 
 func (Tool) Name() string {
@@ -52,6 +64,11 @@ func (Tool) InputSchema() tool.Schema {
 				Description: "Optional command timeout in milliseconds. Defaults to 30000 and is capped at 120000.",
 				Default:     defaultTimeoutMS,
 			},
+			"run_in_background": {
+				Type:        tool.SchemaTypeBoolean,
+				Description: "Run the command in the background and return a shell id immediately. Read its output with BashOutput and stop it with KillShell.",
+				Default:     false,
+			},
 		},
 		Required:             []string{"command"},
 		AdditionalProperties: false,
@@ -62,7 +79,7 @@ func (Tool) IsConcurrencySafe() bool {
 	return false
 }
 
-func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
 	if err := ctx.Err(); err != nil {
 		return tool.Result{}, err
 	}
@@ -80,6 +97,9 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	workspace, err := toolpath.WorkspaceRoot(tctx)
 	if err != nil {
 		return tool.Result{}, err
+	}
+	if in.RunInBackground {
+		return t.runBackground(command, workspace)
 	}
 	timeout := normalizeTimeout(in.TimeoutMS)
 	started := time.Now()
@@ -118,6 +138,22 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 			"truncated":   truncated,
 		},
 		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: formatOutput(exitCode, timedOut, duration, stdout.String(), stderr.String(), truncated)}},
+	}, nil
+}
+
+// runBackground starts the command detached and returns its shell id immediately.
+func (t Tool) runBackground(command, workspace string) (tool.Result, error) {
+	if t.mgr == nil {
+		return tool.Result{}, errors.New("background shells are not available")
+	}
+	id, err := t.mgr.Start(command, workspace)
+	if err != nil {
+		return tool.Result{IsError: true, Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: err.Error()}}}, nil
+	}
+	text := fmt.Sprintf("Started background shell %s running: %s\nUse BashOutput with bash_id %q to read output, or KillShell to stop it.", id, command, id)
+	return tool.Result{
+		Metadata: map[string]any{"bash_id": id, "background": true},
+		Content:  []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}},
 	}, nil
 }
 
