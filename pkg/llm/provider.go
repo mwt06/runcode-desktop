@@ -28,6 +28,49 @@ type Request struct {
 	MaxTokens   int
 	Temperature *float64
 	Metadata    map[string]any
+	// Thinking requests provider-native extended thinking / reasoning. The zero
+	// value leaves it disabled.
+	Thinking ThinkingConfig
+}
+
+// ThinkingEffort selects how much the model reasons before answering. It maps to
+// each provider's native control: an explicit thinking-token budget on Anthropic,
+// and reasoning_effort on OpenAI reasoning models.
+type ThinkingEffort string
+
+const (
+	ThinkingOff    ThinkingEffort = ""
+	ThinkingLow    ThinkingEffort = "low"
+	ThinkingMedium ThinkingEffort = "medium"
+	ThinkingHigh   ThinkingEffort = "high"
+)
+
+// ThinkingConfig requests extended thinking. Effort is the portable knob;
+// BudgetTokens optionally overrides the token budget derived from Effort for
+// providers that take an explicit budget (Anthropic).
+type ThinkingConfig struct {
+	Effort       ThinkingEffort
+	BudgetTokens int
+}
+
+// Enabled reports whether extended thinking is requested.
+func (t ThinkingConfig) Enabled() bool { return t.Effort != ThinkingOff }
+
+// ParseThinkingEffort validates a thinking effort string ("", off, low, medium,
+// high). "off" and "" both disable it.
+func ParseThinkingEffort(s string) (ThinkingEffort, bool) {
+	switch s {
+	case "", "off":
+		return ThinkingOff, true
+	case string(ThinkingLow):
+		return ThinkingLow, true
+	case string(ThinkingMedium):
+		return ThinkingMedium, true
+	case string(ThinkingHigh):
+		return ThinkingHigh, true
+	default:
+		return ThinkingOff, false
+	}
 }
 
 // ToolSpec describes one tool exposed to a provider.

@@ -97,6 +97,71 @@ func TestBuildSystemPromptNoCacheWhenUnsupported(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAppend(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{
+		Tools:              tools.Builtins(),
+		CWD:                "/tmp/runcode",
+		SystemPromptAppend: "ALWAYS speak like a pirate.",
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	// The framework identity prose is still present, and the appended text is a
+	// static section before the dynamic boundary.
+	var sawIntro, sawAppendBeforeBoundary bool
+	for _, b := range blocks {
+		if b.Text == sections.Intro() {
+			sawIntro = true
+		}
+		if b.Text == DynamicBoundary {
+			break
+		}
+		if b.Text == "ALWAYS speak like a pirate." {
+			sawAppendBeforeBoundary = true
+		}
+	}
+	if !sawIntro {
+		t.Fatal("append must not drop the framework Intro section")
+	}
+	if !sawAppendBeforeBoundary {
+		t.Fatal("appended text should be a static section before the boundary")
+	}
+}
+
+func TestBuildSystemPromptOverride(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{
+		Tools:                tools.Builtins(),
+		CWD:                  "/tmp/runcode",
+		SystemPromptOverride: "You are a narrow SQL-only assistant.",
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	if blocks[0].Text != "You are a narrow SQL-only assistant." {
+		t.Fatalf("block 0 = %q, want the override", blocks[0].Text)
+	}
+	// Override replaces the identity prose but keeps functional sections.
+	var sawIntro, sawTools bool
+	for _, b := range blocks {
+		if b.Text == sections.Intro() {
+			sawIntro = true
+		}
+		if b.Text == sections.UsingTools(tools.Builtins()) {
+			sawTools = true
+		}
+	}
+	if sawIntro {
+		t.Fatal("override should replace the framework Intro section")
+	}
+	if !sawTools {
+		t.Fatal("override must keep the functional tools section")
+	}
+}
+
 func TestBuildSystemPromptStaticSectionOrder(t *testing.T) {
 	t.Parallel()
 

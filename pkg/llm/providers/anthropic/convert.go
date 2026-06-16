@@ -21,7 +21,17 @@ func buildMessageParams(req llm.Request, defaultMaxTokens int) (sdk.MessageNewPa
 		Model:     sdk.Model(req.Model),
 		MaxTokens: int64(maxTokens),
 	}
-	if req.Temperature != nil {
+	if req.Thinking.Enabled() {
+		budget := anthropicThinkingBudget(req.Thinking)
+		// Anthropic requires budget_tokens < max_tokens; keep the full response
+		// allowance on top of the thinking budget so the answer is not starved.
+		if int(params.MaxTokens) <= budget {
+			params.MaxTokens = int64(budget + maxTokens)
+		}
+		params.Thinking = sdk.ThinkingConfigParamOfEnabled(int64(budget))
+		// Extended thinking requires the default temperature, so an explicit
+		// override is intentionally dropped here rather than rejected by the API.
+	} else if req.Temperature != nil {
 		params.Temperature = sdk.Float(*req.Temperature)
 	}
 
@@ -44,6 +54,29 @@ func buildMessageParams(req llm.Request, defaultMaxTokens int) (sdk.MessageNewPa
 	params.Tools = tools
 
 	return params, nil
+}
+
+// minThinkingBudget is Anthropic's minimum thinking budget in tokens.
+const minThinkingBudget = 1024
+
+// anthropicThinkingBudget maps the neutral thinking config to a token budget. An
+// explicit BudgetTokens wins (clamped to the minimum); otherwise the effort
+// level selects a budget.
+func anthropicThinkingBudget(t llm.ThinkingConfig) int {
+	if t.BudgetTokens > 0 {
+		if t.BudgetTokens < minThinkingBudget {
+			return minThinkingBudget
+		}
+		return t.BudgetTokens
+	}
+	switch t.Effort {
+	case llm.ThinkingLow:
+		return 2048
+	case llm.ThinkingHigh:
+		return 16384
+	default: // medium
+		return 8192
+	}
 }
 
 func convertSystem(blocks []llm.ContentBlock) ([]sdk.TextBlockParam, error) {

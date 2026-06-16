@@ -77,6 +77,12 @@ type chatConfig struct {
 	AllowMCPSampling bool
 	// Hooks are the validated lifecycle hooks (user-level config only).
 	Hooks []hooks.Hook
+	// Thinking is the resolved extended-thinking config (off/low/medium/high).
+	Thinking llm.ThinkingConfig
+	// SystemPrompt replaces the framework identity prose when set;
+	// SystemPromptAppend is appended after the framework sections.
+	SystemPrompt       string
+	SystemPromptAppend string
 }
 
 type chatIO struct {
@@ -181,6 +187,9 @@ func addChatConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().String("cwd", "", "Working directory for tools")
 	cmd.Flags().String("telemetry", "", "Telemetry mode: off or jsonl")
 	cmd.Flags().String("permission-mode", "", "Permission mode: safe or interactive")
+	cmd.Flags().String("thinking", "", "Extended thinking effort: off, low, medium, or high")
+	cmd.Flags().String("system-prompt", "", "Replace the framework identity prose with this system prompt")
+	cmd.Flags().String("append-system-prompt", "", "Append extra instructions to the system prompt")
 	cmd.Flags().String("transcript", "", "Transcript mode: off, jsonl, or sqlite")
 	cmd.Flags().String("session-id", "", "Session id for transcript and history files")
 	cmd.Flags().Int("max-history-messages", 0, "Maximum number of history messages to retain (0 = unlimited)")
@@ -394,6 +403,22 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
+	thinkingStr, err := stringFlagEnvFile(cmd, "thinking", "RUNCODE_THINKING", file.Thinking, "off")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	thinkingEffort, ok := llm.ParseThinkingEffort(strings.TrimSpace(thinkingStr))
+	if !ok {
+		return chatConfig{}, empty, fmt.Errorf("unsupported thinking effort %q (want off, low, medium, or high)", thinkingStr)
+	}
+	systemPrompt, err := stringFlagOrEnv(cmd, "system-prompt", "RUNCODE_SYSTEM_PROMPT", "")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
+	appendSystemPrompt, err := stringFlagOrEnv(cmd, "append-system-prompt", "RUNCODE_APPEND_SYSTEM_PROMPT", "")
+	if err != nil {
+		return chatConfig{}, empty, err
+	}
 	maxRetries, err := intFlagEnvFile(cmd, "max-retries", "RUNCODE_MAX_RETRIES", file.MaxRetries)
 	if err != nil {
 		return chatConfig{}, empty, err
@@ -480,6 +505,9 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 		MCPServers:         mcpServers,
 		AllowMCPSampling:   allowMCPSampling,
 		Hooks:              hookList,
+		Thinking:           llm.ThinkingConfig{Effort: thinkingEffort},
+		SystemPrompt:       systemPrompt,
+		SystemPromptAppend: appendSystemPrompt,
 	}, resolved, nil
 }
 
@@ -873,13 +901,15 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 	}
 
 	promptOpts := prompt.AssemblerOpts{
-		CWD:            cfg.CWD,
-		Date:           time.Now().Format("2006-01-02"),
-		ShellInfo:      shellInfo(),
-		Skills:         skill.Catalog(skillSet),
-		Memory:         memory.Format(memLoaded),
-		ProjectCtx:     projectContext,
-		PermissionMode: cfg.PermissionMode,
+		CWD:                  cfg.CWD,
+		Date:                 time.Now().Format("2006-01-02"),
+		ShellInfo:            shellInfo(),
+		Skills:               skill.Catalog(skillSet),
+		Memory:               memory.Format(memLoaded),
+		ProjectCtx:           projectContext,
+		PermissionMode:       cfg.PermissionMode,
+		SystemPromptOverride: cfg.SystemPrompt,
+		SystemPromptAppend:   cfg.SystemPromptAppend,
 	}
 
 	// Sub-agents: the Task tool delegates a self-contained task to a child session
@@ -934,6 +964,7 @@ func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Sess
 		SessionStore:       store,
 		MaxContextTokens:   cfg.MaxContextTokens,
 		Hooks:              hookRunner,
+		Thinking:           cfg.Thinking,
 	})
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)

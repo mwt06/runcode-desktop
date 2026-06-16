@@ -114,6 +114,29 @@ func TestConvertAssistantEmptyEmitsExplicitContent(t *testing.T) {
 	}
 }
 
+func TestBuildChatRequestReasoningEffort(t *testing.T) {
+	t.Parallel()
+	// Disabled thinking omits reasoning_effort entirely.
+	off, err := buildChatRequest(llm.Request{Model: "m"}, 100, false)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if off.ReasoningEffort != "" {
+		t.Fatalf("reasoning_effort = %q, want empty when disabled", off.ReasoningEffort)
+	}
+	if data, _ := json.Marshal(off); strings.Contains(string(data), "reasoning_effort") {
+		t.Fatalf("reasoning_effort should be omitted: %s", data)
+	}
+
+	on, err := buildChatRequest(llm.Request{Model: "m", Thinking: llm.ThinkingConfig{Effort: llm.ThinkingHigh}}, 100, false)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if on.ReasoningEffort != "high" {
+		t.Fatalf("reasoning_effort = %q, want high", on.ReasoningEffort)
+	}
+}
+
 func TestBuildChatRequestCanOmitStreamOptions(t *testing.T) {
 	t.Parallel()
 	out, err := buildChatRequest(llm.Request{Model: "m"}, 100, false)

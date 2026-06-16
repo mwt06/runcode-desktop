@@ -15,6 +15,9 @@ type chatRequest struct {
 	Temperature   *float64       `json:"temperature,omitempty"`
 	Stream        bool           `json:"stream"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	// ReasoningEffort enables reasoning on OpenAI reasoning models (low/medium/
+	// high). Omitted when empty so non-reasoning endpoints are unaffected.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type streamOptions struct {

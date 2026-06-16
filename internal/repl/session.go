@@ -74,6 +74,9 @@ type SessionOptions struct {
 	// Hooks runs lifecycle hooks (PreToolUse/PostToolUse via the executor, and
 	// UserPromptSubmit at the start of a turn). nil means no hooks.
 	Hooks hooks.Runner
+	// Thinking requests provider-native extended thinking on each turn's main
+	// request. The zero value leaves it disabled.
+	Thinking llm.ThinkingConfig
 }
 
 type Session struct {
@@ -109,6 +112,7 @@ type Session struct {
 	sessionStore       sessions.Store
 	maxContextTokens   int
 	hooks              hooks.Runner
+	thinking           llm.ThinkingConfig
 }
 
 type TurnResult struct {
@@ -195,6 +199,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		sessionStore:       sessionStore,
 		maxContextTokens:   opts.MaxContextTokens,
 		hooks:              hookRunner,
+		thinking:           opts.Thinking,
 	}, nil
 }
 
@@ -615,6 +620,7 @@ func (s *Session) buildRequestWithMessagesAndPrompt(messages []llm.Message, prom
 		MaxTokens:   s.maxTokens,
 		Temperature: s.temperature,
 		Metadata:    s.metadata,
+		Thinking:    s.thinking,
 	}, nil
 }
 

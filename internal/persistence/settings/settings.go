@@ -38,6 +38,7 @@ type Config struct {
 	BaseURL            string   `toml:"base_url"`
 	MaxTokens          *int     `toml:"max_tokens"`
 	PermissionMode     string   `toml:"permission_mode"`
+	Thinking           string   `toml:"thinking"`
 	Telemetry          string   `toml:"telemetry"`
 	Transcript         string   `toml:"transcript"`
 	SessionBackend     string   `toml:"session_backend"`
@@ -231,6 +232,9 @@ func merge(base Config, override Config) Config {
 	}
 	if override.PermissionMode != "" {
 		out.PermissionMode = override.PermissionMode
+	}
+	if override.Thinking != "" {
+		out.Thinking = override.Thinking
 	}
 	if override.Telemetry != "" {
 		out.Telemetry = override.Telemetry

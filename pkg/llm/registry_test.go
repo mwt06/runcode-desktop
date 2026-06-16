@@ -56,3 +56,26 @@ func TestRegistryDuplicatePanics(t *testing.T) {
 	}()
 	Register("fake-dup", func(Config) (Provider, error) { return fakeProvider{}, nil })
 }
+
+func TestParseThinkingEffort(t *testing.T) {
+	cases := map[string]struct {
+		want ThinkingEffort
+		ok   bool
+	}{
+		"":       {ThinkingOff, true},
+		"off":    {ThinkingOff, true},
+		"low":    {ThinkingLow, true},
+		"medium": {ThinkingMedium, true},
+		"high":   {ThinkingHigh, true},
+		"bogus":  {ThinkingOff, false},
+	}
+	for in, want := range cases {
+		got, ok := ParseThinkingEffort(in)
+		if got != want.want || ok != want.ok {
+			t.Fatalf("ParseThinkingEffort(%q) = (%q,%v), want (%q,%v)", in, got, ok, want.want, want.ok)
+		}
+	}
+	if (ThinkingConfig{Effort: ThinkingLow}).Enabled() != true || (ThinkingConfig{}).Enabled() != false {
+		t.Fatal("Enabled() wrong")
+	}
+}

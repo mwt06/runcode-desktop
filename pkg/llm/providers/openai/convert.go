@@ -44,12 +44,13 @@ func buildChatRequest(req llm.Request, defaultMaxTokens int, includeUsage bool) 
 	}
 
 	out := chatRequest{
-		Model:       req.Model,
-		Messages:    messages,
-		Tools:       tools,
-		MaxTokens:   maxTokens,
-		Temperature: req.Temperature,
-		Stream:      true,
+		Model:           req.Model,
+		Messages:        messages,
+		Tools:           tools,
+		MaxTokens:       maxTokens,
+		Temperature:     req.Temperature,
+		Stream:          true,
+		ReasoningEffort: reasoningEffort(req.Thinking),
 	}
 	// stream_options is a newer field; some compatible endpoints reject unknown
 	// keys, so it can be disabled. Without it usage is simply absent (compaction
@@ -224,6 +225,17 @@ func convertToolMessage(message llm.Message) ([]chatMessage, error) {
 		})
 	}
 	return out, nil
+}
+
+// reasoningEffort maps the neutral thinking config to OpenAI's reasoning_effort
+// string. Disabled thinking yields "" so the field is omitted (non-reasoning
+// models and compatible endpoints are unaffected). OpenAI takes an effort level,
+// not a token budget, so BudgetTokens is ignored here.
+func reasoningEffort(t llm.ThinkingConfig) string {
+	if !t.Enabled() {
+		return ""
+	}
+	return string(t.Effort)
 }
 
 func convertImage(source *llm.ImageSource) (contentPart, error) {

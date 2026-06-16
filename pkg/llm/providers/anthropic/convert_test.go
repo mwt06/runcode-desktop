@@ -80,6 +80,43 @@ func TestBuildMessageParamsUsesDefaultMaxTokens(t *testing.T) {
 	}
 }
 
+func TestBuildMessageParamsEnablesThinking(t *testing.T) {
+	t.Parallel()
+
+	temp := 0.7
+	params, err := buildMessageParams(llm.Request{
+		Temperature: &temp,
+		Thinking:    llm.ThinkingConfig{Effort: llm.ThinkingHigh},
+	}, 4096)
+	if err != nil {
+		t.Fatalf("build params: %v", err)
+	}
+	if params.Thinking.OfEnabled == nil {
+		t.Fatal("thinking should be enabled")
+	}
+	if got := params.Thinking.OfEnabled.BudgetTokens; got != 16384 {
+		t.Fatalf("thinking budget = %d, want 16384 (high)", got)
+	}
+	// max_tokens must exceed the thinking budget so the answer is not starved.
+	if int(params.MaxTokens) <= 16384 {
+		t.Fatalf("max_tokens = %d, want > budget", params.MaxTokens)
+	}
+	// Temperature is dropped when thinking is on (Anthropic requires the default).
+	if params.Temperature.Valid() {
+		t.Fatal("temperature should be unset when thinking is enabled")
+	}
+}
+
+func TestAnthropicThinkingBudgetClampsExplicit(t *testing.T) {
+	t.Parallel()
+	if got := anthropicThinkingBudget(llm.ThinkingConfig{BudgetTokens: 100}); got != minThinkingBudget {
+		t.Fatalf("budget = %d, want clamp to %d", got, minThinkingBudget)
+	}
+	if got := anthropicThinkingBudget(llm.ThinkingConfig{Effort: llm.ThinkingLow}); got != 2048 {
+		t.Fatalf("low budget = %d, want 2048", got)
+	}
+}
+
 func TestBuildMessageParamsConvertsTools(t *testing.T) {
 	t.Parallel()
 

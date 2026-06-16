@@ -28,6 +28,14 @@ type AssemblerOpts struct {
 	// hints. It should reflect the provider's capability: enabling it for a
 	// provider that ignores cache control (e.g. OpenAI) only adds no-op metadata.
 	SupportsCacheControl bool
+	// SystemPromptOverride, when set, replaces the framework identity prose (the
+	// Intro and System sections) with the caller's text. Functional sections
+	// (tools, skills, agents) and behavioral sections still follow, so tool use
+	// and conventions keep working.
+	SystemPromptOverride string
+	// SystemPromptAppend, when set, is appended as a final static section after
+	// the framework sections — the common "add extra instructions" case.
+	SystemPromptAppend string
 }
 
 // section is one entry in the system-prompt table. static sections are identical
@@ -44,21 +52,31 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 	if permissionContext == "" {
 		permissionContext = sections.PermissionContext(opts.PermissionMode)
 	}
-	table := []section{
-		{sections.Intro(), true},
-		{sections.System(), true},
-		{opts.AgentInstructions, true},
-		{sections.UsingTools(opts.Tools), true},
-		{opts.Skills, true},
-		{opts.Agents, true},
-		{sections.Actions(), true},
-		{sections.ToneAndStyle(), true},
-		{opts.Reasoning, false},
-		{sections.EnvInfo(sections.EnvInfoInput{CWD: opts.CWD, Date: opts.Date, ShellInfo: opts.ShellInfo}), false},
-		{permissionContext, false},
-		{opts.Memory, false},
-		{opts.ProjectCtx, false},
+	table := make([]section, 0, 14)
+	if opts.SystemPromptOverride != "" {
+		// Replace the framework identity prose; functional and behavioral sections
+		// still follow so tools and conventions keep working.
+		table = append(table, section{opts.SystemPromptOverride, true})
+	} else {
+		table = append(table,
+			section{sections.Intro(), true},
+			section{sections.System(), true},
+		)
 	}
+	table = append(table,
+		section{opts.AgentInstructions, true},
+		section{sections.UsingTools(opts.Tools), true},
+		section{opts.Skills, true},
+		section{opts.Agents, true},
+		section{sections.Actions(), true},
+		section{sections.ToneAndStyle(), true},
+		section{opts.SystemPromptAppend, true},
+		section{opts.Reasoning, false},
+		section{sections.EnvInfo(sections.EnvInfoInput{CWD: opts.CWD, Date: opts.Date, ShellInfo: opts.ShellInfo}), false},
+		section{permissionContext, false},
+		section{opts.Memory, false},
+		section{opts.ProjectCtx, false},
+	)
 
 	staticCache := llm.CacheControlNone
 	if opts.SupportsCacheControl {
