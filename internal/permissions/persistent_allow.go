@@ -73,28 +73,51 @@ func OpenFileAllowStore(workspace string) (*FileAllowStore, error) {
 }
 
 func (s *FileAllowStore) load() error {
-	data, err := os.ReadFile(s.path)
+	return s.reloadLocked()
+}
+
+// reloadLocked refreshes the persisted allow/deny sets from disk. Every mutation
+// calls it before applying its change, so a flush merges with grants another
+// process wrote concurrently instead of clobbering them (each mutation is a
+// read-modify-write against the latest on-disk state). In-memory session grants
+// are not persisted and are left untouched.
+func (s *FileAllowStore) reloadLocked() error {
+	allow, deny, err := readRules(s.path)
+	if err != nil {
+		return err
+	}
+	s.allow = allow
+	s.deny = deny
+	return nil
+}
+
+// readRules reads and parses the permissions file. A missing file yields empty
+// sets (not an error); a corrupt file is reported so it is not silently reset.
+func readRules(path string) (allow, deny map[string]struct{}, err error) {
+	allow = map[string]struct{}{}
+	deny = map[string]struct{}{}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return allow, deny, nil
 		}
-		return fmt.Errorf("permissions: read %s: %w", s.path, err)
+		return nil, nil, fmt.Errorf("permissions: read %s: %w", path, err)
 	}
 	var rules persistedRules
 	if err := json.Unmarshal(data, &rules); err != nil {
-		return fmt.Errorf("permissions: parse %s: %w", s.path, err)
+		return nil, nil, fmt.Errorf("permissions: parse %s: %w", path, err)
 	}
 	for _, key := range rules.Allow {
 		if key != "" {
-			s.allow[key] = struct{}{}
+			allow[key] = struct{}{}
 		}
 	}
 	for _, key := range rules.Deny {
 		if key != "" {
-			s.deny[key] = struct{}{}
+			deny[key] = struct{}{}
 		}
 	}
-	return nil
+	return allow, deny, nil
 }
 
 // Allowed reports whether a key has an active grant (session or persisted),
@@ -144,6 +167,9 @@ func (s *FileAllowStore) RememberPersistent(key string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.reloadLocked(); err != nil {
+		return err
+	}
 	if _, denied := s.deny[key]; denied {
 		return nil
 	}
@@ -184,6 +210,9 @@ func (s *FileAllowStore) DenyPersistent(key string) (bool, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.reloadLocked(); err != nil {
+		return false, err
+	}
 	changed := false
 	if _, ok := s.deny[key]; !ok {
 		s.deny[key] = struct{}{}
@@ -208,6 +237,9 @@ func (s *FileAllowStore) Forget(key string) (bool, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.reloadLocked(); err != nil {
+		return false, err
+	}
 	_, allowed := s.allow[key]
 	_, denied := s.deny[key]
 	if !allowed && !denied {
@@ -227,6 +259,9 @@ func (s *FileAllowStore) ClearPersistent(allow, deny bool) (int, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.reloadLocked(); err != nil {
+		return 0, err
+	}
 	removed := 0
 	if allow {
 		removed += len(s.allow)
@@ -252,11 +287,41 @@ func (s *FileAllowStore) flushLocked() error {
 	if err != nil {
 		return fmt.Errorf("permissions: encode rules: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("permissions: create dir: %w", err)
 	}
-	if err := os.WriteFile(s.path, data, 0o600); err != nil {
-		return fmt.Errorf("permissions: write %s: %w", s.path, err)
+	return writeFileAtomic(dir, s.path, data)
+}
+
+// writeFileAtomic writes data to a temp file in the same directory, fsyncs it,
+// then atomically renames it over path. A crash or disk-full mid-write thus
+// leaves either the old file or the complete new one — never a truncated
+// permissions.json that fails to parse and bricks the store on next open.
+func writeFileAtomic(dir, path string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, permissionsFileName+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("permissions: create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // harmless no-op once the rename succeeds
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("permissions: chmod temp: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("permissions: write temp: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("permissions: sync temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("permissions: close temp: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("permissions: replace %s: %w", path, err)
 	}
 	return nil
 }

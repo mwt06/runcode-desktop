@@ -67,6 +67,44 @@ func TestFileAllowStorePersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+// TestFileAllowStoreMergesConcurrentGrants simulates two processes (two stores
+// over the same workspace) each persisting a different grant. Because every
+// mutation reloads disk before flushing, neither write clobbers the other.
+func TestFileAllowStoreMergesConcurrentGrants(t *testing.T) {
+	t.Parallel()
+	ws := t.TempDir()
+	keyA := "command\x00Bash\x00read_only\x00"
+	keyB := "path\x00/etc/hosts\x00"
+
+	procOne, err := OpenFileAllowStore(ws)
+	if err != nil {
+		t.Fatalf("open one: %v", err)
+	}
+	procTwo, err := OpenFileAllowStore(ws)
+	if err != nil {
+		t.Fatalf("open two: %v", err)
+	}
+
+	if err := procOne.RememberPersistent(keyA); err != nil {
+		t.Fatalf("remember A: %v", err)
+	}
+	// procTwo never saw keyA in memory, but its mutation must not drop it.
+	if err := procTwo.RememberPersistent(keyB); err != nil {
+		t.Fatalf("remember B: %v", err)
+	}
+
+	fresh, err := OpenFileAllowStore(ws)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if !fresh.Allowed(keyA) {
+		t.Fatal("grant A lost by concurrent write")
+	}
+	if !fresh.Allowed(keyB) {
+		t.Fatal("grant B not persisted")
+	}
+}
+
 func TestFileAllowStoreSessionGrantNotPersisted(t *testing.T) {
 	t.Parallel()
 	ws := t.TempDir()
