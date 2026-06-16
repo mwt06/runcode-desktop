@@ -25,6 +25,22 @@ func TestNewSessionRequiresProvider(t *testing.T) {
 	}
 }
 
+func TestSummaryCharBudget(t *testing.T) {
+	t.Parallel()
+	// A configured token budget converts to chars; no budget falls back to a fixed
+	// default so an explicit /compact still converges instead of disabling the cap
+	// (which a budget of 0 would do).
+	if got := summaryCharBudget(10_000); got != 10_000*approxCharsPerToken {
+		t.Fatalf("summaryCharBudget(10000) = %d, want %d", got, 10_000*approxCharsPerToken)
+	}
+	if got := summaryCharBudget(0); got != defaultSummaryCharBudget {
+		t.Fatalf("summaryCharBudget(0) = %d, want default %d", got, defaultSummaryCharBudget)
+	}
+	if got := summaryCharBudget(-5); got != defaultSummaryCharBudget {
+		t.Fatalf("summaryCharBudget(negative) = %d, want default %d", got, defaultSummaryCharBudget)
+	}
+}
+
 func TestNewSessionRejectsNegativeMaxIterations(t *testing.T) {
 	t.Parallel()
 

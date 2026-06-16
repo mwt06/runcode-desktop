@@ -97,6 +97,12 @@ type Session struct {
 	traceID            string
 	transcript         transcript.Recorder
 	sessionID          string
+	// historyMu guards history, which a turn goroutine commits to at the end of
+	// RunTurn while the TUI may concurrently read it (History) or replace it
+	// (ResetHistory, Compact). Expensive work (LLM streaming, compaction
+	// summarization) runs on a local snapshot outside the lock; only the read at
+	// the start of a turn and the commit at the end are guarded.
+	historyMu          sync.RWMutex
 	history            []llm.Message
 	maxHistoryMessages int
 	streamDelta        func(delta string)
@@ -202,7 +208,7 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 		return result, err
 	}
 
-	messages := cloneMessages(s.history)
+	messages := s.historySnapshot()
 	currentUserIndex := len(messages)
 	if hookContext != "" {
 		messages = append(messages, userMessage(hookContextPrefix+hookContext))
@@ -262,11 +268,13 @@ func (s *Session) RunTurn(ctx context.Context, userText string) (TurnResult, err
 			}
 			// Persist this turn's complete new messages (the mandatory segment is
 			// never truncated by trimming) before committing the in-memory working
-			// set, which may be trimmed/compacted.
+			// set, which may be trimmed/compacted. Compaction runs on the local
+			// nextHistory (it may call the LLM), then the result is committed under
+			// the lock — the lock is never held across the LLM round-trip.
 			turnMessages := cloneMessages(messages[currentUserIndex:])
-			s.history = nextHistory
+			s.setHistory(nextHistory)
 			s.persistTurn(ctx, turn.id, turnMessages)
-			s.history = s.maybeCompact(ctx, turn.id, s.history, result.FinalUsage)
+			s.setHistory(s.maybeCompact(ctx, turn.id, nextHistory, result.FinalUsage))
 			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
@@ -309,11 +317,28 @@ func (s *Session) runUserPromptSubmitHook(ctx context.Context, userText string) 
 }
 
 func (s *Session) History() []llm.Message {
-	return cloneMessages(s.history)
+	return s.historySnapshot()
 }
 
 func (s *Session) ResetHistory() {
-	s.history = nil
+	s.setHistory(nil)
+}
+
+// historySnapshot returns a defensive copy of the working history under a read
+// lock, so callers (a turn starting, the TUI rendering) never observe a
+// concurrent commit mid-assignment.
+func (s *Session) historySnapshot() []llm.Message {
+	s.historyMu.RLock()
+	defer s.historyMu.RUnlock()
+	return cloneMessages(s.history)
+}
+
+// setHistory replaces the working history under a write lock. The caller owns h
+// (it is stored, not copied), so it must not mutate h afterwards.
+func (s *Session) setHistory(h []llm.Message) {
+	s.historyMu.Lock()
+	s.history = h
+	s.historyMu.Unlock()
 }
 
 // Model returns the model the session currently sends requests with.
@@ -345,13 +370,28 @@ func (s *Session) SetModel(model string) error {
 const (
 	compactionThresholdRatio   = 0.8
 	compactionSummaryMaxTokens = 2048
-	// compactionSummaryCharBudgetFactor turns the token budget into a rough
-	// character cap for the retained summary body (~3 chars/token for mixed
-	// code/CJK text). While the body stays under it, compaction is incremental
-	// and never re-summarizes existing summary text; above it, the summary is
-	// recompacted once. Soft, tunable heuristic — no local tokenizer involved.
-	compactionSummaryCharBudgetFactor = 2
+	// approxCharsPerToken converts a context-token budget into a rough character
+	// cap for the retained summary body (~2 chars/token for mixed code/CJK text).
+	// While the body stays under the cap, compaction is incremental and never
+	// re-summarizes existing summary text; above it, the summary is recompacted
+	// once. Soft, tunable heuristic — no local tokenizer involved.
+	approxCharsPerToken = 2
+	// defaultSummaryCharBudget caps the retained summary when no context-token
+	// budget is configured (e.g. an explicit /compact with MaxContextTokens unset).
+	// Without it the budget would be 0, which disables the cap and lets the summary
+	// grow without bound — i.e. compaction that never converges.
+	defaultSummaryCharBudget = 32_000
 )
+
+// summaryCharBudget converts the configured context-token budget into a rough
+// character cap for the retained summary body, falling back to a fixed default
+// when no token budget is set so compaction still converges.
+func summaryCharBudget(maxContextTokens int) int {
+	if maxContextTokens <= 0 {
+		return defaultSummaryCharBudget
+	}
+	return maxContextTokens * approxCharsPerToken
+}
 
 const compactionSystemPrompt = "You are condensing a coding-assistant conversation to save context. " +
 	"Write a concise summary that preserves: every concrete fact the user stated (preferences, " +
@@ -393,7 +433,7 @@ func (s *Session) maybeCompact(ctx context.Context, turnID string, history []llm
 	}
 	compacted, err := compaction.Compact(ctx, history, compaction.Options{
 		Summarize:         s.summarizeForCompaction(turnID),
-		SummaryCharBudget: s.maxContextTokens * compactionSummaryCharBudgetFactor,
+		SummaryCharBudget: summaryCharBudget(s.maxContextTokens),
 	})
 	if err != nil {
 		s.record(ctx, telemetry.Event{
@@ -414,11 +454,15 @@ func (s *Session) maybeCompact(ctx context.Context, turnID string, history []llm
 // safe to compact. Like automatic compaction it only touches the in-memory
 // working set — the on-disk session log stays complete.
 func (s *Session) Compact(ctx context.Context) (before int, after int, err error) {
-	before = len(s.history)
+	// Snapshot under the read lock, summarize off-lock (it may call the LLM), then
+	// commit under the write lock — so a concurrent turn-commit or render never
+	// races this.
+	snapshot := s.historySnapshot()
+	before = len(snapshot)
 	turnID := telemetry.NewTurnID()
-	compacted, err := compaction.Compact(ctx, s.history, compaction.Options{
+	compacted, err := compaction.Compact(ctx, snapshot, compaction.Options{
 		Summarize:         s.summarizeForCompaction(turnID),
-		SummaryCharBudget: s.maxContextTokens * compactionSummaryCharBudgetFactor,
+		SummaryCharBudget: summaryCharBudget(s.maxContextTokens),
 	})
 	if err != nil {
 		s.record(ctx, telemetry.Event{
@@ -430,7 +474,7 @@ func (s *Session) Compact(ctx context.Context) (before int, after int, err error
 		})
 		return before, before, err
 	}
-	s.history = compacted
+	s.setHistory(compacted)
 	return before, len(compacted), nil
 }
 

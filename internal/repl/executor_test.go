@@ -165,6 +165,29 @@ func TestExecutorReturnsRecoverableToolErrorsAsResult(t *testing.T) {
 	}
 }
 
+func TestExecutorRecoversToolPanicAsResult(t *testing.T) {
+	t.Parallel()
+
+	executor, err := newAllowAllExecutor([]tool.Tool{fakeTool{name: "Panicky", runPanic: true, emitEvent: true}})
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	result, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:      "Panicky",
+		ToolUseID: "toolu_panic",
+	})
+	// A tool panic must not propagate; it becomes a recoverable is_error result.
+	if err != nil {
+		t.Fatalf("execute should swallow tool panic, got err: %v", err)
+	}
+	if !result.Result.IsError {
+		t.Fatalf("panicking tool should yield an is_error result, got %#v", result.Result)
+	}
+	if result.ToolUseID != "toolu_panic" {
+		t.Fatalf("tool use id = %q, want toolu_panic", result.ToolUseID)
+	}
+}
+
 func TestExecutorRecordsTelemetry(t *testing.T) {
 	t.Parallel()
 
@@ -760,6 +783,7 @@ type fakeTool struct {
 	emitEvent     bool
 	runErr        error
 	resultIsError bool
+	runPanic      bool
 }
 
 type pointerFakeTool struct{}
@@ -783,6 +807,9 @@ func (f fakeTool) IsConcurrencySafe() bool {
 func (f fakeTool) Run(_ context.Context, _ json.RawMessage, _ *tool.Context, out chan<- tool.Event) (tool.Result, error) {
 	if f.emitEvent && out != nil {
 		out <- tool.Event{Type: tool.EventTypeProgress, ToolName: f.name, Message: "running"}
+	}
+	if f.runPanic {
+		panic("boom in tool")
 	}
 	if f.runErr != nil {
 		return tool.Result{}, f.runErr

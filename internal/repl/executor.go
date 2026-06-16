@@ -22,6 +22,10 @@ import (
 var (
 	ErrInvalidToolRequest = errors.New("invalid tool request")
 	ErrUnknownTool        = errors.New("unknown tool")
+	// ErrToolPanicked wraps a panic that escaped a tool's Run. It is treated as a
+	// recoverable tool failure (reported as an is_error result) so one buggy tool
+	// cannot crash the whole agent process.
+	ErrToolPanicked = errors.New("tool panicked")
 )
 
 const (
@@ -186,9 +190,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 	})
 
 	readSetBefore := cloneReadSetForEvents(tctx.ReadSet)
-	toolEvents, finishToolEvents := toolEventForwarder(req.Events, req.Name, tctx.ToolUseID)
-	result, err := runner.Run(ctx, req.Input, tctx, toolEvents)
-	finishToolEvents()
+	result, err := e.runTool(ctx, runner, req, tctx)
 	readFiles, readFilesTotal := readSetDeltaFileReferences(readSetBefore, tctx.ReadSet, tctx)
 	outputLines, outputTotal, outputTruncated := toolOutputForEvents(req.Name, result)
 	if err != nil {
@@ -329,6 +331,25 @@ func emitToolEvent(out chan<- tool.Event, event tool.Event) {
 	case out <- event:
 	default:
 	}
+}
+
+// runTool invokes a tool's Run with its progress-event forwarder, guaranteeing
+// two things regardless of how Run ends:
+//   - finishToolEvents runs in every path (normal return or panic), so the
+//     forwarder goroutine never leaks — a panic that skipped close(in) would
+//     leave it blocked on its range loop forever.
+//   - a panic in the tool implementation is recovered and converted into an
+//     error, so one buggy tool reports an is_error result instead of crashing
+//     the whole agent process via RunTurn's top-level re-panic.
+func (e *Executor) runTool(ctx context.Context, runner tool.Tool, req ExecuteRequest, tctx *tool.Context) (result tool.Result, err error) {
+	toolEvents, finishToolEvents := toolEventForwarder(req.Events, req.Name, tctx.ToolUseID)
+	defer finishToolEvents()
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %q: %v", ErrToolPanicked, req.Name, r)
+		}
+	}()
+	return runner.Run(ctx, req.Input, tctx, toolEvents)
 }
 
 func toolEventForwarder(out chan<- tool.Event, toolName string, toolUseID string) (chan<- tool.Event, func()) {
