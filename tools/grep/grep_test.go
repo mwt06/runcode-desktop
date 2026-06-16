@@ -147,8 +147,8 @@ func TestGrepToolReturnsEmptyTextWhenNoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run grep tool: %v", err)
 	}
-	if got := result.Content[0].Text; got != "" {
-		t.Fatalf("expected empty output, got %q", got)
+	if got := result.Content[0].Text; got != "No matches found." {
+		t.Fatalf("expected no-match message, got %q", got)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestGrepToolSkipsBinaryFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run grep tool: %v", err)
 	}
-	if got := result.Content[0].Text; got != "" {
+	if got := result.Content[0].Text; got != "No matches found." {
 		t.Fatalf("expected binary file to be skipped, got %q", got)
 	}
 }
@@ -231,6 +231,86 @@ func drainEvent(t *testing.T, events <-chan tool.Event) tool.Event {
 		t.Fatal("expected tool event")
 		return tool.Event{}
 	}
+}
+
+func TestGrepFilesWithMatchesMode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.go"), "func a() {}\n")
+	writeFile(t, filepath.Join(dir, "b.go"), "func b() {}\nfunc c() {}\n")
+	writeFile(t, filepath.Join(dir, "c.txt"), "nothing here\n")
+
+	result := run(t, dir, map[string]any{"pattern": "func", "output_mode": "files_with_matches"})
+	want := "a.go\nb.go"
+	if result != want {
+		t.Fatalf("files mode:\nwant %q\n got %q", want, result)
+	}
+}
+
+func TestGrepCountMode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "b.go"), "func b() {}\nfunc c() {}\n")
+
+	result := run(t, dir, map[string]any{"pattern": "func", "output_mode": "count"})
+	if result != "b.go:2" {
+		t.Fatalf("count mode = %q, want b.go:2", result)
+	}
+}
+
+func TestGrepContextLines(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "f.txt"), "one\ntwo\nMATCH\nfour\nfive\n")
+
+	// -C 1: one line of context on each side, ripgrep-style separators.
+	result := run(t, dir, map[string]any{"pattern": "MATCH", "context": 1})
+	want := "f.txt-2-two\nf.txt:3:MATCH\nf.txt-4-four"
+	if result != want {
+		t.Fatalf("context mode:\nwant %q\n got %q", want, result)
+	}
+}
+
+func TestGrepLineNumbersOff(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "f.txt"), "hello world\n")
+	off := false
+	result := run(t, dir, map[string]any{"pattern": "world", "line_numbers": off})
+	if result != "f.txt:hello world" {
+		t.Fatalf("line_numbers off = %q, want f.txt:hello world", result)
+	}
+}
+
+func TestGrepMultiline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "f.go"), "func foo(\n  a int,\n) {}\n")
+	// A pattern spanning the opening paren and the argument across lines.
+	result := run(t, dir, map[string]any{"pattern": `func foo\(.*a int`, "multiline": true})
+	if !strings.Contains(result, "f.go:1:func foo(") {
+		t.Fatalf("multiline match missing, got %q", result)
+	}
+}
+
+func TestGrepInvalidOutputMode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "f.txt"), "x\n")
+	_, err := grep.New().Run(context.Background(), rawInput(t, map[string]any{"pattern": "x", "output_mode": "bogus"}), &tool.Context{WorkingDirectory: dir}, nil)
+	if err == nil {
+		t.Fatal("invalid output_mode should error")
+	}
+}
+
+// run executes the grep tool and returns its single text content.
+func run(t *testing.T, dir string, in map[string]any) string {
+	t.Helper()
+	result, err := grep.New().Run(context.Background(), rawInput(t, in), &tool.Context{WorkingDirectory: dir}, nil)
+	if err != nil {
+		t.Fatalf("run grep: %v", err)
+	}
+	return result.Content[0].Text
 }
 
 func rawInput(t *testing.T, value any) json.RawMessage {
