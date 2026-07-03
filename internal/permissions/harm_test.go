@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wt68/runcode/pkg/tool"
@@ -54,20 +55,36 @@ func TestHarmJudgeHarmfulPromptsWithReason(t *testing.T) {
 	}
 }
 
-func TestHarmJudgeSkippedForNonCommandActions(t *testing.T) {
+func TestHarmJudgeCoversNonCommandActions(t *testing.T) {
 	t.Parallel()
-	// A safe verdict must NOT auto-allow a non-command action (e.g. a file write):
-	// the gate is limited to shell commands, so a Write still prompts.
+	// The gate now judges any would-be-prompt action, not just shell commands: a safe
+	// verdict auto-allows a network fetch (and likewise an out-of-workspace write).
 	approver := &fakeApprover{response: ApprovalResponse{Effect: EffectAllow}}
 	auth := InteractiveAuthorizer{Approver: approver, HarmJudge: fakeHarmJudge{verdict: HarmVerdict{Harmful: false}}}
-	write := Action{ToolName: "Write", Operation: OperationWrite, Resources: []Resource{{Type: ResourceFile, Path: "a.go"}}}
+	fetch := Action{ToolName: "WebFetch", Operation: OperationNetwork}
 
-	d := auth.Authorize(context.Background(), write, Ask(ReasonRequiresApproval, "test.ask"))
-	if !approver.called {
-		t.Fatal("a non-command action was auto-allowed by the harm gate; it should prompt")
+	d := auth.Authorize(context.Background(), fetch, Ask(ReasonRequiresApproval, "test.ask"))
+	if approver.called {
+		t.Fatal("a safe network action was prompted; the judge should have auto-allowed it")
 	}
-	if d.Reason == ReasonHarmJudgedSafe {
-		t.Fatalf("decision reason = %q, want a normal approval (gate is command-only)", d.Reason)
+	if d.FinalEffect != EffectAllow || d.Reason != ReasonHarmJudgedSafe {
+		t.Fatalf("decision = %#v, want auto-allow (harm_judged_safe)", d)
+	}
+}
+
+func TestHarmJudgeErrorPromptsWithSurfacedReason(t *testing.T) {
+	t.Parallel()
+	// A failed harm check must fall through to a prompt (fail-safe), but surface why —
+	// so the prompt isn't mistaken for "this action is dangerous".
+	approver := &fakeApprover{response: ApprovalResponse{Effect: EffectAllow}}
+	auth := InteractiveAuthorizer{Approver: approver, HarmJudge: fakeHarmJudge{err: errors.New("request failed")}}
+
+	auth.Authorize(context.Background(), askAction(), Ask(ReasonRequiresApproval, "test.ask"))
+	if !approver.called {
+		t.Fatal("a failed harm check should fall through to a prompt")
+	}
+	if !strings.Contains(approver.request.HarmReason, "request failed") || !strings.Contains(approver.request.HarmReason, "安全评估") {
+		t.Fatalf("HarmReason = %q, want the check failure surfaced", approver.request.HarmReason)
 	}
 }
 

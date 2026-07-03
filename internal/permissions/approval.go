@@ -191,18 +191,21 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		decision.Reason = ReasonSessionAllowed
 		return decision
 	}
-	// Model harm gate (only for shell commands): auto-allow a command the judge
-	// deems safe so the user is only prompted for potentially-harmful ones. A judge
-	// error falls through to the prompt (fail-safe — never silently allow on an
-	// inconclusive check). Non-command actions always prompt in this mode.
+	// Model harm gate (judge / "smart" mode): auto-allow any action the judge deems
+	// safe — shell commands, network fetches, out-of-workspace writes, external/MCP
+	// calls — so the user is only prompted for potentially-harmful ones. The judge is
+	// present only in judge mode (interactive strips it). A judge error falls through
+	// to the prompt (fail-safe — never silently allow on an inconclusive check) but
+	// surfaces why, so the prompt isn't mistaken for "this action is dangerous".
 	harmReason := ""
-	if a.HarmJudge != nil && action.Operation == OperationExecute {
-		if verdict, err := a.HarmJudge.Assess(ctx, action); err == nil {
-			if !verdict.Harmful {
-				decision.FinalEffect = EffectAllow
-				decision.Reason = ReasonHarmJudgedSafe
-				return decision
-			}
+	if a.HarmJudge != nil {
+		if verdict, err := a.HarmJudge.Assess(ctx, action); err != nil {
+			harmReason = "安全评估未完成，已转为询问：" + err.Error()
+		} else if !verdict.Harmful {
+			decision.FinalEffect = EffectAllow
+			decision.Reason = ReasonHarmJudgedSafe
+			return decision
+		} else {
 			harmReason = verdict.Reason
 		}
 	}
