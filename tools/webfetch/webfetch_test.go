@@ -46,6 +46,26 @@ func TestWebFetchExtractsHTMLText(t *testing.T) {
 	}
 }
 
+func TestWebFetchSendsBrowserUserAgent(t *testing.T) {
+	t.Parallel()
+	// Echo the request UA back in the body so we can assert it without racing on a
+	// handler-side variable.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		io.WriteString(w, r.Header.Get("User-Agent"))
+	}))
+	defer srv.Close()
+
+	res, err := fetch(t, srv.URL)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	ua := res.Content[0].Text
+	if !strings.Contains(ua, "Mozilla/5.0") || strings.Contains(ua, "Go-http-client") {
+		t.Fatalf("User-Agent = %q, want a browser UA (not the Go default)", ua)
+	}
+}
+
 func TestWebFetchStreamsTextBody(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -28,6 +28,10 @@ const (
 	maxOutputRunes   = 50000   // extracted-text cap
 	maxRedirects     = 5
 	maxStreamedLines = 500 // cap live output lines while a text body downloads
+	// browserUserAgent presents WebFetch as a mainstream desktop browser so sites that
+	// reject non-browser clients don't 403 the request outright.
+	browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+		"(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 type input struct {
@@ -153,7 +157,14 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, eve
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Accept", "text/html, text/plain, */*")
+	// Present as a real browser: many sites reject the default Go client UA (or an
+	// empty one) with a 403. This gets past simple UA-based blocking; it does NOT
+	// defeat JS challenges, CAPTCHAs, or bot shields like Cloudflare — those need a
+	// headless browser or a search API. Accept-Encoding is intentionally left unset so
+	// net/http transparently negotiates and decompresses gzip.
+	req.Header.Set("User-Agent", browserUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	emitStatus(events, "正在连接 "+parsed.Host+" …")
 	resp, err := client.Do(req)
