@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/wt68/runcode/pkg/agent"
 	"github.com/wt68/runcode/pkg/tool"
@@ -25,6 +26,7 @@ const maxPromptBytes = 128 << 10 // 128 KiB
 // tool result. It is the only seam through which sub-agents are spawned, and it is
 // never granted to sub-agents themselves, so delegation stays one level deep.
 type Tool struct {
+	mu       sync.RWMutex
 	set      *agent.Set
 	launcher *Launcher
 }
@@ -32,6 +34,20 @@ type Tool struct {
 // NewTool builds the Task tool over a loaded agent set and a launcher.
 func NewTool(set *agent.Set, launcher *Launcher) *Tool {
 	return &Tool{set: set, launcher: launcher}
+}
+
+// SetSet swaps the agent set (e.g. after the desktop reloads sub-agents from disk),
+// so subsequent Task calls resolve against the new catalog without a restart.
+func (t *Tool) SetSet(set *agent.Set) {
+	t.mu.Lock()
+	t.set = set
+	t.mu.Unlock()
+}
+
+func (t *Tool) currentSet() *agent.Set {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.set
 }
 
 func (t *Tool) Name() string { return ToolName }
@@ -82,13 +98,14 @@ type taskInput struct {
 // correct itself; a context cancellation is propagated as a Go error so the parent
 // turn treats it as unrecoverable.
 func (t *Tool) Run(ctx context.Context, input json.RawMessage, tctx *tool.Context, out chan<- tool.Event) (tool.Result, error) {
+	set := t.currentSet()
 	var in taskInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return errorResult("invalid Task input: expected an object with \"subagent_type\" and \"prompt\" fields"), nil
 	}
 	subagentType := strings.TrimSpace(in.SubagentType)
 	if subagentType == "" {
-		return errorResult("Task requires a non-empty \"subagent_type\"; " + availableHint(t.set)), nil
+		return errorResult("Task requires a non-empty \"subagent_type\"; " + availableHint(set)), nil
 	}
 	taskPrompt := strings.TrimSpace(in.Prompt)
 	if taskPrompt == "" {
@@ -97,9 +114,9 @@ func (t *Tool) Run(ctx context.Context, input json.RawMessage, tctx *tool.Contex
 	if len(taskPrompt) > maxPromptBytes {
 		return errorResult(fmt.Sprintf("Task \"prompt\" is too long (%d bytes; limit %d) — state the task more concisely", len(taskPrompt), maxPromptBytes)), nil
 	}
-	def, ok := t.set.Get(subagentType)
+	def, ok := set.Get(subagentType)
 	if !ok {
-		return errorResult(fmt.Sprintf("unknown sub-agent %q; %s", subagentType, availableHint(t.set))), nil
+		return errorResult(fmt.Sprintf("unknown sub-agent %q; %s", subagentType, availableHint(set))), nil
 	}
 
 	text, err := t.launcher.Launch(ctx, def, taskPrompt, tctx, out)

@@ -507,7 +507,9 @@ func collectFiles(ctx context.Context, workspace, searchPath, globPattern string
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" && filePath != searchPath {
+			// Skip VCS internals and runcode's own bookkeeping (.runcode holds the
+			// session logs and permissions file) — neither is user content.
+			if name := entry.Name(); (name == ".git" || name == ".runcode") && filePath != searchPath {
 				return filepath.SkipDir
 			}
 			return nil

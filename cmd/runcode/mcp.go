@@ -3,37 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/persistence/settings"
 )
-
-// workspaceRoots returns the MCP roots advertised to servers — the current
-// workspace as a file:// URI — so a server (e.g. a filesystem server) can learn
-// the directory runcode operates in. An undeterminable path yields no roots.
-func workspaceRoots(cwd string) []mcp.Root {
-	if strings.TrimSpace(cwd) == "" {
-		return nil
-	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		return nil
-	}
-	return []mcp.Root{{URI: fileURI(abs), Name: filepath.Base(abs)}}
-}
-
-// fileURI renders an absolute path as a file:// URI. On Windows the drive path is
-// prefixed with a slash (file:///C:/...).
-func fileURI(abs string) string {
-	slashed := filepath.ToSlash(abs)
-	if !strings.HasPrefix(slashed, "/") {
-		slashed = "/" + slashed
-	}
-	return "file://" + slashed
-}
 
 // mcpServersFromConfig converts the user-level MCP config into connectable server
 // configs. It expands ${VAR} references (so secrets stay in the environment),

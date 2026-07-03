@@ -20,6 +20,10 @@ type AssemblerOpts struct {
 	Reasoning         string
 	PermissionMode    string
 	PermissionContext string
+	// PlanMode, when true, injects plan-mode guidance: research and produce a plan,
+	// make no changes. It is dynamic (it toggles at runtime), so it follows the
+	// cache boundary.
+	PlanMode bool
 	// AgentInstructions, when set, marks this session as a sub-agent and carries
 	// its persona/system instructions. It is placed prominently near the top of
 	// the prompt so the sub-agent's role dominates its behavior.
@@ -36,6 +40,13 @@ type AssemblerOpts struct {
 	// SystemPromptAppend, when set, is appended as a final static section after
 	// the framework sections — the common "add extra instructions" case.
 	SystemPromptAppend string
+}
+
+func planModeSection(on bool) string {
+	if !on {
+		return ""
+	}
+	return sections.PlanMode()
 }
 
 // section is one entry in the system-prompt table. static sections are identical
@@ -72,6 +83,7 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 		section{sections.ToneAndStyle(), true},
 		section{opts.SystemPromptAppend, true},
 		section{opts.Reasoning, false},
+		section{planModeSection(opts.PlanMode), false},
 		section{sections.EnvInfo(sections.EnvInfoInput{CWD: opts.CWD, Date: opts.Date, ShellInfo: opts.ShellInfo}), false},
 		section{permissionContext, false},
 		section{opts.Memory, false},

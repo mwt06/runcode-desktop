@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -122,7 +123,9 @@ func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	if got := req.Messages[0].Content[0].Text; got != "read the file" {
 		t.Fatalf("user text = %q, want %q", got, "read the file")
 	}
-	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "BashOutput", "KillShell", "TodoWrite", "WebFetch"}; !sameStrings(got, want) {
+	// Analyze is advertised only while an in-turn thinking protocol is active, so it
+	// is absent here; AskUser is always available.
+	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Delete", "Glob", "Grep", "Bash", "BashOutput", "KillShell", "TodoWrite", "WebFetch", "AskUser"}; !sameStrings(got, want) {
 		t.Fatalf("tool specs = %#v, want %#v", got, want)
 	}
 }
@@ -609,12 +612,12 @@ func TestSessionRunTurnClassifiesReasoningBeforeMainRequest(t *testing.T) {
 	t.Parallel()
 
 	provider := newFakeProviderSequence(
-		fakeProviderResponse{events: textEvents(`{"scenario":"architecture","confidence":"high"}`)},
+		fakeProviderResponse{events: textEvents(`{"scenario":"troubleshooting","confidence":"high"}`)},
 		fakeProviderResponse{events: textEvents("done")},
 	)
-	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), Reasoning: ReasoningOptions{Enabled: true}})
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), Reasoning: ReasoningOptions{Enabled: true, AutoClassify: true}})
 
-	result, err := session.RunTurn(context.Background(), "design the session architecture")
+	result, err := session.RunTurn(context.Background(), "debug the failing test")
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
@@ -629,13 +632,13 @@ func TestSessionRunTurnClassifiesReasoningBeforeMainRequest(t *testing.T) {
 		t.Fatalf("classification request missing classifier prompt: %#v", classificationReq.System)
 	}
 	mainReq := provider.requests[1]
-	if !requestSystemContains(mainReq, "Selected reasoning mode: architecture") {
-		t.Fatalf("main request missing architecture reasoning guidance: %#v", mainReq.System)
+	if !requestSystemContains(mainReq, "本回合启用") {
+		t.Fatalf("main request missing in-turn protocol instruction: %#v", mainReq.System)
 	}
 	if result.Iterations != 1 || len(result.Requests) != 1 {
 		t.Fatalf("classification should not count as iteration, result=%#v", result)
 	}
-	if result.ReasoningClassification == nil || result.ReasoningClassification.Scenario != ReasoningScenarioArchitecture {
+	if result.ReasoningClassification == nil || result.ReasoningClassification.Scenario != ReasoningScenarioTroubleshooting {
 		t.Fatalf("unexpected reasoning classification: %#v", result.ReasoningClassification)
 	}
 	if result.ClassificationRequest == nil || result.ClassificationUsage == nil {
@@ -647,17 +650,17 @@ func TestSessionRunTurnDoesNotStreamReasoningClassification(t *testing.T) {
 	t.Parallel()
 
 	provider := newFakeProviderSequence(
-		fakeProviderResponse{events: textEvents(`{"scenario":"architecture","confidence":"high"}`)},
+		fakeProviderResponse{events: textEvents(`{"scenario":"troubleshooting","confidence":"high"}`)},
 		fakeProviderResponse{events: textEvents("done")},
 	)
 	var deltas []string
 	session := newTestSession(t, SessionOptions{
 		Provider:    provider,
-		Reasoning:   ReasoningOptions{Enabled: true},
+		Reasoning:   ReasoningOptions{Enabled: true, AutoClassify: true},
 		StreamDelta: func(d string) { deltas = append(deltas, d) },
 	})
 
-	_, err := session.RunTurn(context.Background(), "design the session architecture")
+	_, err := session.RunTurn(context.Background(), "debug the failing test")
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
@@ -670,12 +673,12 @@ func TestSessionRunTurnReasoningClassificationDoesNotCountTowardMaxIterations(t 
 	t.Parallel()
 
 	provider := newFakeProviderSequence(
-		fakeProviderResponse{events: textEvents(`{"scenario":"proposal","confidence":"medium"}`)},
+		fakeProviderResponse{events: textEvents(`{"scenario":"troubleshooting","confidence":"medium"}`)},
 		fakeProviderResponse{events: textEvents("done")},
 	)
-	session := newTestSession(t, SessionOptions{Provider: provider, MaxIterations: 1, Reasoning: ReasoningOptions{Enabled: true}})
+	session := newTestSession(t, SessionOptions{Provider: provider, MaxIterations: 1, Reasoning: ReasoningOptions{Enabled: true, AutoClassify: true}})
 
-	result, err := session.RunTurn(context.Background(), "write a plan")
+	result, err := session.RunTurn(context.Background(), "debug the failing test")
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
@@ -689,23 +692,27 @@ func TestSessionRunTurnReasoningPersistsAcrossToolIterations(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "sample.txt"), "alpha\n")
+	proto, _ := protocolFor(ReasoningScenarioTroubleshooting)
+	// troubleshooting is in-turn: the gate forces Analyze before Read works.
 	provider := newFakeProviderSequence(
 		fakeProviderResponse{events: textEvents(`{"scenario":"troubleshooting","confidence":"high"}`)},
-		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_123", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_a", Name: "Analyze", Input: analyzeStepsInput(t, proto, func(ReasoningStep) string { return "具体内容" })})},
+		fakeProviderResponse{events: toolUseEvents(llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "toolu_r", Name: "Read", Input: rawInput(t, map[string]any{"path": "sample.txt"})})},
 		fakeProviderResponse{events: textEvents("done")},
 	)
-	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), ToolContext: &tool.Context{WorkingDirectory: dir}, Reasoning: ReasoningOptions{Enabled: true}})
+	session := newTestSession(t, SessionOptions{Provider: provider, Tools: tools.Builtins(), ToolContext: &tool.Context{WorkingDirectory: dir}, Reasoning: ReasoningOptions{Enabled: true, AutoClassify: true}})
 
 	result, err := session.RunTurn(context.Background(), "debug sample.txt")
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
-	if len(provider.requests) != 3 || result.Iterations != 2 {
+	if len(provider.requests) != 4 || result.Iterations != 3 {
 		t.Fatalf("unexpected request or iteration count, provider=%d result=%#v", len(provider.requests), result)
 	}
+	// The in-turn protocol instruction is injected and persists across iterations.
 	for _, req := range provider.requests[1:] {
-		if !requestSystemContains(req, "Selected reasoning mode: troubleshooting") {
-			t.Fatalf("main request missing troubleshooting guidance: %#v", req.System)
+		if !requestSystemContains(req, "本回合启用") {
+			t.Fatalf("main request missing in-turn protocol instruction: %#v", req.System)
 		}
 	}
 }
@@ -717,17 +724,17 @@ func TestSessionRunTurnInvalidReasoningFallsBack(t *testing.T) {
 		fakeProviderResponse{events: textEvents("not json")},
 		fakeProviderResponse{events: textEvents("done")},
 	)
-	session := newTestSession(t, SessionOptions{Provider: provider, Reasoning: ReasoningOptions{Enabled: true, DefaultScenario: ReasoningScenarioProposal}})
+	session := newTestSession(t, SessionOptions{Provider: provider, Reasoning: ReasoningOptions{Enabled: true, AutoClassify: true, DefaultScenario: ReasoningScenarioTroubleshooting}})
 
-	result, err := session.RunTurn(context.Background(), "make a plan")
+	result, err := session.RunTurn(context.Background(), "debug the failing test")
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
-	if result.ReasoningClassification == nil || result.ReasoningClassification.Scenario != ReasoningScenarioProposal {
-		t.Fatalf("expected fallback proposal classification, got %#v", result.ReasoningClassification)
+	if result.ReasoningClassification == nil || result.ReasoningClassification.Scenario != ReasoningScenarioTroubleshooting {
+		t.Fatalf("expected fallback troubleshooting classification, got %#v", result.ReasoningClassification)
 	}
-	if !requestSystemContains(provider.requests[1], "Selected reasoning mode: proposal") {
-		t.Fatalf("main request missing fallback guidance: %#v", provider.requests[1].System)
+	if !requestSystemContains(provider.requests[1], "本回合启用") {
+		t.Fatalf("main request missing fallback in-turn protocol instruction: %#v", provider.requests[1].System)
 	}
 }
 
@@ -735,7 +742,7 @@ func TestSessionRunTurnStrictReasoningReturnsError(t *testing.T) {
 	t.Parallel()
 
 	provider := newFakeProviderSequence(fakeProviderResponse{events: textEvents("not json")})
-	session := newTestSession(t, SessionOptions{Provider: provider, Reasoning: ReasoningOptions{Enabled: true, Strict: true}})
+	session := newTestSession(t, SessionOptions{Provider: provider, Reasoning: ReasoningOptions{Enabled: true, AutoClassify: true, Strict: true}})
 
 	_, err := session.RunTurn(context.Background(), "make a plan")
 	if !errors.Is(err, ErrInvalidReasoningClassification) {
@@ -1229,6 +1236,40 @@ func TestSessionRunTurnStreamsDeltaToCallback(t *testing.T) {
 	}
 }
 
+func TestSessionRunTurnStreamsThinkingSeparateFromText(t *testing.T) {
+	t.Parallel()
+
+	// A turn that emits a thinking block followed by a text block: reasoning must go
+	// to StreamThinking and answer text to StreamDelta, never crossing channels.
+	events := []llm.StreamEvent{
+		{Type: llm.StreamEventTypeContentBlockStart, Index: 0, Block: &llm.ContentBlock{Type: llm.ContentBlockTypeThinking}},
+		{Type: llm.StreamEventTypeContentBlockDelta, Index: 0, Delta: &llm.ContentDelta{Thinking: "let me "}},
+		{Type: llm.StreamEventTypeContentBlockDelta, Index: 0, Delta: &llm.ContentDelta{Thinking: "think"}},
+		{Type: llm.StreamEventTypeContentBlockStop, Index: 0},
+		{Type: llm.StreamEventTypeContentBlockStart, Index: 1, Block: &llm.ContentBlock{Type: llm.ContentBlockTypeText}},
+		{Type: llm.StreamEventTypeContentBlockDelta, Index: 1, Delta: &llm.ContentDelta{Text: "the answer"}},
+		{Type: llm.StreamEventTypeContentBlockStop, Index: 1},
+		{Type: llm.StreamEventTypeMessageStop, StopReason: llm.StopReasonEndTurn, Usage: &llm.Usage{OutputTokens: 1}},
+	}
+	var deltas, thoughts []string
+	session := newTestSession(t, SessionOptions{
+		Provider:       newFakeProvider(events, nil),
+		StreamDelta:    func(d string) { deltas = append(deltas, d) },
+		StreamThinking: func(d string) { thoughts = append(thoughts, d) },
+	})
+
+	_, err := session.RunTurn(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got, want := strings.Join(thoughts, ""), "let me think"; got != want {
+		t.Fatalf("streamed thinking = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(deltas, ""), "the answer"; got != want {
+		t.Fatalf("streamed text = %q, want %q", got, want)
+	}
+}
+
 func TestSessionRunTurnDoesNotStreamToolUseDeltas(t *testing.T) {
 	t.Parallel()
 
@@ -1253,6 +1294,68 @@ func TestSessionRunTurnDoesNotStreamToolUseDeltas(t *testing.T) {
 	// Only the final text assistant message should produce deltas.
 	if got, want := strings.Join(deltas, ""), "done"; got != want {
 		t.Fatalf("streamed text = %q, want %q", got, want)
+	}
+}
+
+func TestAssistantToolInputStreamsWriteContent(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan tool.Event, 64)
+	s := &Session{toolEvents: events}
+	cb := s.assistantToolInputCallback()
+	id := "w1"
+	// The Write tool call's arguments stream in as JSON; complete content lines are
+	// emitted as output as they arrive (the trailing partial line waits).
+	cb(id, "Write", `{"path":"a.txt","content":"line1\n`)
+	cb(id, "Write", `{"path":"a.txt","content":"line1\nline2\npart`)
+	close(events)
+
+	var got []string
+	sawPath := false
+	for ev := range events {
+		if ev.ToolName != "Write" || ev.Type != tool.EventTypeProgress {
+			continue
+		}
+		if strings.Contains(string(ev.Input), "a.txt") {
+			sawPath = true
+		}
+		for _, l := range ev.Output {
+			got = append(got, l.Text)
+		}
+	}
+	if strings.Join(got, ",") != "line1,line2" {
+		t.Fatalf("streamed content = %v, want [line1 line2]", got)
+	}
+	if !sawPath {
+		t.Fatal("expected the target path in a streamed Input")
+	}
+}
+
+func TestAssistantToolInputStreamsPrimaryArg(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan tool.Event, 64)
+	s := &Session{toolEvents: events}
+	cb := s.assistantToolInputCallback()
+	id := "b1"
+	// A Bash call's command streams in; the card's primary arg updates as it grows.
+	cb(id, "Bash", `{"command":"go te`)
+	cb(id, "Bash", `{"command":"go test ./...`)
+	close(events)
+
+	var last string
+	for ev := range events {
+		if ev.ToolName != "Bash" || len(ev.Input) == 0 {
+			continue
+		}
+		var m map[string]string
+		if err := json.Unmarshal(ev.Input, &m); err != nil {
+			t.Fatalf("input not JSON: %q", ev.Input)
+		}
+		last = m["command"]
+	}
+	if last != "go test ./..." {
+		t.Fatalf("streamed command = %q, want full 'go test ./...'", last)
 	}
 }
 

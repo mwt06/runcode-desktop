@@ -1,5 +1,7 @@
 package openai
 
+import "encoding/json"
+
 // This file defines the OpenAI Chat Completions wire types used by the provider.
 // They are intentionally a small, permissive subset: many "OpenAI-compatible"
 // endpoints (vLLM, Ollama, llama.cpp, LM Studio, gateways) implement only the
@@ -87,6 +89,14 @@ type chatDelta struct {
 	Role      string         `json:"role"`
 	Content   string         `json:"content"`
 	ToolCalls []chatToolCall `json:"tool_calls"`
+	// Reasoning channels vary across "OpenAI-compatible" reasoning models. Common
+	// shapes: reasoning_content as a string (DeepSeek-R1 and many gateways), or
+	// reasoning as a string or an object ({content|text}). Both are captured and
+	// routed to a neutral thinking block rather than the answer text. Some models
+	// instead inline <think>…</think> inside content — handled by the stream
+	// splitter, not here.
+	ReasoningContent string          `json:"reasoning_content"`
+	Reasoning        json.RawMessage `json:"reasoning"`
 }
 
 type chatUsage struct {

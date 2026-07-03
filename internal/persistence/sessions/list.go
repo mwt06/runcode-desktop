@@ -26,6 +26,7 @@ type Info struct {
 	Turns     int       // user-prompt messages (an approximation of conversation turns)
 	FirstUser string    // first user prompt, collapsed and truncated for display
 	LastUser  string    // most recent user prompt, collapsed and truncated for display
+	Title     string    // model-generated session name from the sidecar, "" if unset
 }
 
 // List returns metadata for every saved session in the workspace, newest first.
@@ -87,6 +88,8 @@ func describePath(path string, id string) (Info, error) {
 		return Info{}, fmt.Errorf("stat session %q: %w", id, err)
 	}
 	info := Info{ID: id, ModTime: stat.ModTime(), SizeBytes: stat.Size()}
+	// A sidecar <id>.title (if present) carries the model-generated session name.
+	info.Title = readTitleFile(filepath.Join(filepath.Dir(path), id+titleFileExt))
 
 	// Shares scanHistory's torn-trailing-line tolerance with LoadHistory, so a
 	// session's metadata stays describable after a crash-truncated final write.

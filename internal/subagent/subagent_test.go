@@ -306,43 +306,41 @@ func TestToolOnlyHooksSuppressUserPromptSubmit(t *testing.T) {
 	}
 }
 
-func TestChildProgressMapping(t *testing.T) {
+func TestEventBridgeForwardsAndStamps(t *testing.T) {
 	t.Parallel()
 
-	started, ok := childProgress(tool.Event{Type: tool.EventTypeStarted, ToolName: "Grep"})
-	if !ok || started.Type != tool.EventTypeProgress || !strings.Contains(started.Message, "Grep") {
-		t.Fatalf("started mapping = %#v ok=%v", started, ok)
-	}
-	if _, ok := childProgress(tool.Event{Type: tool.EventTypeCompleted, ToolName: "Grep"}); ok {
-		t.Fatal("completed events should not surface")
-	}
-	// A surfaced progress line carries no tool name/id so the parent executor
-	// attributes it to the Task call rather than spawning an orphan row.
-	if started.ToolName != "" || started.ToolUseID != "" {
-		t.Fatalf("progress should be unattributed: %#v", started)
-	}
-}
-
-func TestEventBridgeForwardsAndDrains(t *testing.T) {
-	t.Parallel()
-
-	parent := make(chan tool.Event, 4)
-	in, stop := startEventBridge(parent)
-	in <- tool.Event{Type: tool.EventTypeStarted, ToolName: "Read"}
-	in <- tool.Event{Type: tool.EventTypeCompleted, ToolName: "Read"} // dropped
+	parent := make(chan tool.Event, 8)
+	in, stop := startEventBridge(parent, "task_1", "code-explorer")
+	in <- tool.Event{Type: tool.EventTypeStarted, ToolName: "Read", ToolUseID: "tu_a", Input: []byte(`{"path":"x"}`)}
+	emitAgentDelta(in, "investigating")
+	in <- tool.Event{Type: tool.EventTypeCompleted, ToolName: "Read", ToolUseID: "tu_a"}
 	stop()
 
 	got := drain(parent)
-	if len(got) != 1 || got[0].Type != tool.EventTypeProgress {
-		t.Fatalf("forwarded events = %#v", got)
+	if len(got) != 3 {
+		t.Fatalf("forwarded %d events, want 3: %#v", len(got), got)
+	}
+	// Every child event is stamped so the UI nests it under the Task card.
+	for _, e := range got {
+		if e.ParentToolUseID != "task_1" || e.AgentName != "code-explorer" {
+			t.Fatalf("event not stamped with parent attribution: %#v", e)
+		}
+	}
+	// Child tool events pass through intact (name/id/input preserved), not collapsed.
+	if got[0].Type != tool.EventTypeStarted || got[0].ToolName != "Read" || got[0].ToolUseID != "tu_a" || len(got[0].Input) == 0 {
+		t.Fatalf("child tool event should pass through intact: %#v", got[0])
+	}
+	if got[1].Type != tool.EventTypeAgentDelta || got[1].Message != "investigating" {
+		t.Fatalf("agent delta should pass through: %#v", got[1])
 	}
 }
 
 func TestEventBridgeNilParentDrains(t *testing.T) {
 	t.Parallel()
 
-	in, stop := startEventBridge(nil)
+	in, stop := startEventBridge(nil, "task_1", "x")
 	in <- tool.Event{Type: tool.EventTypeStarted, ToolName: "Read"}
+	emitAgentDelta(in, "hi")
 	stop() // must not deadlock with a nil parent
 }
 

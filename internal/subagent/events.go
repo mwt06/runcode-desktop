@@ -7,14 +7,15 @@ const eventBridgeBuffer = 32
 
 // startEventBridge returns a channel for a child session's ToolEvents and a stop
 // function that closes it and waits for the forwarder to drain. The forwarder
-// translates a sub-agent's tool activity into concise progress lines emitted to
-// the parent channel with no tool name or id, so the parent executor attributes
-// them to the Task call rather than spawning orphan UI rows for the child's tools.
+// stamps every event from the sub-agent with parentID (the Task call's tool-use id)
+// and agentName, then forwards it to the parent channel — so the UI can nest the
+// sub-agent's tool cards and streamed text live under that Task card, rather than
+// either hiding them or scattering them as top-level rows.
 //
-// Emits are non-blocking: under backpressure a progress line is dropped rather
-// than stalling the sub-agent. When parent is nil the bridge still drains the
-// child channel so the child never blocks writing events.
-func startEventBridge(parent chan<- tool.Event) (chan<- tool.Event, func()) {
+// Emits are non-blocking: under backpressure an event is dropped rather than
+// stalling the sub-agent. When parent is nil the bridge still drains the child
+// channel so the child never blocks writing events.
+func startEventBridge(parent chan<- tool.Event, parentID, agentName string) (chan<- tool.Event, func()) {
 	in := make(chan tool.Event, eventBridgeBuffer)
 	done := make(chan struct{})
 	go func() {
@@ -23,12 +24,10 @@ func startEventBridge(parent chan<- tool.Event) (chan<- tool.Event, func()) {
 			if parent == nil {
 				continue
 			}
-			progress, ok := childProgress(event)
-			if !ok {
-				continue
-			}
+			event.ParentToolUseID = parentID
+			event.AgentName = agentName
 			select {
-			case parent <- progress:
+			case parent <- event:
 			default:
 			}
 		}
@@ -39,23 +38,15 @@ func startEventBridge(parent chan<- tool.Event) (chan<- tool.Event, func()) {
 	}
 }
 
-// childProgress maps a child tool event to a parent-facing progress line, or
-// reports ok=false when the event should not surface. Only the start and failure
-// of a child tool are surfaced, which keeps the parent view to a running indicator
-// without echoing the child's full output.
-func childProgress(event tool.Event) (tool.Event, bool) {
-	switch event.Type {
-	case tool.EventTypeStarted:
-		if event.ToolName == "" {
-			return tool.Event{}, false
-		}
-		return tool.Event{Type: tool.EventTypeProgress, Message: "→ " + event.ToolName}, true
-	case tool.EventTypeFailed:
-		if event.ToolName == "" {
-			return tool.Event{}, false
-		}
-		return tool.Event{Type: tool.EventTypeProgress, Message: "✗ " + event.ToolName}, true
+// emitAgentDelta forwards a sub-agent's streamed assistant-text delta through the
+// bridge (which stamps the parent attribution). Non-blocking: a dropped delta only
+// costs a little live text, never a stall.
+func emitAgentDelta(child chan<- tool.Event, delta string) {
+	if child == nil || delta == "" {
+		return
+	}
+	select {
+	case child <- tool.Event{Type: tool.EventTypeAgentDelta, Message: delta}:
 	default:
-		return tool.Event{}, false
 	}
 }

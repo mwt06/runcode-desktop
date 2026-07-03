@@ -20,9 +20,38 @@ func EnvInfo(input EnvInfoInput) string {
 		parts = append(parts, fmt.Sprintf("Current date: %s", input.Date))
 	}
 	if input.ShellInfo != "" {
-		parts = append(parts, fmt.Sprintf("Shell: %s", input.ShellInfo))
+		parts = append(parts, fmt.Sprintf("Shell: %s%s", input.ShellInfo, shellGuidance(input.ShellInfo)))
+		if note := windowsPathNote(input.ShellInfo); note != "" {
+			parts = append(parts, note)
+		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// windowsPathNote steers the model away from single-backslash paths in tool
+// arguments on Windows. In JSON, "D:\test\x" is a broken escape (\t is a tab, \x is
+// invalid), so such Write/Edit calls fail to parse and the model loops retrying.
+func windowsPathNote(shell string) string {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh":
+		return `Tool path arguments (Read/Write/Edit): use forward slashes or workspace-relative paths, e.g. "renderer/engine.py" or "D:/test/x.py". A single backslash in JSON like "D:\test\x" is an invalid escape and the call will fail to parse — never write paths that way; prefer relative paths under the workspace.`
+	default:
+		return ""
+	}
+}
+
+// shellGuidance adds shell-specific notes so the model writes commands the active
+// shell can actually run — Windows shells have no Unix coreutils, which otherwise
+// causes silent "command not found" failures (e.g. `| head`).
+func shellGuidance(shell string) string {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "cmd", "cmd.exe":
+		return ` (Windows cmd.exe — Unix tools like head, tail, grep, sed, awk, ls, cat are NOT available. Use findstr for grep, more/type for cat, dir for ls; chain commands with && (not ;); paths use backslashes, e.g. D:\path.)`
+	case "powershell", "powershell.exe", "pwsh":
+		return ` (PowerShell — use cmdlets: Get-Content, Select-String, Get-ChildItem. Unix names may be aliases but their flags differ.)`
+	default:
+		return ""
+	}
 }
 
 func PermissionContext(mode string) string {
@@ -36,6 +65,14 @@ Write, Edit, and approvable Bash actions will ask the user before running. Bash 
 	default:
 		return ""
 	}
+}
+
+func PlanMode() string {
+	return `Plan mode is ON. Research the task and produce a clear, reviewable plan — do NOT make any changes.
+- You may read and explore: Read, Glob, Grep, read-only shell commands (ls, dir, cat, grep, findstr, find, tree, git status/diff/log, and read-only pipelines like ` + "`dir | findstr x`" + `), and web fetches. Prefer the Read/Glob/Grep tools over shell when they fit.
+- You must NOT modify anything: no Write, Edit, file deletion, or shell commands that create/change/delete files or state (writes, redirecting to a file, &&/; chains). Those are blocked in plan mode; do not attempt them.
+- Investigate enough to be concrete, then present the plan: the goal, the files/areas to change, the step-by-step approach, and any risks or open questions.
+- Do not say work is done or files were changed — nothing is changed in plan mode. End by presenting the plan for the user to approve before execution.`
 }
 
 func ReasoningClassifier() string {

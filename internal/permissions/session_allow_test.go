@@ -54,8 +54,15 @@ func TestDefaultSessionKey(t *testing.T) {
 	if key := DefaultSessionKey(editAction("/ws/a.go")); key == "" {
 		t.Fatal("edit with path should be rememberable")
 	}
-	if DefaultSessionKey(editAction("/ws/a.go")) == DefaultSessionKey(editAction("/ws/b.go")) {
-		t.Fatal("different mutation targets must produce different keys")
+	// Coarse on purpose: one grant covers every workspace file mutation — different
+	// files and Write/Edit/Delete alike share a single key.
+	if DefaultSessionKey(editAction("/ws/a.go")) != DefaultSessionKey(editAction("/ws/b.go")) {
+		t.Fatal("different files should share a session key")
+	}
+	writeAct := Action{ToolName: "Write", Operation: OperationWrite, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeWorkspace, Path: "/ws/c.go"}}}
+	deleteAct := Action{ToolName: "Delete", Operation: OperationDelete, Resources: []Resource{{Type: ResourceFile, Scope: ResourceScopeWorkspace, Path: "/ws/d.go"}}}
+	if DefaultSessionKey(editAction("/ws/a.go")) != DefaultSessionKey(writeAct) || DefaultSessionKey(writeAct) != DefaultSessionKey(deleteAct) {
+		t.Fatal("Write, Edit, and Delete should share one mutation session key")
 	}
 	if key := DefaultSessionKey(editAction("")); key != "" {
 		t.Fatalf("pathless mutation key = %q, want empty", key)
@@ -66,8 +73,27 @@ func TestDefaultSessionKey(t *testing.T) {
 	if DefaultSessionKey(bashAction(CommandCategoryTest)) == DefaultSessionKey(bashAction(CommandCategoryBuild)) {
 		t.Fatal("different command categories must produce different keys")
 	}
+	// Unknown commands key by program: same program (different args) shares a grant;
+	// different programs do not. With no command text, nothing is remembered.
+	unknownCmd := func(cmd string) Action {
+		return Action{
+			ToolName:  "Bash",
+			Operation: OperationExecute,
+			Resources: []Resource{{Type: ResourceCommand, Scope: ResourceScopeWorkspace, Path: cmd}},
+			Metadata:  map[string]any{MetadataCommandCategory: string(CommandCategoryUnknown)},
+		}
+	}
+	if key := DefaultSessionKey(unknownCmd("python a.py")); key == "" {
+		t.Fatal("unknown command with a program should be rememberable")
+	}
+	if DefaultSessionKey(unknownCmd("python a.py")) != DefaultSessionKey(unknownCmd("python b.py")) {
+		t.Fatal("same program, different args should share a session key")
+	}
+	if DefaultSessionKey(unknownCmd("python a.py")) == DefaultSessionKey(unknownCmd("node x.js")) {
+		t.Fatal("different programs must produce different keys")
+	}
 	if key := DefaultSessionKey(bashAction(CommandCategoryUnknown)); key != "" {
-		t.Fatalf("unknown command key = %q, want empty", key)
+		t.Fatalf("unknown command with no text key = %q, want empty", key)
 	}
 }
 

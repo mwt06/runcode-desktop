@@ -94,6 +94,37 @@ func TestConvertAssistantToolOnlyOmitsContent(t *testing.T) {
 	}
 }
 
+func TestConvertAssistantMalformedArgumentsBecomeEmptyObject(t *testing.T) {
+	t.Parallel()
+	// A model can emit invalid JSON arguments (single-quoted keys, truncated
+	// object). Sending them verbatim makes a strict gateway 400 and abort the
+	// turn, so they must be replaced with a valid empty object.
+	for _, bad := range []string{`{'path': 'x'}`, `{path:1}`, `{"a":`, `not json`} {
+		msg := llm.Message{Role: llm.RoleAssistant, Content: []llm.ContentBlock{
+			{Type: llm.ContentBlockTypeToolUse, ID: "c1", Name: "Write", Input: []byte(bad)},
+		}}
+		out, err := convertAssistantMessage(msg)
+		if err != nil {
+			t.Fatalf("convert(%q): %v", bad, err)
+		}
+		if got := out[0].ToolCalls[0].Function.Arguments; got != "{}" {
+			t.Fatalf("arguments for %q = %q, want {}", bad, got)
+		}
+	}
+
+	// Valid arguments must pass through untouched.
+	msg := llm.Message{Role: llm.RoleAssistant, Content: []llm.ContentBlock{
+		{Type: llm.ContentBlockTypeToolUse, ID: "c1", Name: "Write", Input: []byte(`{"path":"a.txt"}`)},
+	}}
+	out, err := convertAssistantMessage(msg)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if got := out[0].ToolCalls[0].Function.Arguments; got != `{"path":"a.txt"}` {
+		t.Fatalf("valid arguments changed to %q", got)
+	}
+}
+
 func TestConvertAssistantEmptyEmitsExplicitContent(t *testing.T) {
 	t.Parallel()
 	// A thinking-only assistant message (thinking dropped, no text, no tools)
@@ -167,6 +198,33 @@ func TestConvertToolMessageFansOut(t *testing.T) {
 	}
 	if len(out) != 2 || out[0].ToolCallID != "a" || out[1].ToolCallID != "b" {
 		t.Fatalf("expected one tool message per result, got %#v", out)
+	}
+}
+
+func TestConvertToolMessageImagePromotedToUserMessage(t *testing.T) {
+	t.Parallel()
+	// An image in a tool result cannot ride in an OpenAI tool message, so it is
+	// surfaced in a user message appended after the tool result — preserving valid
+	// ordering — so the model can actually see it.
+	msg := llm.Message{Role: llm.RoleTool, Content: []llm.ContentBlock{
+		{Type: llm.ContentBlockTypeToolResult, ToolUseID: "t1", Content: []llm.ContentBlock{
+			{Type: llm.ContentBlockTypeText, Text: "[image: shot.png]"},
+			{Type: llm.ContentBlockTypeImage, Source: &llm.ImageSource{MediaType: "image/png", Data: []byte("xx")}},
+		}},
+	}}
+	out, err := convertMessage(msg)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if len(out) != 2 || out[0].Role != "tool" || out[0].ToolCallID != "t1" {
+		t.Fatalf("expected a tool message then a user message, got %#v", out)
+	}
+	if out[1].Role != "user" {
+		t.Fatalf("promoted message role = %q, want user", out[1].Role)
+	}
+	parts, ok := out[1].Content.([]contentPart)
+	if !ok || len(parts) != 2 || parts[1].Type != "image_url" || !strings.HasPrefix(parts[1].ImageURL.URL, "data:image/png;base64,") {
+		t.Fatalf("promoted user content = %#v", out[1].Content)
 	}
 }
 

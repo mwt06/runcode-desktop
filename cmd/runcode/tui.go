@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
-	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/ui"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
@@ -122,22 +121,20 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 }
 
 type tuiSessionService struct {
-	cfg         chatConfig
-	session     *repl.Session
-	resources   sessionResources
-	onDelta     func(string)
-	approver    *ui.Approver
-	permissions *permissions.Service
-	toolEvents  chan tool.Event
-	closed      bool
+	cfg        chatConfig
+	session    *engine.Session
+	onDelta    func(string)
+	approver   *ui.Approver
+	toolEvents chan tool.Event
+	closed     bool
 }
 
 func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 	service := &tuiSessionService{cfg: cfg, toolEvents: make(chan tool.Event, tuiToolEventBufferSize)}
-	// Always build the approver and an interactive authorizer so /mode can switch
-	// to interactive at runtime, even when starting in safe mode.
+	// Always build the approver and a mode-aware interactive authorizer so /mode
+	// can switch to interactive at runtime, even when starting in safe mode.
 	service.approver = ui.NewApprover(cfg.CWD)
-	store, err := newAllowStore(cfg.CWD)
+	store, err := engine.NewAllowStore(cfg.CWD)
 	if err != nil {
 		return nil, err
 	}
@@ -149,23 +146,23 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 			Store:    store,
 		},
 	})
-	service.permissions = permissionService
-	session, resources, err := newSessionForConfig(cfg, sessionFactoryOptions{
-		Runtime:          chatIO{Err: io.Discard, Out: nil},
-		TelemetryRuntime: chatIO{Err: os.Stderr},
+	session, err := engine.Build(cfg, engine.Options{
+		Permissions: permissionService,
 		StreamDelta: func(delta string) {
 			if service.onDelta != nil {
 				service.onDelta(delta)
 			}
 		},
-		ToolEvents:  service.toolEvents,
-		Permissions: permissionService,
+		ToolEvents: service.toolEvents,
+		// The TUI renders warnings inside the conversation, so startup warnings are
+		// discarded here; telemetry still goes to the real stderr.
+		Warn:            io.Discard,
+		TelemetryWriter: os.Stderr,
 	})
 	if err != nil {
 		return nil, err
 	}
 	service.session = session
-	service.resources = resources
 	return service, nil
 }
 
@@ -204,18 +201,14 @@ func (s *tuiSessionService) Compact(ctx context.Context) (ui.CompactResult, erro
 }
 
 func (s *tuiSessionService) SetPermissionMode(mode string) error {
-	return s.permissions.SetMode(mode)
+	return s.session.SetPermissionMode(mode)
 }
 
-// SetModel switches the session's model for subsequent turns and updates the
-// cached config so the status line reflects it. The switch is runtime-only and
-// not persisted to config files.
+// SetModel switches the session's model for subsequent turns. The switch is
+// runtime-only and not persisted to config files; the status line reflects it via
+// the engine's live model.
 func (s *tuiSessionService) SetModel(model string) error {
-	if err := s.session.SetModel(model); err != nil {
-		return err
-	}
-	s.cfg.Model = strings.TrimSpace(model)
-	return nil
+	return s.session.SetModel(model)
 }
 
 func (s *tuiSessionService) Close(ctx context.Context) error {
@@ -223,22 +216,21 @@ func (s *tuiSessionService) Close(ctx context.Context) error {
 		return nil
 	}
 	s.closed = true
-	if s.session != nil {
-		s.session.FireSessionEnd(ctx, "exit")
-	}
-	return closeRecorders(ctx, s.resources.Telemetry, s.resources.Transcript, s.resources.Sessions, s.resources.Backend, s.resources.MCP, s.resources.Shells)
+	return s.session.Close(ctx)
 }
 
 func (s *tuiSessionService) Status() ui.Status {
+	st := s.session.Status()
 	return ui.Status{
-		Model:              s.cfg.Model,
-		CWD:                s.cfg.CWD,
-		PermissionMode:     s.permissions.Mode(),
-		Transcript:         s.cfg.Transcript,
-		SessionID:          s.resources.SessionID,
-		InputPricePerMTok:  s.cfg.InputPrice,
-		OutputPricePerMTok: s.cfg.OutputPrice,
-		PricingSource:      s.cfg.PriceSource,
+		Model:              st.Model,
+		CWD:                st.CWD,
+		PermissionMode:     st.PermissionMode,
+		Transcript:         st.Transcript,
+		SessionID:          st.SessionID,
+		MaxContextTokens:   st.MaxContextTokens,
+		InputPricePerMTok:  st.InputPricePerMTok,
+		OutputPricePerMTok: st.OutputPricePerMTok,
+		PricingSource:      st.PricingSource,
 	}
 }
 

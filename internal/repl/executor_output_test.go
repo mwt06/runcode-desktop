@@ -172,9 +172,11 @@ func TestExecutorBoundsAndSanitizesOutput(t *testing.T) {
 
 	var b strings.Builder
 	b.WriteString("be\x07ll\n") // control char must be stripped
-	for i := 0; i < 30; i++ {
+	const extraLines = 120 // exceed the per-event cap so truncation is exercised
+	for i := 0; i < extraLines; i++ {
 		fmt.Fprintf(&b, "line%d\n", i)
 	}
+	totalLines := extraLines + 1
 	tool31 := staticOutputTool{name: "Big", result: tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: b.String()}}}}
 	executor, err := newAllowAllExecutor([]tool.Tool{tool31})
 	if err != nil {
@@ -190,8 +192,8 @@ func TestExecutorBoundsAndSanitizesOutput(t *testing.T) {
 	if len(completed.Output) != maxToolEventOutputLines {
 		t.Fatalf("output lines = %d, want capped at %d", len(completed.Output), maxToolEventOutputLines)
 	}
-	if !completed.OutputTruncated || completed.OutputTotal != 31 {
-		t.Fatalf("truncated=%v total=%d, want truncated with total 31", completed.OutputTruncated, completed.OutputTotal)
+	if !completed.OutputTruncated || completed.OutputTotal != totalLines {
+		t.Fatalf("truncated=%v total=%d, want truncated with total %d", completed.OutputTruncated, completed.OutputTotal, totalLines)
 	}
 	if completed.Output[0].Text != "bell" {
 		t.Fatalf("first line = %q, want control char stripped to 'bell'", completed.Output[0].Text)

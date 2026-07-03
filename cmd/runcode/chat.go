@@ -9,33 +9,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/internal/cost"
-	"github.com/wt68/runcode/internal/hooks"
-	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/persistence/transcript"
-	"github.com/wt68/runcode/internal/projectctx"
-	"github.com/wt68/runcode/internal/prompt"
-	"github.com/wt68/runcode/internal/repl"
-	"github.com/wt68/runcode/internal/subagent"
-	"github.com/wt68/runcode/internal/telemetry"
-	"github.com/wt68/runcode/pkg/agent"
 	"github.com/wt68/runcode/pkg/llm"
-	// Provider packages are imported for their init() side effect: each registers
-	// its factory with llm.Build. buildProvider then selects by name without a
-	// hardcoded switch over concrete provider types.
-	_ "github.com/wt68/runcode/pkg/llm/providers/anthropic"
-	_ "github.com/wt68/runcode/pkg/llm/providers/openai"
-	"github.com/wt68/runcode/pkg/memory"
-	"github.com/wt68/runcode/pkg/skill"
-	"github.com/wt68/runcode/pkg/tool"
-	"github.com/wt68/runcode/tools"
-	"github.com/wt68/runcode/tools/bash"
 )
 
 // anthropicProvider is the default provider name and the one that strictly
@@ -45,46 +26,10 @@ const anthropicProvider = "anthropic"
 
 var errEmptyPrompt = errors.New("prompt is required")
 
-type chatConfig struct {
-	Provider           string
-	Model              string
-	MaxTokens          int
-	BaseURL            string
-	APIKey             string
-	AuthToken          string
-	CWD                string
-	Telemetry          string
-	PermissionMode     string
-	Transcript         string
-	SessionID          string
-	MaxHistoryMessages int
-	MaxContextTokens   int
-	Resume             string
-	Continue           bool
-	PersistSession     bool
-	// SessionBackend selects the session-history store: "jsonl" (default) or
-	// "sqlite". It governs where history is written and read for resume/browse.
-	SessionBackend string
-	MaxRetries         int
-	InputPrice         float64
-	OutputPrice        float64
-	// PriceSource records where the effective prices came from: "explicit" (set
-	// via flag/env/config), "builtin" (the model matched the built-in pricing
-	// table), or "" (unpriced).
-	PriceSource string
-	MCPServers  []mcp.ServerConfig
-	// AllowMCPSampling opts in to serving MCP servers' sampling requests. Even
-	// when true, safe mode refuses sampling.
-	AllowMCPSampling bool
-	// Hooks are the validated lifecycle hooks (user-level config only).
-	Hooks []hooks.Hook
-	// Thinking is the resolved extended-thinking config (off/low/medium/high).
-	Thinking llm.ThinkingConfig
-	// SystemPrompt replaces the framework identity prose when set;
-	// SystemPromptAppend is appended after the framework sections.
-	SystemPrompt       string
-	SystemPromptAppend string
-}
+// chatConfig is the CLI's name for the engine's resolved configuration. The
+// alias lets the existing flag-resolution code and tests keep using chatConfig
+// while the engine owns the canonical type that every frontend shares.
+type chatConfig = engine.Config
 
 type chatIO struct {
 	In    io.Reader
@@ -102,31 +47,7 @@ type resettableChatRunner interface {
 }
 
 type defaultChatRunner struct {
-	session        *repl.Session
-	recorder       telemetry.Recorder
-	transcript     transcript.Recorder
-	sessions       sessions.Store
-	sessionBackend sessions.Backend
-	mcp            *mcp.Manager
-	shells         *bash.Manager
-}
-
-type sessionFactoryOptions struct {
-	Runtime          chatIO
-	TelemetryRuntime chatIO
-	StreamDelta      func(string)
-	ToolEvents       chan<- tool.Event
-	Permissions      *permissions.Service
-}
-
-type sessionResources struct {
-	Telemetry  telemetry.Recorder
-	Transcript transcript.Recorder
-	Sessions   sessions.Store
-	Backend    sessions.Backend
-	MCP        *mcp.Manager
-	Shells     *bash.Manager
-	SessionID  string
+	session *engine.Session
 }
 
 func chatCmd() *cobra.Command {
@@ -714,55 +635,6 @@ func normalizeSessionBackend(value string) (string, error) {
 	}
 }
 
-func telemetryRecorder(mode string) telemetry.Recorder {
-	return telemetryRecorderWithRuntime(mode, chatIO{Err: os.Stderr})
-}
-
-func telemetryRecorderWithRuntime(mode string, runtime chatIO) telemetry.Recorder {
-	if mode == "jsonl" {
-		errWriter := runtime.Err
-		if errWriter == nil {
-			errWriter = os.Stderr
-		}
-		return telemetry.NewAsync(telemetry.NewJSONL(errWriter), telemetry.AsyncOptions{BufferSize: 256})
-	}
-	return telemetry.Noop()
-}
-
-// resolveSessionID determines the id for this session, honoring --resume and
-// --continue, falling back to --session-id or a freshly generated id. --continue
-// asks the backend for its most recent session.
-func resolveSessionID(cfg chatConfig, backend sessions.Backend) (string, error) {
-	if cfg.Resume != "" {
-		return cfg.Resume, nil
-	}
-	if cfg.Continue {
-		latest, err := backend.Latest()
-		if err != nil {
-			return "", err
-		}
-		if latest == "" {
-			return "", errors.New("no saved session to continue")
-		}
-		return latest, nil
-	}
-	if cfg.SessionID != "" {
-		return cfg.SessionID, nil
-	}
-	return transcript.NewSessionID(), nil
-}
-
-func transcriptRecorderForID(cfg chatConfig, sessionID string) (transcript.Recorder, error) {
-	return transcript.OpenRecorder(cfg.Transcript, cfg.CWD, sessionID)
-}
-
-func openSessionStore(cfg chatConfig, backend sessions.Backend, sessionID string) (sessions.Store, error) {
-	if !cfg.PersistSession {
-		return sessions.Noop(), nil
-	}
-	return backend.OpenStore(sessionID)
-}
-
 func chatPrompt(cmd *cobra.Command, args []string) (string, error) {
 	if len(args) > 0 {
 		text := strings.TrimSpace(strings.Join(args, " "))
@@ -798,198 +670,30 @@ func (r *defaultChatRunner) Run(ctx context.Context, cfg chatConfig, runtime cha
 	return llm.TextContent(result.FinalAssistant), nil
 }
 
-func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*repl.Session, error) {
+func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*engine.Session, error) {
 	if r.session != nil {
 		return r.session, nil
 	}
-	session, resources, err := newSessionForConfig(cfg, sessionFactoryOptions{Runtime: runtime})
+	opts := engine.Options{
+		Warn:            runtime.Err,
+		TelemetryWriter: runtime.Err,
+	}
+	// Stream assistant deltas straight to the command's output writer (the
+	// shell-friendly chat path); otherwise Run returns the final text.
+	if runtime.Out != nil {
+		out := runtime.Out
+		opts.StreamDelta = func(delta string) { fmt.Fprint(out, delta) }
+	}
+	// Interactive mode prompts for approval on stderr via the shared line reader.
+	if cfg.PermissionMode == "interactive" {
+		opts.Approver = newApprovalPrompter(runtime.Lines, runtime.Err)
+	}
+	session, err := engine.Build(cfg, opts)
 	if err != nil {
 		return nil, err
 	}
-	r.recorder = resources.Telemetry
-	r.transcript = resources.Transcript
-	r.sessions = resources.Sessions
-	r.sessionBackend = resources.Backend
-	r.mcp = resources.MCP
-	r.shells = resources.Shells
 	r.session = session
 	return session, nil
-}
-
-func newSessionForConfig(cfg chatConfig, opts sessionFactoryOptions) (*repl.Session, sessionResources, error) {
-	telemetryRuntime := opts.TelemetryRuntime
-	if telemetryRuntime.Err == nil {
-		telemetryRuntime = opts.Runtime
-	}
-	recorder := telemetryRecorderWithRuntime(cfg.Telemetry, telemetryRuntime)
-	backend, err := sessions.OpenBackend(cfg.CWD, cfg.SessionBackend)
-	if err != nil {
-		closeRecorders(context.Background(), recorder)
-		return nil, sessionResources{}, err
-	}
-	sessionID, err := resolveSessionID(cfg, backend)
-	if err != nil {
-		closeRecorders(context.Background(), recorder, backend)
-		return nil, sessionResources{}, err
-	}
-	trecorder, err := transcriptRecorderForID(cfg, sessionID)
-	if err != nil {
-		closeRecorders(context.Background(), recorder, backend)
-		return nil, sessionResources{}, err
-	}
-	store, err := openSessionStore(cfg, backend, sessionID)
-	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, backend)
-		return nil, sessionResources{}, err
-	}
-	var initialHistory []llm.Message
-	if cfg.Resume != "" || cfg.Continue {
-		initialHistory, err = backend.LoadHistory(sessionID)
-		if err != nil {
-			closeRecorders(context.Background(), recorder, trecorder, store, backend)
-			return nil, sessionResources{}, err
-		}
-	}
-	resources := sessionResources{Telemetry: recorder, Transcript: trecorder, Sessions: store, Backend: backend, SessionID: sessionID}
-	provider, err := buildProvider(cfg)
-	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend)
-		return nil, sessionResources{}, err
-	}
-	// Connect configured MCP servers and merge their tools with the builtins.
-	// Startup is tolerant: a server that fails to connect is reported and skipped.
-	// The workspace is advertised to servers as a root via roots/list. Sampling
-	// (a server using runcode's model) is served only when the user opts in and
-	// the permission mode is not safe.
-	var sampler mcp.Sampler
-	if cfg.AllowMCPSampling && cfg.PermissionMode != "safe" {
-		sampler = repl.NewMCPSampler(provider, cfg.Model, cfg.MaxTokens)
-	}
-	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers, mcp.Options{
-		Roots:   workspaceRoots(cfg.CWD),
-		Sampler: sampler,
-	})
-	reportMCPStartupErrors(opts.Runtime, mcpErrs)
-	resources.MCP = mcpManager
-	projectContext, err := loadProjectContext(cfg.CWD)
-	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend)
-		return nil, sessionResources{}, err
-	}
-	permissionService := opts.Permissions
-	if permissionService == nil {
-		permissionService, err = permissionServiceForMode(cfg.PermissionMode, opts.Runtime, cfg.CWD)
-		if err != nil {
-			closeRecorders(context.Background(), recorder, trecorder, store, backend)
-			return nil, sessionResources{}, err
-		}
-	}
-	hookRunner := newHookRunner(cfg.Hooks, opts.Runtime)
-
-	shellManager := bash.NewManager()
-	resources.Shells = shellManager
-	sessionTools := append(tools.BuiltinsWithShells(shellManager), mcpManager.Tools()...)
-	// Discover skills from the convention directories; the catalog goes into the
-	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
-	skillSet, skillProblems := loadSkills(cfg.CWD, userConfigDir())
-	reportSkillProblems(opts.Runtime, skillProblems)
-	if skillSet.Len() > 0 {
-		sessionTools = append(sessionTools, skill.NewTool(skillSet))
-	}
-
-	// Memory: persistent notes saved across sessions, loaded once at startup and
-	// injected into the prompt (sub-agents read it too). The Remember tool, added
-	// below after the sub-agent snapshot, lets the main session append to it.
-	memStore := memoryStore(cfg.CWD, userConfigDir())
-	memLoaded, err := memStore.Load()
-	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
-		return nil, sessionResources{}, err
-	}
-
-	promptOpts := prompt.AssemblerOpts{
-		CWD:                  cfg.CWD,
-		Date:                 time.Now().Format("2006-01-02"),
-		ShellInfo:            shellInfo(),
-		Skills:               skill.Catalog(skillSet),
-		Memory:               memory.Format(memLoaded),
-		ProjectCtx:           projectContext,
-		PermissionMode:       cfg.PermissionMode,
-		SystemPromptOverride: cfg.SystemPrompt,
-		SystemPromptAppend:   cfg.SystemPromptAppend,
-	}
-
-	// Sub-agents: the Task tool delegates a self-contained task to a child session
-	// running a restricted tool set. The launcher receives every tool a sub-agent
-	// may use (builtins + MCP + Skill) — captured here, before the Task tool is
-	// added, so sub-agents never get Task and cannot nest. The agent set always
-	// holds at least the built-in general-purpose agent, so Task is always offered.
-	eligibleSubagentTools := make([]tool.Tool, len(sessionTools))
-	copy(eligibleSubagentTools, sessionTools)
-	agentSet, agentProblems := loadAgents(cfg.CWD, userConfigDir())
-	reportAgentProblems(opts.Runtime, agentProblems)
-	launcher := subagent.NewLauncher(subagent.Options{
-		Provider:      provider,
-		Model:         cfg.Model,
-		MaxTokens:     cfg.MaxTokens,
-		BasePrompt:    promptOpts,
-		EligibleTools: eligibleSubagentTools,
-		Permissions:   permissionService,
-		Telemetry:     recorder,
-		Hooks:         hookRunner,
-	})
-	sessionTools = append(sessionTools, subagent.NewTool(agentSet, launcher))
-	// Remember writes persistent memory; like Task it is added after the sub-agent
-	// snapshot, so sub-agents read memory but cannot write it — only the main
-	// session saves new memories.
-	sessionTools = append(sessionTools, memory.NewTool(memStore))
-	promptOpts.Agents = agent.Catalog(agentSet)
-
-	streamDelta := opts.StreamDelta
-	if streamDelta == nil && opts.Runtime.Out != nil {
-		out := opts.Runtime.Out
-		streamDelta = func(delta string) { fmt.Fprint(out, delta) }
-	}
-	session, err := repl.NewSession(repl.SessionOptions{
-		Provider:  provider,
-		Model:     cfg.Model,
-		Tools:     sessionTools,
-		MaxTokens: cfg.MaxTokens,
-		Prompt:    promptOpts,
-		ToolContext: &tool.Context{
-			WorkingDirectory: cfg.CWD,
-			ReadSet:          map[string]tool.ReadFile{},
-		},
-		ToolEvents:         opts.ToolEvents,
-		Telemetry:          recorder,
-		Permissions:        permissionService,
-		Transcript:         trecorder,
-		SessionID:          sessionID,
-		MaxHistoryMessages: cfg.MaxHistoryMessages,
-		StreamDelta:        streamDelta,
-		InitialHistory:     initialHistory,
-		SessionStore:       store,
-		MaxContextTokens:   cfg.MaxContextTokens,
-		Hooks:              hookRunner,
-		Thinking:           cfg.Thinking,
-	})
-	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
-		return nil, sessionResources{}, err
-	}
-	return session, resources, nil
-}
-
-// reportMCPStartupErrors writes a bounded, sanitized warning for each MCP server
-// that failed to connect. It uses the runtime's stderr when available; startup is
-// tolerant, so these are warnings, not fatal errors.
-func reportMCPStartupErrors(runtime chatIO, errs []mcp.StartupError) {
-	if len(errs) == 0 || runtime.Err == nil {
-		return
-	}
-	for _, e := range errs {
-		fmt.Fprintf(runtime.Err, "warning: MCP server %q unavailable: %v\n", e.Server, e.Err)
-	}
 }
 
 func (r *defaultChatRunner) Reset(context.Context) error {
@@ -1000,98 +704,9 @@ func (r *defaultChatRunner) Reset(context.Context) error {
 	return nil
 }
 
-// boolEnv reports whether an environment variable is set to a truthy value.
-func boolEnv(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
-	case "1", "true", "on", "yes":
-		return true
-	default:
-		return false
-	}
-}
-
-// buildProvider constructs the configured LLM provider from the registry. An
-// unknown provider name is rejected by llm.Build (no silent fallback). Provider-
-// specific escape hatches travel in Config.Options.
-func buildProvider(cfg chatConfig) (llm.Provider, error) {
-	return llm.Build(cfg.Provider, llm.Config{
-		APIKey:           cfg.APIKey,
-		AuthToken:        cfg.AuthToken,
-		BaseURL:          cfg.BaseURL,
-		DefaultMaxTokens: cfg.MaxTokens,
-		MaxContextTokens: cfg.MaxContextTokens,
-		MaxRetries:       cfg.MaxRetries,
-		Options: map[string]string{
-			// Escape hatch for OpenAI-compatible endpoints that reject stream_options.
-			"disable_stream_usage": strconv.FormatBool(boolEnv("RUNCODE_OPENAI_DISABLE_USAGE_STREAM")),
-		},
-	})
-}
-
 func (r *defaultChatRunner) Close(ctx context.Context) error {
-	if r.session != nil {
-		r.session.FireSessionEnd(ctx, "exit")
+	if r.session == nil {
+		return nil
 	}
-	return closeRecorders(ctx, r.recorder, r.transcript, r.sessions, r.sessionBackend, r.mcp, r.shells)
-}
-
-func closeRecorders(ctx context.Context, recorders ...interface{ Close(context.Context) error }) error {
-	var closeErr error
-	for _, recorder := range recorders {
-		if recorder == nil {
-			continue
-		}
-		if err := recorder.Close(ctx); err != nil && closeErr == nil {
-			closeErr = err
-		}
-	}
-	return closeErr
-}
-
-func loadProjectContext(cwd string) (string, error) {
-	result, err := projectctx.Load(projectctx.LoadOptions{CWD: cwd})
-	if err != nil {
-		return "", fmt.Errorf("load project context: %w", err)
-	}
-	return projectctx.Format(result), nil
-}
-
-func permissionServiceForMode(mode string, runtime chatIO, cwd string) (*permissions.Service, error) {
-	if mode == "interactive" {
-		store, err := newAllowStore(cwd)
-		if err != nil {
-			return nil, err
-		}
-		return permissions.NewService(permissions.Options{
-			Mode:              mode,
-			ApprovalAvailable: true,
-			Authorizer: permissions.InteractiveAuthorizer{
-				Approver: newApprovalPrompter(runtime.Lines, runtime.Err),
-				Store:    store,
-			},
-		}), nil
-	}
-	return permissions.NewService(permissions.Options{Mode: mode}), nil
-}
-
-// newAllowStore builds the session/persistent allow store. With a workspace it
-// loads <workspace>/.runcode/permissions.json so "allow for project" grants and
-// the denylist persist across processes; a corrupt file is surfaced as an error
-// rather than silently degrading (which would drop denylist rules). Without a
-// workspace it falls back to an in-memory, session-only store.
-func newAllowStore(cwd string) (permissions.SessionAllowStore, error) {
-	if cwd == "" {
-		return permissions.NewMemorySessionAllowStore(), nil
-	}
-	return permissions.OpenFileAllowStore(cwd)
-}
-
-func shellInfo() string {
-	if shell := os.Getenv("SHELL"); shell != "" {
-		return shell
-	}
-	if shell := os.Getenv("COMSPEC"); shell != "" {
-		return shell
-	}
-	return "bash"
+	return r.session.Close(ctx)
 }

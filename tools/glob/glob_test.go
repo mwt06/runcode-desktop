@@ -33,6 +33,28 @@ func TestGlobToolMatchesRecursiveSlashPattern(t *testing.T) {
 	}
 }
 
+func TestGlobToolSkipsRuncodeMetadata(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n")
+	writeFile(t, filepath.Join(dir, ".runcode", "sessions", "sess_abc.jsonl"), "{}\n")
+	writeFile(t, filepath.Join(dir, ".runcode", "permissions.json"), "{}\n")
+	writeFile(t, filepath.Join(dir, ".git", "config"), "[core]\n")
+
+	result, err := glob.New().Run(context.Background(), rawInput(t, map[string]any{"pattern": "**/*"}), &tool.Context{WorkingDirectory: dir}, nil)
+	if err != nil {
+		t.Fatalf("run glob tool: %v", err)
+	}
+	got := result.Content[0].Text
+	if strings.Contains(got, ".runcode") || strings.Contains(got, ".git") {
+		t.Fatalf("results leaked internal metadata dirs: %q", got)
+	}
+	if got != "main.go" {
+		t.Fatalf("matches = %q, want only main.go", got)
+	}
+}
+
 func TestGlobToolSupportsSearchRoot(t *testing.T) {
 	t.Parallel()
 

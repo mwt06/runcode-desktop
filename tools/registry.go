@@ -2,7 +2,10 @@ package tools
 
 import (
 	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/tools/analyze"
+	"github.com/wt68/runcode/tools/askuser"
 	"github.com/wt68/runcode/tools/bash"
+	"github.com/wt68/runcode/tools/delete"
 	"github.com/wt68/runcode/tools/edit"
 	"github.com/wt68/runcode/tools/glob"
 	"github.com/wt68/runcode/tools/grep"
@@ -29,6 +32,7 @@ func BuiltinsWithShells(shells *bash.Manager) []tool.Tool {
 		read.New(),
 		write.New(),
 		edit.New(),
+		delete.New(),
 		glob.New(),
 		grep.New(),
 		bash.NewWithManager(shells),
@@ -36,6 +40,8 @@ func BuiltinsWithShells(shells *bash.Manager) []tool.Tool {
 		bash.NewKillShell(shells),
 		todo.New(),
 		webfetch.New(),
+		analyze.New(),
+		askuser.New(),
 	} {
 		r.MustRegister(t)
 	}

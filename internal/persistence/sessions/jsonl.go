@@ -22,13 +22,20 @@ import (
 const sessionsDirName = "sessions"
 
 // JSONLStore appends complete messages to <workspace>/.runcode/sessions/<id>.jsonl,
-// one JSON-encoded llm.Message per line.
+// one JSON-encoded llm.Message per line. The file is created lazily on the first
+// Append, so a session that is opened but never written (e.g. the user starts a
+// new conversation but asks nothing) leaves no on-disk record and never appears
+// in the session list.
 type JSONLStore struct {
-	file *os.File
-	mu   sync.Mutex
+	mu        sync.Mutex
+	workspace string
+	path      string
+	file      *os.File // nil until the first Append creates the file
 }
 
-// OpenJSONL opens (creating if needed) the append-only history file for a session.
+// OpenJSONL prepares the append-only history store for a session. It validates
+// the id and resolves the file path eagerly (so a bad id/path fails fast) but
+// does not create the directory or file — that happens on the first Append.
 func OpenJSONL(workspace string, sessionID string) (*JSONLStore, error) {
 	if err := transcript.ValidateSessionID(sessionID); err != nil {
 		return nil, err
@@ -37,27 +44,37 @@ func OpenJSONL(workspace string, sessionID string) (*JSONLStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve session workspace: %w", err)
 	}
-	baseDir := filepath.Join(workspace, ".runcode")
-	if err := ensureDirectoryWithinWorkspace(workspace, baseDir); err != nil {
-		return nil, err
+	path := filepath.Join(workspace, ".runcode", sessionsDirName, sessionID+".jsonl")
+	return &JSONLStore{workspace: workspace, path: path}, nil
+}
+
+// ensureFileLocked creates the sessions directory and history file on demand. The
+// caller must hold s.mu. It is idempotent once the file is open.
+func (s *JSONLStore) ensureFileLocked() error {
+	if s.file != nil {
+		return nil
+	}
+	baseDir := filepath.Join(s.workspace, ".runcode")
+	if err := ensureDirectoryWithinWorkspace(s.workspace, baseDir); err != nil {
+		return err
 	}
 	dir := filepath.Join(baseDir, sessionsDirName)
-	if err := ensureDirectoryWithinWorkspace(workspace, dir); err != nil {
-		return nil, err
+	if err := ensureDirectoryWithinWorkspace(s.workspace, dir); err != nil {
+		return err
 	}
-	path := filepath.Join(dir, sessionID+".jsonl")
-	if err := ensureFileWithinWorkspace(workspace, path); err != nil {
-		return nil, err
+	if err := ensureFileWithinWorkspace(s.workspace, s.path); err != nil {
+		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("open session store: %w", err)
+		return fmt.Errorf("open session store: %w", err)
 	}
-	return &JSONLStore{file: file}, nil
+	s.file = file
+	return nil
 }
 
 func (s *JSONLStore) Append(_ context.Context, messages []llm.Message) error {
-	if s == nil || s.file == nil || len(messages) == 0 {
+	if s == nil || len(messages) == 0 {
 		return nil
 	}
 	var buf bytes.Buffer
@@ -70,16 +87,23 @@ func (s *JSONLStore) Append(_ context.Context, messages []llm.Message) error {
 		buf.WriteByte('\n')
 	}
 	s.mu.Lock()
-	_, err := s.file.Write(buf.Bytes())
-	s.mu.Unlock()
-	if err != nil {
+	defer s.mu.Unlock()
+	if err := s.ensureFileLocked(); err != nil {
+		return err
+	}
+	if _, err := s.file.Write(buf.Bytes()); err != nil {
 		return fmt.Errorf("write session store: %w", err)
 	}
 	return nil
 }
 
 func (s *JSONLStore) Close(context.Context) error {
-	if s == nil || s.file == nil {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.file == nil {
 		return nil
 	}
 	err := s.file.Close()

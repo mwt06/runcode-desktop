@@ -40,6 +40,10 @@ type editInput struct {
 	Path string `json:"path"`
 }
 
+type deleteInput struct {
+	Path string `json:"path"`
+}
+
 type bashInput struct {
 	Command string `json:"command"`
 }
@@ -59,6 +63,8 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return resolveWrite(req)
 	case "Edit":
 		return resolveEdit(req)
+	case "Delete":
+		return resolveDelete(req)
 	case "Bash":
 		return resolveBash(req)
 	case "BashOutput", "KillShell":
@@ -68,6 +74,15 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		// side-effect-free management allowed without approval.
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "TodoWrite":
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "Analyze":
+		// Recording the structured-thinking analysis only echoes text — no files,
+		// commands, or network — so it is side-effect-free management, allowed
+		// without approval.
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "AskUser":
+		// Asking the user a question has no side effects (it halts for a reply), so
+		// it is side-effect-free management, allowed without approval.
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "Skill":
 		// Loading a skill only returns in-memory instruction text — no files,
@@ -193,6 +208,25 @@ func resolveEdit(req ResolveRequest) (Action, error) {
 	}), nil
 }
 
+func resolveDelete(req ResolveRequest) (Action, error) {
+	var input deleteInput
+	if err := json.Unmarshal(req.Input, &input); err != nil {
+		return mutationFallback(req.ToolName, OperationDelete), fmt.Errorf("%w: parse delete input", ErrInvalidInput)
+	}
+	if input.Path == "" {
+		return mutationFallback(req.ToolName, OperationDelete), fmt.Errorf("%w: path is required", ErrInvalidInput)
+	}
+	target, err := toolpath.ResolveMutationTarget(input.Path, req.Context)
+	if err != nil {
+		return mutationFallback(req.ToolName, OperationDelete), fmt.Errorf("%w: resolve mutation target", ErrInvalidTarget)
+	}
+	// Deleting needs no prior read (unlike Edit/overwrite); the approval prompt
+	// shows the target so the user sees exactly what will be removed.
+	return mutationAction(req.ToolName, OperationDelete, target, map[string]any{
+		MetadataTargetExists: target.Exists,
+	}), nil
+}
+
 func resolveBash(req ResolveRequest) (Action, error) {
 	var input bashInput
 	if err := json.Unmarshal(req.Input, &input); err != nil {
@@ -209,15 +243,51 @@ func resolveBash(req ResolveRequest) (Action, error) {
 	return Action{
 		ToolName:  req.ToolName,
 		Operation: OperationExecute,
+		// Path carries the raw command for the in-process approval UI only — like
+		// file resource paths, it is never recorded to telemetry (which logs only
+		// resource type/scope/count and the bounded classification summary).
+		Resources: []Resource{{Type: ResourceCommand, Scope: scope, Path: input.Command}},
 		Risk:      classification.Risk,
-		Resources: []Resource{{Type: ResourceCommand, Scope: scope}},
 		Metadata: map[string]any{
 			MetadataCommandCategory:     string(classification.Category),
 			MetadataCommandCapabilities: commandCapabilitiesStrings(classification.Capabilities),
 			MetadataCommandRiskReasons:  commandRiskReasonStrings(classification.Reasons),
 			MetadataCommandSummary:      classification.Summary,
+			MetadataCommandReadsOutside: commandReadsOutsideWorkspace(input.Command, req.Context),
 		},
 	}, nil
+}
+
+// commandReadsOutsideWorkspace reports whether any read command in the (possibly
+// piped) command line opens a path outside the workspace. It bounds shell reads to
+// the workspace just like Read/Glob/Grep, so the model cannot use `cat`/`dir`/
+// `type` to escape the boundary. Unresolvable path arguments are treated as
+// outside (fail closed).
+func commandReadsOutsideWorkspace(command string, tctx *tool.Context) bool {
+	workspace, err := toolpath.WorkspaceRoot(tctx)
+	if err != nil {
+		return false
+	}
+	for _, segment := range strings.Split(command, "|") {
+		fields := tokenizeCommand(segment)
+		if len(fields) == 0 || !pathReadingCommands[strings.ToLower(fields[0])] {
+			continue
+		}
+		for _, token := range fields[1:] {
+			if !isPathArgument(token) {
+				continue
+			}
+			resolved, err := toolpath.Resolve(token, tctx)
+			if err != nil {
+				return true
+			}
+			within, err := toolpath.IsWithinResolved(workspace, resolved)
+			if err != nil || !within {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func commandFallback(toolName string) Action {

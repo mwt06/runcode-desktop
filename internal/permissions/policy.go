@@ -29,11 +29,22 @@ func (DefaultPolicy) Decide(_ context.Context, action Action) Decision {
 		return Ask(ReasonRequiresApproval, "default.external")
 	case OperationWrite, OperationEdit:
 		return decideMutation(action)
+	case OperationDelete:
+		return decideDelete(action)
 	case OperationExecute:
 		return decideExecute(action)
 	default:
 		return Deny(ReasonUnknownTool, "default.unknown")
 	}
+}
+
+// decideDelete gates the Delete tool: a workspace target requires approval (the
+// modal shows the path); a target outside the workspace is denied outright.
+func decideDelete(action Action) Decision {
+	if !hasOnlyWorkspaceResources(action.Resources) {
+		return Deny(ReasonOutsideWorkspace, "default.delete.outside_workspace")
+	}
+	return Ask(ReasonRequiresApproval, "default.delete.workspace")
 }
 
 func decideMutation(action Action) Decision {
@@ -47,6 +58,14 @@ func decideMutation(action Action) Decision {
 	case ReadStateStale:
 		return Deny(ReasonReadStale, "default.mutate.read_stale")
 	case ReadStateMissing, ReadStatePartial:
+		// Write only carries a read requirement when the target already exists, so
+		// a missing read here means an overwrite would clobber a file the agent has
+		// not seen. Surface that as "the file already exists" rather than the
+		// procedural "read required" framing, which fits Edit (where the file must
+		// be read to locate the edit) but reads as a non-sequitur for a fresh Write.
+		if action.Operation == OperationWrite {
+			return Deny(ReasonWriteExists, "default.mutate.write_exists")
+		}
 		return Deny(ReasonReadRequired, "default.mutate.read_required")
 	default:
 		return Deny(ReasonPolicyDenied, "default.mutate.invalid_read_state")
@@ -54,13 +73,22 @@ func decideMutation(action Action) Decision {
 }
 
 func decideExecute(action Action) Decision {
+	// Reading outside the workspace via the shell (cat/dir/type a path above the
+	// root) is denied just like Read/Glob/Grep — shell is not a way around the
+	// boundary.
+	if metadataBool(action.Metadata, MetadataCommandReadsOutside) {
+		return Deny(ReasonOutsideWorkspace, "default.execute.outside_workspace_read")
+	}
+	// Shell file-deletion commands (rm/del/rmdir/erase) stay blocked, but point the
+	// model at the Delete tool, which removes a workspace file safely (to the
+	// recycle bin) instead of leaving it to thrash through shell variants.
+	if metadataString(action.Metadata, MetadataCommandCategory) == string(CommandCategoryOutsideWrite) {
+		return Deny(ReasonUseDeleteTool, "default.execute.use_delete_tool")
+	}
 	if action.Risk == RiskCritical {
 		return Deny(ReasonPolicyDenied, "default.execute.critical")
 	}
 	capabilities := metadataStrings(action.Metadata, MetadataCommandCapabilities)
-	if containsString(capabilities, string(CommandCapabilityUnknownEffects)) {
-		return Deny(ReasonPolicyDenied, "default.execute.unknown_effects")
-	}
 	if containsString(capabilities, string(CommandCapabilityRequiresPrivilege)) {
 		return Deny(ReasonPolicyDenied, "default.execute.requires_privilege")
 	}

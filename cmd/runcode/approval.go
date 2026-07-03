@@ -63,6 +63,11 @@ func (p *approvalPrompter) readLine(ctx context.Context) (string, error) {
 
 func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 	summary := req.Summary
+	if req.Command != "" {
+		if _, err := fmt.Fprintf(p.err, "Command to run: %s\n", req.Command); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprintf(p.err, "Permission request\nTool: %s\nOperation: %s\nRisk: %s\nResources: %s/%s (%d)\nMutation: %s\nRead state: %s\nTarget exists: %v\n",
 		summary.ToolName,
 		summary.Operation,

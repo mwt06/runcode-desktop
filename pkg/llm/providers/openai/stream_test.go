@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/wt68/runcode/pkg/llm"
@@ -8,6 +9,34 @@ import (
 
 func contentChunk(text string) chatChunk {
 	return chatChunk{Choices: []chatChoice{{Delta: chatDelta{Content: text}}}}
+}
+
+func reasoningContentChunk(text string) chatChunk {
+	return chatChunk{Choices: []chatChoice{{Delta: chatDelta{ReasoningContent: text}}}}
+}
+
+func reasoningFieldChunk(raw string) chatChunk {
+	return chatChunk{Choices: []chatChoice{{Delta: chatDelta{Reasoning: json.RawMessage(raw)}}}}
+}
+
+// splitDeltas concatenates the answer text and thinking text from a stream.
+func splitDeltas(events []llm.StreamEvent) (text, thinking string) {
+	for _, e := range events {
+		if e.Type == llm.StreamEventTypeContentBlockDelta && e.Delta != nil {
+			text += e.Delta.Text
+			thinking += e.Delta.Thinking
+		}
+	}
+	return
+}
+
+func hasBlock(events []llm.StreamEvent, bt llm.ContentBlockType) bool {
+	for _, e := range events {
+		if e.Type == llm.StreamEventTypeContentBlockStart && e.Block != nil && e.Block.Type == bt {
+			return true
+		}
+	}
+	return false
 }
 
 func toolChunk(index int, id, name, args string) chatChunk {
@@ -177,6 +206,99 @@ func TestStreamEndToEnd(t *testing.T) {
 	last := got[len(got)-1]
 	if last.Type != llm.StreamEventTypeMessageStop || last.Usage == nil || last.Usage.InputTokens != 3 {
 		t.Fatalf("terminal = %#v", last)
+	}
+}
+
+func TestStreamReasoningContentChannel(t *testing.T) {
+	t.Parallel()
+	st := newStreamState()
+	events := drain(st, []chatChunk{
+		reasoningContentChunk("let me think"),
+		contentChunk("the answer"),
+		finishChunk("stop"),
+	})
+	text, thinking := splitDeltas(events)
+	if thinking != "let me think" || text != "the answer" {
+		t.Fatalf("text=%q thinking=%q", text, thinking)
+	}
+	if !hasBlock(events, llm.ContentBlockTypeThinking) {
+		t.Fatal("expected a thinking block to start")
+	}
+}
+
+func TestStreamDualChannelReasoningNotDoubled(t *testing.T) {
+	t.Parallel()
+	st := newStreamState()
+	// Reproduces a gateway (e.g. Qwen on some OpenAI-compatible endpoints) that
+	// mirrors each reasoning token into BOTH reasoning_content AND content as a
+	// <think>…</think> span. The inline copy must be dropped so reasoning is not
+	// counted twice, while content after </think> is the real answer.
+	both := func(rc, ct string) chatChunk {
+		return chatChunk{Choices: []chatChoice{{Delta: chatDelta{ReasoningContent: rc, Content: ct}}}}
+	}
+	events := drain(st, []chatChunk{
+		both("the user", "<think>the user"),
+		both(" wants", " wants"),
+		contentChunk("</think>answer"),
+		finishChunk("stop"),
+	})
+	text, thinking := splitDeltas(events)
+	if thinking != "the user wants" {
+		t.Fatalf("thinking=%q, want a single copy %q", thinking, "the user wants")
+	}
+	if text != "answer" {
+		t.Fatalf("text=%q, want %q", text, "answer")
+	}
+}
+
+func TestStreamReasoningFieldString(t *testing.T) {
+	t.Parallel()
+	st := newStreamState()
+	events := drain(st, []chatChunk{reasoningFieldChunk(`"deep thought"`), contentChunk("ok"), finishChunk("stop")})
+	text, thinking := splitDeltas(events)
+	if thinking != "deep thought" || text != "ok" {
+		t.Fatalf("text=%q thinking=%q", text, thinking)
+	}
+}
+
+func TestStreamReasoningFieldObject(t *testing.T) {
+	t.Parallel()
+	st := newStreamState()
+	events := drain(st, []chatChunk{reasoningFieldChunk(`{"content":"obj reason"}`), finishChunk("stop")})
+	_, thinking := splitDeltas(events)
+	if thinking != "obj reason" {
+		t.Fatalf("thinking=%q", thinking)
+	}
+}
+
+func TestStreamInlineThinkTags(t *testing.T) {
+	t.Parallel()
+	st := newStreamState()
+	events := drain(st, []chatChunk{contentChunk("<think>reasoning here</think>final answer"), finishChunk("stop")})
+	text, thinking := splitDeltas(events)
+	if thinking != "reasoning here" || text != "final answer" {
+		t.Fatalf("text=%q thinking=%q", text, thinking)
+	}
+}
+
+// A model may inline <think>…</think> with the tags split across streamed chunks;
+// the splitter must not leak tag fragments into the answer.
+func TestStreamInlineThinkSplitAcrossChunks(t *testing.T) {
+	t.Parallel()
+	st := newStreamState()
+	events := drain(st, []chatChunk{
+		contentChunk("pre <th"),
+		contentChunk("ink>secret th"),
+		contentChunk("oughts</thi"),
+		contentChunk("nk> done"),
+		finishChunk("stop"),
+	})
+	text, thinking := splitDeltas(events)
+	if text != "pre  done" {
+		t.Fatalf("text=%q, want %q", text, "pre  done")
+	}
+	if thinking != "secret thoughts" {
+		t.Fatalf("thinking=%q, want %q", thinking, "secret thoughts")
 	}
 }
 

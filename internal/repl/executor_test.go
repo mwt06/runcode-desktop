@@ -630,8 +630,8 @@ func TestExecutorEmitsFailedEventForPermissionDenied(t *testing.T) {
 	}
 
 	got := drainToolEvents(events)
-	if len(got) != 1 || got[0].Type != tool.EventTypeFailed || got[0].ToolName != "Write" || got[0].ToolUseID != "toolu_write" || got[0].Message != "permission denied" {
-		t.Fatalf("events = %#v, want one failed permission event", got)
+	if len(got) != 1 || got[0].Type != tool.EventTypeFailed || got[0].ToolName != "Write" || got[0].ToolUseID != "toolu_write" || !strings.HasPrefix(got[0].Message, "denied:") {
+		t.Fatalf("events = %#v, want one failed permission event with a denied:<reason> message", got)
 	}
 }
 

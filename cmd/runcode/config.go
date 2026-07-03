@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/pkg/agent"
@@ -115,7 +116,7 @@ func priceSourceNote(cfg chatConfig) string {
 // without printing any skill body. Loading problems are ignored here; they are
 // surfaced as warnings when a session starts.
 func skillSummary(cwd string) string {
-	set, _ := loadSkills(cwd, userConfigDir())
+	set, _ := engine.LoadSkills(cwd, userConfigDir())
 	if set.Len() == 0 {
 		return "<none>"
 	}
@@ -135,7 +136,7 @@ func skillSummary(cwd string) string {
 // always present, so this never reports <none>. Loading problems are ignored here;
 // they are surfaced as warnings when a session starts.
 func agentSummary(cwd string) string {
-	set, _ := loadAgents(cwd, userConfigDir())
+	set, _ := engine.LoadAgents(cwd, userConfigDir())
 	if set.Len() == 0 {
 		return "<none>"
 	}

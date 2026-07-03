@@ -31,8 +31,11 @@ var (
 const (
 	toolEventForwarderBufferSize = 32
 	maxToolEventFiles            = 50
-	maxToolEventOutputLines      = 20
-	maxToolEventOutputLineRunes  = 200
+	// maxToolEventOutputLines bounds the output excerpt per tool event. It is
+	// generous enough that the per-tool detail view shows real return content, not
+	// just a few lines, while still capping the in-process event payload.
+	maxToolEventOutputLines     = 100
+	maxToolEventOutputLineRunes = 200
 )
 
 type Executor struct {
@@ -64,6 +67,12 @@ type ExecuteResult struct {
 	ToolName  string
 	ToolUseID string
 	Result    tool.Result
+	// StopTurn marks a result that should halt the ReAct loop and return control
+	// to the user, rather than feed the result back to the model for another
+	// iteration. It is set when the user explicitly denies an interactive approval
+	// (a deliberate "stop, I'll take it from here"), as opposed to a recoverable
+	// policy denial the model is expected to work around (e.g. read-before-write).
+	StopTurn bool
 }
 
 func NewExecutor(toolList []tool.Tool) (*Executor, error) {
@@ -158,9 +167,19 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		Decision:          decision,
 	})
 	if decision.FinalEffect != permissions.EffectAllow {
-		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "permission denied"))
+		// Carry the decision reason (e.g. read_required, approval_denied) so the UI
+		// can explain why, rather than a generic "denied".
+		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "denied:"+string(decision.Reason)))
 		return permissionDeniedResult(req.Name, tctx.ToolUseID, decision), nil
 	}
+	// Trusting modes (judge/flight) already allowed this in-workspace mutation; tell
+	// Write/Edit to skip their own read-before-write gate so a just-made or
+	// agent-known file is not re-blocked. Always set (true/false) so the flag never
+	// goes stale on a shared context when the mode changes.
+	if tctx.Metadata == nil {
+		tctx.Metadata = map[string]any{}
+	}
+	tctx.Metadata[tool.MetadataTrustedWrites] = decision.Reason == permissions.ReasonJudgeAllowed || decision.Reason == permissions.ReasonFlightMode
 
 	// A PreToolUse hook may block an authorized tool (its non-zero exit is a
 	// deliberate policy decision); the hook output is returned to the model.
@@ -174,7 +193,9 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		emitToolEvent(req.Events, executorToolEvent(tool.EventTypeFailed, req.Name, tctx.ToolUseID, "blocked by hook"))
 		return hookBlockedResult(req.Name, tctx.ToolUseID, pre.Output), nil
 	}
-	emitToolEvent(req.Events, executorToolEvent(tool.EventTypeStarted, req.Name, tctx.ToolUseID, "started"))
+	startedEvent := executorToolEvent(tool.EventTypeStarted, req.Name, tctx.ToolUseID, "started")
+	startedEvent.Input = req.Input
+	emitToolEvent(req.Events, startedEvent)
 
 	recorder.Record(ctx, telemetry.Event{
 		Time:      started.UTC(),
@@ -250,9 +271,12 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		event.Files = readFiles
 		event.FilesTotal = readFilesTotal
 		attachToolOutput(&event, outputLines, outputTotal, outputTruncated)
+		event.Image = imageForEvent(result)
 		emitToolEvent(req.Events, event)
 	}
-	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result}, nil
+	// AskUser halts the turn so the user can reply (their next message is the
+	// answer); the model must not continue past its own question.
+	return ExecuteResult{ToolName: req.Name, ToolUseID: tctx.ToolUseID, Result: result, StopTurn: req.Name == "AskUser" && !result.IsError}, nil
 }
 
 func unknownToolResult(req ExecuteRequest) ExecuteResult {
@@ -309,13 +333,46 @@ func appendHookFeedback(result tool.Result, output string, block bool) tool.Resu
 }
 
 func permissionDeniedResult(toolName string, toolUseID string, decision permissions.Decision) ExecuteResult {
+	stop := decision.Reason == permissions.ReasonApprovalDenied
 	return ExecuteResult{
 		ToolName:  toolName,
 		ToolUseID: toolUseID,
+		StopTurn:  stop,
 		Result: tool.Result{
 			IsError: true,
-			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("Permission denied: this tool action is not allowed by the current policy. reason=%s final_effect=%s", decision.Reason, decision.FinalEffect)}},
+			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: deniedGuidance(decision)}},
 		},
+	}
+}
+
+// deniedGuidance turns a permission denial into model-facing text that says how
+// to recover, not just that it was blocked. A bare "reason=write_exists" leaves
+// the model guessing and it tends to thrash (try other paths, other shells);
+// telling it the concrete next step (read the file, then write) lets it
+// self-correct in one step.
+func deniedGuidance(decision permissions.Decision) string {
+	switch decision.Reason {
+	case permissions.ReasonApprovalDenied:
+		// The user actively rejected this action and wants to take over, so frame it
+		// as a stop: the next thing the model sees will be the user's new
+		// instruction, not its own retry.
+		return "The user denied this action and stopped execution. Do not retry it; wait for the user's next instruction."
+	case permissions.ReasonWriteExists:
+		return "Write blocked: the file already exists and you have not read it. Read the file first, then call Write again to overwrite it."
+	case permissions.ReasonReadRequired:
+		return "Edit blocked: you must Read the file before editing it. Read it first, then retry the edit."
+	case permissions.ReasonReadStale:
+		return "Edit blocked: the file changed on disk since you last read it. Read it again, then retry the edit."
+	case permissions.ReasonUseDeleteTool:
+		return "Deleting files through the shell (rm/del) is blocked. Use the Delete tool to remove a workspace file — it moves the file to the recycle bin (pass permanent=true to delete it outright)."
+	case permissions.ReasonPlanMode:
+		return "Plan mode is on, so changes are blocked. Do not attempt to modify anything — keep researching (read-only) and present a plan for the user to approve. Execution happens after they approve."
+	case permissions.ReasonInvalidInput:
+		return "The tool call's arguments could not be parsed (the JSON was malformed or truncated). A common cause is a Windows path with backslashes (e.g. \"D:\\folder\\file\"): in JSON a single backslash is an invalid escape and breaks the whole call. Use forward slashes instead (\"D:/folder/file\") or a workspace-relative path (\"folder/file\"), and keep large file content in a single Write call."
+	case permissions.ReasonInvalidTarget:
+		return "The tool call's target path was invalid. Re-issue the call with a valid workspace path."
+	default:
+		return fmt.Sprintf("Permission denied: this tool action is not allowed by the current policy. reason=%s final_effect=%s", decision.Reason, decision.FinalEffect)
 	}
 }
 
@@ -438,6 +495,25 @@ func attachToolOutput(event *tool.Event, lines []tool.OutputLine, total int, tru
 // derives a generic excerpt from the result content. Glob is suppressed because its
 // matched files are already surfaced as file references. The returned excerpt is
 // display-only and never recorded to telemetry or transcripts.
+// maxEventImageBytes caps how large an image a tool result may carry into a UI
+// event, so a big image does not bloat the event stream. Larger images are omitted
+// from the thumbnail (the text placeholder still shows); the model still sees them.
+const maxEventImageBytes = 4 << 20
+
+// imageForEvent returns the first inline image in a tool result for UI display, or
+// nil when there is none (or it is too large to surface as a thumbnail).
+func imageForEvent(result tool.Result) *tool.ResultImage {
+	for _, c := range result.Content {
+		if c.Type == tool.ResultContentTypeImage && c.Image != nil {
+			if len(c.Image.Data) > maxEventImageBytes {
+				return nil
+			}
+			return c.Image
+		}
+	}
+	return nil
+}
+
 func toolOutputForEvents(name string, result tool.Result) ([]tool.OutputLine, int, bool) {
 	if name == "Glob" {
 		return nil, 0, false

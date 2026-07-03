@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/pkg/llm"
 )
@@ -101,7 +102,7 @@ func TestResolveSessionIDContinuePicksLatest(t *testing.T) {
 		t.Fatalf("open backend: %v", err)
 	}
 	defer backend.Close(context.Background())
-	id, err := resolveSessionID(chatConfig{CWD: dir, Continue: true}, backend)
+	id, err := engine.ResolveSessionID(chatConfig{CWD: dir, Continue: true}, backend)
 	if err != nil {
 		t.Fatalf("resolveSessionID: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestResolveSessionIDContinueNoSessions(t *testing.T) {
 		t.Fatalf("open backend: %v", err)
 	}
 	defer backend.Close(context.Background())
-	if _, err := resolveSessionID(chatConfig{CWD: dir, Continue: true}, backend); err == nil {
+	if _, err := engine.ResolveSessionID(chatConfig{CWD: dir, Continue: true}, backend); err == nil {
 		t.Fatal("want error when no session to continue")
 	}
 }
@@ -129,7 +130,7 @@ func TestOpenSessionStorePersistsByDefault(t *testing.T) {
 		t.Fatalf("open backend: %v", err)
 	}
 	defer backend.Close(context.Background())
-	store, err := openSessionStore(chatConfig{CWD: dir, PersistSession: true}, backend, "sess_persist")
+	store, err := engine.OpenSessionStore(chatConfig{CWD: dir, PersistSession: true}, backend, "sess_persist")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -149,7 +150,7 @@ func TestOpenSessionStoreDisabled(t *testing.T) {
 		t.Fatalf("open backend: %v", err)
 	}
 	defer backend.Close(context.Background())
-	store, err := openSessionStore(chatConfig{CWD: dir, PersistSession: false}, backend, "sess_off")
+	store, err := engine.OpenSessionStore(chatConfig{CWD: dir, PersistSession: false}, backend, "sess_off")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

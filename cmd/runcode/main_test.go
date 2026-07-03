@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wt68/runcode/internal/engine"
 )
 
 func TestVersionCommandOutput(t *testing.T) {
@@ -553,7 +555,7 @@ func TestTranscriptRecorderCreatesWorkspaceFile(t *testing.T) {
 	t.Parallel()
 
 	workspace := t.TempDir()
-	recorder, err := transcriptRecorderForID(chatConfig{CWD: workspace, Transcript: "jsonl"}, "sess_test")
+	recorder, err := engine.TranscriptRecorderForID(chatConfig{CWD: workspace, Transcript: "jsonl"}, "sess_test")
 	if err != nil {
 		t.Fatalf("transcriptRecorderForID: %v", err)
 	}

@@ -47,6 +47,14 @@ type ApprovalRequest struct {
 	// approvers. It is deliberately not part of ApprovalSummary so it never
 	// reaches telemetry; only the in-process UI consumes it.
 	Targets []string
+	// Command carries the raw command string for a Bash execute action, so the
+	// approver can show exactly what will run. Like Targets it is in-process UI
+	// only and never reaches telemetry.
+	Command string
+	// HarmReason is the model harm judge's explanation, set only when the action
+	// was escalated to approval because it was judged potentially harmful. Empty
+	// when no judge ran or the action was not flagged.
+	HarmReason string
 }
 
 type ApprovalResponse struct {
@@ -67,6 +75,10 @@ type InteractiveAuthorizer struct {
 	Approver Approver
 	Store    SessionAllowStore
 	KeyFunc  func(Action) string
+	// HarmJudge, when set, is consulted before prompting: a "safe" verdict
+	// auto-allows the action without a prompt, so the user is only asked about
+	// actions the model flags as potentially harmful (or when the judge fails).
+	HarmJudge HarmJudge
 }
 
 func NewApprovalSummary(action Action, decision Decision) ApprovalSummary {
@@ -179,9 +191,26 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		decision.Reason = ReasonSessionAllowed
 		return decision
 	}
+	// Model harm gate (only for shell commands): auto-allow a command the judge
+	// deems safe so the user is only prompted for potentially-harmful ones. A judge
+	// error falls through to the prompt (fail-safe — never silently allow on an
+	// inconclusive check). Non-command actions always prompt in this mode.
+	harmReason := ""
+	if a.HarmJudge != nil && action.Operation == OperationExecute {
+		if verdict, err := a.HarmJudge.Assess(ctx, action); err == nil {
+			if !verdict.Harmful {
+				decision.FinalEffect = EffectAllow
+				decision.Reason = ReasonHarmJudgedSafe
+				return decision
+			}
+			harmReason = verdict.Reason
+		}
+	}
 	response, err := a.Approver.Prompt(ctx, ApprovalRequest{
-		Summary: NewApprovalSummary(action, decision),
-		Targets: actionTargets(action),
+		Summary:    NewApprovalSummary(action, decision),
+		Targets:    actionTargets(action),
+		Command:    actionCommand(action),
+		HarmReason: harmReason,
 	})
 	if err != nil {
 		decision.FinalEffect = EffectDeny
@@ -237,8 +266,7 @@ func (a InteractiveAuthorizer) sessionKey(action Action) string {
 }
 
 // actionTargets returns the file resource paths of an action for interactive
-// display. Command resources carry no path and are described by their
-// classification instead.
+// display. Command resources are surfaced separately via actionCommand.
 func actionTargets(action Action) []string {
 	targets := make([]string, 0, len(action.Resources))
 	for _, resource := range action.Resources {
@@ -251,4 +279,15 @@ func actionTargets(action Action) []string {
 		targets = append(targets, resource.Path)
 	}
 	return targets
+}
+
+// actionCommand returns the raw command string of a Bash execute action for
+// in-process approval display, or "" if there is no command resource.
+func actionCommand(action Action) string {
+	for _, resource := range action.Resources {
+		if resource.Type == ResourceCommand {
+			return resource.Path
+		}
+	}
+	return ""
 }

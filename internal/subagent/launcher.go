@@ -27,16 +27,19 @@ import (
 	"github.com/wt68/runcode/pkg/tool"
 )
 
-// DefaultMaxIterations is the sub-agent ReAct budget. Sub-agents do focused,
-// multi-step work, so they get a deeper loop than a single parent turn by default.
-const DefaultMaxIterations = 16
+// DefaultMaxIterations is the sub-agent ReAct budget used when the caller does not
+// set one. Sub-agents do focused but genuinely multi-step work (deep investigation,
+// multi-file changes), so this is a generous runaway backstop, not a practical
+// limit — a real delegated task finishes well before it. Desktop sessions pass
+// their own (much higher) budget, so this is only the fallback.
+const DefaultMaxIterations = 200
 
 // DefaultMaxConcurrent bounds how many sub-agents run at once. The Task tool is
 // concurrency-safe, so a single turn can fan out several delegations; this cap
 // keeps that fan-out from opening an unbounded number of full child sessions (each
 // its own model stream and tool runs) at the same time. Excess launches block
 // until a slot frees up.
-const DefaultMaxConcurrent = 4
+const DefaultMaxConcurrent = 8
 
 // Launcher builds and runs sub-agent child sessions. It is constructed once at
 // session wiring time with everything a child needs that cannot be derived from a
@@ -189,19 +192,28 @@ func (l *Launcher) Launch(ctx context.Context, def agent.Agent, taskPrompt strin
 		model = strings.TrimSpace(def.Model)
 	}
 
-	childEvents, stop := startEventBridge(events)
+	// The Task call's tool-use id attributes every child event to that Task card so
+	// the UI nests the sub-agent's live activity under it.
+	parentID := ""
+	if parentCtx != nil {
+		parentID = parentCtx.ToolUseID
+	}
+	childEvents, stop := startEventBridge(events, parentID, def.Name)
 	defer stop()
 
 	session, err := repl.NewSession(repl.SessionOptions{
-		Provider:      l.provider,
-		Model:         model,
-		Tools:         childTools,
-		MaxTokens:     l.maxTokens,
-		Temperature:   l.temperature,
-		Metadata:      l.metadata,
-		Prompt:        promptOpts,
-		ToolContext:   childToolContext(parentCtx),
-		ToolEvents:    childEvents,
+		Provider:    l.provider,
+		Model:       model,
+		Tools:       childTools,
+		MaxTokens:   l.maxTokens,
+		Temperature: l.temperature,
+		Metadata:    l.metadata,
+		Prompt:      promptOpts,
+		ToolContext: childToolContext(parentCtx),
+		ToolEvents:  childEvents,
+		// Stream the sub-agent's assistant text up as attributed deltas so the user
+		// can watch it think live inside the Task card.
+		StreamDelta:   func(d string) { emitAgentDelta(childEvents, d) },
 		MaxIterations: l.maxIterations,
 		Telemetry:     l.telemetry,
 		TraceID:       telemetry.NewTraceID(),

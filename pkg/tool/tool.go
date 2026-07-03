@@ -34,6 +34,11 @@ const (
 	EventTypeCompleted EventType = "completed"
 	// EventTypeFailed marks a tool run that ended without a successful result.
 	EventTypeFailed EventType = "failed"
+	// EventTypeAgentDelta carries a streamed assistant-text delta from a sub-agent,
+	// attributed (via ParentToolUseID) to the Task call that spawned it, so the UI
+	// can show the sub-agent thinking live inside the Task card. Message holds the
+	// delta. In-process UI only.
+	EventTypeAgentDelta EventType = "agent_delta"
 )
 
 // FileReferenceKind identifies how a tool interacted with a file path.
@@ -81,9 +86,18 @@ type OutputLine struct {
 
 // Event is a streaming update produced while a tool runs.
 type Event struct {
-	Type            EventType       `json:"type"`
-	ToolName        string          `json:"toolName,omitempty"`
-	ToolUseID       string          `json:"toolUseID,omitempty"`
+	Type      EventType `json:"type"`
+	ToolName  string    `json:"toolName,omitempty"`
+	ToolUseID string    `json:"toolUseID,omitempty"`
+	// ParentToolUseID attributes this event to a parent Task call when it comes from
+	// a sub-agent's child session, so the UI nests it under that Task card instead of
+	// spawning a top-level row. AgentName names the sub-agent. In-process UI only.
+	ParentToolUseID string `json:"parentToolUseID,omitempty"`
+	AgentName       string `json:"agentName,omitempty"`
+	// Input is the tool call's raw arguments, attached to the started event so a UI
+	// can show what each tool was invoked with. In-process UI only — never recorded
+	// to telemetry or transcripts.
+	Input           json.RawMessage `json:"input,omitempty"`
 	Message         string          `json:"message,omitempty"`
 	Data            any             `json:"data,omitempty"`
 	Files           []FileReference `json:"files,omitempty"`
@@ -91,5 +105,9 @@ type Event struct {
 	Output          []OutputLine    `json:"output,omitempty"`
 	OutputTotal     int             `json:"outputTotal,omitempty"`
 	OutputTruncated bool            `json:"outputTruncated,omitempty"`
-	Time            time.Time       `json:"time,omitempty"`
+	// Image is an inline image the tool returned (e.g. Read of an image, or an MCP
+	// screenshot), attached so the UI can show a thumbnail. Data is base64-encoded in
+	// JSON. In-process UI only — never recorded to telemetry or transcripts.
+	Image *ResultImage `json:"image,omitempty"`
+	Time  time.Time    `json:"time,omitempty"`
 }

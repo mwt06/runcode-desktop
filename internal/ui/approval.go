@@ -59,6 +59,7 @@ func (a *Approver) Prompt(ctx context.Context, req permissions.ApprovalRequest) 
 	msg := approvalRequestMsg{
 		Summary: req.Summary,
 		Targets: a.relativeTargets(req.Targets),
+		Command: req.Command,
 		Reply:   reply,
 	}
 	select {
@@ -116,12 +117,13 @@ func workspaceRelativeLabel(workspace string, target string) (string, bool) {
 type pendingApproval struct {
 	summary  permissions.ApprovalSummary
 	targets  []string
+	command  string
 	reply    chan permissions.ApprovalResponse
 	selected int
 }
 
 func (m *Model) enqueueApproval(msg approvalRequestMsg) {
-	pending := &pendingApproval{summary: msg.Summary, targets: msg.Targets, reply: msg.Reply}
+	pending := &pendingApproval{summary: msg.Summary, targets: msg.Targets, command: msg.Command, reply: msg.Reply}
 	if m.approval == nil {
 		m.approval = pending
 		return

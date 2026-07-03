@@ -39,6 +39,7 @@ type backgroundShell struct {
 	id      string
 	command string
 	cancel  context.CancelFunc
+	cleanup func()
 	out     *shellBuffer
 	done    chan struct{}
 
@@ -76,8 +77,15 @@ func (m *Manager) Start(command, workspace string) (string, error) {
 	m.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
+	shell, args, cleanup, err := commandInvocation(command)
+	if err != nil {
+		cancel()
+		return "", fmt.Errorf("prepare background command: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, shell, args...)
 	cmd.Dir = workspace
+	cmd.Env = childEnv()
+	hideConsoleWindow(cmd)
 	buf := &shellBuffer{limit: maxBackgroundOutputBytes}
 	cmd.Stdout = buf
 	cmd.Stderr = buf
@@ -86,12 +94,14 @@ func (m *Manager) Start(command, workspace string) (string, error) {
 		id:      id,
 		command: command,
 		cancel:  cancel,
+		cleanup: cleanup,
 		out:     buf,
 		done:    make(chan struct{}),
 		running: true,
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
+		cleanup()
 		return "", fmt.Errorf("start background bash: %w", err)
 	}
 
@@ -113,6 +123,9 @@ func (m *Manager) Start(command, workspace string) (string, error) {
 			}
 		}
 		sh.mu.Unlock()
+		if sh.cleanup != nil {
+			sh.cleanup()
+		}
 		close(sh.done)
 	}()
 	return id, nil

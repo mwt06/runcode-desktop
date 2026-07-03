@@ -97,8 +97,12 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	if !target.Within {
 		return tool.Result{}, errors.New("path is outside the workspace")
 	}
-	if err := toolpath.RequireFreshRead(target.Path, tctx); err != nil {
-		return tool.Result{}, err
+	// Trusting modes (judge/flight) skip the read-before-edit gate; the file is
+	// still read below to locate old_string.
+	if !tctx.TrustedWrites() {
+		if err := toolpath.RequireFreshRead(target.Path, tctx); err != nil {
+			return tool.Result{}, err
+		}
 	}
 	info, err := os.Stat(target.Path)
 	if err != nil {
@@ -126,6 +130,18 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 	updated := strings.Replace(text, *in.OldString, *in.NewString, replaceCount)
 	if err := os.WriteFile(target.Path, []byte(updated), 0o600); err != nil {
 		return tool.Result{}, fmt.Errorf("write file: %w", err)
+	}
+	// Refresh the read record to the post-edit file, so consecutive edits to the
+	// same file are not blocked as "read stale" by the read-before-write gate.
+	if tctx != nil && tctx.ReadSet != nil {
+		if info, statErr := os.Stat(target.Path); statErr == nil {
+			tctx.ReadSet[target.Path] = tool.ReadFile{
+				Path:     target.Path,
+				Size:     info.Size(),
+				ModTime:  info.ModTime(),
+				Complete: true,
+			}
+		}
 	}
 	return tool.Result{
 		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: "File edited."}},

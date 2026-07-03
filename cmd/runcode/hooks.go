@@ -8,6 +8,8 @@ import (
 	"github.com/wt68/runcode/internal/persistence/settings"
 )
 
+// (newHookRunner moved to internal/engine, which assembles the session.)
+
 // hooksFromConfig converts and validates the user-level hook config into runnable
 // hooks. A misconfigured hook is a hard error so the user fixes it rather than
 // silently losing a policy hook.
@@ -43,18 +45,4 @@ func normalizeHookEvent(event string) (hooks.Event, error) {
 	default:
 		return "", fmt.Errorf("unknown hook event %q (want PreToolUse, PostToolUse, UserPromptSubmit, Stop, SubagentStop, SessionStart, SessionEnd, or PreCompact)", event)
 	}
-}
-
-// newHookRunner builds the hook runner for a session. Infrastructure failures are
-// surfaced as warnings on the runtime's stderr (hooks fail open).
-func newHookRunner(hookList []hooks.Hook, runtime chatIO) hooks.Runner {
-	if len(hookList) == 0 {
-		return hooks.Noop{}
-	}
-	warn := func(event hooks.Event, err error) {
-		if runtime.Err != nil {
-			fmt.Fprintf(runtime.Err, "warning: %s hook failed to run: %v\n", event, err)
-		}
-	}
-	return hooks.NewRunner(hookList, hooks.Options{Warn: warn})
 }

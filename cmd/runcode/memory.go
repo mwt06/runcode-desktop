@@ -2,36 +2,23 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/internal/persistence/settings"
-	"github.com/wt68/runcode/pkg/memory"
+	"github.com/wt68/runcode/internal/engine"
 )
 
-// memoryFileName is the per-scope memory file under each convention directory.
-const memoryFileName = "memory.md"
+// projectRuncodeDir is the workspace-local runcode data directory. It aliases the
+// engine constant so command discovery (commands.go) and memory display share one
+// source of truth with the session-assembly layer.
+const projectRuncodeDir = engine.ProjectRuncodeDir
 
-// memoryStore builds the two-scope memory store: user memory at
-// <userConfigDir>/runcode/memory.md and project memory at
-// <workspace>/.runcode/memory.md. A scope whose root is unavailable gets an empty
-// path, which disables it. Project memory lives under .runcode/, which is
-// git-ignored, so it stays a local notebook rather than a committed file.
-func memoryStore(cwd, userConfigDir string) *memory.Store {
-	var userPath, projectPath string
-	if userConfigDir != "" {
-		userPath = filepath.Join(userConfigDir, settings.AppDirName, memoryFileName)
-	}
-	if cwd != "" {
-		projectPath = filepath.Join(cwd, projectRuncodeDir, memoryFileName)
-	}
-	return memory.NewStore(memory.Options{UserPath: userPath, ProjectPath: projectPath})
-}
+// memoryFileName is the per-scope memory file under each convention directory.
+const memoryFileName = engine.MemoryFileName
 
 // memorySummary reports how many memories are saved per scope, for `runcode
 // config`, without printing any of their text. Load errors are ignored here.
 func memorySummary(cwd string) string {
-	loaded, err := memoryStore(cwd, userConfigDir()).Load()
+	loaded, err := engine.MemoryStore(cwd, userConfigDir()).Load()
 	if err != nil || loaded.Empty() {
 		return "<none>"
 	}

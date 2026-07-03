@@ -91,20 +91,37 @@ func ResolveMutationTarget(path string, tctx *tool.Context) (MutationTarget, err
 		return MutationTarget{}, fmt.Errorf("stat mutation target: %w", err)
 	}
 
-	parent := filepath.Dir(resolvedPath)
-	parentInfo, err := os.Stat(parent)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return MutationTarget{}, fmt.Errorf("mutation target parent does not exist: %w", err)
+	// The target does not exist. A missing parent chain is allowed — the writer
+	// creates it (mkdir -p) — so walk up to the nearest existing ancestor. That
+	// ancestor must be a directory within the workspace, and the target path itself
+	// must stay lexically within the workspace (the not-yet-existing components
+	// cannot be symlinks). This lets a write create new nested folders instead of
+	// failing as an invalid target.
+	ancestor := filepath.Dir(resolvedPath)
+	for {
+		info, statErr := os.Stat(ancestor)
+		if statErr == nil {
+			if !info.IsDir() {
+				return MutationTarget{}, fmt.Errorf("mutation target parent is not a directory")
+			}
+			break
 		}
-		return MutationTarget{}, fmt.Errorf("stat mutation target parent: %w", err)
+		if !errors.Is(statErr, os.ErrNotExist) {
+			return MutationTarget{}, fmt.Errorf("stat mutation target parent: %w", statErr)
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			return MutationTarget{}, fmt.Errorf("mutation target has no existing ancestor directory")
+		}
+		ancestor = parent
 	}
-	if !parentInfo.IsDir() {
-		return MutationTarget{}, fmt.Errorf("mutation target parent is not a directory")
-	}
-	within, err := IsWithinResolved(workspace, parent)
+	within, err := IsWithinResolved(workspace, ancestor)
 	if err != nil {
 		return MutationTarget{}, fmt.Errorf("check mutation parent scope: %w", err)
 	}
-	return MutationTarget{Path: resolvedPath, Exists: false, Within: within}, nil
+	lexWithin, err := IsWithin(workspace, resolvedPath)
+	if err != nil {
+		return MutationTarget{}, fmt.Errorf("check mutation target scope: %w", err)
+	}
+	return MutationTarget{Path: resolvedPath, Exists: false, Within: within && lexWithin}, nil
 }

@@ -43,7 +43,7 @@ func NewMCPSampler(provider llm.Provider, model string, maxTokens int) mcp.Sampl
 			return mcp.SamplingResult{}, err
 		}
 		defer stream.Close()
-		message, stopReason, _, err := collectAssistantMessage(ctx, stream, nil)
+		message, stopReason, _, err := collectAssistantMessage(ctx, stream, nil, nil, nil)
 		if err != nil {
 			return mcp.SamplingResult{}, err
 		}

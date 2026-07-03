@@ -39,7 +39,7 @@ func (Tool) Name() string {
 }
 
 func (Tool) Description() string {
-	return "Find workspace files matching a slash-separated glob pattern."
+	return "Find workspace files matching a slash-separated glob pattern. To list a directory, make ONE recursive call (pattern \"**/*\") — do not also issue a separate shallow \"*\" call, as the recursive pattern already covers it."
 }
 
 func (Tool) InputSchema() tool.Schema {
@@ -138,13 +138,24 @@ func findMatches(ctx context.Context, workspace string, searchRoot string, patte
 	truncated := false
 	err := filepath.WalkDir(searchRoot, func(filePath string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// Skip an entry we cannot read (a locked file like a running binary, a
+			// permission-denied directory, a broken reparse point) instead of
+			// aborting the whole search — one inaccessible path must not make Glob
+			// fail outright. Skip the rest of an unreadable directory; skip just the
+			// file otherwise.
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" && filePath != searchRoot {
+			// Skip VCS internals and runcode's own bookkeeping (.runcode holds the
+			// session logs and permissions file) — neither is user content, and
+			// surfacing them clutters results and distracts the model.
+			if name := entry.Name(); (name == ".git" || name == ".runcode") && filePath != searchRoot {
 				return filepath.SkipDir
 			}
 			return nil

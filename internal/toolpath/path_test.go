@@ -96,13 +96,32 @@ func TestResolveMutationTargetDanglingSymlinkIsExistingOutsideTarget(t *testing.
 	}
 }
 
-func TestResolveMutationTargetMissingParent(t *testing.T) {
+func TestResolveMutationTargetMissingParentIsCreatable(t *testing.T) {
 	t.Parallel()
 
+	// A missing parent chain inside the workspace is allowed: the writer will create
+	// it (mkdir -p). The target resolves as a within-workspace, not-yet-existing file.
 	workspace := t.TempDir()
-	_, err := ResolveMutationTarget(filepath.Join("missing", "new.txt"), &tool.Context{WorkingDirectory: workspace})
-	if err == nil {
-		t.Fatal("expected missing parent error")
+	rel := filepath.Join("missing", "deep", "new.txt")
+	target, err := ResolveMutationTarget(rel, &tool.Context{WorkingDirectory: workspace})
+	if err != nil {
+		t.Fatalf("resolve mutation target: %v", err)
+	}
+	if target.Exists || !target.Within || target.Path != filepath.Join(workspace, rel) {
+		t.Fatalf("unexpected target: %+v", target)
+	}
+}
+
+func TestResolveMutationTargetParentIsFile(t *testing.T) {
+	t.Parallel()
+
+	// When an ancestor is a file rather than a directory, the target is invalid.
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "afile"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := ResolveMutationTarget(filepath.Join("afile", "new.txt"), &tool.Context{WorkingDirectory: workspace}); err == nil {
+		t.Fatal("expected error when an ancestor is a file")
 	}
 }
 

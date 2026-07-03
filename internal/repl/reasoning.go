@@ -9,6 +9,11 @@ import (
 
 const defaultReasoningMaxTokens = 128
 
+// reasoningAnalysisMaxTokens budgets the pre-turn structured analysis pass; it
+// needs room for several filled steps plus the model's own reasoning tokens
+// (reasoning models spend a large prefix thinking before emitting the JSON).
+const reasoningAnalysisMaxTokens = 4096
+
 var ErrInvalidReasoningClassification = errors.New("invalid reasoning classification")
 
 type ReasoningScenario string
@@ -23,7 +28,11 @@ const (
 )
 
 type ReasoningOptions struct {
-	Enabled         bool
+	Enabled bool
+	// AutoClassify makes each turn classify the task into a scenario via a small
+	// model call. When false, DefaultScenario's guidance is used directly (no extra
+	// call) — the "manual" mode.
+	AutoClassify    bool
 	DefaultScenario ReasoningScenario
 	Strict          bool
 	MaxTokens       int

@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wt68/runcode/internal/toolpath"
 	"github.com/wt68/runcode/pkg/tool"
 )
+
+// maxImageBytes bounds an image read so a huge file cannot blow up the request.
+const maxImageBytes = 8 << 20
 
 const (
 	defaultLimit   = 2000
@@ -37,7 +41,7 @@ func (Tool) Name() string {
 }
 
 func (Tool) Description() string {
-	return "Read a text file and return line-numbered content."
+	return "Read a file. Text files return line-numbered content; image files (png, jpg, jpeg, gif, webp) return the image itself so you can view it directly."
 }
 
 func (Tool) InputSchema() tool.Schema {
@@ -96,6 +100,12 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 		return tool.Result{}, fmt.Errorf("path is a directory: %s", path)
 	}
 
+	// Image files are returned as an image content block so the model can view them
+	// (rather than dumping raw bytes as text).
+	if mediaType, ok := imageMediaType(path); ok {
+		return readImage(path, info, tctx, mediaType)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("open file: %w", err)
@@ -116,6 +126,47 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ 
 
 	return tool.Result{
 		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: readResult.Text}},
+	}, nil
+}
+
+// imageMediaType maps an image file extension to its media type. ok is false for
+// non-image files.
+func imageMediaType(path string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".gif":
+		return "image/gif", true
+	case ".webp":
+		return "image/webp", true
+	default:
+		return "", false
+	}
+}
+
+// readImage returns the file as an image content block (plus a short text label),
+// recording the read like a text read so read-before-write tracking stays correct.
+func readImage(path string, info os.FileInfo, tctx *tool.Context, mediaType string) (tool.Result, error) {
+	if info.Size() > maxImageBytes {
+		return tool.Result{}, fmt.Errorf("image is too large (%d bytes; limit %d)", info.Size(), maxImageBytes)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return tool.Result{}, fmt.Errorf("read image: %w", err)
+	}
+	if tctx != nil {
+		if tctx.ReadSet == nil {
+			tctx.ReadSet = make(map[string]tool.ReadFile)
+		}
+		tctx.ReadSet[path] = tool.ReadFile{Path: path, Size: info.Size(), ModTime: info.ModTime(), Complete: true}
+	}
+	return tool.Result{
+		Content: []tool.ResultContent{
+			{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("[image: %s]", filepath.Base(path))},
+			{Type: tool.ResultContentTypeImage, Image: &tool.ResultImage{MediaType: mediaType, Data: data}},
+		},
 	}, nil
 }
 

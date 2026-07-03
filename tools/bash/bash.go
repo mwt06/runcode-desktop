@@ -18,6 +18,10 @@ const (
 	defaultTimeoutMS = 30_000
 	maxTimeoutMS     = 120_000
 	maxOutputBytes   = 200 * 1024
+	// maxStreamedLines caps how many live output lines each stream (stdout/stderr)
+	// emits while the command runs. The final result still carries the full (byte-
+	// capped) output; this only bounds the live event volume.
+	maxStreamedLines = 500
 )
 
 type input struct {
@@ -48,7 +52,7 @@ func (Tool) Name() string {
 }
 
 func (Tool) Description() string {
-	return "Run a non-interactive bash command in the workspace after permission approval."
+	return "Run a non-interactive shell command in the workspace after permission approval (cmd on Windows, bash elsewhere). The command may span multiple lines. To run a multi-line program (e.g. Python), prefer writing a script file and executing it over a multi-line inline -c."
 }
 
 func (Tool) InputSchema() tool.Schema {
@@ -57,7 +61,7 @@ func (Tool) InputSchema() tool.Schema {
 		Properties: map[string]tool.Schema{
 			"command": {
 				Type:        tool.SchemaTypeString,
-				Description: "Bash command to run in the workspace.",
+				Description: "Shell command to run in the workspace. May span multiple lines.",
 			},
 			"timeout_ms": {
 				Type:        tool.SchemaTypeInteger,
@@ -79,7 +83,7 @@ func (Tool) IsConcurrencySafe() bool {
 	return false
 }
 
-func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, events chan<- tool.Event) (tool.Result, error) {
 	if err := ctx.Err(); err != nil {
 		return tool.Result{}, err
 	}
@@ -91,8 +95,8 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, 
 	if command == "" {
 		return tool.Result{}, errors.New("command is required")
 	}
-	if strings.ContainsRune(command, '\x00') || strings.ContainsAny(command, "\r\n") {
-		return tool.Result{}, errors.New("command must be a single line without NUL bytes")
+	if strings.ContainsRune(command, '\x00') {
+		return tool.Result{}, errors.New("command must not contain NUL bytes")
 	}
 	workspace, err := toolpath.WorkspaceRoot(tctx)
 	if err != nil {
@@ -106,15 +110,29 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(commandCtx, "bash", "-lc", command)
+	shell, args, cleanup, err := commandInvocation(command)
+	if err != nil {
+		return tool.Result{}, fmt.Errorf("prepare command: %w", err)
+	}
+	defer cleanup()
+	cmd := exec.CommandContext(commandCtx, shell, args...)
 	cmd.Dir = workspace
+	cmd.Env = childEnv()
+	hideConsoleWindow(cmd)
 	var stdout, stderr limitedBuffer
 	stdout.limit = maxOutputBytes
 	stderr.limit = maxOutputBytes
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Tee each stream into its buffer (for the final result) while emitting complete
+	// lines live so the UI can render output as it arrives.
+	outWriter := &streamWriter{buf: &stdout, stream: tool.OutputStreamStdout, events: events}
+	errWriter := &streamWriter{buf: &stderr, stream: tool.OutputStreamStderr, events: events}
+	cmd.Stdout = outWriter
+	cmd.Stderr = errWriter
 
 	err = cmd.Run()
+	// cmd.Run has waited for the output copiers, so no more writes race with flush.
+	outWriter.flush()
+	errWriter.flush()
 	duration := time.Since(started)
 	timedOut := commandCtx.Err() == context.DeadlineExceeded
 	exitCode := 0
@@ -128,7 +146,11 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, 
 		}
 	}
 	truncated := stdout.truncated || stderr.truncated
-	isError := err != nil || timedOut || errors.Is(commandCtx.Err(), context.Canceled)
+	// A non-zero exit code is the command's own result, not a tool failure — the
+	// model reads exit_code from the output, and the UI should not flag it red (e.g.
+	// `findstr` returns 1 on no match). Only an interrupted run (timeout/cancel) is a
+	// genuine tool error; a failure to even start the shell already returned above.
+	isError := timedOut || errors.Is(commandCtx.Err(), context.Canceled)
 	return tool.Result{
 		IsError: isError,
 		Metadata: map[string]any{
@@ -215,4 +237,61 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 
 func (b *limitedBuffer) String() string {
 	return b.buf.String()
+}
+
+// streamWriter tees a command's output into a bounded buffer (used for the final
+// result) while emitting each complete line as an EventTypeOutput event for the live
+// view. Sends are non-blocking: if the UI lags, live lines are dropped — the buffered
+// result stays complete and the tool's completed event carries the full output. Each
+// stream (stdout/stderr) has its own writer, written by a single exec copier
+// goroutine, so no locking is needed; flush() runs only after cmd.Run() returns.
+type streamWriter struct {
+	buf     *limitedBuffer
+	stream  tool.OutputStream
+	events  chan<- tool.Event
+	pending []byte
+	lines   int
+}
+
+func (w *streamWriter) Write(p []byte) (int, error) {
+	n, _ := w.buf.Write(p)
+	if w.events == nil {
+		return n, nil
+	}
+	w.pending = append(w.pending, p...)
+	var batch []tool.OutputLine
+	for {
+		i := bytes.IndexByte(w.pending, '\n')
+		if i < 0 {
+			break
+		}
+		if w.lines < maxStreamedLines {
+			batch = append(batch, tool.OutputLine{Stream: w.stream, Text: strings.TrimRight(string(w.pending[:i]), "\r")})
+			w.lines++
+		}
+		w.pending = w.pending[i+1:]
+	}
+	if len(batch) > 0 {
+		w.send(batch)
+	}
+	return n, nil
+}
+
+// flush emits any trailing partial line (no newline) after the command finishes.
+func (w *streamWriter) flush() {
+	if w.events == nil {
+		return
+	}
+	if len(w.pending) > 0 && w.lines < maxStreamedLines {
+		w.send([]tool.OutputLine{{Stream: w.stream, Text: string(w.pending)}})
+		w.lines++
+	}
+	w.pending = nil
+}
+
+func (w *streamWriter) send(lines []tool.OutputLine) {
+	select {
+	case w.events <- tool.Event{Type: tool.EventTypeOutput, Output: lines}:
+	default:
+	}
 }

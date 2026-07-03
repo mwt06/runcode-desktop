@@ -141,12 +141,28 @@ func ParseRule(key string) Rule {
 // can never widen the policy.
 func DefaultSessionKey(action Action) string {
 	switch action.Operation {
-	case OperationWrite, OperationEdit:
-		return MutateSessionKey(action.ToolName, firstResourcePath(action.Resources))
+	case OperationWrite, OperationEdit, OperationDelete:
+		// Coarse on purpose: one "allow for session/project" covers every workspace
+		// file mutation — Write, Edit, and Delete alike — so the user approves once,
+		// not per file or per tool. A pathless (malformed) mutation is never
+		// remembered.
+		if firstResourcePath(action.Resources) == "" {
+			return ""
+		}
+		return ScopeMutate
 	case OperationExecute:
 		category := metadataString(action.Metadata, MetadataCommandCategory)
-		if category == "" || category == string(CommandCategoryUnknown) {
+		if category == "" {
 			return ""
+		}
+		if category == string(CommandCategoryUnknown) {
+			// Unknown commands (python scripts, custom CLIs) are keyed by program so
+			// the same program on different args/files is remembered, not re-asked.
+			program := commandProgram(executeCommandText(action))
+			if program == "" {
+				return ""
+			}
+			return strings.Join([]string{ScopeCommand, action.ToolName, "program", program}, sessionKeySep)
 		}
 		return CommandSessionKey(action.ToolName, category, metadataStrings(action.Metadata, MetadataCommandCapabilities))
 	case OperationNetwork:
@@ -159,6 +175,20 @@ func DefaultSessionKey(action Action) string {
 	default:
 		return ""
 	}
+}
+
+// commandProgram extracts the lowercased program name (basename, no path/quotes)
+// from a command line, e.g. "python a.py" -> "python", "D:/t/foo.exe x" -> "foo.exe".
+func commandProgram(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return ""
+	}
+	prog := strings.ToLower(strings.Trim(fields[0], `"'`))
+	if i := strings.LastIndexAny(prog, `/\`); i >= 0 {
+		prog = prog[i+1:]
+	}
+	return prog
 }
 
 func firstResourcePath(resources []Resource) string {

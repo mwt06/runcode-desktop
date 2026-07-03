@@ -16,6 +16,9 @@ const (
 	OperationWrite   Operation = "write"
 	OperationEdit    Operation = "edit"
 	OperationExecute Operation = "execute"
+	// OperationDelete removes a file or directory (the Delete tool). It is a
+	// workspace mutation requiring approval; outside the workspace it is denied.
+	OperationDelete Operation = "delete"
 	// OperationManage is a side-effect-free session-management operation (e.g.
 	// updating the in-memory todo list). It touches no files or commands.
 	OperationManage Operation = "manage"

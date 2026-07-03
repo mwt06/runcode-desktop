@@ -38,7 +38,15 @@ func Actions() string {
 1. Analyze what the user is asking for
 2. Use available tools to gather context
 3. Plan and execute the needed changes step by step
-4. Verify results before completing`
+4. Verify results before completing
+
+Act through tools — never narrate actions you did not take. Creating or changing a
+file requires calling a file tool; running a command requires calling the shell
+tool. Putting a file's contents into your reply does NOT create the file. Never
+tell the user that a file was created, changed, or run — or that a task is
+finished — unless you actually called the matching tool in this conversation and
+saw its result. When you decide to create a file, make that tool call in the same
+turn instead of only announcing it.`
 }
 
 func ToneAndStyle() string {

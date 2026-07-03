@@ -73,6 +73,7 @@ type toolEventMsg struct {
 type approvalRequestMsg struct {
 	Summary permissions.ApprovalSummary
 	Targets []string
+	Command string
 	Reply   chan permissions.ApprovalResponse
 }
 

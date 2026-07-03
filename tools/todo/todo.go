@@ -28,6 +28,16 @@ type item struct {
 	ActiveForm string `json:"activeForm,omitempty"`
 }
 
+// todoSnapshot is the structured task list attached to the progress event's Data
+// field so an in-process UI can render a live progress board. It rides alongside
+// the human-readable Message (which older UIs still read); it is in-process only
+// and never recorded to telemetry or transcripts.
+type todoSnapshot struct {
+	Items []item `json:"items"`
+	Done  int    `json:"done"`
+	Total int    `json:"total"`
+}
+
 type input struct {
 	Todos []item `json:"todos"`
 }
@@ -133,7 +143,12 @@ func emitTodoEvent(out chan<- tool.Event, todos []item) {
 		message += ": " + current
 	}
 	select {
-	case out <- tool.Event{Type: tool.EventTypeProgress, ToolName: "TodoWrite", Message: message}:
+	case out <- tool.Event{
+		Type:     tool.EventTypeProgress,
+		ToolName: "TodoWrite",
+		Message:  message,
+		Data:     todoSnapshot{Items: todos, Done: done, Total: len(todos)},
+	}:
 	default:
 	}
 }

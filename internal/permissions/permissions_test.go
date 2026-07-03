@@ -258,8 +258,8 @@ func TestDefaultServiceDeniesWriteOverwriteWithoutRead(t *testing.T) {
 		Context:  &tool.Context{WorkingDirectory: workspace},
 	})
 
-	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonReadRequired {
-		t.Fatalf("decision = %#v, want read required deny", decision)
+	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonWriteExists {
+		t.Fatalf("decision = %#v, want write exists deny", decision)
 	}
 }
 
@@ -281,8 +281,8 @@ func TestDefaultServiceDeniesWriteOverwriteAfterPartialRead(t *testing.T) {
 		}},
 	})
 
-	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonReadRequired {
-		t.Fatalf("decision = %#v, want read required deny", decision)
+	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonWriteExists {
+		t.Fatalf("decision = %#v, want write exists deny", decision)
 	}
 }
 
@@ -355,10 +355,16 @@ func TestDefaultServiceDeniesEditMissingRead(t *testing.T) {
 func TestDefaultServiceDeniesInvalidMutationTarget(t *testing.T) {
 	t.Parallel()
 
+	// A missing parent chain is fine (Write creates it), so an invalid target is one
+	// whose ancestor is a file rather than a directory.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "afile"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
 		ToolName: "Write",
-		Input:    rawInput(t, map[string]any{"path": filepath.Join("missing", "new.txt")}),
-		Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+		Input:    rawInput(t, map[string]any{"path": filepath.Join("afile", "new.txt")}),
+		Context:  &tool.Context{WorkingDirectory: dir},
 	})
 
 	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonInvalidTarget {
@@ -391,7 +397,7 @@ func TestDefaultServiceDeniesInvalidBashInput(t *testing.T) {
 func TestDefaultServiceAsksForClassifiedBashThenNonInteractiveDeny(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"pwd", "go test ./...", "npm install left-pad", "curl https://example.invalid"} {
+	for _, command := range []string{"pwd", "go test ./...", "npm install left-pad", "curl https://example.invalid", "unknown-tool --flag", "python prime.py", "go build && go test", "ls | grep foo"} {
 		command := command
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
@@ -416,7 +422,7 @@ func TestDefaultServiceAsksForClassifiedBashThenNonInteractiveDeny(t *testing.T)
 func TestDefaultServiceHardDeniesUnsafeBash(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"unknown-tool --flag", "sudo go test", "rm -rf build", "git reset --hard", "ls | wc"} {
+	for _, command := range []string{"sudo go test", "rm -rf build", "git reset --hard", "echo ok && rm -rf /"} {
 		command := command
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
@@ -429,6 +435,59 @@ func TestDefaultServiceHardDeniesUnsafeBash(t *testing.T) {
 				t.Fatalf("decision = %#v, want hard deny", decision)
 			}
 		})
+	}
+}
+
+func TestDefaultServiceSteersShellDeleteToDeleteTool(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"rm build/x.txt", "del x.txt", "rmdir sub", "erase y"} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+				ToolName: "Bash",
+				Input:    rawInput(t, map[string]any{"command": command}),
+				Context:  &tool.Context{WorkingDirectory: t.TempDir()},
+			})
+			if decision.FinalEffect != EffectDeny || decision.Reason != ReasonUseDeleteTool {
+				t.Fatalf("decision = %#v, want deny steering to the Delete tool", decision)
+			}
+		})
+	}
+}
+
+func TestDefaultServiceAsksForDeleteToolWithinWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ws := t.TempDir()
+	writeFile(t, filepath.Join(ws, "x.txt"), "data")
+	action, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Delete",
+		Input:    rawInput(t, map[string]any{"path": "x.txt"}),
+		Context:  &tool.Context{WorkingDirectory: ws},
+	})
+	if action.Operation != OperationDelete {
+		t.Fatalf("operation = %q, want delete", action.Operation)
+	}
+	// DefaultService is non-interactive, so the ask converts to a deny.
+	if decision.Effect != EffectAsk || decision.FinalEffect != EffectDeny || decision.Reason != ReasonApprovalUnavailable {
+		t.Fatalf("decision = %#v, want ask converted to deny", decision)
+	}
+}
+
+func TestDefaultServiceDeniesDeleteOutsideWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ws := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "x.txt")
+	_, decision := DefaultService().AuthorizeTool(context.Background(), ResolveRequest{
+		ToolName: "Delete",
+		Input:    rawInput(t, map[string]any{"path": outside}),
+		Context:  &tool.Context{WorkingDirectory: ws},
+	})
+	if decision.FinalEffect != EffectDeny || decision.Reason != ReasonOutsideWorkspace {
+		t.Fatalf("decision = %#v, want outside-workspace deny", decision)
 	}
 }
 

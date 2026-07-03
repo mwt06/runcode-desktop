@@ -44,6 +44,13 @@ func (e *Error) Error() string {
 	msg := e.Message
 	if msg == "" && e.Err != nil {
 		msg = e.Err.Error()
+	} else if e.Err != nil && e.StatusCode == 0 {
+		// Transport-level failure (no HTTP status): surface the underlying cause
+		// (dial/TLS/timeout/EOF/connection reset) — a bare "request failed" is
+		// undiagnosable. Status errors already carry a meaningful message + code.
+		if cause := e.Err.Error(); cause != "" && cause != msg {
+			msg = msg + ": " + cause
+		}
 	}
 	if e.StatusCode != 0 {
 		return fmt.Sprintf("%s %s error (%d): %s", provider, e.Kind, e.StatusCode, msg)

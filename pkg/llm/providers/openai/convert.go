@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -172,7 +173,12 @@ func convertAssistantMessage(message llm.Message) ([]chatMessage, error) {
 			// OpenAI chat completions has no portable reasoning channel; drop it.
 		case llm.ContentBlockTypeToolUse:
 			arguments := strings.TrimSpace(string(block.Input))
-			if arguments == "" {
+			if arguments == "" || !json.Valid([]byte(arguments)) {
+				// A model can stream malformed JSON arguments (e.g. single-quoted
+				// keys or a truncated object). Sending them verbatim makes a strict
+				// gateway reject the whole request and abort the turn; the call
+				// already failed local validation, so an empty object keeps the
+				// request valid without inventing data.
 				arguments = "{}"
 			}
 			toolCalls = append(toolCalls, chatToolCall{
@@ -200,6 +206,12 @@ func convertAssistantMessage(message llm.Message) ([]chatMessage, error) {
 
 func convertToolMessage(message llm.Message) ([]chatMessage, error) {
 	var out []chatMessage
+	// OpenAI tool messages are text-only, so images returned by a tool cannot ride
+	// in the tool result. We collect them and surface the real images in one
+	// synthesized user message appended after all tool results — valid OpenAI
+	// ordering (every tool result for the turn, then a user message) — so the model
+	// can actually see them (e.g. Read of an image, or an MCP screenshot tool).
+	var images []contentPart
 	for _, block := range message.Content {
 		if block.Type != llm.ContentBlockTypeToolResult {
 			return nil, unsupportedBlock(block.Type)
@@ -210,10 +222,12 @@ func convertToolMessage(message llm.Message) ([]chatMessage, error) {
 			case llm.ContentBlockTypeText:
 				content.WriteString(nested.Text)
 			case llm.ContentBlockTypeImage:
-				// OpenAI tool messages are text-only (images belong to user
-				// messages), so an image in a tool result degrades to a note rather
-				// than failing the whole request.
-				content.WriteString("[image omitted: not supported in an OpenAI tool result]")
+				part, err := convertImage(nested.Source)
+				if err != nil {
+					return nil, err
+				}
+				images = append(images, part)
+				content.WriteString("[image returned by the tool; shown in the following message]")
 			default:
 				return nil, unsupportedBlock(nested.Type)
 			}
@@ -223,6 +237,10 @@ func convertToolMessage(message llm.Message) ([]chatMessage, error) {
 			ToolCallID: block.ToolUseID,
 			Content:    content.String(),
 		})
+	}
+	if len(images) > 0 {
+		parts := append([]contentPart{{Type: "text", Text: "Image(s) returned by the previous tool call:"}}, images...)
+		out = append(out, chatMessage{Role: "user", Content: parts})
 	}
 	return out, nil
 }

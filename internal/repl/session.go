@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"time"
 
@@ -62,10 +63,14 @@ type SessionOptions struct {
 	// MaxHistoryMessages bounds the number of messages retained across turns.
 	// 0 (default) disables trimming.
 	MaxHistoryMessages int
-	// StreamDelta is called with each text delta as it arrives from the provider.
-	// Only text blocks trigger the callback; tool_use and thinking deltas are skipped.
+	// StreamDelta is called with each answer-text delta as it arrives from the
+	// provider. Only text blocks trigger it; tool_use and thinking deltas do not.
 	// nil disables streaming.
 	StreamDelta func(delta string)
+	// StreamThinking is called with each reasoning ("thinking") delta as it arrives,
+	// so a UI can show the model's chain of thought live and separate from the answer.
+	// nil disables thinking streaming (the reasoning is still captured in the message).
+	StreamThinking func(delta string)
 	// InitialHistory seeds the session's working history, e.g. when resuming a
 	// persisted session. nil starts a fresh conversation.
 	InitialHistory []llm.Message
@@ -90,20 +95,41 @@ type Session struct {
 	modelMu sync.RWMutex
 	model   string
 
-	tools         []tool.Tool
-	executor      *Executor
-	prompt        prompt.AssemblerOpts
+	// planMode injects plan-mode prompt guidance when set; it is toggled at runtime
+	// (the desktop's plan toggle) so it is read on every turn.
+	planMode atomic.Bool
+
+	tools    []tool.Tool
+	executor *Executor
+	prompt   prompt.AssemblerOpts
+	// skillsCatalog/agentsCatalog override prompt.Skills/Agents per turn so the
+	// desktop can hot-reload them (after the user edits skills or sub-agents) without
+	// restarting the session. Both are guarded by skillsMu.
+	skillsMu      sync.RWMutex
+	skillsCatalog string
+	agentsCatalog string
 	maxTokens     int
 	temperature   *float64
 	metadata      map[string]any
 	toolContext   *tool.Context
 	toolEvents    chan<- tool.Event
 	maxIterations int
-	reasoning     ReasoningOptions
-	telemetry     telemetry.Recorder
-	traceID       string
-	transcript    transcript.Recorder
-	sessionID     string
+	// reasoningMu guards reasoning, which the desktop's in-conversation "thinking
+	// model" selector switches at runtime while a turn goroutine may read it.
+	reasoningMu sync.RWMutex
+	reasoning   ReasoningOptions
+	// analyzeGate, when set for the current turn (an in-turn thinking scenario),
+	// forces the Analyze tool to run and complete before any other tool. It is set
+	// and cleared within runTurn, which never runs concurrently for a session.
+	analyzeGate *analyzeGate
+	// analyzeDone marks that the structured analysis was completed for the current
+	// task, so later turns don't re-run the pass or re-arm the gate. It resets when
+	// the thinking model is switched (SetReasoningScenario).
+	analyzeDone atomic.Bool
+	telemetry   telemetry.Recorder
+	traceID     string
+	transcript  transcript.Recorder
+	sessionID   string
 	// historyMu guards history, which a turn goroutine commits to at the end of
 	// RunTurn while the TUI may concurrently read it (History) or replace it
 	// (ResetHistory, Compact). Expensive work (LLM streaming, compaction
@@ -113,10 +139,14 @@ type Session struct {
 	history            []llm.Message
 	maxHistoryMessages int
 	streamDelta        func(delta string)
+	streamThinking     func(delta string)
 	sessionStore       sessions.Store
 	maxContextTokens   int
 	hooks              hooks.Runner
-	thinking           llm.ThinkingConfig
+	// thinkingMu guards thinking, which the desktop's "thinking strength" selector
+	// switches at runtime while a turn goroutine may read it when building a request.
+	thinkingMu sync.RWMutex
+	thinking   llm.ThinkingConfig
 	// resumed marks a session seeded with prior history, so the SessionStart hook
 	// reports "resume" rather than "startup".
 	resumed bool
@@ -141,6 +171,11 @@ type TurnResult struct {
 	ReasoningClassification *ReasoningClassification
 	ClassificationRequest   *llm.Request
 	ClassificationUsage     *llm.Usage
+	// Stopped is true when the turn ended because the user denied a tool and asked
+	// to stop, rather than the model finishing on its own. The conversation is
+	// left well-formed (every tool_use is answered) so the next user message
+	// continues normally.
+	Stopped bool
 }
 
 func NewSession(opts SessionOptions) (*Session, error) {
@@ -193,6 +228,8 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		tools:              tools,
 		executor:           executor,
 		prompt:             promptOpts,
+		skillsCatalog:      promptOpts.Skills,
+		agentsCatalog:      promptOpts.Agents,
 		maxTokens:          opts.MaxTokens,
 		temperature:        opts.Temperature,
 		metadata:           opts.Metadata,
@@ -207,6 +244,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		history:            cloneMessages(opts.InitialHistory),
 		maxHistoryMessages: maxHistoryMessages,
 		streamDelta:        opts.StreamDelta,
+		streamThinking:     opts.StreamThinking,
 		sessionStore:       sessionStore,
 		maxContextTokens:   opts.MaxContextTokens,
 		hooks:              hookRunner,
@@ -248,7 +286,11 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 	}
 	messages = append(messages, userMessageWithImages(userText, images))
 	promptOpts := s.prompt
+	promptOpts.PlanMode = s.planMode.Load()
 	turn := s.startTurn(ctx, userText)
+	fail := func(err error) (TurnResult, error) {
+		return result, turn.error(ctx, result, err)
+	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			turn.error(ctx, result, fmt.Errorf("panic: %v", recovered))
@@ -256,30 +298,78 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 		}
 	}()
 
-	if s.reasoning.Enabled {
-		classification, req, usage, err := s.classifyReasoningScenario(ctx, userText, turn.id)
-		if err != nil {
-			if s.reasoning.Strict {
-				return result, turn.error(ctx, result, err)
+	// Record the turn's opening messages (any injected context plus the user's
+	// prompt) immediately, so the session is saved the moment the user sends a
+	// message rather than only when the whole turn finishes. Assistant and tool
+	// messages are appended to the log as each step completes (below), so a
+	// mid-turn crash still leaves a valid, resumable log up to the last completed
+	// step — never a half-written tool call. The session file is created lazily on
+	// this first append.
+	s.persistTurn(ctx, turn.id, cloneMessages(messages[currentUserIndex:]))
+
+	if reasoning := s.currentReasoning(); reasoning.Enabled {
+		// 1. Decide the scenario (auto-classify or the manually chosen one).
+		scenario := defaultReasoningScenario(reasoning)
+		confidence := "manual"
+		if reasoning.AutoClassify {
+			classification, req, usage, err := s.classifyReasoningScenario(ctx, userText, turn.id)
+			if err != nil {
+				if reasoning.Strict {
+					return fail(err)
+				}
+				classification = ReasoningClassification{Scenario: scenario}
 			}
-			classification = ReasoningClassification{Scenario: defaultReasoningScenario(s.reasoning)}
+			scenario, confidence = classification.Scenario, classification.Confidence
+			result.ClassificationRequest = req
+			result.ClassificationUsage = usage
 		}
-		result.ReasoningClassification = &classification
-		result.ClassificationRequest = req
-		result.ClassificationUsage = usage
-		promptOpts.Reasoning = sections.ReasoningGuidance(string(classification.Scenario))
+		result.ReasoningClassification = &ReasoningClassification{Scenario: scenario, Confidence: confidence}
+
+		// 2. Apply the scenario's hardened thinking protocol.
+		//   - pre_turn: run a structured analysis pass whose filled result grounds
+		//     the turn (a failed pass degrades to guidance unless Strict).
+		//   - in_turn: install the analysis gate so the model must complete the
+		//     Analyze tool before any other tool, and instruct it accordingly.
+		// Scenarios without a protocol fall back to the step guidance.
+		promptOpts.Reasoning = sections.ReasoningGuidance(string(scenario))
+		if proto, ok := protocolFor(scenario); ok {
+			switch {
+			case s.analyzeDone.Load():
+				// The structured thinking was already done for this task (it lives in
+				// the conversation history); keep light guidance and don't re-run the
+				// pass or re-arm the gate every turn — that thrashes a multi-turn build.
+			case proto.Mode == ReasoningExecPreTurn:
+				if rendered, _, err := s.runStructuredAnalysis(ctx, proto, userText, turn.id); err == nil {
+					promptOpts.Reasoning = rendered
+					s.analyzeDone.Store(true)
+				} else if reasoning.Strict {
+					return fail(err)
+				} else {
+					// The upfront JSON pass failed (e.g. a reasoning model spent its
+					// budget before emitting JSON). Fall back to the in-turn gate so the
+					// analysis still happens — and stays visible — via the Analyze tool.
+					s.analyzeGate = &analyzeGate{proto: proto}
+					defer func() { s.analyzeGate = nil }()
+					promptOpts.Reasoning = proto.inTurnInstruction()
+				}
+			default: // in_turn
+				s.analyzeGate = &analyzeGate{proto: proto}
+				defer func() { s.analyzeGate = nil }()
+				promptOpts.Reasoning = proto.inTurnInstruction()
+			}
+		}
 	}
 
 	for iteration := 0; iteration < s.maxIterations; iteration++ {
 		messages, currentUserIndex = trimMessagesForHistoryBudget(messages, s.maxHistoryMessages, currentUserIndex)
 		req, err := s.buildRequestWithMessagesAndPrompt(messages, promptOpts)
 		if err != nil {
-			return result, turn.error(ctx, result, err)
+			return fail(err)
 		}
 
-		assistant, stopReason, usage, err := s.streamAssistant(ctx, req, turn.id, "assistant")
+		assistant, stopReason, usage, err := s.streamAssistant(ctx, req, turn.id, "assistant", nil)
 		if err != nil {
-			return result, turn.error(ctx, result, err)
+			return fail(err)
 		}
 
 		if iteration == 0 {
@@ -295,38 +385,65 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 
 		messages = append(messages, assistant)
 		if !hasToolUse(assistant) {
-			nextHistory, _ := trimMessagesForHistoryBudget(messages, s.maxHistoryMessages, currentUserIndex)
-			if err := s.recordTranscriptTurn(ctx, turn.id, userText, result); err != nil {
-				return result, turn.error(ctx, result, err)
+			// Final answer: record it, then finalize history/transcript.
+			s.persistTurn(ctx, turn.id, []llm.Message{assistant})
+			if err := s.commitTurn(ctx, turn.id, userText, &result, messages, currentUserIndex, assistant); err != nil {
+				return fail(err)
 			}
-			// Persist this turn's complete new messages (the mandatory segment is
-			// never truncated by trimming) before committing the in-memory working
-			// set, which may be trimmed/compacted. Compaction runs on the local
-			// nextHistory (it may call the LLM), then the result is committed under
-			// the lock — the lock is never held across the LLM round-trip.
-			turnMessages := cloneMessages(messages[currentUserIndex:])
-			s.setHistory(nextHistory)
-			s.persistTurn(ctx, turn.id, turnMessages)
-			s.setHistory(s.maybeCompact(ctx, turn.id, nextHistory, result.FinalUsage))
-			s.fireStop(ctx, assistant)
 			return result, turn.end(ctx, result)
 		}
 		if iteration == s.maxIterations-1 {
-			return result, turn.error(ctx, result, ErrMaxIterations)
+			// The assistant asked for a tool but we will not run it; do not persist a
+			// dangling tool_use without its result.
+			return fail(ErrMaxIterations)
 		}
 
-		toolResults, err := s.executeToolUses(ctx, assistant, turn.id)
+		toolResults, stop, err := s.executeToolUses(ctx, assistant, turn.id)
 		if err != nil {
-			return result, turn.error(ctx, result, err)
+			return fail(err)
 		}
 		toolMessage := llm.Message{Role: llm.RoleTool, Content: toolResults}
 		result.LastToolMessage = &toolMessage
 		result.ToolMessages = append(result.ToolMessages, toolMessage)
 		result.ToolResults = append(result.ToolResults, toolResults...)
 		messages = append(messages, toolMessage)
+		// Record the completed assistant+tool pair together, so the log never holds
+		// a tool_use without its matching tool_result.
+		s.persistTurn(ctx, turn.id, []llm.Message{assistant, toolMessage})
+
+		if stop {
+			// The user denied a tool and asked to stop. Finalize and return without
+			// looping back to the model, so control returns to the user.
+			result.Stopped = true
+			if err := s.commitTurn(ctx, turn.id, userText, &result, messages, currentUserIndex, assistant); err != nil {
+				return fail(err)
+			}
+			return result, turn.end(ctx, result)
+		}
 	}
 
-	return result, turn.error(ctx, result, ErrMaxIterations)
+	return fail(ErrMaxIterations)
+}
+
+// commitTurn finalizes a turn's working set: it records the transcript, commits
+// the (trimmed, then possibly compacted) in-memory history, and fires the Stop
+// hook. It is shared by the two ways a turn ends without an error — the model
+// finishing on its own (no tool_use) and the user denying a tool to stop
+// execution. Durable persistence of the turn's messages happens incrementally in
+// runTurn as each step completes, so commitTurn does not write to the session
+// store. lastAssistant is the turn's final assistant message, surfaced to the
+// Stop hook. The lock is never held across the LLM round-trip that compaction may
+// perform: compaction runs on the local nextHistory and only its result is
+// committed under the lock.
+func (s *Session) commitTurn(ctx context.Context, turnID string, userText string, result *TurnResult, messages []llm.Message, currentUserIndex int, lastAssistant llm.Message) error {
+	nextHistory, _ := trimMessagesForHistoryBudget(messages, s.maxHistoryMessages, currentUserIndex)
+	if err := s.recordTranscriptTurn(ctx, turnID, userText, *result); err != nil {
+		return err
+	}
+	s.setHistory(nextHistory)
+	s.setHistory(s.maybeCompact(ctx, turnID, nextHistory, result.FinalUsage))
+	s.fireStop(ctx, lastAssistant)
+	return nil
 }
 
 // runUserPromptSubmitHook fires the UserPromptSubmit hooks. It returns the
@@ -401,6 +518,23 @@ func (s *Session) FireSessionEnd(ctx context.Context, reason string) {
 	})
 }
 
+// ToolDescriptor is a tool's name and description, for UI listing (e.g. an
+// @-mention picker).
+type ToolDescriptor struct {
+	Name        string
+	Description string
+}
+
+// ToolList returns the session's tools as name/description pairs, in their
+// curated order.
+func (s *Session) ToolList() []ToolDescriptor {
+	out := make([]ToolDescriptor, 0, len(s.tools))
+	for _, t := range s.tools {
+		out = append(out, ToolDescriptor{Name: t.Name(), Description: t.Description()})
+	}
+	return out
+}
+
 func (s *Session) History() []llm.Message {
 	return s.historySnapshot()
 }
@@ -435,6 +569,85 @@ func (s *Session) currentModel() string {
 	s.modelMu.RLock()
 	defer s.modelMu.RUnlock()
 	return s.model
+}
+
+// SetPlanMode toggles plan-mode prompt guidance for subsequent turns.
+func (s *Session) SetPlanMode(on bool) { s.planMode.Store(on) }
+
+// PlanMode reports whether plan-mode guidance is active.
+func (s *Session) PlanMode() bool { return s.planMode.Load() }
+
+func (s *Session) currentReasoning() ReasoningOptions {
+	s.reasoningMu.RLock()
+	defer s.reasoningMu.RUnlock()
+	return s.reasoning
+}
+
+// SetReasoningScenario switches the "thinking model" at runtime: "off" disables
+// it, "auto" classifies each turn, any scenario name applies that scenario's
+// guidance directly. Strict/MaxTokens from the original config are preserved.
+func (s *Session) SetReasoningScenario(scenario string) {
+	// Re-selecting the thinking model starts a fresh "think then execute" cycle.
+	s.analyzeDone.Store(false)
+	s.reasoningMu.Lock()
+	defer s.reasoningMu.Unlock()
+	r := s.reasoning
+	switch strings.ToLower(strings.TrimSpace(scenario)) {
+	case "", "off":
+		r.Enabled, r.AutoClassify = false, false
+	case "auto":
+		r.Enabled, r.AutoClassify = true, true
+	default:
+		r.Enabled, r.AutoClassify = true, false
+		r.DefaultScenario = ReasoningScenario(scenario)
+	}
+	s.reasoning = r
+}
+
+// ReasoningScenarioName reports the current "thinking model" selector: "off",
+// "auto", or a scenario name.
+func (s *Session) ReasoningScenarioName() string {
+	r := s.currentReasoning()
+	switch {
+	case !r.Enabled:
+		return "off"
+	case r.AutoClassify:
+		return "auto"
+	default:
+		return string(defaultReasoningScenario(r))
+	}
+}
+
+func (s *Session) currentThinking() llm.ThinkingConfig {
+	s.thinkingMu.RLock()
+	defer s.thinkingMu.RUnlock()
+	return s.thinking
+}
+
+// SetThinkingEffort switches provider-native extended thinking at runtime:
+// "off"/"" disables it, "low"/"medium"/"high" request that reasoning effort
+// (OpenAI reasoning_effort / an Anthropic thinking budget). It returns an error
+// for any other value. An explicit BudgetTokens override from the original config
+// is cleared, since the effort now drives the budget.
+func (s *Session) SetThinkingEffort(effort string) error {
+	parsed, ok := llm.ParseThinkingEffort(strings.ToLower(strings.TrimSpace(effort)))
+	if !ok {
+		return fmt.Errorf("%w: unknown thinking effort %q", ErrInvalidSession, effort)
+	}
+	s.thinkingMu.Lock()
+	defer s.thinkingMu.Unlock()
+	s.thinking = llm.ThinkingConfig{Effort: parsed}
+	return nil
+}
+
+// ThinkingEffortName reports the current thinking effort ("off"/"low"/"medium"/
+// "high"), for status display.
+func (s *Session) ThinkingEffortName() string {
+	t := s.currentThinking()
+	if !t.Enabled() {
+		return "off"
+	}
+	return string(t.Effort)
 }
 
 // SetModel switches the model used for subsequent turns. It is safe to call
@@ -565,6 +778,88 @@ func (s *Session) Compact(ctx context.Context) (before int, after int, err error
 	return before, len(compacted), nil
 }
 
+const titleSystemPrompt = "You name a coding-assistant conversation. Given the user's request, reply with a concise title (at most 8 words) that captures its intent. Reply with the title text only — no quotes, no trailing punctuation, no preamble — in the same language as the request."
+
+// titleMaxTokens must leave room for a reasoning model to think before emitting
+// the (short) title. A tight budget (e.g. 64) gets fully consumed by the hidden
+// reasoning, so the title itself is never produced — the generation comes back
+// empty and no session name is saved.
+const titleMaxTokens = 2048
+
+// GenerateTitle asks the model for a short title summarizing userText. It is a
+// single, isolated request — no tools, no conversation history — used only to
+// name the session in the UI. Callers run it off the turn path and may ignore
+// errors; an empty userText yields an empty title without a request.
+func (s *Session) GenerateTitle(ctx context.Context, userText string) (string, error) {
+	userText = strings.TrimSpace(userText)
+	if userText == "" {
+		return "", nil
+	}
+	temperature := 0.0
+	req := llm.Request{
+		Model:       s.currentModel(),
+		Messages:    []llm.Message{userMessage("Title this request:\n\n" + userText)},
+		System:      []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: titleSystemPrompt}},
+		MaxTokens:   titleMaxTokens,
+		Temperature: &temperature,
+		Metadata:    s.metadata,
+	}
+	assistant, _, _, err := s.streamAssistant(ctx, req, telemetry.NewTurnID(), "session_title", nil)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(llm.TextContent(assistant)), nil
+}
+
+const harmSystemPrompt = "You are a safety gate for a coding agent. Given an action the agent is about to take, decide whether it is HARMFUL — destructive, dangerous, or clearly malicious: deleting or corrupting data unrelated to the task, mass/irreversible changes, exfiltrating secrets or credentials, damaging the system, disabling security, or downloading and running untrusted code. Routine development is NOT harmful: editing project files, running builds/tests/linters, normal git, reading or listing files, installing declared dependencies. When unsure, lean safe for ordinary dev actions and harmful only for clearly destructive ones. Reply with ONLY a compact JSON object and nothing else: {\"harmful\": true or false, \"reason\": \"<short reason in Chinese>\"}."
+
+// harmMaxTokens must leave room for a reasoning model to think before emitting
+// the small JSON verdict; too tight a budget gets consumed by hidden reasoning
+// and yields no parseable verdict.
+const harmMaxTokens = 1024
+
+// AssessHarm asks the model whether the described action is harmful. It is a
+// single isolated request (no tools, no history). A parse/transport failure
+// returns an error so the caller can fail safe (e.g. fall back to prompting).
+func (s *Session) AssessHarm(ctx context.Context, description string) (harmful bool, reason string, err error) {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return false, "", nil
+	}
+	temperature := 0.0
+	req := llm.Request{
+		Model:       s.currentModel(),
+		Messages:    []llm.Message{userMessage("Action: " + description)},
+		System:      []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: harmSystemPrompt}},
+		MaxTokens:   harmMaxTokens,
+		Temperature: &temperature,
+		Metadata:    s.metadata,
+	}
+	assistant, _, _, err := s.streamAssistant(ctx, req, telemetry.NewTurnID(), "harm_check", nil)
+	if err != nil {
+		return false, "", err
+	}
+	return parseHarmVerdict(llm.TextContent(assistant))
+}
+
+// parseHarmVerdict extracts the {"harmful":..,"reason":..} object from the model's
+// reply, tolerating surrounding prose by taking the outermost braces.
+func parseHarmVerdict(text string) (bool, string, error) {
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start < 0 || end <= start {
+		return false, "", fmt.Errorf("harm verdict: no JSON object in %q", text)
+	}
+	var v struct {
+		Harmful bool   `json:"harmful"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(text[start:end+1]), &v); err != nil {
+		return false, "", fmt.Errorf("harm verdict: %w", err)
+	}
+	return v.Harmful, strings.TrimSpace(v.Reason), nil
+}
+
 func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
 	return func(ctx context.Context, messages []llm.Message) (string, error) {
 		// Render the turns to a plain-text transcript and summarize that as a
@@ -582,7 +877,7 @@ func (s *Session) summarizeForCompaction(turnID string) compaction.Summarizer {
 			MaxTokens: compactionSummaryMaxTokens,
 			Metadata:  s.metadata,
 		}
-		assistant, _, _, err := s.streamAssistant(ctx, req, turnID, "compaction_summary")
+		assistant, _, _, err := s.streamAssistant(ctx, req, turnID, "compaction_summary", nil)
 		if err != nil {
 			return "", err
 		}
@@ -687,8 +982,41 @@ func (s *Session) buildRequestWithMessages(messages []llm.Message) (llm.Request,
 	return s.buildRequestWithMessagesAndPrompt(messages, s.prompt)
 }
 
+// currentSkillsCatalog returns the live skill catalog for the system prompt.
+func (s *Session) currentSkillsCatalog() string {
+	s.skillsMu.RLock()
+	defer s.skillsMu.RUnlock()
+	return s.skillsCatalog
+}
+
+// SetSkillsCatalog updates the skill catalog injected into subsequent turns, so a
+// freshly-edited skill set takes effect without a session restart.
+func (s *Session) SetSkillsCatalog(catalog string) {
+	s.skillsMu.Lock()
+	s.skillsCatalog = catalog
+	s.skillsMu.Unlock()
+}
+
+// currentAgentsCatalog returns the live sub-agent catalog for the system prompt.
+func (s *Session) currentAgentsCatalog() string {
+	s.skillsMu.RLock()
+	defer s.skillsMu.RUnlock()
+	return s.agentsCatalog
+}
+
+// SetAgentsCatalog updates the sub-agent catalog injected into subsequent turns, so
+// a freshly-edited agent set takes effect without a session restart.
+func (s *Session) SetAgentsCatalog(catalog string) {
+	s.skillsMu.Lock()
+	s.agentsCatalog = catalog
+	s.skillsMu.Unlock()
+}
+
 func (s *Session) buildRequestWithMessagesAndPrompt(messages []llm.Message, promptOpts prompt.AssemblerOpts) (llm.Request, error) {
-	promptOpts.Tools = s.tools
+	tools := s.advertisedTools()
+	promptOpts.Tools = tools
+	promptOpts.Skills = s.currentSkillsCatalog()
+	promptOpts.Agents = s.currentAgentsCatalog()
 	system, err := prompt.BuildSystemPrompt(promptOpts)
 	if err != nil {
 		return llm.Request{}, err
@@ -698,15 +1026,32 @@ func (s *Session) buildRequestWithMessagesAndPrompt(messages []llm.Message, prom
 		Model:       s.currentModel(),
 		Messages:    cloneMessages(messages),
 		System:      system,
-		Tools:       ToolSpecs(s.tools),
+		Tools:       ToolSpecs(tools),
 		MaxTokens:   s.maxTokens,
 		Temperature: s.temperature,
 		Metadata:    s.metadata,
-		Thinking:    s.thinking,
+		Thinking:    s.currentThinking(),
 	}, nil
 }
 
-func (s *Session) streamAssistant(ctx context.Context, req llm.Request, turnID string, purpose string) (llm.Message, llm.StopReason, *llm.Usage, error) {
+// advertisedTools is the tool set offered to the model this turn. The Analyze tool
+// is only advertised while an in-turn thinking protocol is active, so it does not
+// clutter ordinary turns.
+func (s *Session) advertisedTools() []tool.Tool {
+	if s.analyzeGate != nil {
+		return s.tools
+	}
+	out := make([]tool.Tool, 0, len(s.tools))
+	for _, t := range s.tools {
+		if t.Name() == analyzeToolName {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *Session) streamAssistant(ctx context.Context, req llm.Request, turnID string, purpose string, onText func(string)) (llm.Message, llm.StopReason, *llm.Usage, error) {
 	requestID := telemetry.NewRequestID()
 	started := time.Now()
 	s.record(ctx, telemetry.Event{
@@ -732,11 +1077,20 @@ func (s *Session) streamAssistant(ctx context.Context, req llm.Request, turnID s
 		return llm.Message{}, "", nil, err
 	}
 	defer stream.Close()
-	var deltaFn func(string)
-	if purpose == "assistant" {
+	var deltaFn, thinkingFn func(string)
+	var onToolInput func(id, name, partial string)
+	switch purpose {
+	case "assistant":
 		deltaFn = s.streamDelta
+		thinkingFn = s.streamThinking
+		// Stream selected tool calls' arguments into live cards as the model writes
+		// them: Analyze fills its thinking card, Write "types out" the file content.
+		onToolInput = s.assistantToolInputCallback()
+	case "reasoning_analysis":
+		// The pre-turn analysis streams its JSON via onText (incremental parsing).
+		deltaFn = onText
 	}
-	message, stopReason, usage, err := collectAssistantMessage(ctx, stream, deltaFn)
+	message, stopReason, usage, err := collectAssistantMessage(ctx, stream, deltaFn, thinkingFn, onToolInput)
 	if err != nil {
 		s.record(ctx, s.llmErrorEvent(requestID, turnID, purpose, req, started, err))
 		return llm.Message{}, "", nil, err
@@ -770,11 +1124,11 @@ func (s *Session) classifyReasoningScenario(ctx context.Context, userText string
 			Text:  sections.ReasoningClassifier(),
 			Cache: llm.CacheControlNone,
 		}},
-		MaxTokens:   reasoningMaxTokens(s.reasoning),
+		MaxTokens:   reasoningMaxTokens(s.currentReasoning()),
 		Temperature: &temperature,
 		Metadata:    s.metadata,
 	}
-	assistant, _, usage, err := s.streamAssistant(ctx, req, turnID, "reasoning_classification")
+	assistant, _, usage, err := s.streamAssistant(ctx, req, turnID, "reasoning_classification", nil)
 	if err != nil {
 		return ReasoningClassification{}, &req, usage, err
 	}
@@ -785,7 +1139,173 @@ func (s *Session) classifyReasoningScenario(ctx context.Context, userText string
 	return classification, &req, usage, nil
 }
 
-func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, turnID string) ([]llm.ContentBlock, error) {
+// runStructuredAnalysis executes a scenario's thinking protocol as a dedicated
+// pre-turn pass: the model fills every step, and the rendered result is returned
+// to ground the main turn. This is the hardened "固化" path — the steps are
+// code-defined and the model must produce concrete content for each.
+func (s *Session) runStructuredAnalysis(ctx context.Context, p ReasoningProtocol, userText, turnID string) (string, *llm.Usage, error) {
+	temperature := 0.0
+	req := llm.Request{
+		Model:    s.currentModel(),
+		Messages: []llm.Message{userMessage(userText)},
+		System: []llm.ContentBlock{{
+			Type:  llm.ContentBlockTypeText,
+			Text:  p.analysisSystemPrompt(),
+			Cache: llm.CacheControlNone,
+		}},
+		MaxTokens:   reasoningAnalysisMaxTokens,
+		Temperature: &temperature,
+		Metadata:    s.metadata,
+	}
+	// Surface the pre-turn analysis as an Analyze card, streamed: show it immediately
+	// with the step labels (empty content), then fill each step's content live as the
+	// analysis JSON arrives. The synthetic id is unique per turn.
+	analysisID := turnID + "-analysis"
+	skeleton, lastSig := p.analysisInputFrom(nil)
+	emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeStarted, ToolName: analyzeToolName, ToolUseID: analysisID, Input: skeleton})
+	var buf strings.Builder
+	onText := func(delta string) {
+		buf.WriteString(delta)
+		input, sig := p.analysisInputFrom(p.partialPreTurnContent(buf.String()))
+		if input == nil || sig == lastSig {
+			return
+		}
+		lastSig = sig
+		emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeProgress, ToolName: analyzeToolName, ToolUseID: analysisID, Input: input})
+	}
+	assistant, _, usage, err := s.streamAssistant(ctx, req, turnID, "reasoning_analysis", onText)
+	if err != nil {
+		return "", usage, err
+	}
+	filled, err := p.parseStructuredAnalysis(llm.TextContent(assistant))
+	if err != nil {
+		return "", usage, err
+	}
+	output := p.analysisOutputLines(filled)
+	emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeCompleted, ToolName: analyzeToolName, ToolUseID: analysisID, Input: p.analysisInput(filled), Output: output, OutputTotal: len(output)})
+	return p.renderAnalysis(filled), usage, nil
+}
+
+// analyzeStreamCallback returns a per-request hook that streams an in-turn Analyze
+// tool call's arguments into a live thinking card: as the tool_use input JSON grows,
+// it parses the partial steps and emits progress events (deduped by rendered
+// content). It is a no-op unless an in-turn analysis gate is active and the tool is
+// Analyze. Each streamAssistant call gets a fresh callback so its dedup state is
+// scoped to that request.
+func (s *Session) analyzeStreamCallback() func(id, name, partial string) {
+	seen := map[string]string{}
+	return func(id, name, partial string) {
+		if name != analyzeToolName || id == "" {
+			return
+		}
+		gate := s.analyzeGate
+		if gate == nil {
+			return
+		}
+		input, sig := gate.proto.analysisInputFrom(partialInTurnContent(partial))
+		if input == nil || seen[id] == sig {
+			return
+		}
+		seen[id] = sig
+		emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeProgress, ToolName: analyzeToolName, ToolUseID: id, Input: input})
+	}
+}
+
+// assistantToolInputCallback streams selected tool calls' arguments into live cards
+// as the model generates them: an in-turn Analyze fills its thinking card, and a
+// Write/Edit "types out" the file body it is producing as output lines (later
+// replaced by the diff when the tool actually runs). It is fresh per request so its
+// per-id dedup state is scoped to that stream.
+func (s *Session) assistantToolInputCallback() func(id, name, partial string) {
+	analyze := s.analyzeStreamCallback()
+	emitted := map[string]int{}        // id → body bytes already streamed (through the last newline)
+	lastPrimary := map[string]string{} // id → last primary-arg value already sent
+	return func(id, name, partial string) {
+		analyze(id, name, partial)
+		if id == "" {
+			return
+		}
+		// 1. Stream the primary argument (command / pattern / url / path …) as it is
+		//    composed, so the tool card appears immediately and its label/参数 fill in
+		//    live. The executor's later started event carries the full input.
+		if field := primaryInputField(name); field != "" {
+			if v, _ := partialJSONStringField(partial, field); v != "" && v != lastPrimary[id] {
+				lastPrimary[id] = v
+				if b, err := json.Marshal(map[string]string{field: v}); err == nil {
+					emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeProgress, ToolName: name, ToolUseID: id, Input: b})
+				}
+			}
+		}
+		// 2. File writes additionally "type out" their body (content / new_string) as
+		//    output lines, later replaced by the diff when the tool runs.
+		bodyField := streamedBodyField(name)
+		if bodyField == "" {
+			return
+		}
+		body, _ := partialJSONStringField(partial, bodyField)
+		start := emitted[id]
+		var lines []tool.OutputLine
+		for start < len(body) {
+			nl := strings.IndexByte(body[start:], '\n')
+			if nl < 0 {
+				break
+			}
+			lines = append(lines, tool.OutputLine{Stream: tool.OutputStreamStdout, Text: body[start : start+nl]})
+			start += nl + 1
+		}
+		emitted[id] = start
+		if len(lines) > 0 {
+			emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeProgress, ToolName: name, ToolUseID: id, Output: lines})
+		}
+	}
+}
+
+// primaryInputField returns the main argument a tool card labels itself with, so it
+// can be shown live as the model composes the call. "" means no live label (e.g. an
+// unknown/MCP tool whose partial arguments would just be raw JSON).
+func primaryInputField(toolName string) string {
+	switch toolName {
+	case "Bash":
+		return "command"
+	case "Grep", "Glob":
+		return "pattern"
+	case "Read", "Write", "Edit", "Delete":
+		return "path"
+	case "WebFetch":
+		return "url"
+	default:
+		return ""
+	}
+}
+
+// streamedBodyField returns the model-generated body argument a tool "types out" as
+// output while it streams, or "" for tools that produce their result atomically.
+func streamedBodyField(toolName string) string {
+	switch toolName {
+	case "Write":
+		return "content"
+	case "Edit":
+		return "new_string"
+	default:
+		return ""
+	}
+}
+
+// executeToolUses runs the assistant's tool calls and returns their result
+// blocks. The bool is true when the user denied a tool and asked to stop: in that
+// case the denied tool's result is included and every remaining tool_use is
+// answered with a skip placeholder, so the assistant message stays well-formed
+// (each tool_use needs a matching tool_result) while the caller halts the turn.
+const analyzeToolName = "Analyze"
+
+// analyzeGate enforces an in-turn thinking protocol: the Analyze tool must run and
+// fill every step before any other tool is allowed.
+type analyzeGate struct {
+	proto     ReasoningProtocol
+	satisfied bool
+}
+
+func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, turnID string) ([]llm.ContentBlock, bool, error) {
 	var blocks []llm.ContentBlock
 	for _, b := range assistant.Content {
 		if b.Type == llm.ContentBlockTypeToolUse {
@@ -793,18 +1313,27 @@ func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, tu
 		}
 	}
 	if len(blocks) == 0 {
-		return nil, nil
+		return nil, false, nil
+	}
+	if gate := s.analyzeGate; gate != nil && !gate.satisfied {
+		return s.executeGatedToolUses(ctx, blocks, turnID, gate)
 	}
 	results := make([]llm.ContentBlock, len(blocks))
 	i := 0
 	for i < len(blocks) {
 		if !s.canRunConcurrently(blocks[i]) {
-			result, err := s.executeSingleTool(ctx, blocks[i], turnID)
+			result, stop, err := s.executeSingleTool(ctx, blocks[i], turnID)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			results[i] = result
 			i++
+			if stop {
+				for k := i; k < len(blocks); k++ {
+					results[k] = skippedToolResultBlock(blocks[k])
+				}
+				return results, true, nil
+			}
 			continue
 		}
 		j := i + 1
@@ -812,18 +1341,74 @@ func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, tu
 			j++
 		}
 		if err := s.executeConcurrentBatch(ctx, blocks[i:j], results[i:j], turnID); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		i = j
 	}
-	return results, nil
+	return results, false, nil
+}
+
+// executeGatedToolUses enforces the in-turn analysis gate: a complete Analyze call
+// runs and satisfies the gate; an incomplete Analyze and every other tool get an
+// error result telling the model to complete the analysis first.
+func (s *Session) executeGatedToolUses(ctx context.Context, blocks []llm.ContentBlock, turnID string, gate *analyzeGate) ([]llm.ContentBlock, bool, error) {
+	results := make([]llm.ContentBlock, len(blocks))
+	for i, b := range blocks {
+		if b.Name == analyzeToolName {
+			if missing := gate.proto.missingAnalysisSteps(b.Input); len(missing) > 0 {
+				// Close the live-streamed card (its args just finished, incomplete); the
+				// model will retry with a fresh Analyze call under a new id.
+				emitToolEvent(s.toolEvents, tool.Event{Type: tool.EventTypeFailed, ToolName: analyzeToolName, ToolUseID: b.ID, Message: "分析不完整,重试中"})
+				results[i] = toolErrorBlock(b.ID, fmt.Sprintf("结构化分析缺少以下步骤,请补全后重新调用 Analyze:%s。", strings.Join(missing, "、")))
+				continue
+			}
+			// Enrich the emitted input with the protocol's method and step labels (and
+			// canonical order) so the UI renders a fully-labeled structured-thinking
+			// card. This copy is local — the persisted assistant tool_use keeps the
+			// model's original input; the Analyze tool ignores the extra fields.
+			b.Input = gate.proto.enrichAnalysisInput(b.Input)
+			result, _, err := s.executeSingleTool(ctx, b, turnID)
+			if err != nil {
+				return nil, false, err
+			}
+			results[i] = result
+			gate.satisfied = true
+			s.analyzeDone.Store(true)
+			continue
+		}
+		results[i] = toolErrorBlock(b.ID, gate.proto.gatePromptMessage())
+	}
+	return results, false, nil
+}
+
+// toolErrorBlock builds an error tool_result for a tool_use id.
+func toolErrorBlock(toolUseID, message string) llm.ContentBlock {
+	return llm.ContentBlock{
+		Type:      llm.ContentBlockTypeToolResult,
+		ToolUseID: toolUseID,
+		IsError:   true,
+		Content:   []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: message}},
+	}
+}
+
+// skippedToolResultBlock answers a tool_use that never ran because the user
+// stopped execution, keeping the assistant message well-formed.
+func skippedToolResultBlock(block llm.ContentBlock) llm.ContentBlock {
+	return llm.ContentBlock{
+		Type:      llm.ContentBlockTypeToolResult,
+		ToolUseID: block.ID,
+		IsError:   true,
+		Content:   []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "Skipped: the user stopped execution before this tool ran."}},
+	}
 }
 
 func (s *Session) canRunConcurrently(block llm.ContentBlock) bool {
 	return s.executor.IsConcurrencySafe(block.Name) && !s.executor.ApprovalAvailable()
 }
 
-func (s *Session) executeSingleTool(ctx context.Context, block llm.ContentBlock, turnID string) (llm.ContentBlock, error) {
+// executeSingleTool runs one tool call. The bool reports whether the result
+// should halt the turn (the user denied the action and asked to stop).
+func (s *Session) executeSingleTool(ctx context.Context, block llm.ContentBlock, turnID string) (llm.ContentBlock, bool, error) {
 	executed, err := s.executor.Execute(ctx, ExecuteRequest{
 		Name:      block.Name,
 		Input:     block.Input,
@@ -835,14 +1420,20 @@ func (s *Session) executeSingleTool(ctx context.Context, block llm.ContentBlock,
 		TurnID:    turnID,
 	})
 	if err != nil {
-		return llm.ContentBlock{}, err
+		return llm.ContentBlock{}, false, err
 	}
-	return ToolResultBlock(executed)
+	rb, err := ToolResultBlock(executed)
+	if err != nil {
+		return llm.ContentBlock{}, false, err
+	}
+	return rb, executed.StopTurn, nil
 }
 
 func (s *Session) executeConcurrentBatch(ctx context.Context, blocks []llm.ContentBlock, results []llm.ContentBlock, turnID string) error {
 	if len(blocks) == 1 {
-		result, err := s.executeSingleTool(ctx, blocks[0], turnID)
+		// A concurrent batch only forms when interactive approval is unavailable, so
+		// no user "stop" decision can arise here; the stop flag is always false.
+		result, _, err := s.executeSingleTool(ctx, blocks[0], turnID)
 		if err != nil {
 			return err
 		}
@@ -1034,7 +1625,7 @@ type blockAccumulator struct {
 	materializedText bool
 }
 
-func collectAssistantMessage(ctx context.Context, stream llm.Stream, delta func(string)) (llm.Message, llm.StopReason, *llm.Usage, error) {
+func collectAssistantMessage(ctx context.Context, stream llm.Stream, delta, thinking func(string), onToolInput func(id, name, partial string)) (llm.Message, llm.StopReason, *llm.Usage, error) {
 	blocks := make(map[int]*blockAccumulator)
 	var stopReason llm.StopReason
 	var usage *llm.Usage
@@ -1050,7 +1641,7 @@ func collectAssistantMessage(ctx context.Context, stream llm.Stream, delta func(
 				}
 				return llm.Message{Role: llm.RoleAssistant, Content: orderedBlocks(blocks)}, stopReason, usage, nil
 			}
-			if err := applyStreamEvent(blocks, event, delta); err != nil {
+			if err := applyStreamEvent(blocks, event, delta, thinking, onToolInput); err != nil {
 				return llm.Message{}, "", nil, err
 			}
 			if event.Type == llm.StreamEventTypeMessageStop {
@@ -1062,7 +1653,7 @@ func collectAssistantMessage(ctx context.Context, stream llm.Stream, delta func(
 	}
 }
 
-func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent, delta func(string)) error {
+func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent, delta, thinking func(string), onToolInput func(id, name, partial string)) error {
 	switch event.Type {
 	case llm.StreamEventTypeMessageStart, llm.StreamEventTypeMessageStop:
 		return nil
@@ -1071,6 +1662,11 @@ func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent, d
 			return errors.New("content block start missing block")
 		}
 		blocks[event.Index] = &blockAccumulator{block: *event.Block}
+		// Announce a tool_use block at its start (empty args) so a live card can
+		// appear before any argument bytes arrive.
+		if onToolInput != nil && event.Block.Type == llm.ContentBlockTypeToolUse {
+			onToolInput(event.Block.ID, event.Block.Name, "")
+		}
 		return nil
 	case llm.StreamEventTypeContentBlockDelta:
 		acc, ok := blocks[event.Index]
@@ -1086,6 +1682,14 @@ func applyStreamEvent(blocks map[int]*blockAccumulator, event llm.StreamEvent, d
 		acc.inputJSON = append(acc.inputJSON, event.Delta.InputJSON...)
 		if delta != nil && event.Delta.Text != "" && acc.block.Type == llm.ContentBlockTypeText {
 			delta(event.Delta.Text)
+		}
+		if thinking != nil && event.Delta.Thinking != "" && acc.block.Type == llm.ContentBlockTypeThinking {
+			thinking(event.Delta.Thinking)
+		}
+		// Stream a tool_use block's growing arguments (e.g. an Analyze call) so a
+		// live card can fill in as the model writes them.
+		if onToolInput != nil && len(event.Delta.InputJSON) > 0 && acc.block.Type == llm.ContentBlockTypeToolUse {
+			onToolInput(acc.block.ID, acc.block.Name, string(acc.inputJSON))
 		}
 		return nil
 	case llm.StreamEventTypeContentBlockStop:

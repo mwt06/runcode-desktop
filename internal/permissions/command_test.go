@@ -89,11 +89,11 @@ func TestClassifyCommandHardDenyCandidates(t *testing.T) {
 		capability CommandCapability
 		reason     CommandRiskReason
 	}{
-		{command: "unknown-tool --flag", category: CommandCategoryUnknown, capability: CommandCapabilityUnknownEffects, reason: CommandRiskUnknownCommand},
 		{command: "sudo go test", category: CommandCategoryPrivileged, capability: CommandCapabilityRequiresPrivilege, reason: CommandRiskPrivilegedCommand},
 		{command: "rm -rf build", category: CommandCategoryOutsideWrite, capability: CommandCapabilityWritesOutside, reason: CommandRiskOutsideWorkspaceWrite},
 		{command: "git reset --hard", category: CommandCategoryVCSDestructive, capability: CommandCapabilityDestructiveVCS, reason: CommandRiskDestructiveVCS},
-		{command: "ls | wc", category: CommandCategoryUnknown, capability: CommandCapabilityUnknownEffects, reason: CommandRiskShellControlOperator},
+		// A control-operator chain hiding a destructive delete stays hard-denied.
+		{command: "echo ok && rm -rf /", category: CommandCategoryUnknown, capability: CommandCapabilityUnknownEffects, reason: CommandRiskShellControlOperator},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -110,6 +110,36 @@ func TestClassifyCommandHardDenyCandidates(t *testing.T) {
 				t.Fatalf("reasons = %#v, want %q", classification.Reasons, tt.reason)
 			}
 		})
+	}
+}
+
+func TestClassifyShellControlOperatorIsApprovable(t *testing.T) {
+	t.Parallel()
+	// Plain control-operator chains (no privilege/destructive token) are high-risk
+	// but not critical, so they go to approval instead of a hard deny.
+	for _, command := range []string{"go build && go test", "ls | grep foo", "cat a.txt; echo done"} {
+		c := classifyCommand(command)
+		if c.Category != CommandCategoryUnknown || c.Risk != RiskHigh {
+			t.Fatalf("%q classification = %#v, want unknown category, high risk", command, c)
+		}
+		if !hasCommandRiskReason(c.Reasons, CommandRiskShellControlOperator) {
+			t.Fatalf("%q reasons = %#v, want shell control operator", command, c.Reasons)
+		}
+	}
+}
+
+func TestClassifyUnknownCommandIsApprovable(t *testing.T) {
+	t.Parallel()
+	// An unrecognized command is high-risk but not critical, so the default
+	// policy routes it to approval rather than a hard deny.
+	for _, command := range []string{"unknown-tool --flag", "python prime.py", "go doc fmt"} {
+		c := classifyCommand(command)
+		if c.Category != CommandCategoryUnknown || c.Risk != RiskHigh {
+			t.Fatalf("%q classification = %#v, want unknown category, high risk", command, c)
+		}
+		if !hasCommandCapability(c.Capabilities, CommandCapabilityUnknownEffects) {
+			t.Fatalf("%q capabilities = %#v, want unknown_effects", command, c.Capabilities)
+		}
 	}
 }
 

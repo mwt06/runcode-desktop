@@ -154,7 +154,7 @@ func (c *httpClient) attempt(ctx context.Context, payload []byte) (sseStream, ti
 		}
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return newHTTPSSEStream(resp.Body), 0, false, nil
+		return newHTTPSSEStream(tapSSE(resp.Body)), 0, false, nil
 	}
 	defer resp.Body.Close()
 	retryAfter := parseRetryAfter(resp.Header)

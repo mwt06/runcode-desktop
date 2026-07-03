@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	requestTimeout = 30 * time.Second
-	maxBodyBytes   = 5 << 20 // 5 MiB read cap
-	maxOutputRunes = 50000   // extracted-text cap
-	maxRedirects   = 5
+	requestTimeout   = 30 * time.Second
+	maxBodyBytes     = 5 << 20 // 5 MiB read cap
+	maxOutputRunes   = 50000   // extracted-text cap
+	maxRedirects     = 5
+	maxStreamedLines = 500 // cap live output lines while a text body downloads
 )
 
 type input struct {
@@ -127,7 +128,7 @@ func (Tool) InputSchema() tool.Schema {
 
 func (Tool) IsConcurrencySafe() bool { return false }
 
-func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, events chan<- tool.Event) (tool.Result, error) {
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return tool.Result{}, fmt.Errorf("parse webfetch input: %w", err)
@@ -154,6 +155,7 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, _ c
 	}
 	req.Header.Set("Accept", "text/html, text/plain, */*")
 
+	emitStatus(events, "正在连接 "+parsed.Host+" …")
 	resp, err := client.Do(req)
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("fetch: %w", err)
@@ -167,15 +169,97 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, _ c
 		}, nil
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	contentType := resp.Header.Get("Content-Type")
+	// Text-like bodies (plain/JSON/XML) are the final content, so stream them line by
+	// line as they download. HTML is post-processed into plain text from the complete
+	// DOM, so it can't stream usefully — show a parse status instead; the completed
+	// event then carries the extracted text.
+	streamable := isStreamableContentType(contentType)
+	if !streamable {
+		emitStatus(events, "正在抓取并解析 "+parsed.Host+" …")
+	}
+	body, err := readBody(ctx, resp.Body, streamable, events)
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("read body: %w", err)
 	}
-	text, err := extractText(resp.Header.Get("Content-Type"), body)
+	text, err := extractText(contentType, body)
 	if err != nil {
 		return tool.Result{}, err
 	}
 	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: truncateRunes(text, maxOutputRunes)}}}, nil
+}
+
+// isStreamableContentType reports whether a body is its own final content (so it can
+// be streamed as it downloads) rather than HTML that needs whole-DOM extraction.
+func isStreamableContentType(contentType string) bool {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+	if strings.Contains(mediaType, "html") {
+		return false
+	}
+	return mediaType == "" || strings.HasPrefix(mediaType, "text/") ||
+		strings.Contains(mediaType, "json") || strings.Contains(mediaType, "xml")
+}
+
+// readBody reads the response body (capped at maxBodyBytes). When stream is set it
+// also emits complete lines as live output events so the UI shows content arriving;
+// it always returns the full bytes for post-processing.
+func readBody(ctx context.Context, r io.Reader, stream bool, events chan<- tool.Event) ([]byte, error) {
+	limited := io.LimitReader(r, maxBodyBytes)
+	if !stream || events == nil {
+		return io.ReadAll(limited)
+	}
+	var buf bytes.Buffer
+	var pending []byte
+	chunk := make([]byte, 16<<10)
+	lines := 0
+	for {
+		n, readErr := limited.Read(chunk)
+		if n > 0 {
+			buf.Write(chunk[:n])
+			pending = append(pending, chunk[:n]...)
+			var batch []tool.OutputLine
+			for lines < maxStreamedLines {
+				i := bytes.IndexByte(pending, '\n')
+				if i < 0 {
+					break
+				}
+				batch = append(batch, tool.OutputLine{Stream: tool.OutputStreamStdout, Text: strings.TrimRight(string(pending[:i]), "\r")})
+				pending = pending[i+1:]
+				lines++
+			}
+			if len(batch) > 0 {
+				sendOutput(events, batch)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return buf.Bytes(), readErr
+		}
+		if ctx.Err() != nil {
+			return buf.Bytes(), ctx.Err()
+		}
+	}
+	if len(pending) > 0 && lines < maxStreamedLines {
+		sendOutput(events, []tool.OutputLine{{Stream: tool.OutputStreamStdout, Text: string(pending)}})
+	}
+	return buf.Bytes(), nil
+}
+
+// emitStatus sends a single info line describing fetch progress (non-blocking).
+func emitStatus(events chan<- tool.Event, text string) {
+	sendOutput(events, []tool.OutputLine{{Stream: tool.OutputStreamInfo, Text: text}})
+}
+
+func sendOutput(events chan<- tool.Event, lines []tool.OutputLine) {
+	if events == nil {
+		return
+	}
+	select {
+	case events <- tool.Event{Type: tool.EventTypeProgress, ToolName: "WebFetch", Output: lines}:
+	default:
+	}
 }
 
 func extractText(contentType string, body []byte) (string, error) {

@@ -42,6 +42,39 @@ func TestTodoWriteValidList(t *testing.T) {
 	}
 }
 
+func TestTodoWriteEventCarriesSnapshot(t *testing.T) {
+	t.Parallel()
+	out := make(chan tool.Event, 1)
+	_, err := run(t, `{"todos":[
+		{"content":"build","status":"completed"},
+		{"content":"test","status":"in_progress","activeForm":"Testing the build"},
+		{"content":"ship","status":"pending"}
+	]}`, out)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	ev := <-out
+	snap, ok := ev.Data.(todoSnapshot)
+	if !ok {
+		t.Fatalf("event Data is not a todoSnapshot: %#v", ev.Data)
+	}
+	if snap.Done != 1 || snap.Total != 3 {
+		t.Fatalf("snapshot counts = done %d total %d, want 1/3", snap.Done, snap.Total)
+	}
+	if len(snap.Items) != 3 {
+		t.Fatalf("snapshot items = %d, want 3", len(snap.Items))
+	}
+	if snap.Items[0].Content != "build" || snap.Items[0].Status != statusCompleted {
+		t.Fatalf("item0 = %#v", snap.Items[0])
+	}
+	if snap.Items[1].Status != statusInProgress || snap.Items[1].ActiveForm != "Testing the build" {
+		t.Fatalf("item1 = %#v", snap.Items[1])
+	}
+	if snap.Items[2].Content != "ship" || snap.Items[2].Status != statusPending {
+		t.Fatalf("item2 = %#v", snap.Items[2])
+	}
+}
+
 func TestTodoWriteRejectsEmptyList(t *testing.T) {
 	t.Parallel()
 	if _, err := run(t, `{"todos":[]}`, nil); err == nil {

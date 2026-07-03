@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/wt68/runcode/pkg/tool"
 )
@@ -18,11 +19,27 @@ const ToolName = "Skill"
 // returns in-memory text — it launches nothing and touches no files — so the
 // permission layer classifies it as side-effect-free management.
 type Tool struct {
+	mu  sync.RWMutex
 	set *Set
 }
 
 // NewTool builds the Skill tool over a loaded set.
 func NewTool(set *Set) *Tool { return &Tool{set: set} }
+
+// SetSet swaps the tool's skill set at runtime (e.g. after the user edits skills
+// in the desktop), so a Skill call resolves against the latest skills without a
+// session restart. It is safe to call concurrently with Run.
+func (t *Tool) SetSet(set *Set) {
+	t.mu.Lock()
+	t.set = set
+	t.mu.Unlock()
+}
+
+func (t *Tool) currentSet() *Set {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.set
+}
 
 func (t *Tool) Name() string { return ToolName }
 
@@ -63,7 +80,7 @@ func (t *Tool) Run(_ context.Context, input json.RawMessage, _ *tool.Context, _ 
 	if name == "" {
 		return errorResult("Skill requires a non-empty \"name\""), nil
 	}
-	sk, ok := t.set.Get(name)
+	sk, ok := t.currentSet().Get(name)
 	if !ok {
 		return errorResult(fmt.Sprintf("unknown skill %q; choose a name from the skill catalog", name)), nil
 	}

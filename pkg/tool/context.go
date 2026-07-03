@@ -2,6 +2,22 @@ package tool
 
 import "time"
 
+// MetadataTrustedWrites, when set true in a Context's Metadata, tells the Write
+// and Edit tools to skip their read-before-write/edit gate. The executor sets it
+// for permission decisions that already trust the agent inside the workspace
+// (judge and flight modes), so routine in-project edits are not blocked.
+const MetadataTrustedWrites = "trusted_writes"
+
+// TrustedWrites reports whether the Write/Edit read-before-write gate should be
+// skipped for this call (set by the executor in judge/flight modes).
+func (c *Context) TrustedWrites() bool {
+	if c == nil || c.Metadata == nil {
+		return false
+	}
+	v, _ := c.Metadata[MetadataTrustedWrites].(bool)
+	return v
+}
+
 // Context carries execution metadata supplied to tools.
 type Context struct {
 	WorkingDirectory string              `json:"workingDirectory,omitempty"`

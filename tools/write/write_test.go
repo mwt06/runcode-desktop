@@ -92,8 +92,8 @@ func TestWriteToolRejectsOverwriteWithoutRead(t *testing.T) {
 	path := filepath.Join(workspace, "sample.txt")
 	writeFile(t, path, "alpha")
 	_, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": "sample.txt", "content": "beta"}), &tool.Context{WorkingDirectory: workspace}, nil)
-	if !errors.Is(err, toolpath.ErrReadRequired) {
-		t.Fatalf("expected read required error, got %v", err)
+	if !errors.Is(err, toolpath.ErrWriteExists) {
+		t.Fatalf("expected write exists error, got %v", err)
 	}
 	if got := readFile(t, path); got != "alpha" {
 		t.Fatalf("content changed to %q", got)
@@ -108,8 +108,8 @@ func TestWriteToolRejectsOverwriteAfterPartialRead(t *testing.T) {
 	writeFile(t, path, "alpha")
 	tctx := readContext(t, workspace, path, false)
 	_, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": "sample.txt", "content": "beta"}), tctx, nil)
-	if !errors.Is(err, toolpath.ErrReadRequired) {
-		t.Fatalf("expected read required error, got %v", err)
+	if !errors.Is(err, toolpath.ErrWriteExists) {
+		t.Fatalf("expected write exists error, got %v", err)
 	}
 }
 
@@ -170,13 +170,32 @@ func TestWriteToolRejectsDanglingSymlinkToOutsideWorkspace(t *testing.T) {
 	}
 }
 
-func TestWriteToolDoesNotCreateParentDirectories(t *testing.T) {
+func TestWriteToolCreatesMissingParentDirectories(t *testing.T) {
 	t.Parallel()
 
 	workspace := t.TempDir()
-	_, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": filepath.Join("missing", "new.txt"), "content": "alpha"}), &tool.Context{WorkingDirectory: workspace}, nil)
-	if err == nil {
-		t.Fatal("expected missing parent error")
+	rel := filepath.Join("missing", "deep", "new.txt")
+	if _, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": rel, "content": "alpha"}), &tool.Context{WorkingDirectory: workspace}, nil); err != nil {
+		t.Fatalf("write with missing parents: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(workspace, rel))
+	if err != nil {
+		t.Fatalf("read created file: %v", err)
+	}
+	if string(got) != "alpha" {
+		t.Fatalf("content = %q, want alpha", got)
+	}
+}
+
+func TestWriteToolRejectsParentThatIsAFile(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "afile"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := write.New().Run(context.Background(), rawInput(t, map[string]any{"path": filepath.Join("afile", "new.txt"), "content": "alpha"}), &tool.Context{WorkingDirectory: workspace}, nil); err == nil {
+		t.Fatal("expected error when an ancestor is a file")
 	}
 }
 

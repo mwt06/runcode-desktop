@@ -117,7 +117,11 @@ func (m Model) approvalDetailLines() []string {
 		}
 		lines = append(lines, " ↳ "+truncate(target, width))
 	}
-	if cmd := strings.TrimSpace(summary.CommandSummary); cmd != "" {
+	// Prefer the raw command (what will actually run) over the generic
+	// classification summary, so the user sees exactly what they are approving.
+	if cmd := strings.TrimSpace(m.approval.command); cmd != "" {
+		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(cmd, width)))
+	} else if cmd := strings.TrimSpace(summary.CommandSummary); cmd != "" {
 		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(cmd, width)))
 	}
 	if host := strings.TrimSpace(summary.NetworkHost); host != "" {
