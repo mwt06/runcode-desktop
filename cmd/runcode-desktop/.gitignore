@@ -1,0 +1,14 @@
+*.exe
+frontend/node_modules/
+frontend/wailsjs/
+frontend/package.json.md5
+build/bin/
+# Runtime data and stray files created when the app is run from build/ as its CWD.
+build/.runcode/
+build/*.html
+build/*.py
+build/ppt_skill/
+# dist/ is committed with a placeholder index.html so `go build`'s embed compiles;
+# `wails build` / `npm run build` regenerates its real contents (the assets bundle
+# is not committed).
+frontend/dist/assets/

@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/* design tokens → Tailwind utilities (bg-surface, text-ink, border-line2, …) */
+@theme {
+  --color-bg: #eceef4;
+  --color-surface: #ffffff;
+  --color-surface2: #f6f7fb;
+  --color-inset: #f3f4f8;
+  --color-line: #edeef4;
+  --color-line2: #e4e7ef;
+  --color-ink: #21242e;
+  --color-muted: #646b7d;
+  --color-faint: #8a92a3;
+  --color-primary: #5b6cf0;
+  --color-primaryink: #4856d6;
+  --color-primarysoft: #eef0fe;
+  --color-green: #1f9d63;
+  --color-greenbg: #e7f6ee;
+  --color-red: #e0564a;
+  --color-redbg: #fdeceb;
+  --color-amber: #e3a23c;
+
+  --font-sans: "IBM Plex Sans", -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --shadow-card: 0 6px 22px rgba(30, 35, 60, 0.08);
+  --shadow-xs: 0 1px 2px rgba(30, 35, 60, 0.05);
+}
+
+@layer base {
+  /* Force light rendering of native controls/scrollbars regardless of the OS
+     theme — otherwise WebView2 under Windows dark mode darkens inputs/selects and
+     our dark text becomes invisible on them. */
+  html { color-scheme: light; }
+  html, body, #root { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(91, 108, 240, 0.2); }
+}
+
+/* animations, pseudo-element + data-driven classes — not expressible as utilities */
+@keyframes rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes blip { 50% { opacity: 0.45; } }
+@keyframes ell { 0% { content: ""; } 25% { content: "·"; } 50% { content: "··"; } 75% { content: "···"; } }
+
+.anim-rise { animation: rise 0.2s ease-out both; }
+.caret { display: inline-block; color: var(--color-primary); animation: blink 1.05s steps(2) infinite; margin-left: 1px; }
+.blip { animation: blip 1.4s infinite; }
+
+/* Task-progress board: a soft primary halo pulsing out from the in-progress step
+   marker. The halo is a separate element behind the solid core dot. */
+@keyframes plan-pulse {
+  0% { transform: scale(0.5); opacity: 0.5; }
+  70%, 100% { transform: scale(2.3); opacity: 0; }
+}
+.plan-pulse { background: var(--color-primary); animation: plan-pulse 1.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .plan-pulse { animation: none; opacity: 0.25; transform: scale(1.5); }
+}
+
+/* Ring spinner for in-flight tool rows and the progress pill. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin-ring { animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin-ring { animation-duration: 2.4s; } }
+.ell::after { content: ""; animation: ell 1.4s steps(1) infinite; }
+
+/* "thinking" indicator: three brand-colored dots that ripple in sequence, with
+   the label gently shimmering — a calm, intentional loading state. */
+@keyframes think-bounce {
+  0%, 70%, 100% { transform: translateY(0) scale(1); opacity: 0.35; }
+  35% { transform: translateY(-5px) scale(1.15); opacity: 1; }
+}
+@keyframes think-shimmer { to { background-position: -200% center; } }
+
+.think-dots { display: inline-flex; align-items: center; gap: 5px; }
+.think-dots i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: linear-gradient(135deg, #7c5cff, var(--color-primary));
+  animation: think-bounce 1.25s ease-in-out infinite;
+}
+.think-dots i:nth-child(2) { animation-delay: 0.15s; }
+.think-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+.think-label {
+  background: linear-gradient(90deg, var(--color-faint) 0%, var(--color-ink) 25%, var(--color-faint) 50%, var(--color-faint) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: think-shimmer 2.2s linear infinite;
+}
+
+/* code diff lines — class names come from backend stream values */
+/* let our <pre> background show through the highlight.js theme */
+.mdx .hljs { background: transparent; padding: 0; color: inherit; }
+
+.cl { padding: 0 11px; white-space: pre; }
+.cl.diff_add { background: var(--color-greenbg); color: #167a48; }
+.cl.diff_del { background: var(--color-redbg); color: #bf3a2d; }
+.cl.diff_context { color: var(--color-muted); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d7dae4; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #c4c8d6; background-clip: padding-box; }
