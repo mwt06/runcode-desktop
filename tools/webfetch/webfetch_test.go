@@ -46,6 +46,60 @@ func TestWebFetchExtractsHTMLText(t *testing.T) {
 	}
 }
 
+func TestWebFetchStreamsTextBody(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		io.WriteString(w, "alpha\nbeta\ngamma\n")
+	}))
+	defer srv.Close()
+
+	events := make(chan tool.Event, 64)
+	raw, _ := json.Marshal(input{URL: srv.URL})
+	res, err := (Tool{client: &http.Client{}}).Run(context.Background(), raw, nil, events)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	close(events)
+	var lines []string
+	for ev := range events {
+		for _, l := range ev.Output {
+			if l.Stream == tool.OutputStreamStdout {
+				lines = append(lines, l.Text)
+			}
+		}
+	}
+	if strings.Join(lines, ",") != "alpha,beta,gamma" {
+		t.Fatalf("streamed lines = %v, want [alpha beta gamma]", lines)
+	}
+	if !strings.Contains(res.Content[0].Text, "alpha") {
+		t.Fatalf("result body missing: %q", res.Content[0].Text)
+	}
+}
+
+func TestWebFetchHTMLDoesNotStreamRawMarkup(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		io.WriteString(w, "<html><body><p>Hello</p></body></html>")
+	}))
+	defer srv.Close()
+
+	events := make(chan tool.Event, 64)
+	raw, _ := json.Marshal(input{URL: srv.URL})
+	if _, err := (Tool{client: &http.Client{}}).Run(context.Background(), raw, nil, events); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	close(events)
+	for ev := range events {
+		for _, l := range ev.Output {
+			if l.Stream == tool.OutputStreamStdout && strings.Contains(l.Text, "<") {
+				t.Fatalf("HTML streamed as raw stdout: %q", l.Text)
+			}
+		}
+	}
+}
+
 func TestWebFetchPlainText(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
