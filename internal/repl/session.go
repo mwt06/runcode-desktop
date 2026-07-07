@@ -1658,9 +1658,16 @@ func (s *Session) executeConcurrentBatch(ctx context.Context, blocks []llm.Conte
 	g, gctx := errgroup.WithContext(ctx)
 	var mu sync.Mutex
 	stop := false
+	// Snapshot each tool's isolated context up front, before any goroutine starts —
+	// so the reads that clone s.toolContext never race with a sibling goroutine's
+	// read-set merge-back, which writes s.toolContext (under mu) once a tool finishes.
+	tctxs := make([]*tool.Context, len(blocks))
+	for idx, block := range blocks {
+		tctxs[idx] = shallowCopyToolContext(s.toolContext, block.ID)
+	}
 	for idx, block := range blocks {
 		idx, block := idx, block
-		tctx := shallowCopyToolContext(s.toolContext, block.ID)
+		tctx := tctxs[idx]
 		g.Go(func() error {
 			executed, err := s.executor.Execute(gctx, ExecuteRequest{
 				Name:      block.Name,
