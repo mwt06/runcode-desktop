@@ -196,8 +196,11 @@ func (s *Service) AuthorizeTool(ctx context.Context, req ResolveRequest) (Action
 	// the read-before-write denials (write_exists / read_required / read_stale) so
 	// the agent can fix a file it — or its sub-agent — just made without re-reading;
 	// the executor then tells the tool to skip its own read gate. Commands still flow
-	// through the harm gate; network and external calls still prompt.
-	if s.Mode() == "judge" && isWorkspaceFileMutation(action) && (decision.Effect == EffectAsk || isReadStateDeny(decision.Reason)) {
+	// through the harm gate; network and external calls still prompt. Execution-surface
+	// files (CI, git hooks, .runcode config, shell rc, .env) are excluded from this
+	// trust — they fall through to the harm gate + prompt so a poisoned file can't
+	// steer the agent into silently rewriting them.
+	if s.Mode() == "judge" && isWorkspaceFileMutation(action) && !isSensitiveMutation(action) && (decision.Effect == EffectAsk || isReadStateDeny(decision.Reason)) {
 		return action, Allow(ReasonJudgeAllowed, "judge.workspace_mutation")
 	}
 	return action, s.authorizerForMode().Authorize(ctx, action, decision)

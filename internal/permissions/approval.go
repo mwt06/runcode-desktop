@@ -201,10 +201,15 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 	if a.HarmJudge != nil {
 		if verdict, err := a.HarmJudge.Assess(ctx, action); err != nil {
 			harmReason = "安全评估未完成，已转为询问：" + err.Error()
-		} else if !verdict.Harmful {
+		} else if !verdict.Harmful && !mustPromptDespiteSafeVerdict(action) {
 			decision.FinalEffect = EffectAllow
 			decision.Reason = ReasonHarmJudgedSafe
 			return decision
+		} else if !verdict.Harmful {
+			// Judged safe, but a deterministic floor (external MCP call, sensitive-file
+			// mutation, or privileged/destructive capability) requires a human prompt
+			// anyway — the model's verdict reduces noise, it does not waive this gate.
+			harmReason = "高风险类别（外部调用 / 敏感文件 / 提权），即便判定为安全仍需确认"
 		} else {
 			harmReason = verdict.Reason
 		}

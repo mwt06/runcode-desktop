@@ -127,11 +127,12 @@ func (s *Session) GenerateTitle(ctx context.Context, userText string) (string, e
 	return s.repl.GenerateTitle(ctx, userText)
 }
 
-// AssessHarm asks the model whether the described action is harmful, used by the
-// permission harm gate. Returns an error on a transport or parse failure so the
-// caller can fail safe.
-func (s *Session) AssessHarm(ctx context.Context, description string) (bool, string, error) {
-	return s.repl.AssessHarm(ctx, description)
+// AssessHarm asks the model whether an action is harmful, used by the permission
+// harm gate. It takes the trusted classifier facts and the untrusted raw action
+// text separately so the session can fence the untrusted text against injection.
+// Returns an error on a transport or parse failure so the caller can fail safe.
+func (s *Session) AssessHarm(ctx context.Context, facts, untrusted string) (bool, string, error) {
+	return s.repl.AssessHarm(ctx, facts, untrusted)
 }
 
 // ResetHistory clears the in-memory working history (the on-disk session log is

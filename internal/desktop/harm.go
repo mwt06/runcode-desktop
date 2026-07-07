@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/wt68/runcode/internal/permissions"
@@ -24,34 +25,90 @@ func (j modelHarmJudge) Assess(ctx context.Context, action permissions.Action) (
 	if session == nil {
 		return permissions.HarmVerdict{}, errNoSession
 	}
-	harmful, reason, err := session.AssessHarm(ctx, describeAction(action))
+	facts, untrusted := describeAction(action)
+	harmful, reason, err := session.AssessHarm(ctx, facts, untrusted)
 	if err != nil {
 		return permissions.HarmVerdict{}, err
 	}
 	return permissions.HarmVerdict{Harmful: harmful, Reason: reason}, nil
 }
 
-// describeAction renders an action as a short instruction for the harm judge. The
-// raw command/path is in-process only (the judge runs the user's own model).
-func describeAction(action permissions.Action) string {
+// describeAction splits an action into two parts for the harm judge: trusted
+// classifier facts (operation, deterministic command classification, target
+// scope — safe to treat as ground truth) and the untrusted raw text (the command
+// line, file path, host, or MCP tool the agent chose, which may itself carry
+// injection). The session fences the untrusted part; keeping it out of the facts
+// stops an attacker-controlled string from masquerading as trusted analysis.
+func describeAction(action permissions.Action) (facts string, untrusted string) {
+	var f strings.Builder
+	fmt.Fprintf(&f, "operation: %s", action.Operation)
+	if scope := resourceScope(action); scope != "" {
+		fmt.Fprintf(&f, "\ntarget scope: %s", scope)
+	}
 	switch action.Operation {
 	case permissions.OperationExecute:
-		return "Run this shell command: " + resourcePath(action, permissions.ResourceCommand)
+		if category := metaString(action, permissions.MetadataCommandCategory); category != "" {
+			fmt.Fprintf(&f, "\nclassifier category: %s", category)
+		}
+		if caps := metaStrings(action, permissions.MetadataCommandCapabilities); len(caps) > 0 {
+			fmt.Fprintf(&f, "\nclassifier capabilities: %s", strings.Join(caps, ", "))
+		}
+		if reasons := metaStrings(action, permissions.MetadataCommandRiskReasons); len(reasons) > 0 {
+			fmt.Fprintf(&f, "\nclassifier risk reasons: %s", strings.Join(reasons, ", "))
+		}
+		untrusted = "shell command: " + resourcePath(action, permissions.ResourceCommand)
 	case permissions.OperationWrite:
-		return "Create or overwrite this file: " + resourcePath(action, permissions.ResourceFile)
+		untrusted = "create or overwrite file: " + resourcePath(action, permissions.ResourceFile)
 	case permissions.OperationEdit:
-		return "Edit this file: " + resourcePath(action, permissions.ResourceFile)
+		untrusted = "edit file: " + resourcePath(action, permissions.ResourceFile)
 	case permissions.OperationDelete:
-		return "Delete this file or directory: " + resourcePath(action, permissions.ResourceFile)
+		untrusted = "delete file or directory: " + resourcePath(action, permissions.ResourceFile)
 	case permissions.OperationNetwork:
-		host := metaString(action, permissions.MetadataNetworkHost)
-		return "Make a network request to host: " + host
+		untrusted = "network request to host: " + metaString(action, permissions.MetadataNetworkHost)
 	case permissions.OperationExternal:
 		server := metaString(action, permissions.MetadataMCPServer)
 		tool := metaString(action, permissions.MetadataMCPTool)
-		return "Call external MCP tool " + server + "/" + tool
+		untrusted = "call external MCP tool: " + server + "/" + tool
 	default:
-		return "Tool action: " + action.ToolName
+		untrusted = "tool action: " + action.ToolName
+	}
+	return f.String(), untrusted
+}
+
+// resourceScope reports the shared scope of an action's file/command resources
+// ("workspace" / "outside"), or "" when there is none or they disagree.
+func resourceScope(action permissions.Action) string {
+	scope := ""
+	for _, r := range action.Resources {
+		s := string(r.Scope)
+		if s == "" {
+			continue
+		}
+		if scope == "" {
+			scope = s
+		} else if scope != s {
+			return "mixed"
+		}
+	}
+	return scope
+}
+
+// metaStrings reads a []string metadata value, tolerating the []any form that
+// survives a JSON round-trip.
+func metaStrings(action permissions.Action, key string) []string {
+	switch v := action.Metadata[key].(type) {
+	case []string:
+		return v
+	case []any:
+		items := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				items = append(items, s)
+			}
+		}
+		return items
+	default:
+		return nil
 	}
 }
 
