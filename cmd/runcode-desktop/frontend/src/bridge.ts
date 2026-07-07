@@ -314,4 +314,5 @@ export const Events = {
   TurnError: 'turn:error',
   Warning: 'warning',
   SessionRenamed: 'session:renamed',
+  HarmAutoAllow: 'harm:autoallow',
 } as const

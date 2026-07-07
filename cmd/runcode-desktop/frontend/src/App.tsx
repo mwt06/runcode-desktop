@@ -621,6 +621,22 @@ export default function App() {
       onEvent<{ message: string }>(Events.Warning, ({ message }) =>
         setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: message }]),
       ),
+      // Judge ("smart") mode auto-allowed a risky action without a prompt, or tripped
+      // its per-session breaker — surface it so the user can review what smart mode
+      // decided on their behalf.
+      onEvent<{ tool: string; operation: string; risk: string; reason: string; outcome: string; count: number }>(
+        Events.HarmAutoAllow,
+        (e) => {
+          const text =
+            e.outcome === 'breaker_tripped'
+              ? `智能模式本会话自动放行已达上限（${e.count} 次），后续操作转为逐个确认`
+              : `智能放行 · ${e.tool}${e.reason ? '（' + e.reason + '）' : ''} · 本会话累计 ${e.count}`
+          setBlocks((prev) => [
+            ...prev,
+            { kind: e.outcome === 'breaker_tripped' ? 'warning' : 'notice', id: nextID(), text },
+          ])
+        },
+      ),
       // A turn's generated title arrived; refresh the sidebar so it shows the name.
       onEvent<{ id: string; title: string }>(Events.SessionRenamed, () => {
         void refreshRecents()
