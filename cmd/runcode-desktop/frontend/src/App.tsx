@@ -992,7 +992,7 @@ export default function App() {
           </div>
         )}
         <div className="flex-1 overflow-y-auto bg-surface px-6 pt-3 pb-8" ref={scrollRef}>
-          <div className="mx-auto max-w-none flex flex-col gap-6">
+          <div className="mx-auto max-w-[1200px] flex flex-col gap-6">
             {blocks.length === 0 && (
               <div className="mt-[16vh] text-center text-faint">
                 <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
@@ -1025,7 +1025,7 @@ export default function App() {
 
         {pending && <PermissionModal req={pending} onDecide={decide} remaining={permQueue.length - 1} onDenyRest={denyRest} />}
 
-        <footer className="flex-none relative px-6 pt-3.5 pb-[18px] w-full max-w-none mx-auto">
+        <footer className="flex-none relative px-6 pt-3.5 pb-[18px] w-full max-w-[1200px] mx-auto">
           {info?.planMode && (
             <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-[12px] px-3.5 py-2.5">
               <span className="text-primaryink flex-none"><Icon name="compass" size={16} /></span>
@@ -1129,7 +1129,7 @@ export default function App() {
           )}
           <textarea
             ref={taRef}
-            className="w-full resize-none min-h-[46px] max-h-[200px] bg-surface text-ink border border-line2 border-b-0 rounded-t-[14px] px-4 py-3.5 outline-none placeholder:text-faint"
+            className="block w-full resize-none min-h-[46px] max-h-[200px] bg-surface text-ink border border-line2 border-b-0 rounded-t-[14px] px-4 py-3.5 outline-none placeholder:text-faint"
             value={input}
             placeholder="继续对话，@ 技能，/ 子代理，# 文件，按 Enter 发送"
             onChange={(e) => {
