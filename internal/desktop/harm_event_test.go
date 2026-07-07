@@ -14,6 +14,7 @@ func TestEmitHarmAutoAllowEmitsSanitizedEvent(t *testing.T) {
 
 	app.emitHarmAutoAllow(permissions.HarmAuditEvent{
 		ToolName:       "Bash",
+		ToolUseID:      "toolu_abc",
 		Operation:      permissions.OperationExecute,
 		Risk:           permissions.RiskHigh,
 		Reason:         "看着安全",
@@ -29,7 +30,7 @@ func TestEmitHarmAutoAllowEmitsSanitizedEvent(t *testing.T) {
 	if !ok {
 		t.Fatalf("event payload type = %T, want HarmAutoAllow", ev.data)
 	}
-	if payload.Tool != "Bash" || payload.Operation != "execute" || payload.Outcome != "auto_allowed" || payload.Count != 3 || payload.Reason != "看着安全" {
-		t.Fatalf("payload = %+v, want mapped fields (tool/operation/outcome/count/reason)", payload)
+	if payload.Tool != "Bash" || payload.ToolUseID != "toolu_abc" || payload.Operation != "execute" || payload.Outcome != "auto_allowed" || payload.Reason != "看着安全" {
+		t.Fatalf("payload = %+v, want mapped fields (tool/toolUseID/operation/outcome/reason)", payload)
 	}
 }

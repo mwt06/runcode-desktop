@@ -30,6 +30,7 @@ const (
 // fields (no raw command or path), so it is safe to emit to telemetry as well.
 type HarmAuditEvent struct {
 	ToolName       string
+	ToolUseID      string
 	Operation      Operation
 	Risk           Risk
 	Reason         string

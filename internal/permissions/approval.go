@@ -184,6 +184,7 @@ func (a InteractiveAuthorizer) emitHarmAudit(action Action, reason string, outco
 	}
 	a.Audit(HarmAuditEvent{
 		ToolName:       action.ToolName,
+		ToolUseID:      action.ToolUseID,
 		Operation:      action.Operation,
 		Risk:           action.Risk,
 		Reason:         reason,

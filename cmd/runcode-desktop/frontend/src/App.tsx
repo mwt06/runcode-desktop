@@ -270,6 +270,9 @@ export default function App() {
     infoRef.current = info
   }, [info])
   const [blocks, setBlocks] = useState<Block[]>([])
+  // harmAllows maps a tool-use id to the harm judge's reason when smart mode
+  // auto-allowed that call, so its tool card can be marked and explain why.
+  const [harmAllows, setHarmAllows] = useState<Record<string, string>>({})
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   // Concurrent tools (e.g. parallel WebFetch) can each raise a prompt. The backend
@@ -622,19 +625,19 @@ export default function App() {
         setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: message }]),
       ),
       // Judge ("smart") mode auto-allowed a risky action without a prompt, or tripped
-      // its per-session breaker — surface it so the user can review what smart mode
-      // decided on their behalf.
-      onEvent<{ tool: string; operation: string; risk: string; reason: string; outcome: string; count: number }>(
+      // its per-session breaker. An auto-allow is marked on the very tool card it
+      // decided (by tool-use id), with the judge's reason shown when the row expands;
+      // a breaker trip is a session-level notice.
+      onEvent<{ tool: string; toolUseID: string; reason: string; outcome: string }>(
         Events.HarmAutoAllow,
         (e) => {
-          const text =
-            e.outcome === 'breaker_tripped'
-              ? `智能模式本会话自动放行已达上限（${e.count} 次），后续操作转为逐个确认`
-              : `智能放行 · ${e.tool}${e.reason ? '（' + e.reason + '）' : ''} · 本会话累计 ${e.count}`
-          setBlocks((prev) => [
-            ...prev,
-            { kind: e.outcome === 'breaker_tripped' ? 'warning' : 'notice', id: nextID(), text },
-          ])
+          if (e.outcome === 'breaker_tripped') {
+            setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: '智能模式已达本会话自动放行上限，后续操作转为逐个确认' }])
+            return
+          }
+          if (e.toolUseID) {
+            setHarmAllows((prev) => ({ ...prev, [e.toolUseID]: e.reason || '模型判定为安全，无破坏性操作' }))
+          }
         },
       ),
       // A turn's generated title arrived; refresh the sidebar so it shows the name.
@@ -998,7 +1001,7 @@ export default function App() {
             )}
             {groups.map((g) =>
               g.kind === 'exec' ? (
-                <BotRow key={g.id}><ExecutionCard tools={g.tools} /></BotRow>
+                <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} /></BotRow>
               ) : g.kind === 'ask' ? (
                 <BotRow key={g.id}><AskCard tool={g.tool} busy={busy} onAnswer={send} /></BotRow>
               ) : g.kind === 'analyze' ? (
@@ -1653,7 +1656,7 @@ function PlanChoiceCard({ busy, onExecute, onDismiss }: { busy: boolean; onExecu
 // rows are the tool calls in one run. Each row shows the tool's icon chip, its verb +
 // mono target, a diff badge for edits, and a live/done/failed status; clicking a row
 // drills into its parameters and output.
-function ExecutionCard({ tools }: { tools: ToolEvent[] }) {
+function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmAllows?: Record<string, string> }) {
   const [sel, setSel] = useState<number | null>(null)
   const runningIdx = tools.findIndex((t) => t.type !== 'completed' && t.type !== 'failed')
   const activeIdx = sel != null && sel < tools.length ? sel : runningIdx
@@ -1674,6 +1677,7 @@ function ExecutionCard({ tools }: { tools: ToolEvent[] }) {
         const { verb, target } = toolVerbTarget(t)
         const { add, del } = diffStats(t)
         const showDiff = add + del > 0
+        const allowReason = harmAllows && t.toolUseID ? harmAllows[t.toolUseID] : undefined
         const iconColor = st === 'failed' ? 'text-red' : st === 'running' ? 'text-primary' : 'text-faint'
         const rowBg = active ? 'bg-surface2' : 'hover:bg-surface2'
         return (
@@ -1692,6 +1696,11 @@ function ExecutionCard({ tools }: { tools: ToolEvent[] }) {
                   <span className="text-green">+{add}</span> <span className={del > 0 ? 'text-red' : 'text-faint'}>−{del}</span>
                 </span>
               )}
+              {allowReason && (
+                <span title="智能模式已自动放行，展开查看原因" className="flex-none inline-flex items-center gap-1 text-[10.5px] text-primaryink bg-primarysoft rounded px-1.5 py-0.5">
+                  <Icon name="shield" size={11} /> 智能放行
+                </span>
+              )}
               {st === 'failed' ? (
                 <span className="text-[11px] text-red bg-redbg rounded-md px-1.5 py-0.5 flex-none">{failText(t)}</span>
               ) : st === 'running' ? (
@@ -1704,6 +1713,12 @@ function ExecutionCard({ tools }: { tools: ToolEvent[] }) {
             {active && (
               <div className="px-2 pb-3 pt-0.5">
                 <ToolDetail tool={t} />
+                {allowReason && (
+                  <div className="mt-2 flex items-start gap-1.5 text-[12px] text-muted bg-primarysoft rounded-lg px-2.5 py-2">
+                    <span className="flex-none mt-px text-primaryink"><Icon name="shield" size={13} /></span>
+                    <span><b className="text-primaryink font-medium">智能放行</b>：{allowReason}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

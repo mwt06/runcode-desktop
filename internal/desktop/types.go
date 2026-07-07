@@ -47,6 +47,7 @@ const (
 // session.
 type HarmAutoAllow struct {
 	Tool      string `json:"tool"`
+	ToolUseID string `json:"toolUseID"`
 	Operation string `json:"operation"`
 	Risk      string `json:"risk"`
 	Reason    string `json:"reason"`

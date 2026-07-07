@@ -7,6 +7,10 @@ type Action struct {
 	Risk      Risk
 	Resources []Resource
 	Metadata  map[string]any
+	// ToolUseID is the id of the specific tool call being authorized, so a decision
+	// (e.g. a harm-gate auto-allow) can be correlated back to its tool card. The
+	// service fills it from the request context; the resolver leaves it empty.
+	ToolUseID string
 }
 
 type Operation string

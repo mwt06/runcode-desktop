@@ -15,6 +15,7 @@ import (
 func (a *App) emitHarmAutoAllow(e permissions.HarmAuditEvent) {
 	a.sink.Emit(EventHarmAutoAllow, HarmAutoAllow{
 		Tool:      e.ToolName,
+		ToolUseID: e.ToolUseID,
 		Operation: string(e.Operation),
 		Risk:      string(e.Risk),
 		Reason:    e.Reason,

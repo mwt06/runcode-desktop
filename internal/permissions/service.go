@@ -164,6 +164,9 @@ func (s *Service) AuthorizeTool(ctx context.Context, req ResolveRequest) (Action
 		s = DefaultService()
 	}
 	action, err := s.resolver.Resolve(ctx, req)
+	if req.Context != nil {
+		action.ToolUseID = req.Context.ToolUseID
+	}
 	if err != nil {
 		if action.ToolName == "" {
 			action.ToolName = req.ToolName
