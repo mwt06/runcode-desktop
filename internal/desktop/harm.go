@@ -8,6 +8,21 @@ import (
 	"github.com/wt68/runcode/internal/permissions"
 )
 
+// emitHarmAutoAllow forwards a harm-gate audit event to the frontend, so the user
+// can review what judge ("smart") mode auto-allowed (or when its breaker tripped)
+// without a prompt. It runs on the authorization goroutine, which may be parallel;
+// the sink is concurrency-safe.
+func (a *App) emitHarmAutoAllow(e permissions.HarmAuditEvent) {
+	a.sink.Emit(EventHarmAutoAllow, HarmAutoAllow{
+		Tool:      e.ToolName,
+		Operation: string(e.Operation),
+		Risk:      string(e.Risk),
+		Reason:    e.Reason,
+		Outcome:   string(e.Outcome),
+		Count:     e.AutoAllowCount,
+	})
+}
+
 // modelHarmJudge implements permissions.HarmJudge by asking the active session's
 // model whether an action is harmful. It holds the App (not a fixed session) so
 // it always uses the current session, which is built after the permission service.
