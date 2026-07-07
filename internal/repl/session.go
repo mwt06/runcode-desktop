@@ -46,8 +46,12 @@ const hookContextPrefix = "Additional context from a UserPromptSubmit hook:\n"
 const sessionStartPrefix = "Additional context from a SessionStart hook:\n"
 
 type SessionOptions struct {
-	Provider      llm.Provider
-	Model         string
+	Provider llm.Provider
+	Model    string
+	// HarmModel, when set, is the model used for the harm-judge safety check
+	// (judge / "smart" mode), independent of the main conversation model. Empty
+	// reuses the main model.
+	HarmModel     string
 	Tools         []tool.Tool
 	Prompt        prompt.AssemblerOpts
 	MaxTokens     int
@@ -96,6 +100,9 @@ type Session struct {
 	// /model command) while a turn goroutine may still be reading it.
 	modelMu sync.RWMutex
 	model   string
+	// harmModel is the independent model for the harm-judge check (judge mode);
+	// empty reuses model. Set once at construction, never mutated at runtime.
+	harmModel string
 
 	// planMode injects plan-mode prompt guidance when set; it is toggled at runtime
 	// (the desktop's plan toggle) so it is read on every turn.
@@ -227,6 +234,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 	return &Session{
 		provider:           opts.Provider,
 		model:              opts.Model,
+		harmModel:          opts.HarmModel,
 		tools:              tools,
 		executor:           executor,
 		prompt:             promptOpts,
@@ -574,6 +582,15 @@ func (s *Session) currentModel() string {
 	return s.model
 }
 
+// harmJudgeModel returns the model for the harm-judge safety check: the
+// independent HarmModel when configured, otherwise the current conversation model.
+func (s *Session) harmJudgeModel() string {
+	if s.harmModel != "" {
+		return s.harmModel
+	}
+	return s.currentModel()
+}
+
 // SetPlanMode toggles plan-mode prompt guidance for subsequent turns.
 func (s *Session) SetPlanMode(on bool) { s.planMode.Store(on) }
 
@@ -850,7 +867,7 @@ func (s *Session) AssessHarm(ctx context.Context, facts, untrusted string) (harm
 			content = strict
 		}
 		req := llm.Request{
-			Model:       s.currentModel(),
+			Model:       s.harmJudgeModel(),
 			Messages:    []llm.Message{userMessage(content)},
 			System:      []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: harmSystemPrompt}},
 			MaxTokens:   harmMaxTokens,

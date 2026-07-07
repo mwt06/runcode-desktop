@@ -10,8 +10,8 @@ import (
 	"github.com/wt68/runcode/internal/cost"
 	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/persistence/sessions"
+	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/pkg/llm"
 )
 
@@ -53,6 +53,7 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 	cfg := engine.Config{
 		Provider:       firstNonEmpty(req.Provider, os.Getenv("RUNCODE_PROVIDER"), "anthropic"),
 		Model:          model,
+		HarmJudgeModel: firstNonEmpty(req.HarmJudgeModel, os.Getenv("RUNCODE_HARM_JUDGE_MODEL")),
 		BaseURL:        firstNonEmpty(req.BaseURL, os.Getenv("ANTHROPIC_BASE_URL")),
 		APIKey:         firstNonEmpty(req.APIKey, os.Getenv("ANTHROPIC_API_KEY")),
 		AuthToken:      firstNonEmpty(req.AuthToken, os.Getenv("ANTHROPIC_AUTH_TOKEN")),

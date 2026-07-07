@@ -21,8 +21,11 @@ import (
 // settings form) and hand it to Build; Config itself carries no knowledge of how
 // it was produced.
 type Config struct {
-	Provider           string
-	Model              string
+	Provider string
+	Model    string
+	// HarmJudgeModel overrides the model used for the harm-judge safety check
+	// (judge / "smart" mode). Empty uses an independent default (resolveHarmModel).
+	HarmJudgeModel     string
 	MaxTokens          int
 	BaseURL            string
 	APIKey             string
@@ -36,10 +39,10 @@ type Config struct {
 	MaxContextTokens   int
 	// MaxIterations caps the ReAct tool-use rounds per turn (0 = engine default).
 	// Interactive coding agents need more than the conservative default.
-	MaxIterations int
-	Resume             string
-	Continue           bool
-	PersistSession     bool
+	MaxIterations  int
+	Resume         string
+	Continue       bool
+	PersistSession bool
 	// SessionBackend selects the session-history store: "jsonl" (default) or
 	// "sqlite". It governs where history is written and read for resume/browse.
 	SessionBackend string

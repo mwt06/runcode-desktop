@@ -190,6 +190,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	session, err := repl.NewSession(repl.SessionOptions{
 		Provider:  provider,
 		Model:     cfg.Model,
+		HarmModel: resolveHarmModel(cfg),
 		Tools:     sessionTools,
 		MaxTokens: cfg.MaxTokens,
 		Prompt:    promptOpts,
@@ -218,6 +219,25 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		return nil, err
 	}
 	return &Session{repl: session, resources: resources, perms: permissionService, cfg: cfg, skillTool: skillTool, agentTool: agentTool}, nil
+}
+
+// defaultHarmJudgeModel is the independent model the harm-judge check falls back
+// to when no HarmJudgeModel is configured, so the safety gate is decorrelated from
+// the main model. Used for Anthropic (or an unset provider, which defaults to
+// Anthropic); other providers reuse the main model since we can't assume an id.
+const defaultHarmJudgeModel = "claude-haiku-4-5-20251001"
+
+// resolveHarmModel picks the model for the harm-judge safety check: an explicit
+// HarmJudgeModel wins; otherwise an independent default for Anthropic, else the
+// main model.
+func resolveHarmModel(cfg Config) string {
+	if m := strings.TrimSpace(cfg.HarmJudgeModel); m != "" {
+		return m
+	}
+	if cfg.Provider == "" || cfg.Provider == "anthropic" {
+		return defaultHarmJudgeModel
+	}
+	return cfg.Model
 }
 
 // BuildProvider constructs the configured LLM provider from the registry. An
