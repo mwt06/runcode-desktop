@@ -79,6 +79,13 @@ type InteractiveAuthorizer struct {
 	// auto-allows the action without a prompt, so the user is only asked about
 	// actions the model flags as potentially harmful (or when the judge fails).
 	HarmJudge HarmJudge
+	// Breaker, when set, caps how many actions the harm gate may auto-allow in a
+	// session; once tripped it stops auto-allowing so a fooled or compromised judge
+	// cannot silently wave through an unbounded stream. nil disables the bound.
+	Breaker *HarmBreaker
+	// Audit, when set, is called for each harm-gate auto-allow and each breaker
+	// trip, so the host can surface what smart mode decided without a prompt.
+	Audit HarmAuditFunc
 }
 
 func NewApprovalSummary(action Action, decision Decision) ApprovalSummary {
@@ -165,6 +172,26 @@ func hasMetadata(metadata map[string]any, key string) bool {
 	return ok
 }
 
+const (
+	harmReasonFloored        = "高风险类别（外部调用 / 敏感文件 / 提权），即便判定为安全仍需确认"
+	harmReasonBreakerTripped = "本会话智能放行已达上限，已转为逐个确认"
+)
+
+// emitHarmAudit reports a harm-gate decision to the configured audit sink, if any.
+func (a InteractiveAuthorizer) emitHarmAudit(action Action, reason string, outcome HarmGateOutcome) {
+	if a.Audit == nil {
+		return
+	}
+	a.Audit(HarmAuditEvent{
+		ToolName:       action.ToolName,
+		Operation:      action.Operation,
+		Risk:           action.Risk,
+		Reason:         reason,
+		Outcome:        outcome,
+		AutoAllowCount: a.Breaker.Count(),
+	})
+}
+
 func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, decision Decision) Decision {
 	if decision.Effect != EffectAsk {
 		if decision.FinalEffect == "" {
@@ -202,14 +229,22 @@ func (a InteractiveAuthorizer) Authorize(ctx context.Context, action Action, dec
 		if verdict, err := a.HarmJudge.Assess(ctx, action); err != nil {
 			harmReason = "安全评估未完成，已转为询问：" + err.Error()
 		} else if !verdict.Harmful && !mustPromptDespiteSafeVerdict(action) {
-			decision.FinalEffect = EffectAllow
-			decision.Reason = ReasonHarmJudgedSafe
-			return decision
+			if a.Breaker.Allow() {
+				a.emitHarmAudit(action, verdict.Reason, HarmGateAutoAllowed)
+				decision.FinalEffect = EffectAllow
+				decision.Reason = ReasonHarmJudgedSafe
+				return decision
+			}
+			// The session already auto-allowed its budget of risky actions; escalate
+			// to a prompt instead of silently allowing more (a tripped breaker is the
+			// backstop against a fooled or compromised judge waving through a stream).
+			a.emitHarmAudit(action, verdict.Reason, HarmGateBreakerTripped)
+			harmReason = harmReasonBreakerTripped
 		} else if !verdict.Harmful {
 			// Judged safe, but a deterministic floor (external MCP call, sensitive-file
 			// mutation, or privileged/destructive capability) requires a human prompt
 			// anyway — the model's verdict reduces noise, it does not waive this gate.
-			harmReason = "高风险类别（外部调用 / 敏感文件 / 提权），即便判定为安全仍需确认"
+			harmReason = harmReasonFloored
 		} else {
 			harmReason = verdict.Reason
 		}

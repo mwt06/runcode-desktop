@@ -35,7 +35,24 @@ const (
 	// EventSessionRenamed carries a SessionRenamed when a turn's generated title is
 	// ready, so the sidebar can refresh that session's name.
 	EventSessionRenamed = "session:renamed"
+	// EventHarmAutoAllow carries a HarmAutoAllow whenever judge ("smart") mode's
+	// harm gate auto-allows a risky action without a prompt, or trips its
+	// per-session breaker — so the user can review what smart mode decided.
+	EventHarmAutoAllow = "harm:autoallow"
 )
+
+// HarmAutoAllow is the payload of EventHarmAutoAllow: a sanitized record of a
+// harm-gate decision (no raw command or path). Outcome is "auto_allowed" or
+// "breaker_tripped"; Count is how many actions smart mode has auto-allowed this
+// session.
+type HarmAutoAllow struct {
+	Tool      string `json:"tool"`
+	Operation string `json:"operation"`
+	Risk      string `json:"risk"`
+	Reason    string `json:"reason"`
+	Outcome   string `json:"outcome"`
+	Count     int    `json:"count"`
+}
 
 // EventSink delivers a named event with a JSON-serializable payload to the
 // frontend. The Wails shell implements it with runtime.EventsEmit; tests use a

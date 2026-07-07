@@ -111,6 +111,11 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 			// Model harm gate: auto-allow actions the model judges safe; only prompt
 			// for ones it flags as potentially harmful (or when the check fails).
 			HarmJudge: modelHarmJudge{app: a},
+			// Session-scoped audit + circuit breaker: surface every smart-mode
+			// auto-allow to the UI, and stop auto-allowing once the session budget is
+			// spent so a fooled judge can't silently wave through an unbounded stream.
+			Breaker: permissions.NewHarmBreaker(0),
+			Audit:   a.emitHarmAutoAllow,
 		},
 	})
 
