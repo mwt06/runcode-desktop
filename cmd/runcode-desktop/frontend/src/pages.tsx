@@ -413,6 +413,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   // connection settings come from the saved config.
   const [model, setModel] = useState(info?.model || initial.model || '')
   const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
+  const [harmJudgeVotes, setHarmJudgeVotes] = useState(initial.harmJudgeVotes ?? 1)
   const [permissionMode, setPermissionMode] = useState(info?.permissionMode || initial.permissionMode || 'interactive')
   const [provider, setProvider] = useState(initial.provider || 'openai')
   const [baseURL, setBaseURL] = useState(initial.baseURL ?? '')
@@ -442,6 +443,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
         maxContextTokens,
         maxHistoryMessages: maxHistoryMessages.trim() ? parseInt(maxHistoryMessages, 10) || 0 : 0,
         harmJudgeModel,
+        harmJudgeVotes,
         // Preserved (edited via the in-conversation picker, not this form) so saving
         // connection settings does not silently reset the reasoning strength.
         thinkingEffort: initial.thinkingEffort ?? '',
@@ -483,6 +485,13 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
           )}
           <label className={label}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
             <input className={field} value={harmJudgeModel} onChange={(e) => setHarmJudgeModel(e.target.value)} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" />
+          </label>
+          <label className={label}>判定表决（多次独立判定取多数，更稳但更费 token）
+            <select className={field} value={String(harmJudgeVotes)} onChange={(e) => setHarmJudgeVotes(parseInt(e.target.value, 10))}>
+              <option value="1">单次（默认）</option>
+              <option value="3">3 次取多数</option>
+              <option value="5">5 次取多数</option>
+            </select>
           </label>
         </section>
 
@@ -1141,6 +1150,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const [apiKey, setApiKey] = useState(initial.apiKey ?? '')
   const [thinkingEffort, setThinkingEffort] = useState(initial.thinkingEffort ?? '')
   const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
+  const [harmJudgeVotes, setHarmJudgeVotes] = useState(initial.harmJudgeVotes ?? 1)
   const [maxContextTokens, setMaxContextTokens] = useState(initial.maxContextTokens ?? 128000)
   const recent = (initial.recentWorkspaces ?? []).filter((w) => w && w !== cwd)
   const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
@@ -1217,6 +1227,13 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         <label className={label}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
           <input className={field} value={harmJudgeModel} onChange={(e) => setHarmJudgeModel(e.target.value)} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" />
         </label>
+        <label className={label}>判定表决（多次独立判定取多数，更稳但更费 token）
+          <select className={field} value={String(harmJudgeVotes)} onChange={(e) => setHarmJudgeVotes(parseInt(e.target.value, 10))}>
+            <option value="1">单次（默认）</option>
+            <option value="3">3 次取多数</option>
+            <option value="5">5 次取多数</option>
+          </select>
+        </label>
         <label className={label}>上下文预算（超出后自动总结压缩较早对话）
           <select className={field} value={String(maxContextTokens)} onChange={(e) => setMaxContextTokens(parseInt(e.target.value, 10))}>
             <option value="0">关闭 · 不自动压缩</option>
@@ -1228,7 +1245,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         <label className={label}>Base URL<input className={field} value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="https://api.anthropic.com" /></label>
         <label className={label}>API 密钥<input className={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="可留空，改用环境变量" /></label>
         {error && <div className="text-red text-[13px]">{error}</div>}
-        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart({ cwd, model, provider, baseURL, permissionMode, apiKey, thinkingEffort, maxContextTokens, harmJudgeModel })}>
+        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart({ cwd, model, provider, baseURL, permissionMode, apiKey, thinkingEffort, maxContextTokens, harmJudgeModel, harmJudgeVotes })}>
           {starting ? '启动中…' : '开始会话'}
         </button>
       </div>

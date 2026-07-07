@@ -25,7 +25,10 @@ type Config struct {
 	Model    string
 	// HarmJudgeModel overrides the model used for the harm-judge safety check
 	// (judge / "smart" mode). Empty uses an independent default (resolveHarmModel).
-	HarmJudgeModel     string
+	HarmJudgeModel string
+	// HarmJudgeVotes runs the harm-judge check as a majority vote across N samples
+	// when > 1 (each an independent, higher-temperature sample). 0/1 is a single check.
+	HarmJudgeVotes     int
 	MaxTokens          int
 	BaseURL            string
 	APIKey             string

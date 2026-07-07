@@ -191,6 +191,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		Provider:  provider,
 		Model:     cfg.Model,
 		HarmModel: resolveHarmModel(cfg),
+		HarmVotes: cfg.HarmJudgeVotes,
 		Tools:     sessionTools,
 		MaxTokens: cfg.MaxTokens,
 		Prompt:    promptOpts,

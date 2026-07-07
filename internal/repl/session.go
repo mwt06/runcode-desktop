@@ -51,7 +51,10 @@ type SessionOptions struct {
 	// HarmModel, when set, is the model used for the harm-judge safety check
 	// (judge / "smart" mode), independent of the main conversation model. Empty
 	// reuses the main model.
-	HarmModel     string
+	HarmModel string
+	// HarmVotes runs the harm-judge check as a majority vote across N independent
+	// samples (temperature > 0 for diversity) when > 1; 0 or 1 is a single check.
+	HarmVotes     int
 	Tools         []tool.Tool
 	Prompt        prompt.AssemblerOpts
 	MaxTokens     int
@@ -100,6 +103,8 @@ type Session struct {
 	// /model command) while a turn goroutine may still be reading it.
 	modelMu sync.RWMutex
 	model   string
+	// harmVotes runs the harm check as a majority vote across N samples when > 1.
+	harmVotes int
 	// harmModel is the independent model for the harm-judge check (judge mode);
 	// empty reuses model. Set once at construction, never mutated at runtime.
 	harmModel string
@@ -235,6 +240,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		provider:           opts.Provider,
 		model:              opts.Model,
 		harmModel:          opts.HarmModel,
+		harmVotes:          opts.HarmVotes,
 		tools:              tools,
 		executor:           executor,
 		prompt:             promptOpts,
@@ -844,22 +850,62 @@ const harmMaxTokens = 1024
 // payload inside a command or path cannot pose as instructions. It is a single
 // isolated request (no tools, no history). A parse/transport failure returns an
 // error so the caller can fail safe (e.g. fall back to prompting).
+// harmVoteTemperature drives the independent samples of a majority-vote harm check
+// apart, so multiple votes are not just identical deterministic replies.
+const harmVoteTemperature = 1.0
+
 func (s *Session) AssessHarm(ctx context.Context, facts, untrusted string) (harmful bool, reason string, err error) {
 	facts = strings.TrimSpace(facts)
 	untrusted = strings.TrimSpace(untrusted)
 	if facts == "" && untrusted == "" {
 		return false, "", nil
 	}
-	temperature := 0.0
-	base := buildHarmContent(facts, untrusted, false)
-	// The verdict is a tiny JSON object, but a model (especially an OpenAI-compatible
-	// or reasoning one) sometimes wraps it in prose or a code fence, which fails to
-	// parse and drops the action to a prompt — the "smart mode keeps asking me"
-	// symptom. Retry once with a firmer, JSON-only instruction before giving up. A
-	// second failure still returns an error, so the caller falls back to prompting:
-	// this only ever makes the gate MORE likely to auto-decide, never less safe.
-	strict := buildHarmContent(facts, untrusted, true)
+	// A single check is deterministic (temperature 0). A majority vote samples the
+	// judge N times at a non-zero temperature and takes the majority, so one fooled
+	// "safe" verdict cannot pass an action the others flag; a tie leans harmful.
+	if s.harmVotes <= 1 {
+		return s.assessHarmOnce(ctx, facts, untrusted, 0)
+	}
+	harmfulCount, safeCount := 0, 0
+	var harmfulReason, safeReason string
+	var lastErr error
+	for i := 0; i < s.harmVotes; i++ {
+		h, r, voteErr := s.assessHarmOnce(ctx, facts, untrusted, harmVoteTemperature)
+		if voteErr != nil {
+			lastErr = voteErr
+			continue
+		}
+		if h {
+			harmfulCount++
+			if harmfulReason == "" {
+				harmfulReason = r
+			}
+		} else {
+			safeCount++
+			if safeReason == "" {
+				safeReason = r
+			}
+		}
+	}
+	if harmfulCount == 0 && safeCount == 0 {
+		// Every vote failed to produce a verdict — fail safe (the caller prompts).
+		return false, "", lastErr
+	}
+	if harmfulCount >= safeCount {
+		return true, harmfulReason, nil
+	}
+	return false, safeReason, nil
+}
 
+// assessHarmOnce runs one harm-judge request at the given temperature. The verdict
+// is a tiny JSON object, but a model (especially an OpenAI-compatible or reasoning
+// one) sometimes wraps it in prose or a code fence; retry once with a firmer
+// JSON-only instruction before giving up. A transport/parse failure after the
+// retry returns an error so the caller can fail safe (fall back to prompting).
+func (s *Session) assessHarmOnce(ctx context.Context, facts, untrusted string, temperature float64) (bool, string, error) {
+	base := buildHarmContent(facts, untrusted, false)
+	strict := buildHarmContent(facts, untrusted, true)
+	temp := temperature
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		content := base
@@ -871,7 +917,7 @@ func (s *Session) AssessHarm(ctx context.Context, facts, untrusted string) (harm
 			Messages:    []llm.Message{userMessage(content)},
 			System:      []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: harmSystemPrompt}},
 			MaxTokens:   harmMaxTokens,
-			Temperature: &temperature,
+			Temperature: &temp,
 			Metadata:    s.metadata,
 		}
 		assistant, _, _, streamErr := s.streamAssistant(ctx, req, telemetry.NewTurnID(), "harm_check", nil)

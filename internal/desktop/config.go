@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/wt68/runcode/internal/cost"
@@ -54,6 +55,7 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 		Provider:       firstNonEmpty(req.Provider, os.Getenv("RUNCODE_PROVIDER"), "anthropic"),
 		Model:          model,
 		HarmJudgeModel: firstNonEmpty(req.HarmJudgeModel, os.Getenv("RUNCODE_HARM_JUDGE_MODEL")),
+		HarmJudgeVotes: harmVotesFromRequest(req),
 		BaseURL:        firstNonEmpty(req.BaseURL, os.Getenv("ANTHROPIC_BASE_URL")),
 		APIKey:         firstNonEmpty(req.APIKey, os.Getenv("ANTHROPIC_API_KEY")),
 		AuthToken:      firstNonEmpty(req.AuthToken, os.Getenv("ANTHROPIC_AUTH_TOKEN")),
@@ -138,6 +140,18 @@ func maxNonNegative(v int) int {
 		return 0
 	}
 	return v
+}
+
+// harmVotesFromRequest resolves the harm-judge vote count: the request field wins,
+// else RUNCODE_HARM_JUDGE_VOTES, else 0 (a single check). Only positive values count.
+func harmVotesFromRequest(req StartSessionRequest) int {
+	if req.HarmJudgeVotes > 0 {
+		return req.HarmJudgeVotes
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("RUNCODE_HARM_JUDGE_VOTES"))); err == nil && v > 0 {
+		return v
+	}
+	return 0
 }
 
 func firstNonEmpty(values ...string) string {

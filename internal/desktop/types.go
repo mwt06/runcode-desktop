@@ -81,7 +81,10 @@ type StartSessionRequest struct {
 	// check. Empty uses an independent default (a cheaper model, decorrelated from
 	// the main conversation model).
 	HarmJudgeModel string `json:"harmJudgeModel"`
-	MaxTokens      int    `json:"maxTokens"`
+	// HarmJudgeVotes runs the harm check as a majority vote across N samples when > 1
+	// (more robust to a single fooled verdict, at N× the token cost). 0/1 = single.
+	HarmJudgeVotes int `json:"harmJudgeVotes"`
+	MaxTokens      int `json:"maxTokens"`
 	// MaxContextTokens is the context budget that arms automatic compaction: once a
 	// turn's input tokens approach it, older turns are summarized. 0 disables it.
 	MaxContextTokens int `json:"maxContextTokens"`
