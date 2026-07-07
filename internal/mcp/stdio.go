@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+
+	"github.com/wt68/runcode/internal/secenv"
 )
 
 // StdioConfig launches a local MCP server as a subprocess and speaks JSON-RPC
@@ -72,7 +74,9 @@ func newStdioTransport(cfg StdioConfig) (*stdioStream, error) {
 		return nil, fmt.Errorf("mcp: stdio command is required")
 	}
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Env = append(os.Environ(), cfg.Env...)
+	// Scrub inherited credential vars so the MCP server can't read the agent's own
+	// API keys; cfg.Env (the explicitly-configured server secrets) is still passed.
+	cmd.Env = append(secenv.Sanitize(os.Environ()), cfg.Env...)
 	if cfg.Dir != "" {
 		cmd.Dir = cfg.Dir
 	}

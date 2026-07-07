@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/wt68/runcode/internal/secenv"
 )
 
 // shellKind reports which shell the Bash tool runs commands in.
@@ -115,7 +117,9 @@ func writeCmdScript(command string) (string, error) {
 // Python so non-ASCII prints (e.g. Chinese) are not garbled by a legacy console
 // code page; PYTHONUTF8 covers 3.7+ and PYTHONIOENCODING is the older fallback.
 func childEnv() []string {
-	return append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	// Scrub credential-looking variables (API keys, tokens) so a permitted or
+	// injected command can't read the agent's secrets and exfiltrate them.
+	return append(secenv.Sanitize(os.Environ()), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
 }
 
 func encodePowerShell(command string) string {
