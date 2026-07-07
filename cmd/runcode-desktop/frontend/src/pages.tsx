@@ -412,6 +412,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   // Model and permission mode prefer the live session (they can change at runtime);
   // connection settings come from the saved config.
   const [model, setModel] = useState(info?.model || initial.model || '')
+  const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
   const [permissionMode, setPermissionMode] = useState(info?.permissionMode || initial.permissionMode || 'interactive')
   const [provider, setProvider] = useState(initial.provider || 'openai')
   const [baseURL, setBaseURL] = useState(initial.baseURL ?? '')
@@ -440,6 +441,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
         maxTokens: maxTokens.trim() ? parseInt(maxTokens, 10) || 0 : 0,
         maxContextTokens,
         maxHistoryMessages: maxHistoryMessages.trim() ? parseInt(maxHistoryMessages, 10) || 0 : 0,
+        harmJudgeModel,
         // Preserved (edited via the in-conversation picker, not this form) so saving
         // connection settings does not silently reset the reasoning strength.
         thinkingEffort: initial.thinkingEffort ?? '',
@@ -479,6 +481,9 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
               <span>飞行模式会<b>放行一切操作</b>（含删除文件、sudo 等高危命令），不再询问也不做模型审查。仅在完全信任的环境使用。</span>
             </div>
           )}
+          <label className={label}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
+            <input className={field} value={harmJudgeModel} onChange={(e) => setHarmJudgeModel(e.target.value)} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" />
+          </label>
         </section>
 
         <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
@@ -1135,6 +1140,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const [permissionMode, setPermissionMode] = useState(initial.permissionMode || 'interactive')
   const [apiKey, setApiKey] = useState(initial.apiKey ?? '')
   const [thinkingEffort, setThinkingEffort] = useState(initial.thinkingEffort ?? '')
+  const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
   const [maxContextTokens, setMaxContextTokens] = useState(initial.maxContextTokens ?? 128000)
   const recent = (initial.recentWorkspaces ?? []).filter((w) => w && w !== cwd)
   const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
@@ -1208,6 +1214,9 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             </select>
           </label>
         </div>
+        <label className={label}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
+          <input className={field} value={harmJudgeModel} onChange={(e) => setHarmJudgeModel(e.target.value)} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" />
+        </label>
         <label className={label}>上下文预算（超出后自动总结压缩较早对话）
           <select className={field} value={String(maxContextTokens)} onChange={(e) => setMaxContextTokens(parseInt(e.target.value, 10))}>
             <option value="0">关闭 · 不自动压缩</option>
@@ -1219,7 +1228,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         <label className={label}>Base URL<input className={field} value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="https://api.anthropic.com" /></label>
         <label className={label}>API 密钥<input className={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="可留空，改用环境变量" /></label>
         {error && <div className="text-red text-[13px]">{error}</div>}
-        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart({ cwd, model, provider, baseURL, permissionMode, apiKey, thinkingEffort, maxContextTokens })}>
+        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart({ cwd, model, provider, baseURL, permissionMode, apiKey, thinkingEffort, maxContextTokens, harmJudgeModel })}>
           {starting ? '启动中…' : '开始会话'}
         </button>
       </div>
