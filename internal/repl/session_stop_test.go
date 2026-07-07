@@ -3,12 +3,14 @@ package repl
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/tools/webfetch"
 	"github.com/wt68/runcode/tools/write"
 )
 
@@ -66,6 +68,63 @@ func TestRunTurnStopsWhenUserDeniesTool(t *testing.T) {
 	tr := result.LastToolMessage.Content[0]
 	if tr.Type != llm.ContentBlockTypeToolResult || tr.ToolUseID != "tool-1" || !tr.IsError {
 		t.Fatalf("tool result = %#v, want an is_error result answering tool-1", tr)
+	}
+}
+
+// A concurrency-safe tool that prompts (WebFetch) can be denied by the user from
+// inside a parallel batch. The batch must still surface that "stop" so the turn halts
+// and any tool queued after the batch is skipped — the same contract as the
+// sequential path. This is what makes it safe to run promptable tools concurrently.
+func TestRunTurnStopsWhenUserDeniesToolInConcurrentBatch(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	fetchA := llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "fetch-a", Name: "WebFetch", Input: rawInput(t, map[string]any{"url": "https://a.example.com"})}
+	fetchB := llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "fetch-b", Name: "WebFetch", Input: rawInput(t, map[string]any{"url": "https://b.example.com"})}
+	writeUse := llm.ContentBlock{Type: llm.ContentBlockTypeToolUse, ID: "write-1", Name: "Write", Input: rawInput(t, map[string]any{"path": "new.txt", "content": "hi"})}
+
+	// One provider response: two concurrency-safe fetches (batched) then a Write.
+	// Only one stream is queued, so a clean return proves the loop did not iterate.
+	provider := newFakeProvider(multiToolUseEvents(fetchA, fetchB, writeUse), nil)
+
+	permSvc := permissions.NewService(permissions.Options{
+		Mode:              "interactive",
+		ApprovalAvailable: true,
+		Authorizer: permissions.InteractiveAuthorizer{
+			Approver: testApprover{response: permissions.ApprovalResponse{Effect: permissions.EffectDeny}},
+		},
+	})
+
+	session := newTestSession(t, SessionOptions{
+		Provider:    provider,
+		Model:       "mock-model",
+		Tools:       []tool.Tool{webfetch.New(), write.New()},
+		Permissions: permSvc,
+		ToolContext: &tool.Context{WorkingDirectory: workspace},
+		Prompt:      prompt.AssemblerOpts{CWD: workspace, Date: "2026-06-23"},
+	})
+
+	result, err := session.RunTurn(context.Background(), "fetch two urls then write")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if !result.Stopped {
+		t.Fatal("result.Stopped = false, want true after a denial inside the batch")
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (the model must not be re-invoked)", len(provider.requests))
+	}
+	if result.LastToolMessage == nil || len(result.LastToolMessage.Content) != 3 {
+		t.Fatalf("LastToolMessage = %#v, want three tool_results", result.LastToolMessage)
+	}
+	// The Write was queued after the batch and must be answered with the skip result,
+	// not executed.
+	writeResult := result.LastToolMessage.Content[2]
+	if writeResult.ToolUseID != "write-1" || !writeResult.IsError {
+		t.Fatalf("write result = %#v, want an is_error skip answering write-1", writeResult)
+	}
+	if !strings.Contains(messageText(llm.Message{Content: writeResult.Content}), "Skipped") {
+		t.Fatalf("write result text = %q, want a skip notice", messageText(llm.Message{Content: writeResult.Content}))
 	}
 }
 

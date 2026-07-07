@@ -57,6 +57,10 @@ func (a *App) persistThinkingEffort(effort string) {
 	saveConfig(req)
 }
 
+// maxRecentWorkspaces caps the MRU workspace list so the picker stays short and
+// the config file doesn't grow unbounded.
+const maxRecentWorkspaces = 8
+
 // saveConfig persists the request (0600 — it may carry an API key) so the next
 // launch prefills the form. Failures are non-fatal.
 func saveConfig(req StartSessionRequest) {
@@ -67,9 +71,52 @@ func saveConfig(req StartSessionRequest) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
+	// The MRU workspace list is server-owned: recompute it from the previously
+	// persisted list plus the workspace being saved, ignoring whatever the frontend
+	// sent (it only ever echoes back what it was given).
+	prev := loadRawConfig()
+	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		return
 	}
 	_ = os.WriteFile(path, data, 0o600)
+}
+
+// loadRawConfig reads the persisted request without falling back to defaults, so
+// saveConfig can carry forward server-owned fields (the MRU workspace list). A
+// missing/corrupt file yields a zero request, which is the correct seed.
+func loadRawConfig() StartSessionRequest {
+	path, err := desktopConfigPath()
+	if err != nil {
+		return StartSessionRequest{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return StartSessionRequest{}
+	}
+	var req StartSessionRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		return StartSessionRequest{}
+	}
+	return req
+}
+
+// mergeRecentWorkspaces promotes cwd to the front of the MRU list, de-duplicating
+// prior entries and capping the length. An empty cwd leaves the list unchanged.
+func mergeRecentWorkspaces(prev []string, cwd string) []string {
+	merged := make([]string, 0, len(prev)+1)
+	if cwd != "" {
+		merged = append(merged, cwd)
+	}
+	for _, ws := range prev {
+		if ws == "" || ws == cwd {
+			continue
+		}
+		merged = append(merged, ws)
+		if len(merged) >= maxRecentWorkspaces {
+			break
+		}
+	}
+	return merged
 }

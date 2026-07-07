@@ -9,6 +9,8 @@ import (
 
 	"github.com/wt68/runcode/internal/cost"
 	"github.com/wt68/runcode/internal/engine"
+	"github.com/wt68/runcode/internal/mcp"
+	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/pkg/llm"
 )
@@ -88,7 +90,31 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 		cfg.OutputPrice = price.OutputPerMTok
 		cfg.PriceSource = "builtin"
 	}
+	// MCP servers come from the shared user config.toml (same source as the CLI). A
+	// misconfigured server must not block session start in the GUI, so on any error
+	// we start without MCP; the MCP management page surfaces config problems.
+	cfg.MCPServers, cfg.AllowMCPSampling = loadDesktopMCP(abs)
 	return cfg, nil
+}
+
+// loadDesktopMCP reads the user-level MCP configuration and returns the connectable
+// servers plus whether sampling is allowed. Errors are swallowed (returns none) so
+// a bad config never prevents a session from starting.
+func loadDesktopMCP(cwd string) ([]mcp.ServerConfig, bool) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, false
+	}
+	res, err := settings.Load(settings.LoadOptions{UserConfigDir: dir, CWD: cwd})
+	if err != nil {
+		return nil, false
+	}
+	servers, err := engine.MCPServersFromConfig(res.Config.MCP)
+	if err != nil {
+		return nil, false
+	}
+	sampling := res.Config.MCP.AllowSampling != nil && *res.Config.MCP.AllowSampling
+	return servers, sampling
 }
 
 // desktopDefaultMaxTokens is the output-token budget used when the request does

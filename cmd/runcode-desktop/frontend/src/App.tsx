@@ -55,7 +55,7 @@ import {
   type Group,
 } from './chat'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
-import { SkillsPage, AgentsPage, SettingsPage, StartForm } from './pages'
+import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
 
 let seq = 0
 const nextID = () => `b${++seq}`
@@ -75,6 +75,9 @@ const REASONING: { value: string; label: string }[] = [
   { value: 'general', label: '通用 · 10 步清单' },
 ]
 const REASONING_LABEL: Record<string, string> = Object.fromEntries(REASONING.map((r) => [r.value, r.label]))
+
+// 思考模型（reasoning scenario）按钮暂时隐藏；改回 true 即可恢复整块 UI 与逻辑。
+const SHOW_THINKING_MODEL = false
 
 // "Thinking strength" options: provider-native reasoning effort (OpenAI
 // reasoning_effort / an Anthropic thinking budget). This is the knob that makes a
@@ -260,7 +263,7 @@ function askPayload(input: unknown): { question: string; options: string[] } {
 
 export default function App() {
   const [started, setStarted] = useState(false)
-  const [view, setView] = useState<'chat' | 'settings' | 'skills' | 'agents'>('chat')
+  const [view, setView] = useState<'chat' | 'settings' | 'skills' | 'agents' | 'permissions' | 'mcp' | 'tools' | 'memory'>('chat')
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const infoRef = useRef(info)
   useEffect(() => {
@@ -269,7 +272,12 @@ export default function App() {
   const [blocks, setBlocks] = useState<Block[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [pending, setPending] = useState<PermissionRequest | null>(null)
+  // Concurrent tools (e.g. parallel WebFetch) can each raise a prompt. The backend
+  // Approver already queues them by id; the UI queues too and resolves the head
+  // first, so a second request never clobbers the one on screen. `pending` is the
+  // request currently shown.
+  const [permQueue, setPermQueue] = useState<PermissionRequest[]>([])
+  const pending = permQueue[0] ?? null
   // plan is the latest TodoWrite snapshot (null until the model records one), shown
   // as the top-center progress pill. planOpen toggles the pill's dropdown (the full
   // task timeline); the pill itself stays visible whenever a plan exists.
@@ -294,6 +302,7 @@ export default function App() {
   const [mention, setMention] = useState<{ query: string; start: number; sel: number; trigger: MentionTrigger } | null>(null)
   const [reasonMenu, setReasonMenu] = useState(false)
   const [thinkMenu, setThinkMenu] = useState(false)
+  const [addMenu, setAddMenu] = useState(false)
   const [attachments, setAttachments] = useState<string[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -422,7 +431,25 @@ export default function App() {
     const next = input + sep + '#'
     setInput(next)
     setMention({ query: '', start: next.length - 1, sel: 0, trigger: '#' })
+    // Refresh the workspace file list on open — a session that listed none at
+    // startup (or before its workspace was ready) still gets a current list.
+    listFiles()
+      .then((f) => setFiles(f ?? []))
+      .catch(() => {})
     requestAnimationFrame(() => ta?.focus())
+  }
+  // The "+" menu opens the skill (@) or sub-agent (/) picker directly, mirroring
+  // typing the trigger at the composer start. Both are start-of-input commands that
+  // replace the whole input on pick, so each opens a fresh one.
+  function openSkillPicker() {
+    setInput('@')
+    setMention({ query: '', start: 0, sel: 0, trigger: '@' })
+    setCaret(1)
+  }
+  function openAgentPicker() {
+    setInput('/')
+    setMention({ query: '', start: 0, sel: 0, trigger: '/' })
+    setCaret(1)
   }
   // Pick an image from disk and attach it to the next message. The path is kept in
   // `attachments` and the bytes are read backend-side at send time.
@@ -497,13 +524,16 @@ export default function App() {
             if (pidx < 0) return prev // parent Task not found yet — drop (shouldn't happen)
             const parent = prev[pidx] as Extract<Block, { kind: 'tool' }>
             const n: AgentNested = parent.nested ?? { agent: ev.agentName ?? '', text: '', tools: [] }
+            const agent = n.agent || ev.agentName || ''
             let updated: AgentNested
             if (ev.type === 'agent_delta') {
-              updated = { agent: n.agent || ev.agentName || '', text: n.text + (ev.message ?? ''), tools: n.tools }
+              updated = { ...n, agent, text: n.text + (ev.message ?? '') }
+            } else if (ev.type === 'agent_usage') {
+              updated = { ...n, agent, usage: { inTok: ev.inputTokens ?? 0, outTok: ev.outputTokens ?? 0, durMs: ev.durationMs } }
             } else {
               const tidx = n.tools.findIndex((t) => t.toolUseID && t.toolUseID === ev.toolUseID)
               const tools = tidx >= 0 ? n.tools.map((t, i) => (i === tidx ? mergeTool(t, ev) : t)) : [...n.tools, ev]
-              updated = { agent: n.agent || ev.agentName || '', text: n.text, tools }
+              updated = { ...n, agent, tools }
             }
             const out = [...prev]
             out[pidx] = { ...parent, nested: updated }
@@ -524,6 +554,9 @@ export default function App() {
       }),
       onEvent<TurnEnd>(Events.TurnEnd, (end) => {
         setBusy(false)
+        // The turn is over; any still-queued prompts were denied on the backend
+        // (context cancel / DenyAll), so drop stale modals.
+        setPermQueue([])
         setTokens((t) => ({ in: t.in + end.inputTokens, out: t.out + end.outputTokens }))
         if (end.contextTokens) {
           setCtxTokens(end.contextTokens)
@@ -560,6 +593,12 @@ export default function App() {
                 : '模型返回了空内容(可能被截断或触发了内容限制)。',
             }]
           }
+          // Close the reply with this turn's own token spend (a faint footer). It
+          // counts only the parent session's model calls; a delegated sub-agent's
+          // tokens are shown on its Task card instead, so the two never double-count.
+          if (end.inputTokens > 0 || end.outputTokens > 0) {
+            next = [...next, { kind: 'usage', id: nextID(), inTok: end.inputTokens, outTok: end.outputTokens, durMs: end.durationMs }]
+          }
           // In plan mode, a completed turn means the model presented its plan — offer
           // how to proceed (execute interactively / via judge, or keep refining).
           if (infoRef.current?.planMode && !end.stopped && !isAsk && !emptyResponse) {
@@ -571,9 +610,14 @@ export default function App() {
       }),
       onEvent<{ error: string }>(Events.TurnError, ({ error }) => {
         setBusy(false)
+        setPermQueue([])
         setBlocks((prev) => [...finalizeTools(finalizeStreaming(prev)), { kind: 'error', id: nextID(), text: error }])
       }),
-      onEvent<PermissionRequest>(Events.PermissionRequest, (req) => setPending(req)),
+      // Enqueue (don't replace): concurrent tools may each prompt. Dedup by id in
+      // case an event is delivered twice.
+      onEvent<PermissionRequest>(Events.PermissionRequest, (req) =>
+        setPermQueue((q) => (q.some((p) => p.id === req.id) ? q : [...q, req])),
+      ),
       onEvent<{ message: string }>(Events.Warning, ({ message }) =>
         setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: message }]),
       ),
@@ -700,22 +744,42 @@ export default function App() {
     setBlocks((prev) => prev.filter((b) => b.kind !== 'planchoice'))
   }
   async function decide(decision: string) {
-    if (!pending) return
-    const id = pending.id
-    setPending(null)
+    const cur = permQueue[0]
+    if (!cur) return
+    // Advance the queue: drop this request so the next one surfaces, then resolve it.
+    setPermQueue((q) => q.filter((p) => p.id !== cur.id))
     try {
-      await resolvePermission(id, decision)
+      await resolvePermission(cur.id, decision)
     } catch {
       /* 已解决或取消 */
+    }
+  }
+  // Deny every queued request at once — handy when a burst of concurrent tools each
+  // raised a prompt and the user wants to reject them all.
+  async function denyRest() {
+    const rest = permQueue
+    setPermQueue([])
+    for (const p of rest) {
+      try {
+        await resolvePermission(p.id, 'deny')
+      } catch {
+        /* 已解决或取消 */
+      }
     }
   }
   async function toggleMode() {
     if (!info) return
     const order = ['safe', 'interactive', 'judge', 'flight']
     const next = order[(order.indexOf(info.permissionMode || 'safe') + 1) % order.length]
+    await pickMode(next)
+  }
+  // pickMode activates a specific permission mode (used by the permissions page's
+  // mode cards), keeping the local session info in sync with the backend.
+  async function pickMode(mode: string) {
+    if (!info || info.permissionMode === mode) return
     try {
-      await setPermissionMode(next)
-      setInfo({ ...info, permissionMode: next })
+      await setPermissionMode(mode)
+      setInfo({ ...info, permissionMode: mode })
     } catch (e) {
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
     }
@@ -884,6 +948,14 @@ export default function App() {
               requestAnimationFrame(() => taRef.current?.focus())
             }}
           />
+        ) : view === 'permissions' ? (
+          <PermissionsPage mode={info?.permissionMode} onPickMode={pickMode} />
+        ) : view === 'mcp' ? (
+          <MCPPage />
+        ) : view === 'tools' ? (
+          <ToolsPage />
+        ) : view === 'memory' ? (
+          <MemoryPage />
         ) : (
         <>
         {plan && (
@@ -901,7 +973,7 @@ export default function App() {
           </div>
         )}
         <div className="flex-1 overflow-y-auto bg-surface px-6 pt-3 pb-8" ref={scrollRef}>
-          <div className="mx-auto max-w-[820px] flex flex-col gap-6">
+          <div className="mx-auto max-w-none flex flex-col gap-6">
             {blocks.length === 0 && (
               <div className="mt-[16vh] text-center text-faint">
                 <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
@@ -932,9 +1004,9 @@ export default function App() {
           </div>
         </div>
 
-        {pending && <PermissionModal req={pending} onDecide={decide} />}
+        {pending && <PermissionModal req={pending} onDecide={decide} remaining={permQueue.length - 1} onDenyRest={denyRest} />}
 
-        <footer className="flex-none relative px-6 pt-3.5 pb-[18px] w-full max-w-[868px] mx-auto">
+        <footer className="flex-none relative px-6 pt-3.5 pb-[18px] w-full max-w-none mx-auto">
           {info?.planMode && (
             <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-[12px] px-3.5 py-2.5">
               <span className="text-primaryink flex-none"><Icon name="compass" size={16} /></span>
@@ -993,9 +1065,12 @@ export default function App() {
               ))}
             </div>
           )}
-          {mention && mention.trigger === '#' && fileMatches.length > 0 && (
+          {mention && mention.trigger === '#' && (fileMatches.length > 0 || mention.query === '') && (
             <div className="absolute left-6 right-6 bottom-full mb-1.5 z-10 bg-surface border border-line2 rounded-[12px] shadow-card overflow-hidden max-h-[300px] overflow-y-auto">
               <div className="px-3.5 pt-2 pb-1 text-[11.5px] text-faint">引用文件 · {fileMatches.length}{fileMatches.length >= 50 ? '+' : ''}</div>
+              {fileMatches.length === 0 && (
+                <div className="px-3.5 py-2.5 text-[12.5px] text-faint">该工作区没有可引用的文件</div>
+              )}
               {fileMatches.map((p, i) => {
                 const slash = p.lastIndexOf('/')
                 const name = slash >= 0 ? p.slice(slash + 1) : p
@@ -1079,8 +1154,26 @@ export default function App() {
           />
           <div className="flex items-center justify-between bg-surface border border-line2 border-t-0 rounded-b-[14px] px-3 py-[9px] shadow-card">
             <div className="flex gap-1.5">
-              <GhostBtn title="添加图片附件" onClick={pickAttachment}><Icon name="plus" size={16} /></GhostBtn>
-              <GhostBtn title="引用文件" onClick={openFilePicker}><Icon name="hash" size={16} /> 文件</GhostBtn>
+              <div className="relative">
+                <button
+                  onClick={() => setAddMenu((v) => !v)}
+                  title="添加：技能 / 智能体 / 图片"
+                  className="border-none bg-transparent text-muted text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 hover:bg-surface2 hover:text-ink"
+                >
+                  <Icon name="plus" size={16} />
+                </button>
+                {addMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setAddMenu(false)} />
+                    <div className="absolute bottom-full left-0 mb-1.5 z-20 w-[180px] bg-surface border border-line2 rounded-[11px] shadow-card overflow-hidden py-1">
+                      <div onClick={() => { setAddMenu(false); openSkillPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="book" size={15} /> 技能</div>
+                      <div onClick={() => { setAddMenu(false); openAgentPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="bot" size={15} /> 智能体</div>
+                      <div onClick={() => { setAddMenu(false); openFilePicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="hash" size={15} /> 文件</div>
+                      <div onClick={() => { setAddMenu(false); pickAttachment() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="paperclip" size={15} /> 图片附件</div>
+                    </div>
+                  </>
+                )}
+              </div>
               <GhostBtn onClick={toggleMode} title="点击切换权限模式"><Icon name="shield" size={16} /> {MODE_LABEL[info?.permissionMode ?? ''] ?? '安全模式'}</GhostBtn>
               <button
                 onClick={togglePlan}
@@ -1089,6 +1182,7 @@ export default function App() {
               >
                 <Icon name="compass" size={16} /> 计划模式
               </button>
+              {SHOW_THINKING_MODEL && (
               <div className="relative">
                 <button
                   onClick={() => setReasonMenu((v) => !v)}
@@ -1115,6 +1209,7 @@ export default function App() {
                   </>
                 )}
               </div>
+              )}
               <div className="relative">
                 <button
                   onClick={() => setThinkMenu((v) => !v)}
@@ -1357,8 +1452,8 @@ function Sidebar({
   currentId?: string
   cwd?: string
   onSwitchWorkspace: () => void
-  view: 'chat' | 'settings' | 'skills' | 'agents'
-  onNav: (v: 'chat' | 'settings' | 'skills' | 'agents') => void
+  view: 'chat' | 'settings' | 'skills' | 'agents' | 'permissions' | 'mcp' | 'tools' | 'memory'
+  onNav: (v: 'chat' | 'settings' | 'skills' | 'agents' | 'permissions' | 'mcp' | 'tools' | 'memory') => void
   onNew: () => void
   onResume: (id: string) => void
 }) {
@@ -1367,6 +1462,10 @@ function Sidebar({
     { label: '对话', name: 'chat', view: 'chat' as const },
     { label: '技能', name: 'book', view: 'skills' as const },
     { label: '子代理', name: 'bot', view: 'agents' as const },
+    { label: 'MCP', name: 'plug', view: 'mcp' as const },
+    { label: '工具', name: 'grid', view: 'tools' as const },
+    { label: '记忆', name: 'file', view: 'memory' as const },
+    { label: '权限', name: 'shield', view: 'permissions' as const },
     { label: '设置', name: 'settings', view: 'settings' as const },
   ]
   return (
@@ -1627,6 +1726,11 @@ function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: AgentNested
           <span className={`w-[6px] h-[6px] rounded-full ${running ? 'bg-primary blip' : failed ? 'bg-red' : 'bg-green'}`} />
           {running ? '运行中…' : failed ? '失败' : `${tools.length} 步`}
         </span>
+        {nested?.usage && (nested.usage.inTok > 0 || nested.usage.outTok > 0) && (
+          <span className="text-[11px] text-faint font-mono tabular-nums flex-none" title="子代理自身用量与运行时间(与主回复分开计)">
+            ↑{fmtTokens(nested.usage.inTok)} ↓{fmtTokens(nested.usage.outTok)}{nested.usage.durMs ? ` · ${fmtDuration(nested.usage.durMs)}` : ''}
+          </span>
+        )}
         {!running && (
           <button className="ml-1 flex-none text-faint hover:text-ink inline-flex items-center gap-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}>
             {open ? '收起' : '展开'}
@@ -2114,6 +2218,22 @@ function ContextMeter({
   )
 }
 
+// fmtTokens renders a token count compactly: 340 → "340", 1234 → "1.2k", 23000 → "23k".
+function fmtTokens(n: number): string {
+  if (n >= 10000) return Math.round(n / 1000) + 'k'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(n)
+}
+
+// fmtDuration renders elapsed ms compactly: 850 → "0.9s", 3200 → "3.2s", 75000 → "1m15s".
+function fmtDuration(ms?: number): string {
+  if (!ms || ms < 0) return ''
+  const s = ms / 1000
+  if (s < 60) return (s < 10 ? s.toFixed(1) : Math.round(s).toString()) + 's'
+  const m = Math.floor(s / 60)
+  return `${m}m${Math.round(s % 60)}s`
+}
+
 function BlockView({ block }: { block: Block }) {
   // While an assistant answer streams, keep it in a fixed-height window pinned to
   // the newest text (consistent with the tool/agent cards); release to full height
@@ -2186,6 +2306,19 @@ function BlockView({ block }: { block: Block }) {
           </div>
         </div>
       )
+    case 'usage':
+      return (
+        <BotRow>
+          <div className="flex justify-end -mt-1.5">
+            <span
+              className="text-[11px] text-faint font-mono tabular-nums select-none"
+              title="本轮用量(仅本会话的模型调用;子代理另计)"
+            >
+              ↑{fmtTokens(block.inTok)} ↓{fmtTokens(block.outTok)}{block.durMs ? ` · ${fmtDuration(block.durMs)}` : ''}
+            </span>
+          </div>
+        </BotRow>
+      )
     case 'tool':
       // Live Task with sub-agent activity → nested observable view; a resumed Task
       // (no live nested data) falls back to the normal card showing its result.
@@ -2196,13 +2329,18 @@ function BlockView({ block }: { block: Block }) {
   }
 }
 
-function PermissionModal({ req, onDecide }: { req: PermissionRequest; onDecide: (decision: string) => void }) {
+function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { req: PermissionRequest; onDecide: (decision: string) => void; remaining?: number; onDenyRest?: () => void }) {
   const s = req.summary
   const td = 'py-[7px] px-1.5 align-top border-t border-line'
   return (
     <div className="fixed inset-0 bg-[rgba(30,33,50,0.32)] backdrop-blur-[2px] flex items-center justify-center z-20 anim-rise">
       <div className="w-[560px] max-w-[92vw] bg-surface rounded-[16px] p-[22px] shadow-[0_30px_70px_rgba(30,35,60,0.28)]">
-        <h3 className="m-0 mb-4 text-[16px] font-bold flex items-center gap-2.5"><span className="w-[9px] h-[9px] rounded-[3px] bg-primary" />权限请求</h3>
+        <h3 className="m-0 mb-4 text-[16px] font-bold flex items-center gap-2.5">
+          <span className="w-[9px] h-[9px] rounded-[3px] bg-primary" />权限请求
+          {remaining > 0 && (
+            <span className="ml-auto text-[12px] font-medium text-muted bg-surface2 border border-line2 rounded-full px-2.5 py-0.5">还有 {remaining} 个待处理</span>
+          )}
+        </h3>
         {req.harmReason && (
           <div className="mb-3 flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5">
             <span className="text-red flex-none mt-px"><Icon name="shield" size={16} /></span>
@@ -2238,6 +2376,9 @@ function PermissionModal({ req, onDecide }: { req: PermissionRequest; onDecide: 
           <button className={`${BTN} flex-1`} onClick={() => onDecide('allow-project')}>本项目</button>
           <button className={`${BTN} flex-1 ${BTN_DANGER}`} onClick={() => onDecide('deny')}>拒绝</button>
         </div>
+        {remaining > 0 && onDenyRest && (
+          <button className="mt-2 w-full text-[12.5px] text-muted hover:text-red transition-colors" onClick={onDenyRest}>拒绝全部（含其余 {remaining} 个）</button>
+        )}
       </div>
     </div>
   )

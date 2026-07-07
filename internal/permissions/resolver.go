@@ -105,6 +105,8 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "WebFetch":
 		return resolveWebFetch(req)
+	case "WebSearch":
+		return resolveWebSearch(req)
 	default:
 		return Action{ToolName: req.ToolName, Operation: OperationUnknown, Risk: RiskHigh, Resources: []Resource{{Type: ResourceUnknown, Scope: ResourceScopeUnknown}}}, nil
 	}
@@ -296,6 +298,14 @@ func commandFallback(toolName string) Action {
 
 type webFetchInput struct {
 	URL string `json:"url"`
+}
+
+// resolveWebSearch treats WebSearch like any outbound network call, attributing it
+// to duckduckgo.com so the approval prompt and per-host session grants are accurate.
+func resolveWebSearch(req ResolveRequest) (Action, error) {
+	action := networkFallback(req.ToolName)
+	action.Metadata = map[string]any{MetadataNetworkHost: "duckduckgo.com"}
+	return action, nil
 }
 
 func resolveWebFetch(req ResolveRequest) (Action, error) {

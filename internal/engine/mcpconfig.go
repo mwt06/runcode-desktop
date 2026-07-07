@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"fmt"
@@ -10,12 +10,15 @@ import (
 	"github.com/wt68/runcode/internal/persistence/settings"
 )
 
-// mcpServersFromConfig converts the user-level MCP config into connectable server
+// MCPServersFromConfig converts the user-level MCP config into connectable server
 // configs. It expands ${VAR} references (so secrets stay in the environment),
 // applies the enabled-by-default rule, and validates each server. Servers are
 // returned in name order for deterministic startup. A misconfigured server is a
 // hard error so the user fixes it rather than silently losing a tool source.
-func mcpServersFromConfig(cfg settings.MCPConfig) ([]mcp.ServerConfig, error) {
+//
+// It lives in the engine so the CLI and the desktop interpret config.toml
+// identically instead of each carrying its own copy of the rules.
+func MCPServersFromConfig(cfg settings.MCPConfig) ([]mcp.ServerConfig, error) {
 	if len(cfg.Servers) == 0 {
 		return nil, nil
 	}

@@ -523,8 +523,9 @@ func (s *Session) FireSessionEnd(ctx context.Context, reason string) {
 // ToolDescriptor is a tool's name and description, for UI listing (e.g. an
 // @-mention picker).
 type ToolDescriptor struct {
-	Name        string
-	Description string
+	Name            string
+	Description     string
+	ConcurrencySafe bool
 }
 
 // ToolList returns the session's tools as name/description pairs, in their
@@ -532,7 +533,7 @@ type ToolDescriptor struct {
 func (s *Session) ToolList() []ToolDescriptor {
 	out := make([]ToolDescriptor, 0, len(s.tools))
 	for _, t := range s.tools {
-		out = append(out, ToolDescriptor{Name: t.Name(), Description: t.Description()})
+		out = append(out, ToolDescriptor{Name: t.Name(), Description: t.Description(), ConcurrencySafe: t.IsConcurrencySafe()})
 	}
 	return out
 }
@@ -1472,8 +1473,17 @@ func (s *Session) executeToolUses(ctx context.Context, assistant llm.Message, tu
 		for j < len(blocks) && s.canRunConcurrently(blocks[j]) {
 			j++
 		}
-		if err := s.executeConcurrentBatch(ctx, blocks[i:j], results[i:j], turnID); err != nil {
+		stop, err := s.executeConcurrentBatch(ctx, blocks[i:j], results[i:j], turnID)
+		if err != nil {
 			return nil, false, err
+		}
+		if stop {
+			// A tool in the batch was denied-with-stop. The batch itself has fully run;
+			// skip anything queued after it, mirroring the sequential path.
+			for k := j; k < len(blocks); k++ {
+				results[k] = skippedToolResultBlock(blocks[k])
+			}
+			return results, true, nil
 		}
 		i = j
 	}
@@ -1535,7 +1545,13 @@ func skippedToolResultBlock(block llm.ContentBlock) llm.ContentBlock {
 }
 
 func (s *Session) canRunConcurrently(block llm.ContentBlock) bool {
-	return s.executor.IsConcurrencySafe(block.Name) && !s.executor.ApprovalAvailable()
+	// Concurrency-safe tools run together in a parallel batch. Most (Read/Grep/Glob)
+	// are read-only and never prompt; WebFetch may prompt, but the approver queues
+	// concurrent requests by id (both the backend Approver and the desktop UI), and
+	// executeConcurrentBatch propagates a user "stop" decision back to the turn. So
+	// parallelism is safe even when interactive approval is available (as in the
+	// desktop app), and even for promptable tools.
+	return s.executor.IsConcurrencySafe(block.Name)
 }
 
 // executeSingleTool runs one tool call. The bool reports whether the result
@@ -1561,19 +1577,24 @@ func (s *Session) executeSingleTool(ctx context.Context, block llm.ContentBlock,
 	return rb, executed.StopTurn, nil
 }
 
-func (s *Session) executeConcurrentBatch(ctx context.Context, blocks []llm.ContentBlock, results []llm.ContentBlock, turnID string) error {
+// executeConcurrentBatch runs a batch of concurrency-safe tools in parallel,
+// writing each result into results[i]. It reports whether the turn should stop:
+// a promptable tool in the batch (e.g. WebFetch) may be denied by the user, which
+// sets StopTurn — the batch still lets every sibling finish (they run in parallel
+// and cannot be un-run), then surfaces the stop so the caller skips any tools that
+// were queued *after* this batch.
+func (s *Session) executeConcurrentBatch(ctx context.Context, blocks []llm.ContentBlock, results []llm.ContentBlock, turnID string) (bool, error) {
 	if len(blocks) == 1 {
-		// A concurrent batch only forms when interactive approval is unavailable, so
-		// no user "stop" decision can arise here; the stop flag is always false.
-		result, _, err := s.executeSingleTool(ctx, blocks[0], turnID)
+		result, stop, err := s.executeSingleTool(ctx, blocks[0], turnID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		results[0] = result
-		return nil
+		return stop, nil
 	}
 	g, gctx := errgroup.WithContext(ctx)
 	var mu sync.Mutex
+	stop := false
 	for idx, block := range blocks {
 		idx, block := idx, block
 		tctx := shallowCopyToolContext(s.toolContext, block.ID)
@@ -1597,12 +1618,18 @@ func (s *Session) executeConcurrentBatch(ctx context.Context, blocks []llm.Conte
 			}
 			mu.Lock()
 			results[idx] = rb
+			if executed.StopTurn {
+				stop = true
+			}
 			mergeToolContextReadSet(s.toolContext, tctx)
 			mu.Unlock()
 			return nil
 		})
 	}
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		return false, err
+	}
+	return stop, nil
 }
 
 func shallowCopyToolContext(tctx *tool.Context, toolUseID string) *tool.Context {

@@ -157,6 +157,7 @@ func (a *App) SendMessage(text string) error {
 	a.mu.Unlock()
 
 	go func() {
+		started := time.Now()
 		result, err := session.RunTurn(turnCtx, text)
 		a.mu.Lock()
 		a.inFlight = false
@@ -169,7 +170,7 @@ func (a *App) SendMessage(text string) error {
 			a.sink.Emit(EventTurnError, TurnError{Error: err.Error()})
 			return
 		}
-		a.sink.Emit(EventTurnEnd, turnEndFromResult(result))
+		a.sink.Emit(EventTurnEnd, turnEndFromResult(result, int(time.Since(started).Milliseconds())))
 		// Name the session from this turn's question, regenerating each turn so the
 		// title tracks the latest request. Runs off the turn path (its own context)
 		// so it never delays the reply; failures are silent.

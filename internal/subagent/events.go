@@ -50,3 +50,15 @@ func emitAgentDelta(child chan<- tool.Event, delta string) {
 	default:
 	}
 }
+
+// emitAgentUsage reports the sub-agent's total token spend and run time through the
+// bridge, so the UI can show them on the Task card. Non-blocking, like the deltas.
+func emitAgentUsage(child chan<- tool.Event, in, out, durMs int) {
+	if child == nil || (in == 0 && out == 0 && durMs == 0) {
+		return
+	}
+	select {
+	case child <- tool.Event{Type: tool.EventTypeAgentUsage, InputTokens: in, OutputTokens: out, DurationMs: durMs}:
+	default:
+	}
+}

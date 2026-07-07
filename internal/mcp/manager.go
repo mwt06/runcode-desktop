@@ -118,6 +118,27 @@ func (m *Manager) Tools() []tool.Tool {
 	return m.tools
 }
 
+// ServerStatus is a connected server's live state, for surfacing MCP health in a UI.
+type ServerStatus struct {
+	Name      string
+	ToolCount int
+}
+
+// Status returns each connected server and how many tools it contributes. Servers
+// that failed to connect are absent (their failure is reported as a StartupError by
+// Open), so a caller can treat a configured-but-enabled-but-absent server as "not
+// connected".
+func (m *Manager) Status() []ServerStatus {
+	if m == nil {
+		return nil
+	}
+	out := make([]ServerStatus, 0, len(m.conns))
+	for _, c := range m.conns {
+		out = append(out, ServerStatus{Name: c.name, ToolCount: len(c.tools)})
+	}
+	return out
+}
+
 // Close stops every connected server. It returns the first close error, if any,
 // after attempting to close all of them.
 func (m *Manager) Close(context.Context) error {

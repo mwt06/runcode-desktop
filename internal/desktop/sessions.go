@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/pkg/llm"
 )
@@ -18,10 +19,18 @@ import (
 type ToolInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Source classifies where the tool comes from: "mcp" for a Model Context
+	// Protocol server tool, "builtin" for everything else (core tools, Skill, Task).
+	Source string `json:"source"`
+	// Server is the MCP server name when Source == "mcp".
+	Server string `json:"server,omitempty"`
+	// ConcurrencySafe reports whether the tool can run in parallel with siblings.
+	ConcurrencySafe bool `json:"concurrencySafe"`
 }
 
 // ListTools returns the active session's tools (builtins plus any MCP/skill
-// tools), for the composer's @-mention picker. Nil when there is no session.
+// tools), annotated with source and concurrency-safety. Nil when there is no
+// session.
 func (a *App) ListTools() []ToolInfo {
 	a.mu.Lock()
 	session := a.session
@@ -32,7 +41,12 @@ func (a *App) ListTools() []ToolInfo {
 	descs := session.ToolList()
 	out := make([]ToolInfo, 0, len(descs))
 	for _, d := range descs {
-		out = append(out, ToolInfo{Name: d.Name, Description: d.Description})
+		info := ToolInfo{Name: d.Name, Description: d.Description, ConcurrencySafe: d.ConcurrencySafe, Source: "builtin"}
+		if server, _, ok := mcp.ParseToolName(d.Name); ok {
+			info.Source = "mcp"
+			info.Server = server
+		}
+		out = append(out, info)
 	}
 	return out
 }

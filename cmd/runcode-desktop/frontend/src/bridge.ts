@@ -30,6 +30,9 @@ export interface StartSessionRequest {
   maxHistoryMessages?: number
   resume?: string
   continue?: boolean
+  /** MRU list of previously opened workspaces, maintained backend-side and offered
+   *  in the start form. Ignored when sent from the frontend. */
+  recentWorkspaces?: string[]
 }
 
 export interface ApprovalSummary {
@@ -58,7 +61,7 @@ export interface PermissionRequest {
 }
 
 export interface ToolEvent {
-  type: 'started' | 'progress' | 'output' | 'completed' | 'failed' | 'agent_delta'
+  type: 'started' | 'progress' | 'output' | 'completed' | 'failed' | 'agent_delta' | 'agent_usage'
   toolName?: string
   toolUseID?: string
   // Set when this event comes from a sub-agent's child session: it nests under the
@@ -79,6 +82,11 @@ export interface ToolEvent {
   outputTruncated?: boolean
   // An inline image the tool returned (e.g. Read of an image); data is base64.
   image?: { mediaType?: string; data?: string; url?: string }
+  // Token totals + run time, set on an agent_usage event (a sub-agent reporting its
+  // own spend and wall-clock duration).
+  inputTokens?: number
+  outputTokens?: number
+  durationMs?: number
 }
 
 // PlanItem is one task in the model's TodoWrite list. status is one of
@@ -111,6 +119,8 @@ export interface TurnEnd {
   // True when the turn stopped because the user denied a tool and asked to halt,
   // rather than the model finishing on its own.
   stopped?: boolean
+  // The turn's wall-clock time in milliseconds, shown next to the per-reply usage.
+  durationMs?: number
 }
 
 export interface SessionSummary {
@@ -137,6 +147,48 @@ export interface ResumedBlock {
 export interface ToolInfo {
   name: string
   description: string
+  source: string
+  server?: string
+  concurrencySafe: boolean
+}
+
+export interface MCPServerInfo {
+  name: string
+  transport: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  dir?: string
+  url?: string
+  headers?: Record<string, string>
+  enabled: boolean
+  connected: boolean
+  toolCount: number
+}
+
+export interface MCPServerInput {
+  originalName: string
+  name: string
+  transport: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  dir: string
+  url: string
+  headers: Record<string, string>
+  enabled: boolean
+}
+
+export interface ProjectContextInfo {
+  path: string
+  name: string
+  content: string
+  exists: boolean
+}
+
+export interface MemoryInfo {
+  user: string[]
+  project: string[]
 }
 
 export interface SkillInfo {
@@ -230,6 +282,13 @@ export const pickWorkspaceFolder = () => app().PickWorkspaceFolder() as Promise<
 export const switchWorkspace = (dir: string) => app().SwitchWorkspace(dir) as Promise<SessionInfo>
 export const loadConfig = () => app().LoadConfig() as Promise<StartSessionRequest>
 export const listTools = () => app().ListTools() as Promise<ToolInfo[] | null>
+export const listMCPServers = () => app().ListMCPServers() as Promise<MCPServerInfo[] | null>
+export const saveMCPServer = (s: MCPServerInput) => app().SaveMCPServer(s) as Promise<void>
+export const deleteMCPServer = (name: string) => app().DeleteMCPServer(name) as Promise<void>
+export const setMCPServerEnabled = (name: string, enabled: boolean) => app().SetMCPServerEnabled(name, enabled) as Promise<void>
+export const readProjectContext = () => app().ReadProjectContext() as Promise<ProjectContextInfo>
+export const saveProjectContext = (content: string) => app().SaveProjectContext(content) as Promise<void>
+export const readMemory = () => app().ReadMemory() as Promise<MemoryInfo>
 export const listFiles = () => app().ListFiles() as Promise<string[] | null>
 export const listSkills = () => app().ListSkills() as Promise<SkillList>
 export const saveSkill = (req: SkillSaveRequest) => app().SaveSkill(req) as Promise<SkillList>

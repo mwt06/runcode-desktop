@@ -10,15 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"golang.org/x/net/html"
 
+	"github.com/wt68/runcode/internal/webclient"
 	"github.com/wt68/runcode/pkg/tool"
 )
 
@@ -28,10 +27,6 @@ const (
 	maxOutputRunes   = 50000   // extracted-text cap
 	maxRedirects     = 5
 	maxStreamedLines = 500 // cap live output lines while a text body downloads
-	// browserUserAgent presents WebFetch as a mainstream desktop browser so sites that
-	// reject non-browser clients don't 403 the request outright.
-	browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-		"(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 type input struct {
@@ -42,75 +37,7 @@ type Tool struct {
 	client *http.Client
 }
 
-func New() tool.Tool { return Tool{client: defaultClient()} }
-
-func defaultClient() *http.Client {
-	// A custom dialer whose Control hook runs after DNS resolution but before the
-	// socket connects, so it sees the concrete IP the connection would use. This
-	// blocks SSRF to loopback/private/link-local ranges for the initial request,
-	// every redirect hop, and DNS-rebinding tricks alike. No proxy is configured
-	// on purpose: a proxy would hide the real destination IP from this check.
-	transport := &http.Transport{
-		Proxy: nil,
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-			Control:   blockNonPublicAddr,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
-	return &http.Client{
-		Timeout:   requestTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return fmt.Errorf("stopped after %d redirects", maxRedirects)
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("refusing redirect to %q scheme", req.URL.Scheme)
-			}
-			return nil
-		},
-	}
-}
-
-// blockNonPublicAddr is a net.Dialer Control hook that refuses connections to any
-// non-public address. It receives the resolved "host:port" the socket is about to
-// connect to, so checking here defeats DNS rebinding (a hostname that resolves to
-// a public IP on the first lookup and a private one at connect time).
-func blockNonPublicAddr(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("invalid address %q: %w", address, err)
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("refusing to connect to unresolved host %q", host)
-	}
-	if !isPublicIP(ip) {
-		return fmt.Errorf("refusing to connect to non-public address %s", ip)
-	}
-	return nil
-}
-
-// isPublicIP reports whether ip is a globally routable unicast address, excluding
-// loopback, private (RFC 1918 / ULA), link-local, unspecified, multicast, and the
-// IPv4 carrier-grade NAT range (100.64.0.0/10).
-func isPublicIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
-		return false
-	}
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
-		return false
-	}
-	return true
-}
+func New() tool.Tool { return Tool{client: webclient.New(requestTimeout, maxRedirects)} }
 
 func (Tool) Name() string { return "WebFetch" }
 
@@ -130,7 +57,12 @@ func (Tool) InputSchema() tool.Schema {
 	}
 }
 
-func (Tool) IsConcurrencySafe() bool { return false }
+// IsConcurrencySafe is true: WebFetch holds no shared state (it only reads over the
+// network), so several fetches can run at once. It does require approval, but the
+// approver queues concurrent prompts by id, so a batch of fetches can't clobber each
+// other's approval — parallel fetching is a real win, especially in judge mode where
+// safe fetches auto-allow.
+func (Tool) IsConcurrencySafe() bool { return true }
 
 func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, events chan<- tool.Event) (tool.Result, error) {
 	var in input
@@ -151,7 +83,7 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, eve
 
 	client := t.client
 	if client == nil {
-		client = defaultClient()
+		client = webclient.New(requestTimeout, maxRedirects)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -162,7 +94,7 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, eve
 	// defeat JS challenges, CAPTCHAs, or bot shields like Cloudflare — those need a
 	// headless browser or a search API. Accept-Encoding is intentionally left unset so
 	// net/http transparently negotiates and decompresses gzip.
-	req.Header.Set("User-Agent", browserUserAgent)
+	req.Header.Set("User-Agent", webclient.BrowserUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 

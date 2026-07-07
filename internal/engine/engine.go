@@ -86,6 +86,13 @@ type Session struct {
 	agentTool *subagent.Tool
 }
 
+// MCPStatus reports the live state of each connected MCP server (name + tool
+// count), for a host that surfaces MCP health. It is empty when no servers are
+// connected (or none configured).
+func (s *Session) MCPStatus() []mcp.ServerStatus {
+	return s.resources.MCP.Status()
+}
+
 // ReloadSkills re-discovers skills from disk and applies them to the live session:
 // the Skill tool resolves against the new set and the system prompt's catalog is
 // refreshed — so a skill the user just created/edited is usable without restarting.

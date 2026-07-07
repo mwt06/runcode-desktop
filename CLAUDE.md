@@ -6,3 +6,24 @@
 - 对简单 bug 或明确小需求，可以保持小范围修改；但如果“最小补丁”会造成脆弱设计、重复逻辑、抽象泄漏、后续难扩展或性能隐患，应主动提出并实现更稳健的基础层。
 - 规划功能时要说明取舍：哪些是当前必须做的可靠性/扩展性基础，哪些是暂不做的过度工程。
 - 默认避免无关扩张，但不要为了少改几行牺牲长期架构质量。
+
+## 构建与打包
+
+### 核心模块 / CLI（`github.com/wt68/runcode`）
+
+- 全量编译检查：`go build ./...`（不覆盖桌面模块——它是独立 module）。
+- 出 CLI 二进制：`go build -o runcode.exe ./cmd/runcode`。
+- 测试（CI 用 `-race`，三平台）：`go test -race ./...`。
+- Lint：`golangci-lint run`（配置见 `.golangci.yml`，启用 gosec/errcheck/gocritic）。
+
+### 桌面版（Wails，`cmd/runcode-desktop`）
+
+- 桌面是**嵌套 Go module**（`cmd/runcode-desktop/go.mod`），用 `replace github.com/wt68/runcode => ../..` 指回核心，把 Wails/CGO/WebView 重依赖隔离在核心之外；核心的 `go build ./...` 与 CI 不会拉 Wails。模块路径仍在 `github.com/wt68/runcode/...` 下，故可复用核心的 `internal/` 包。
+- **正式打包**（产出可发布 exe，需已装 `wails` CLI，本机验证 v2.12.0；会跑 `npm install` + `npm run build` 重建前端）：
+  ```bash
+  cd cmd/runcode-desktop && wails build
+  ```
+  产物：`cmd/runcode-desktop/build/bin/XRUN.exe`（应用名/输出名 `XRUN` 来自 `wails.json` 的 `outputfilename`）。
+- **仅 Go 侧快速编译检查**（不打包、不重建前端）：`go -C cmd/runcode-desktop build ./...`。
+- 跨平台：Wails **不能交叉编译**（各 OS WebView 不同——Windows WebView2 / Linux WebKitGTK / macOS WKWebView），需在目标平台原生构建；CI 见 `.github/workflows/desktop.yml`（Linux 加 `-tags webkit2_41 -clean`）。
+- `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。

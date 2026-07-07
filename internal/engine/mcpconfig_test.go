@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ func TestMCPServersFromConfigStdio(t *testing.T) {
 			Env:     map[string]string{"TOKEN": "${MCP_TEST_SECRET}"},
 		},
 	}}
-	servers, err := mcpServersFromConfig(cfg)
+	servers, err := MCPServersFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestMCPServersFromConfigHTTP(t *testing.T) {
 	cfg := settings.MCPConfig{Servers: map[string]settings.MCPServerConfig{
 		"remote": {Transport: "http", URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer x"}},
 	}}
-	servers, err := mcpServersFromConfig(cfg)
+	servers, err := MCPServersFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestMCPServersFromConfigDisabledSkipped(t *testing.T) {
 		"off": {Command: "x", Enabled: boolPtr(false)},
 		"on":  {Command: "y"},
 	}}
-	servers, err := mcpServersFromConfig(cfg)
+	servers, err := MCPServersFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -72,14 +72,14 @@ func TestMCPServersFromConfigValidation(t *testing.T) {
 		"unknown transport":     {Servers: map[string]settings.MCPServerConfig{"s": {Transport: "carrier-pigeon"}}},
 	}
 	for name, cfg := range cases {
-		if _, err := mcpServersFromConfig(cfg); err == nil {
+		if _, err := MCPServersFromConfig(cfg); err == nil {
 			t.Fatalf("%s: expected validation error", name)
 		}
 	}
 }
 
 func TestMCPServersFromConfigEmpty(t *testing.T) {
-	servers, err := mcpServersFromConfig(settings.MCPConfig{})
+	servers, err := MCPServersFromConfig(settings.MCPConfig{})
 	if err != nil || servers != nil {
 		t.Fatalf("empty = %#v, %v, want nil, nil", servers, err)
 	}

@@ -391,7 +391,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
-	mcpServers, err := mcpServersFromConfig(file.MCP)
+	mcpServers, err := engine.MCPServersFromConfig(file.MCP)
 	if err != nil {
 		return chatConfig{}, empty, err
 	}

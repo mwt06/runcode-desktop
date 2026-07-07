@@ -125,7 +125,7 @@ func TestSessionRunTurnBuildsProviderRequest(t *testing.T) {
 	}
 	// Analyze is advertised only while an in-turn thinking protocol is active, so it
 	// is absent here; AskUser is always available.
-	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Delete", "Glob", "Grep", "Bash", "BashOutput", "KillShell", "TodoWrite", "WebFetch", "AskUser"}; !sameStrings(got, want) {
+	if got, want := toolSpecNames(req.Tools), []string{"Read", "Write", "Edit", "Delete", "Glob", "Grep", "Bash", "BashOutput", "KillShell", "TodoWrite", "WebFetch", "WebSearch", "AskUser"}; !sameStrings(got, want) {
 		t.Fatalf("tool specs = %#v, want %#v", got, want)
 	}
 }

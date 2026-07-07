@@ -12,6 +12,7 @@ import (
 	"github.com/wt68/runcode/tools/read"
 	"github.com/wt68/runcode/tools/todo"
 	"github.com/wt68/runcode/tools/webfetch"
+	"github.com/wt68/runcode/tools/websearch"
 	"github.com/wt68/runcode/tools/write"
 )
 
@@ -40,6 +41,7 @@ func BuiltinsWithShells(shells *bash.Manager) []tool.Tool {
 		bash.NewKillShell(shells),
 		todo.New(),
 		webfetch.New(),
+		websearch.New(),
 		analyze.New(),
 		askuser.New(),
 	} {

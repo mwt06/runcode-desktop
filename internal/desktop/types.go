@@ -69,6 +69,11 @@ type StartSessionRequest struct {
 	MaxHistoryMessages int    `json:"maxHistoryMessages"`
 	Resume             string `json:"resume"`
 	Continue           bool   `json:"continue"`
+	// RecentWorkspaces is a most-recently-used list of previously opened workspace
+	// directories, offered in the start form so the user can reselect one without
+	// re-browsing. It is maintained backend-side (saveConfig recomputes it from the
+	// chosen CWD); values sent by the frontend are ignored.
+	RecentWorkspaces []string `json:"recentWorkspaces,omitempty"`
 }
 
 // SessionInfo is the display state returned when a session starts and by Status.
@@ -118,6 +123,8 @@ type TurnEnd struct {
 	// Stopped is true when the turn ended because the user denied a tool and asked
 	// to stop, so the UI can show "已停止，等待下一步指令" rather than a normal completion.
 	Stopped bool `json:"stopped"`
+	// DurationMs is the turn's wall-clock time, shown next to the per-reply usage.
+	DurationMs int `json:"durationMs,omitempty"`
 }
 
 // SessionRenamed announces a session's freshly generated title.
@@ -148,8 +155,9 @@ type PermissionRequest struct {
 	HarmReason string `json:"harmReason"`
 }
 
-// turnEndFromResult maps a repl turn result to the flat TurnEnd payload.
-func turnEndFromResult(r repl.TurnResult) TurnEnd {
+// turnEndFromResult maps a repl turn result to the flat TurnEnd payload. durMs is
+// the turn's measured wall-clock time.
+func turnEndFromResult(r repl.TurnResult, durMs int) TurnEnd {
 	in, out := 0, 0
 	for _, u := range r.Usages {
 		if u != nil {
@@ -172,5 +180,6 @@ func turnEndFromResult(r repl.TurnResult) TurnEnd {
 		OutputTokens:    out,
 		ContextTokens:   ctx,
 		Stopped:         r.Stopped,
+		DurationMs:      durMs,
 	}
 }

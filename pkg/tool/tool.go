@@ -39,6 +39,11 @@ const (
 	// can show the sub-agent thinking live inside the Task card. Message holds the
 	// delta. In-process UI only.
 	EventTypeAgentDelta EventType = "agent_delta"
+	// EventTypeAgentUsage reports a sub-agent's total token spend for its run,
+	// attributed (via ParentToolUseID) to the Task call, so the UI can show the
+	// sub-agent's own usage on its Task card. InputTokens/OutputTokens hold the
+	// totals. In-process UI only.
+	EventTypeAgentUsage EventType = "agent_usage"
 )
 
 // FileReferenceKind identifies how a tool interacted with a file path.
@@ -109,5 +114,11 @@ type Event struct {
 	// screenshot), attached so the UI can show a thumbnail. Data is base64-encoded in
 	// JSON. In-process UI only — never recorded to telemetry or transcripts.
 	Image *ResultImage `json:"image,omitempty"`
-	Time  time.Time    `json:"time,omitempty"`
+	// InputTokens/OutputTokens/DurationMs carry usage for usage-reporting events (e.g.
+	// a sub-agent's EventTypeAgentUsage: its token spend and wall-clock run time).
+	// In-process UI only.
+	InputTokens  int       `json:"inputTokens,omitempty"`
+	OutputTokens int       `json:"outputTokens,omitempty"`
+	DurationMs   int       `json:"durationMs,omitempty"`
+	Time         time.Time `json:"time,omitempty"`
 }

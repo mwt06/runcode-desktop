@@ -69,7 +69,12 @@ func (Tool) InputSchema() tool.Schema {
 }
 
 func (Tool) IsConcurrencySafe() bool {
-	return false
+	// Read is read-only: it touches disk and records the file it read into
+	// tctx.ReadSet, but the concurrent executor hands each sibling call its own
+	// cloned Context (ReadSet included) and merges them back under a lock, so no two
+	// Read calls ever share a map. Reads are also always auto-allowed or denied by
+	// policy (never a prompt), so a batch of them can't raise interleaved approvals.
+	return true
 }
 
 func (Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {

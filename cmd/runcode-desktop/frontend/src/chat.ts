@@ -5,7 +5,7 @@ import type { ToolEvent, PlanSnapshot, PlanItem } from './bridge'
 
 // AgentNested holds a sub-agent's live activity, shown nested inside its Task card:
 // the streamed assistant text and the child tool events (merged by tool-use id).
-export type AgentNested = { agent: string; text: string; tools: ToolEvent[] }
+export type AgentNested = { agent: string; text: string; tools: ToolEvent[]; usage?: { inTok: number; outTok: number; durMs?: number } }
 export type Block =
   | { kind: 'user'; id: string; text: string; ts: string; attachments?: string[] }
   | { kind: 'assistant'; id: string; text: string; thinking?: string; streaming: boolean; ts: string }
@@ -14,6 +14,9 @@ export type Block =
   | { kind: 'warning'; id: string; text: string }
   | { kind: 'notice'; id: string; text: string }
   | { kind: 'planchoice'; id: string }
+  // usage closes a completed reply with that turn's own token spend (the parent
+  // session's model calls — sub-agent tokens are shown on the Task card instead).
+  | { kind: 'usage'; id: string; inTok: number; outTok: number; durMs?: number }
 
 export type Group =
   | { kind: 'block'; block: Block }

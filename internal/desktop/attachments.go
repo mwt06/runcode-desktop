@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wt68/runcode/pkg/llm"
 )
@@ -63,6 +64,7 @@ func (a *App) SendMessageWithImages(text string, paths []string) error {
 			a.sink.Emit(EventTurnError, TurnError{Error: err.Error()})
 			return
 		}
+		started := time.Now()
 		result, err := session.RunTurnWithImages(turnCtx, text, images)
 		a.mu.Lock()
 		a.inFlight = false
@@ -75,7 +77,7 @@ func (a *App) SendMessageWithImages(text string, paths []string) error {
 			a.sink.Emit(EventTurnError, TurnError{Error: err.Error()})
 			return
 		}
-		a.sink.Emit(EventTurnEnd, turnEndFromResult(result))
+		a.sink.Emit(EventTurnEnd, turnEndFromResult(result, int(time.Since(started).Milliseconds())))
 		a.refreshTitle(session, text)
 	}()
 	return nil

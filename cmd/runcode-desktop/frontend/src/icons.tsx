@@ -135,6 +135,14 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M3.6 12h16.8M12 3.5c2.6 2.6 2.6 14.4 0 17M12 3.5c-2.6 2.6-2.6 14.4 0 17" />
         </svg>
       )
+    case 'plug':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M9 3v4.5M15 3v4.5" />
+          <path d="M6.8 7.5h10.4V10a5.2 5.2 0 0 1-10.4 0V7.5Z" />
+          <path d="M12 15.2V21" />
+        </svg>
+      )
     case 'hash':
       return (
         <svg {...common} {...stroke}>

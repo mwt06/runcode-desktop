@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/permissions"
@@ -225,10 +226,21 @@ func (l *Launcher) Launch(ctx context.Context, def agent.Agent, taskPrompt strin
 		return "", fmt.Errorf("build sub-agent session: %w", err)
 	}
 
+	started := time.Now()
 	result, err := session.RunTurn(ctx, taskPrompt)
 	if err != nil {
 		return "", err
 	}
+	// Report the sub-agent's own token spend and run time to its Task card. This is
+	// the child session's usage, entirely separate from the parent turn's counters.
+	inTok, outTok := 0, 0
+	for _, u := range result.Usages {
+		if u != nil {
+			inTok += u.InputTokens
+			outTok += u.OutputTokens
+		}
+	}
+	emitAgentUsage(childEvents, inTok, outTok, int(time.Since(started).Milliseconds()))
 	text := strings.TrimSpace(llm.TextContent(result.FinalAssistant))
 	// Fire SubagentStop on the parent runner (the child's tool-only runner
 	// suppresses it). Observational, like the main agent's Stop.

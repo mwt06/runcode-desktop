@@ -10,10 +10,10 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 	t.Parallel()
 
 	builtins := tools.Builtins()
-	if len(builtins) != 13 {
-		t.Fatalf("expected 13 builtin tools, got %d", len(builtins))
+	if len(builtins) != 14 {
+		t.Fatalf("expected 14 builtin tools, got %d", len(builtins))
 	}
-	wantNames := []string{"Read", "Write", "Edit", "Delete", "Glob", "Grep", "Bash", "BashOutput", "KillShell", "TodoWrite", "WebFetch", "Analyze", "AskUser"}
+	wantNames := []string{"Read", "Write", "Edit", "Delete", "Glob", "Grep", "Bash", "BashOutput", "KillShell", "TodoWrite", "WebFetch", "WebSearch", "Analyze", "AskUser"}
 	for i, want := range wantNames {
 		if builtins[i].Name() != want {
 			t.Fatalf("builtin[%d] = %q, want %q", i, builtins[i].Name(), want)
@@ -26,7 +26,7 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 		}
 	}
 	wantConcurrencySafe := map[string]bool{
-		"Read":       false,
+		"Read":       true, // read-only; the concurrent executor isolates its ReadSet writes
 		"Write":      false,
 		"Edit":       false,
 		"Delete":     false,
@@ -36,7 +36,8 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 		"BashOutput": false,
 		"KillShell":  false,
 		"TodoWrite":  false,
-		"WebFetch":   false,
+		"WebFetch":   true, // stateless network read; the approver queues concurrent prompts
+		"WebSearch":  true,
 		"Analyze":    false,
 		"AskUser":    false,
 	}
