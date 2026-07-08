@@ -96,3 +96,34 @@ export function buildFileTree(paths: string[]): FileNode[] {
   }
   return collect(root)
 }
+
+// artifactKindLabel is the Chinese type subtitle shown on artifact cards and the
+// preview header.
+export function artifactKindLabel(kind: PreviewKind): string {
+  switch (kind) {
+    case 'markdown': return 'Markdown 文档'
+    case 'html': return 'HTML 页面'
+    case 'image': return '图像'
+    case 'svg': return 'SVG 矢量图'
+    case 'code': return '代码'
+    case 'text': return '文本'
+    default: return '文件'
+  }
+}
+
+// kindIcon maps a preview kind to an existing Icon name (see icons.tsx).
+export function kindIcon(kind: PreviewKind): string {
+  switch (kind) {
+    case 'html': return 'globe'
+    case 'code': return 'terminal'
+    default: return 'file'
+  }
+}
+
+// filterFiles keeps workspace-relative paths that contain query (case-insensitive);
+// an empty/whitespace query returns the list unchanged.
+export function filterFiles(files: string[], query: string): string[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return files
+  return files.filter((f) => f.toLowerCase().includes(q))
+}

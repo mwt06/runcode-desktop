@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles } from './preview'
 
 describe('classifyPreview', () => {
   it('maps by extension, case-insensitively', () => {
@@ -70,5 +70,31 @@ describe('buildFileTree', () => {
     const tree = buildFileTree(['./src\\a.ts', 'b.md'])
     expect(tree.map((n) => n.name)).toEqual(['src', 'b.md'])
     expect(tree[0].children!.map((n) => n.path)).toEqual(['src/a.ts'])
+  })
+})
+
+describe('artifactKindLabel', () => {
+  it('maps kinds to Chinese subtitles', () => {
+    expect(artifactKindLabel('markdown')).toBe('Markdown 文档')
+    expect(artifactKindLabel('image')).toBe('图像')
+    expect(artifactKindLabel('code')).toBe('代码')
+    expect(artifactKindLabel('unsupported')).toBe('文件')
+  })
+})
+
+describe('kindIcon', () => {
+  it('maps kinds to existing Icon names', () => {
+    expect(kindIcon('html')).toBe('globe')
+    expect(kindIcon('code')).toBe('terminal')
+    expect(kindIcon('markdown')).toBe('file')
+  })
+})
+
+describe('filterFiles', () => {
+  it('filters case-insensitively; empty query returns all', () => {
+    const fs = ['src/App.tsx', 'README.md', 'src/preview.ts']
+    expect(filterFiles(fs, '')).toEqual(fs)
+    expect(filterFiles(fs, 'app')).toEqual(['src/App.tsx'])
+    expect(filterFiles(fs, 'SRC/')).toEqual(['src/App.tsx', 'src/preview.ts'])
   })
 })
