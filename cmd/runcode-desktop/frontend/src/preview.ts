@@ -36,7 +36,12 @@ export function isPreviewable(path: string): boolean {
 }
 
 export function previewSrc(baseURL: string, relPath: string, bust?: number): string {
-  const encoded = relPath.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
+  const encoded = relPath
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')
   const base = baseURL.endsWith('/') ? baseURL : baseURL + '/'
   return base + encoded + (bust ? `?v=${bust}` : '')
 }
@@ -44,11 +49,18 @@ export function previewSrc(baseURL: string, relPath: string, bust?: number): str
 // toWorkspaceRel normalizes a tool-reported path to a forward-slash workspace-
 // relative path. Tool events may carry either an absolute path under cwd or an
 // already-relative one; both must become relative before ReadArtifact/previewSrc.
+// The prefix match is case-insensitive to mirror the Go backend's filepath.Rel on
+// Windows, where the user-typed cwd and a tool-reported path can differ in casing.
 export function toWorkspaceRel(path: string, cwd: string): string {
   const p = path.replace(/\\/g, '/')
   const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '')
-  if (root && (p === root || p.startsWith(root + '/'))) {
-    return p.slice(root.length + 1)
+  if (root) {
+    const pl = p.toLowerCase()
+    const rl = root.toLowerCase()
+    if (pl === rl) return ''
+    if (pl.startsWith(rl + '/')) return p.slice(root.length + 1) // slice original-case p
   }
-  return p.replace(/^\.?\//, '')
+  // Not under cwd: strip only a literal "./" prefix; leave any other absolute or
+  // relative path untouched so a non-workspace path isn't mislabeled as relative.
+  return p.replace(/^\.\//, '')
 }

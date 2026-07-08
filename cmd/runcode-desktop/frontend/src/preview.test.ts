@@ -31,6 +31,9 @@ describe('previewSrc', () => {
     expect(previewSrc('http://127.0.0.1:9/', 'a/b.html')).toBe('http://127.0.0.1:9/a/b.html')
     expect(previewSrc('http://127.0.0.1:9/', 'a b.png', 7)).toBe('http://127.0.0.1:9/a%20b.png?v=7')
   })
+  it('does not double the slash when relPath has a leading slash', () => {
+    expect(previewSrc('http://127.0.0.1:9/', '/a/b.png')).toBe('http://127.0.0.1:9/a/b.png')
+  })
 })
 
 describe('toWorkspaceRel', () => {
@@ -41,5 +44,13 @@ describe('toWorkspaceRel', () => {
   it('leaves an already-relative path alone (normalizing slashes)', () => {
     expect(toWorkspaceRel('src\\a.ts', 'D:\\ws')).toBe('src/a.ts')
     expect(toWorkspaceRel('a.md', '/home/u/ws')).toBe('a.md')
+  })
+  it('matches the workspace prefix case-insensitively (Windows drive letter)', () => {
+    expect(toWorkspaceRel('d:\\ws\\src\\a.ts', 'D:\\ws')).toBe('src/a.ts')
+    expect(toWorkspaceRel('D:\\WS\\a.md', 'd:\\ws')).toBe('a.md')
+  })
+  it('leaves an absolute path that is not under cwd unchanged', () => {
+    expect(toWorkspaceRel('/etc/passwd', '/home/u/ws')).toBe('/etc/passwd')
+    expect(toWorkspaceRel('C:\\other\\a.ts', 'D:\\ws')).toBe('C:/other/a.ts')
   })
 })
