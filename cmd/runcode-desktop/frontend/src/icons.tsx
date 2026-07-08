@@ -265,6 +265,28 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />
         </svg>
       )
+    case 'refresh':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v5h-5" />
+        </svg>
+      )
+    case 'external-link':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <path d="M15 3h6v6" />
+          <path d="M10 14 21 3" />
+        </svg>
+      )
+    case 'copy':
+      return (
+        <svg {...common} {...stroke}>
+          <rect x="9" y="9" width="12" height="12" rx="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )
     default:
       return null
   }

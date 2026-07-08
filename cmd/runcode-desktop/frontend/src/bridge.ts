@@ -295,6 +295,20 @@ export const saveProjectContext = (content: string) => app().SaveProjectContext(
 export const readMemory = () => app().ReadMemory() as Promise<MemoryInfo>
 export const listFiles = () => app().ListFiles() as Promise<string[] | null>
 export const readArtifact = (relPath: string) => app().ReadArtifact(relPath) as Promise<string>
+export const openExternal = (relPath: string) => app().OpenExternal(relPath) as Promise<void>
+export const revealInFolder = (relPath: string) => app().RevealInFolder(relPath) as Promise<void>
+export const resolveArtifactPath = (relPath: string) => app().ResolveArtifactPath(relPath) as Promise<string>
+
+// copyText writes to the clipboard via the Wails runtime, falling back to the
+// browser clipboard API.
+export async function copyText(text: string): Promise<void> {
+  try {
+    await window.runtime.ClipboardSetText(text)
+  } catch {
+    await navigator.clipboard.writeText(text)
+  }
+}
+
 export const listSkills = () => app().ListSkills() as Promise<SkillList>
 export const saveSkill = (req: SkillSaveRequest) => app().SaveSkill(req) as Promise<SkillList>
 export const deleteSkill = (name: string, scope: string) => app().DeleteSkill(name, scope) as Promise<SkillList>

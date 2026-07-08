@@ -35,6 +35,9 @@ declare global {
           ListTools(): Promise<unknown>
           ListFiles(): Promise<unknown>
           ReadArtifact(relPath: string): Promise<string>
+          OpenExternal(relPath: string): Promise<void>
+          RevealInFolder(relPath: string): Promise<void>
+          ResolveArtifactPath(relPath: string): Promise<string>
           ListSkills(): Promise<unknown>
           SaveSkill(req: unknown): Promise<unknown>
           DeleteSkill(name: string, scope: string): Promise<unknown>
@@ -55,6 +58,7 @@ declare global {
       WindowUnmaximise(): void
       Quit(): void
       BrowserOpenURL(url: string): void
+      ClipboardSetText(text: string): Promise<boolean>
     }
   }
 }
