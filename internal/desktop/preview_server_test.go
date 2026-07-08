@@ -4,7 +4,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -74,5 +76,45 @@ func TestPreviewServerStopCloses(t *testing.T) {
 	ps.stop()
 	if _, err := http.Get(base + "index.html"); err == nil {
 		t.Fatal("server still reachable after stop()")
+	}
+}
+
+func TestPreviewServerRejectsSymlinkEscape(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("TOP-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(ws, "escape")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	ps := newPreviewServer()
+	base, _ := ps.start(ws)
+	defer ps.stop()
+	resp, body := getPreview(t, base, "escape/secret.txt")
+	if resp.StatusCode == 200 {
+		t.Fatalf("symlink escape served an outside-workspace file: %d %q", resp.StatusCode, body)
+	}
+}
+
+func TestPreviewServerRejectsJunctionEscape(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("junctions are Windows-only")
+	}
+	ws := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("TOP-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// mklink /J creates a directory junction and needs no elevation.
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(ws, "evil"), outside).CombinedOutput(); err != nil {
+		t.Skipf("mklink /J unavailable: %v (%s)", err, out)
+	}
+	ps := newPreviewServer()
+	base, _ := ps.start(ws)
+	defer ps.stop()
+	resp, body := getPreview(t, base, "evil/secret.txt")
+	if resp.StatusCode == 200 {
+		t.Fatalf("junction escape served an outside-workspace file: %d %q", resp.StatusCode, body)
 	}
 }

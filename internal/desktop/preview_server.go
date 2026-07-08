@@ -39,7 +39,6 @@ func (p *previewServer) start(workspace string) (string, error) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		fs.ServeHTTP(w, r)
 	})
 	p.ln = ln
@@ -62,15 +61,19 @@ func (p *previewServer) stop() {
 func previewPathWithinRoot(root, urlPath string) bool {
 	clean := filepath.Clean("/" + strings.TrimPrefix(urlPath, "/"))
 	full := filepath.Join(root, strings.TrimPrefix(clean, "/"))
-	resolved, err := filepath.EvalSymlinks(full)
-	if err != nil {
-		// Non-existent target: http.FileServer will 404; the lexical join above
-		// already cannot escape root, so allow it through.
-		return true
-	}
 	rootResolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		rootResolved = root
+	}
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		// Cannot confirm where this path resolves — it is non-existent, or a
+		// symlink/junction/reparse point Go cannot walk (Windows junctions are
+		// ModeIrregular, not ModeSymlink, and abort EvalSymlinks). Fail closed:
+		// refuse rather than risk serving a file the OS would transparently
+		// follow outside the workspace. A refused non-existent path just yields
+		// 403 instead of 404, which is harmless for previews.
+		return false
 	}
 	rel, err := filepath.Rel(rootResolved, resolved)
 	if err != nil {
