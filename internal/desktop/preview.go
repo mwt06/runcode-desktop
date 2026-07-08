@@ -3,8 +3,6 @@ package desktop
 import (
 	"errors"
 	"os"
-	"path/filepath"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -20,28 +18,9 @@ func (a *App) ReadArtifact(relPath string) (string, error) {
 	a.mu.Lock()
 	ws := a.workspace
 	a.mu.Unlock()
-	if ws == "" {
-		return "", errors.New("no active workspace")
-	}
-	full := filepath.Join(ws, filepath.FromSlash(relPath))
-	// Lexical bound first (cheap; catches ".." before touching the filesystem).
-	if rel, err := filepath.Rel(ws, full); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", errors.New("path is outside the workspace")
-	}
-	// Resolved bound — fail closed. EvalSymlinks errors on a non-existent file or a
-	// junction/reparse point Go cannot walk (Windows junctions are ModeIrregular,
-	// not ModeSymlink); in either case refuse rather than let os.ReadFile follow it
-	// outside the workspace.
-	wsResolved, err := filepath.EvalSymlinks(ws)
-	if err != nil {
-		wsResolved = ws
-	}
-	resolved, err := filepath.EvalSymlinks(full)
+	resolved, err := resolveWithinWorkspace(ws, relPath)
 	if err != nil {
 		return "", err
-	}
-	if r, err := filepath.Rel(wsResolved, resolved); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-		return "", errors.New("path resolves outside the workspace")
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {

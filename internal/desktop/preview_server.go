@@ -57,28 +57,10 @@ func (p *previewServer) stop() {
 	}
 }
 
-// previewPathWithinRoot reports whether the request path stays inside root. http.Dir
-// already blocks lexical ".." traversal; this additionally rejects symlink escapes.
+// previewPathWithinRoot reports whether the request path stays inside root,
+// reusing the shared fail-closed containment check (so the static server and
+// ReadArtifact enforce identical boundaries).
 func previewPathWithinRoot(root, urlPath string) bool {
-	clean := filepath.Clean("/" + strings.TrimPrefix(urlPath, "/"))
-	full := filepath.Join(root, strings.TrimPrefix(clean, "/"))
-	rootResolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		rootResolved = root
-	}
-	resolved, err := filepath.EvalSymlinks(full)
-	if err != nil {
-		// Cannot confirm where this path resolves — it is non-existent, or a
-		// symlink/junction/reparse point Go cannot walk (Windows junctions are
-		// ModeIrregular, not ModeSymlink, and abort EvalSymlinks). Fail closed:
-		// refuse rather than risk serving a file the OS would transparently
-		// follow outside the workspace. A refused non-existent path just yields
-		// 403 instead of 404, which is harmless for previews.
-		return false
-	}
-	rel, err := filepath.Rel(rootResolved, resolved)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	_, err := resolveWithinWorkspace(root, strings.TrimPrefix(urlPath, "/"))
+	return err == nil
 }
