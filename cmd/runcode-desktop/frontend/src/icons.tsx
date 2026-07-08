@@ -287,6 +287,43 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
       )
+    case 'file-html':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M8.5 8 5 12l3.5 4" />
+          <path d="M15.5 8 19 12l-3.5 4" />
+        </svg>
+      )
+    case 'file-md':
+      return (
+        <svg {...common} {...stroke}>
+          <rect x="2.5" y="6" width="19" height="12" rx="2.2" />
+          <path d="M6 15V9.5l2.6 2.8L11.2 9.5V15" />
+          <path d="M15.4 9.5v4.2m0 0-1.7-1.8m1.7 1.8 1.7-1.8" />
+        </svg>
+      )
+    case 'file-code':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M8 6c-2 0-3 1-3 3v1c0 1-.6 2-2 2 1.4 0 2 1 2 2v1c0 2 1 3 3 3" />
+          <path d="M16 6c2 0 3 1 3 3v1c0 1 .6 2 2 2-1.4 0-2 1-2 2v1c0 2-1 3-3 3" />
+        </svg>
+      )
+    case 'file-image':
+      return (
+        <svg {...common} {...stroke}>
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2.2" />
+          <circle cx="9" cy="10" r="1.6" />
+          <path d="M5 17l4.5-4.5 3.5 3.5 3-3 3 3" />
+        </svg>
+      )
+    case 'file-text':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M6 4h8l4 4v12a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0V4z" />
+          <path d="M14 4v4h4M8.5 13h7M8.5 16.5h7" />
+        </svg>
+      )
     default:
       return null
   }
