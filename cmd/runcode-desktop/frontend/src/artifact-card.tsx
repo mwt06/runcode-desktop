@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Icon } from './icons'
-import { classifyPreview, artifactKindLabel, kindIcon } from './preview'
+import { classifyPreview, artifactKindLabel, kindIcon, kindAccent } from './preview'
 import { openExternal, revealInFolder, resolveArtifactPath, copyText } from './bridge'
 
 async function copyArtifactPath(relPath: string) {
@@ -40,28 +40,32 @@ function OpenWithMenu({ relPath, previewable, onPreview }: { relPath: string; pr
   )
 }
 
-// ArtifactCard renders one generated/edited file as a clickable card in the
-// conversation: type icon, filename, type subtitle + diff, and the open-with menu.
-// Clicking the card opens an in-panel preview (when the type is previewable).
-export function ArtifactCard({ relPath, add, del, onOpen }: { relPath: string; add: number; del: number; onOpen: (relPath: string) => void }) {
+// ArtifactCard renders one generated/edited file as a clickable type-rail card:
+// a kind-colored left rail, a type icon, a monospace filename, the diff, and the
+// open-with menu. Clicking opens an in-panel preview when the kind is previewable.
+export function ArtifactCard({ relPath, add, del, onOpen, autoOpened }: { relPath: string; add: number; del: number; onOpen: (relPath: string) => void; autoOpened?: boolean }) {
   const { kind } = classifyPreview(relPath)
   const previewable = kind !== 'unsupported'
+  const accent = kindAccent(kind)
   const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath
   return (
     <div
       onClick={() => previewable && onOpen(relPath)}
-      className={`flex items-center gap-2.5 border border-line2 rounded-xl px-3 py-2 bg-surface ${previewable ? 'cursor-pointer hover:border-primary/50 hover:bg-surface2/40' : ''}`}
+      style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
+      className={`group flex items-center gap-2.5 border border-line2 rounded-lg pl-3 pr-2.5 py-2 bg-surface ${previewable ? 'cursor-pointer hover:bg-surface2/40' : ''}`}
     >
-      <span className="flex-none w-8 h-8 rounded-lg bg-inset flex items-center justify-center text-muted"><Icon name={kindIcon(kind)} size={16} /></span>
+      <span className="flex-none" style={{ color: accent }}><Icon name={kindIcon(kind)} size={17} /></span>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium text-ink truncate" title={relPath}>{name}</div>
-        <div className="text-[11px] text-faint">
+        <div className="flex items-center gap-2 text-[13px] font-medium text-ink font-mono truncate" title={relPath}>
+          {name}
+          {autoOpened && <span className="flex-none text-[10px] font-sans font-semibold uppercase tracking-wide rounded px-1.5 py-0.5" style={{ color: accent, background: accent + '1a' }}>已预览</span>}
+        </div>
+        <div className="text-[11px] text-faint font-mono">
           {artifactKindLabel(kind)}
-          {add + del > 0 && (
-            <span className="ml-2 font-mono"><span className="text-green">+{add}</span> <span className={del > 0 ? 'text-red' : 'text-faint'}>−{del}</span></span>
-          )}
+          {add + del > 0 && <span className="ml-1.5"><span className="text-green">+{add}</span> <span className={del > 0 ? 'text-red' : 'text-faint'}>−{del}</span></span>}
         </div>
       </div>
+      <span className="flex-none text-[11px] text-faint font-mono opacity-0 group-hover:opacity-100 transition-opacity">打开 →</span>
       <OpenWithMenu relPath={relPath} previewable={previewable} onPreview={() => onOpen(relPath)} />
     </div>
   )
