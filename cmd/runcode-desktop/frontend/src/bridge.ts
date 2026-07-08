@@ -10,6 +10,7 @@ export interface SessionInfo {
   reasoningScenario?: string
   thinkingEffort?: string
   maxContextTokens?: number
+  previewBaseURL?: string
   inputPricePerMTok: number
   outputPricePerMTok: number
   pricingSource: string
@@ -293,6 +294,7 @@ export const readProjectContext = () => app().ReadProjectContext() as Promise<Pr
 export const saveProjectContext = (content: string) => app().SaveProjectContext(content) as Promise<void>
 export const readMemory = () => app().ReadMemory() as Promise<MemoryInfo>
 export const listFiles = () => app().ListFiles() as Promise<string[] | null>
+export const readArtifact = (relPath: string) => app().ReadArtifact(relPath) as Promise<string>
 export const listSkills = () => app().ListSkills() as Promise<SkillList>
 export const saveSkill = (req: SkillSaveRequest) => app().SaveSkill(req) as Promise<SkillList>
 export const deleteSkill = (name: string, scope: string) => app().DeleteSkill(name, scope) as Promise<SkillList>
