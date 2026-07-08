@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type CSSProperties, type PointerEvent } from 'react'
 import { Icon, Logo } from './icons'
 import { Markdown } from './markdown'
 import {
@@ -361,11 +361,11 @@ export default function App() {
     setActiveTab(r.active)
   }
   const dragW = useRef<{ startX: number; startW: number } | null>(null)
-  const onPreviewDragStart = (e: React.PointerEvent) => {
+  const onPreviewDragStart = (e: PointerEvent) => {
     dragW.current = { startX: e.clientX, startW: previewWidth }
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
   }
-  const onPreviewDragMove = (e: React.PointerEvent) => {
+  const onPreviewDragMove = (e: PointerEvent) => {
     if (!dragW.current) return
     const dx = dragW.current.startX - e.clientX // dragging the left edge leftward grows the pane
     const w = Math.min(Math.max(dragW.current.startW + dx, 360), Math.floor(window.innerWidth * 0.6))

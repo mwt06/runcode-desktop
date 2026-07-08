@@ -55,7 +55,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
         <span className="text-[13px] font-medium text-ink truncate flex-1 min-w-0" title={relPath}>{name}</span>
         <span className="flex-none text-[10.5px] text-faint bg-inset rounded px-1.5 py-0.5 mr-0.5">{artifactKindLabel(kind)}</span>
         <IconBtn name="refresh" title="刷新" onClick={() => setBust((v) => v + 1)} />
-        <IconBtn name="external-link" title="用系统默认程序打开" onClick={() => openExternal(relPath)} />
+        <IconBtn name="external-link" title="用系统默认程序打开" onClick={() => { openExternal(relPath).catch(() => {}) }} />
         <IconBtn name="copy" title="复制路径" onClick={copyPath} />
         <IconBtn name="win-close" title="关闭" onClick={onClose} />
       </div>
@@ -72,7 +72,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
           <pre className="m-0 p-4 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap break-words">{text}</pre>
         )}
         {kind === 'unsupported' && (
-          <div className="p-6 text-[13px] text-muted">该文件类型暂不支持预览。<button className="text-primaryink underline ml-1" onClick={() => openExternal(relPath)}>用系统程序打开</button></div>
+          <div className="p-6 text-[13px] text-muted">该文件类型暂不支持预览。<button className="text-primaryink underline ml-1" onClick={() => openExternal(relPath).catch(() => {})}>用系统程序打开</button></div>
         )}
         {(kind === 'html' || kind === 'image' || kind === 'svg') && !baseURL && (
           <div className="p-6 text-[13px] text-muted">预览服务不可用。</div>

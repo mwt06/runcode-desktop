@@ -43,7 +43,7 @@ func TestOpenCommandDoesNotUseShell(t *testing.T) {
 	mal := filepath.Join("C:\\ws", "x&calc.exe")
 	for _, cmd := range []*exec.Cmd{openCommand(mal), revealCommand(mal)} {
 		base := strings.ToLower(filepath.Base(cmd.Path))
-		if strings.HasPrefix(base, "cmd") || base == "sh" || base == "bash" {
+		if strings.HasPrefix(base, "cmd") || strings.HasPrefix(base, "powershell") || base == "pwsh" || base == "sh" || base == "bash" {
 			t.Fatalf("command routes through a shell: %v", cmd.Args)
 		}
 	}
