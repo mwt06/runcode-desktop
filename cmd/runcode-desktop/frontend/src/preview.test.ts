@@ -66,4 +66,9 @@ describe('buildFileTree', () => {
     expect(src.children!.map((n) => n.name)).toEqual(['ui', 'a.ts', 'b.ts'])
     expect(src.children![1].path).toBe('src/a.ts')
   })
+  it('normalizes a leading ./ and backslashes without a spurious "." node', () => {
+    const tree = buildFileTree(['./src\\a.ts', 'b.md'])
+    expect(tree.map((n) => n.name)).toEqual(['src', 'b.md'])
+    expect(tree[0].children!.map((n) => n.path)).toEqual(['src/a.ts'])
+  })
 })

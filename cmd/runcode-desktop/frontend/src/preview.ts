@@ -71,7 +71,7 @@ export function buildFileTree(paths: string[]): FileNode[] {
   type Dir = { node: FileNode; dirs: Map<string, Dir>; files: FileNode[] }
   const root: Dir = { node: { name: '', path: '', dir: true, children: [] }, dirs: new Map(), files: [] }
   for (const raw of paths) {
-    const parts = raw.replace(/\\/g, '/').split('/').filter(Boolean)
+    const parts = raw.replace(/\\/g, '/').split('/').filter((s) => s && s !== '.')
     let cur = root
     for (let i = 0; i < parts.length; i++) {
       const isFile = i === parts.length - 1
