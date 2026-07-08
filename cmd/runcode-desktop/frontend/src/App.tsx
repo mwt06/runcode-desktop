@@ -334,8 +334,11 @@ export default function App() {
   const [tabs, setTabs] = useState<PreviewTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [previewWidth, setPreviewWidth] = useState<number>(() => {
+    // Clamp the persisted width to the current window so a stale/oversized value
+    // can't start the pane wider than the screen (which would collapse the chat).
+    const max = Math.floor(window.innerWidth * 0.6)
     const v = Number(localStorage.getItem('preview.width'))
-    return v >= 360 ? v : 560
+    return v >= 360 && v <= max ? v : Math.min(560, max)
   })
   const [browseOpen, setBrowseOpen] = useState(false)
   const [chatSkills, setChatSkills] = useState<SkillInfo[]>([])
@@ -1375,7 +1378,7 @@ export default function App() {
               onPointerMove={onPreviewDragMove}
               onPointerUp={onPreviewDragEnd}
             />
-            <aside style={{ width: previewWidth }} className="flex-none border-l border-line2 flex flex-col min-h-0 bg-surface">
+            <aside style={{ width: previewWidth, maxWidth: '60%' }} className="flex-none border-l border-line2 flex flex-col min-h-0 bg-surface">
               {tabs.length > 0 ? (
                 <PreviewPane
                   tabs={tabs}
