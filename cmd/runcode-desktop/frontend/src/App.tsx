@@ -336,6 +336,8 @@ export default function App() {
   const [previewWidth, setPreviewWidth] = useState<number>(() =>
     clampPreviewWidth(Number(localStorage.getItem('preview.width')), window.innerWidth),
   )
+  const [autoOpen, setAutoOpen] = useState<boolean>(() => localStorage.getItem('preview.autoOpen') !== '0')
+  const toggleAutoOpen = () => setAutoOpen((v) => { localStorage.setItem('preview.autoOpen', v ? '0' : '1'); return !v })
   const [browseOpen, setBrowseOpen] = useState(false)
   const [chatSkills, setChatSkills] = useState<SkillInfo[]>([])
   const [chatAgents, setChatAgents] = useState<AgentInfo[]>([])
@@ -359,6 +361,20 @@ export default function App() {
     setTabs(r.tabs)
     setActiveTab(r.active)
   }
+  const autoRef = useRef({ autoOpen, blocks, cwd: info?.cwd ?? '' })
+  autoRef.current = { autoOpen, blocks, cwd: info?.cwd ?? '' }
+  const prevBusy = useRef(false)
+  useEffect(() => {
+    if (prevBusy.current && !busy) {
+      const { autoOpen: on, blocks: bs, cwd } = autoRef.current
+      if (on) {
+        const tools = bs.filter((b) => b.kind === 'tool').map((b) => (b as Extract<Block, { kind: 'tool' }>).tool)
+        const newest = previewableArtifacts(tools).at(-1)
+        if (newest) openArtifact(toWorkspaceRel(newest.path, cwd))
+      }
+    }
+    prevBusy.current = busy
+  }, [busy])
   const dragW = useRef<{ startX: number; startW: number } | null>(null)
   const onPreviewDragStart = (e: PointerEvent) => {
     dragW.current = { startX: e.clientX, startW: previewWidth }
@@ -1400,7 +1416,7 @@ export default function App() {
                     <button className="text-muted hover:text-ink px-1.5" title="关闭" onClick={() => setBrowseOpen(false)}>✕</button>
                   </div>
                   <div className="flex-1 min-h-0">
-                    <FileBrowser files={files} onPick={(p) => { if (isPreviewable(p)) openArtifact(toWorkspaceRel(p, info?.cwd ?? '')) }} />
+                    <FileBrowser files={files} onPick={(p) => { if (isPreviewable(p)) openArtifact(toWorkspaceRel(p, info?.cwd ?? '')) }} autoOpen={autoOpen} onToggleAutoOpen={toggleAutoOpen} />
                   </div>
                 </div>
               )}

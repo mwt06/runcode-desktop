@@ -127,7 +127,7 @@ export function PreviewPane({ tabs, active, baseURL, onSelect, onClose, onCloseT
 
 // FileBrowser lists the workspace as a shallow read-only tree; clicking a file
 // asks to preview it (the parent decides if it is previewable).
-export function FileBrowser({ files, onPick }: { files: string[]; onPick: (relPath: string) => void }) {
+export function FileBrowser({ files, onPick, autoOpen, onToggleAutoOpen }: { files: string[]; onPick: (relPath: string) => void; autoOpen?: boolean; onToggleAutoOpen?: () => void }) {
   const [query, setQuery] = useState('')
   const tree = buildFileTree(filterFiles(files, query))
   const render = (nodes: FileNode[], depth: number): ReactNode =>
@@ -144,6 +144,12 @@ export function FileBrowser({ files, onPick }: { files: string[]; onPick: (relPa
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-none p-2 border-b border-line2">
+        {onToggleAutoOpen && (
+          <label className="flex items-center gap-1.5 mb-2 text-[12px] text-muted cursor-pointer select-none">
+            <input type="checkbox" checked={!!autoOpen} onChange={onToggleAutoOpen} />
+            写完自动预览
+          </label>
+        )}
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
