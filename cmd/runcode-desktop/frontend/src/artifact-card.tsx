@@ -28,10 +28,10 @@ function OpenWithMenu({ relPath, previewable, onPreview }: { relPath: string; pr
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
-          <div className="absolute right-0 mt-1 z-20 min-w-[168px] bg-surface border border-line2 rounded-lg shadow-card py-1 text-[12.5px] text-ink">
+          <div className="absolute right-0 mt-1 z-20 min-w-[168px] bg-surface border border-line2 rounded-lg shadow-card py-1 text-[12.5px] text-ink" onClick={(e) => e.stopPropagation()}>
             <button className={`${item} ${previewable ? '' : 'text-faint cursor-default'}`} disabled={!previewable} onClick={(e) => { e.stopPropagation(); onPreview(); setOpen(false) }}>预览</button>
-            <button className={item} onClick={(e) => { e.stopPropagation(); openExternal(relPath); setOpen(false) }}>用系统默认程序打开</button>
-            <button className={item} onClick={(e) => { e.stopPropagation(); revealInFolder(relPath); setOpen(false) }}>在文件夹中显示</button>
+            <button className={item} onClick={(e) => { e.stopPropagation(); openExternal(relPath).catch(() => {}); setOpen(false) }}>用系统默认程序打开</button>
+            <button className={item} onClick={(e) => { e.stopPropagation(); revealInFolder(relPath).catch(() => {}); setOpen(false) }}>在文件夹中显示</button>
             <button className={item} onClick={(e) => { e.stopPropagation(); copyArtifactPath(relPath); setOpen(false) }}>复制路径</button>
           </div>
         </>
