@@ -66,13 +66,19 @@ type EventSink interface {
 // the environment (ANTHROPIC_MODEL/API key/etc.), mirroring the CLI's resolution
 // for the values the desktop does not yet surface in a settings form.
 type StartSessionRequest struct {
-	CWD            string `json:"cwd"`
-	Provider       string `json:"provider"`
-	Model          string `json:"model"`
-	BaseURL        string `json:"baseURL"`
-	APIKey         string `json:"apiKey"`
-	AuthToken      string `json:"authToken"`
-	PermissionMode string `json:"permissionMode"`
+	CWD       string `json:"cwd"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	BaseURL   string `json:"baseURL"`
+	APIKey    string `json:"apiKey"`
+	AuthToken string `json:"authToken"`
+	// APIKeyProtected / AuthTokenProtected hold the OS-encrypted (DPAPI on Windows)
+	// credentials at rest, so desktop.json never stores a key in the clear. They are
+	// persistence-only: saveConfig fills them (clearing the plaintext) and LoadConfig
+	// restores the plaintext for the form, clearing these back out.
+	APIKeyProtected    string `json:"apiKeyProtected,omitempty"`
+	AuthTokenProtected string `json:"authTokenProtected,omitempty"`
+	PermissionMode     string `json:"permissionMode"`
 	// ReasoningScenario selects the "thinking model" guidance (off/auto/<scenario>).
 	ReasoningScenario string `json:"reasoningScenario"`
 	// ThinkingEffort selects provider-native reasoning strength (off/low/medium/high),

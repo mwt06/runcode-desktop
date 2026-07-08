@@ -44,7 +44,7 @@ func (a *App) LoadConfig() StartSessionRequest {
 	if err := json.Unmarshal(data, &req); err != nil {
 		return defaultRequest()
 	}
-	return req
+	return unprotectRequestSecrets(req)
 }
 
 // persistThinkingEffort updates only the thinking-effort field of the saved start
@@ -61,8 +61,9 @@ func (a *App) persistThinkingEffort(effort string) {
 // the config file doesn't grow unbounded.
 const maxRecentWorkspaces = 8
 
-// saveConfig persists the request (0600 — it may carry an API key) so the next
-// launch prefills the form. Failures are non-fatal.
+// saveConfig persists the request so the next launch prefills the form. Credentials
+// are encrypted at rest (DPAPI on Windows) and never written in the clear; the file
+// is still 0600. Failures are non-fatal.
 func saveConfig(req StartSessionRequest) {
 	path, err := desktopConfigPath()
 	if err != nil {
@@ -76,11 +77,42 @@ func saveConfig(req StartSessionRequest) {
 	// sent (it only ever echoes back what it was given).
 	prev := loadRawConfig()
 	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
+	req = protectRequestSecrets(req)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		return
 	}
 	_ = os.WriteFile(path, data, 0o600)
+}
+
+// protectRequestSecrets replaces the plaintext credential fields with their
+// encrypted form for persistence, so the on-disk config never holds a key in the
+// clear. Where the platform has no protection available, the credential is dropped
+// (the user re-enters it or supplies it via the environment) rather than stored.
+func protectRequestSecrets(req StartSessionRequest) StartSessionRequest {
+	req.APIKeyProtected, _ = protectSecret(req.APIKey)
+	req.AuthTokenProtected, _ = protectSecret(req.AuthToken)
+	req.APIKey = ""
+	req.AuthToken = ""
+	return req
+}
+
+// unprotectRequestSecrets restores the plaintext credentials from their encrypted
+// form (for the start form), clearing the protected fields.
+func unprotectRequestSecrets(req StartSessionRequest) StartSessionRequest {
+	if req.APIKeyProtected != "" {
+		if s, ok := unprotectSecret(req.APIKeyProtected); ok {
+			req.APIKey = s
+		}
+	}
+	if req.AuthTokenProtected != "" {
+		if s, ok := unprotectSecret(req.AuthTokenProtected); ok {
+			req.AuthToken = s
+		}
+	}
+	req.APIKeyProtected = ""
+	req.AuthTokenProtected = ""
+	return req
 }
 
 // loadRawConfig reads the persisted request without falling back to defaults, so
