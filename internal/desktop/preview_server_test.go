@@ -79,6 +79,20 @@ func TestPreviewServerStopCloses(t *testing.T) {
 	}
 }
 
+func TestPreviewServerServesDotDotPrefixedName(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "..hidden"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ps := newPreviewServer()
+	base, _ := ps.start(ws)
+	defer ps.stop()
+	resp, body := getPreview(t, base, "..hidden")
+	if resp.StatusCode != 200 || body != "ok" {
+		t.Fatalf("file named ..hidden should be served: %d %q", resp.StatusCode, body)
+	}
+}
+
 func TestPreviewServerRejectsSymlinkEscape(t *testing.T) {
 	ws := t.TempDir()
 	outside := t.TempDir()

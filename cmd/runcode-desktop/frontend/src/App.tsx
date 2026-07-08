@@ -1743,8 +1743,8 @@ function ExecutionCard({ tools, harmAllows, onPreview }: { tools: ToolEvent[]; h
                   <Icon name="shield" size={11} /> 智能放行
                 </span>
               )}
-              {(t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed' && toolTargetPath(t) && isPreviewable(toolTargetPath(t)!) && (
-                <button className="flex-none text-[10.5px] text-primaryink hover:underline px-1" title="预览" onClick={(e) => { e.stopPropagation(); onPreview?.(toolTargetPath(t)!) }}>预览</button>
+              {onPreview && (t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed' && toolTargetPath(t) && isPreviewable(toolTargetPath(t)!) && (
+                <button className="flex-none text-[10.5px] text-primaryink hover:underline px-1" title="预览" onClick={(e) => { e.stopPropagation(); onPreview(toolTargetPath(t)!) }}>预览</button>
               )}
               {st === 'failed' ? (
                 <span className="text-[11px] text-red bg-redbg rounded-md px-1.5 py-0.5 flex-none">{failText(t)}</span>

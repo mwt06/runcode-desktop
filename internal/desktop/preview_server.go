@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // previewServer serves the active workspace read-only over loopback HTTP, so the
@@ -42,7 +43,7 @@ func (p *previewServer) start(workspace string) (string, error) {
 		fs.ServeHTTP(w, r)
 	})
 	p.ln = ln
-	p.srv = &http.Server{Handler: handler}
+	p.srv = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	srv := p.srv
 	go func() { _ = srv.Serve(ln) }()
 	return "http://" + ln.Addr().String() + "/", nil
@@ -79,5 +80,5 @@ func previewPathWithinRoot(root, urlPath string) bool {
 	if err != nil {
 		return false
 	}
-	return rel == "." || !strings.HasPrefix(rel, "..")
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

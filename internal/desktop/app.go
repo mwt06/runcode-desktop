@@ -145,11 +145,7 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 	a.config = cfg
 
 	// Restart the workspace preview server for this session (non-fatal on error).
-	if a.preview != nil {
-		a.preview.stop()
-		a.preview = nil
-		a.previewURL = ""
-	}
+	// closeLocked above already stopped and cleared any previous preview server.
 	if ps := newPreviewServer(); cfg.CWD != "" {
 		if url, err := ps.start(cfg.CWD); err == nil {
 			a.preview = ps
