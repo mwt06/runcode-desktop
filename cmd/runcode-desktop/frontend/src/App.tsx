@@ -1080,22 +1080,29 @@ export default function App() {
             {groups.map((g) =>
               g.kind === 'exec' ? (
                 <BotRow key={g.id}>
-                  <ExecutionCard tools={g.tools} harmAllows={harmAllows} />
                   {(() => {
                     const arts = previewableArtifacts(g.tools)
-                    return arts.length > 0 ? (
-                      <div className="flex flex-col gap-1.5 mt-1.5">
-                        {arts.map((a) => (
-                          <ArtifactCard
-                            key={a.path}
-                            relPath={toWorkspaceRel(a.path, info?.cwd ?? '')}
-                            add={a.add}
-                            del={a.del}
-                            onOpen={openArtifact}
-                          />
-                        ))}
-                      </div>
-                    ) : null
+                    const artPaths = new Set(arts.map((a) => a.path))
+                    const steps = g.tools.filter((t) => {
+                      const p = toolTargetPath(t)
+                      return !(p && artPaths.has(p)) // hide tools already shown as artifact cards
+                    })
+                    return (
+                      <>
+                        {steps.length > 0 && <ExecutionCard tools={steps} harmAllows={harmAllows} />}
+                        {arts.length > 0 && (
+                          <div className="flex flex-col gap-1.5 mt-1.5">
+                            <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-faint pl-0.5">写入</div>
+                            {arts.map((a) => {
+                              const rel = toWorkspaceRel(a.path, info?.cwd ?? '')
+                              return (
+                                <ArtifactCard key={a.path} relPath={rel} add={a.add} del={a.del} onOpen={openArtifact} autoOpened={tabs.some((t) => t.relPath === rel)} />
+                              )
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )
                   })()}
                 </BotRow>
               ) : g.kind === 'ask' ? (
@@ -2412,9 +2419,8 @@ function BlockView({ block }: { block: Block }) {
   switch (block.kind) {
     case 'user':
       return (
-        <div className="flex gap-3 anim-rise">
-          <Avatar bot />
-          <div className="min-w-0 max-w-[85%] bg-surface2 border border-line2 rounded-[16px] px-4 py-2.5 text-[14.5px] text-[#3f4653] leading-[1.7]">
+        <div className="flex justify-end anim-rise">
+          <div className="min-w-0 max-w-[82%] rounded-[13px] px-3.5 py-2 text-[13.5px] text-ink leading-[1.55]" style={{ background: '#F4F3FF' }}>
             {block.attachments && block.attachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-1.5">
                 {block.attachments.map((name, i) => (
