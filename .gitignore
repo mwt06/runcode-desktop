@@ -5,6 +5,9 @@
 /dist/
 /bin/
 
+# Stray root-level screenshots / scratch images (dev artifacts, not repo content)
+/*.png
+
 # Test artifacts
 *.test
 *.out
