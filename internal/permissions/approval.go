@@ -55,6 +55,10 @@ type ApprovalRequest struct {
 	// was escalated to approval because it was judged potentially harmful. Empty
 	// when no judge ran or the action was not flagged.
 	HarmReason string
+	// SamplingServer, when non-empty, marks this as an MCP sampling approval — a
+	// server asking to use the model (sampling/createMessage) rather than a tool
+	// call — and names the requesting server.
+	SamplingServer string
 }
 
 type ApprovalResponse struct {

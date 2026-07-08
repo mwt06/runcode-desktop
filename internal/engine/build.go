@@ -93,7 +93,10 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	// the permission mode is not safe.
 	var sampler mcp.Sampler
 	if cfg.AllowMCPSampling && cfg.PermissionMode != safeMode {
-		sampler = repl.NewMCPSampler(provider, cfg.Model, cfg.MaxTokens)
+		// Gate each server's sampling behind approval (remembered per session), so a
+		// compromised server can't silently spend the user's model budget.
+		gate := repl.NewSamplingGate(opts.Approver)
+		sampler = repl.NewMCPSampler(provider, cfg.Model, cfg.MaxTokens, gate.Approve)
 	}
 	mcpManager, mcpErrs := mcp.Open(context.Background(), cfg.MCPServers, mcp.Options{
 		Roots:   workspaceRoots(cfg.CWD),

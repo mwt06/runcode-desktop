@@ -58,6 +58,9 @@ export interface PermissionRequest {
   command: string
   // Set when the model harm gate flagged this action as potentially harmful.
   harmReason?: string
+  // Set when this is an MCP sampling approval (a server asking to use the model);
+  // names the requesting server.
+  samplingServer?: string
 }
 
 export interface ToolEvent {

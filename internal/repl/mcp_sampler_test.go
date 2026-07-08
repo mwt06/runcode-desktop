@@ -11,7 +11,7 @@ import (
 func TestMCPSampler(t *testing.T) {
 	t.Parallel()
 	provider := newFakeProviderSequence(fakeProviderResponse{events: textEvents("GENERATED")})
-	sampler := NewMCPSampler(provider, "test-model", 500)
+	sampler := NewMCPSampler(provider, "test-model", 500, nil)
 
 	temp := 0.5
 	res, err := sampler(context.Background(), mcp.SamplingRequest{

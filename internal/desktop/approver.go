@@ -51,11 +51,12 @@ func (a *Approver) Prompt(ctx context.Context, req permissions.ApprovalRequest) 
 	a.mu.Unlock()
 
 	a.sink.Emit(EventPermissionRequest, PermissionRequest{
-		ID:         id,
-		Summary:    req.Summary,
-		Targets:    a.relativeTargets(req.Targets),
-		Command:    req.Command,
-		HarmReason: req.HarmReason,
+		ID:             id,
+		Summary:        req.Summary,
+		Targets:        a.relativeTargets(req.Targets),
+		Command:        req.Command,
+		HarmReason:     req.HarmReason,
+		SamplingServer: req.SamplingServer,
 	})
 
 	select {

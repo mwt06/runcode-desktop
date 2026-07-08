@@ -62,6 +62,10 @@ func (p *approvalPrompter) readLine(ctx context.Context) (string, error) {
 }
 
 func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
+	if req.SamplingServer != "" {
+		_, err := fmt.Fprintf(p.err, "Permission request\nMCP server %q requests to use your model (sampling).\nAllowing spends your model on the server's behalf; a session grant stops re-asking.\n", req.SamplingServer)
+		return err
+	}
 	summary := req.Summary
 	if req.Command != "" {
 		if _, err := fmt.Fprintf(p.err, "Command to run: %s\n", req.Command); err != nil {

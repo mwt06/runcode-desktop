@@ -178,6 +178,9 @@ type PermissionRequest struct {
 	// HarmReason is the model harm judge's explanation, set when this action was
 	// escalated to approval because it was flagged as potentially harmful.
 	HarmReason string `json:"harmReason"`
+	// SamplingServer, when set, marks this as an MCP sampling approval (a server
+	// asking to use the model) and names the server, so the UI can explain it.
+	SamplingServer string `json:"samplingServer"`
 }
 
 // turnEndFromResult maps a repl turn result to the flat TurnEnd payload. durMs is

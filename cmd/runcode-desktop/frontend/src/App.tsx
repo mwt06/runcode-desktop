@@ -2372,35 +2372,49 @@ function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { req: Pe
             <span className="ml-auto text-[12px] font-medium text-muted bg-surface2 border border-line2 rounded-full px-2.5 py-0.5">还有 {remaining} 个待处理</span>
           )}
         </h3>
-        {req.harmReason && (
-          <div className="mb-3 flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5">
-            <span className="text-red flex-none mt-px"><Icon name="shield" size={16} /></span>
-            <div className="min-w-0">
-              <div className="text-[12.5px] font-semibold text-red">模型判定可能有害</div>
-              <div className="text-[12.5px] text-ink mt-0.5 break-words">{req.harmReason}</div>
+        {req.samplingServer ? (
+          <div className="mb-3.5">
+            <div className="flex items-start gap-2 bg-primarysoft border border-line2 rounded-lg px-3 py-2.5">
+              <span className="text-primaryink flex-none mt-px"><Icon name="bot" size={16} /></span>
+              <div className="min-w-0 text-[13px] text-ink">
+                MCP 服务器 <b className="font-mono">{req.samplingServer}</b> 请求使用你的模型生成一段内容（sampling）。
+                <div className="text-[12px] text-muted mt-1">允许即用你配置的模型和额度替它完成一次生成。选「本次会话」后本会话内不再询问；仅在信任该服务器时允许。</div>
+              </div>
             </div>
           </div>
-        )}
-        {req.command && (
-          <div className="mb-3">
-            <div className="text-[12px] text-muted mb-1.5">将执行命令</div>
-            <pre className="m-0 bg-surface2 border border-line rounded-lg px-3 py-2.5 font-mono text-[12.5px] text-ink whitespace-pre-wrap break-all max-h-[160px] overflow-auto">{req.command}</pre>
-          </div>
-        )}
-        <table className="w-full border-collapse text-[13px]">
-          <tbody>
-            <tr><td className={`${td} text-muted w-16`}>工具</td><td className={td}>{s.ToolName}</td></tr>
-            <tr><td className={`${td} text-muted`}>操作</td><td className={td}>{s.Operation} · 风险 {s.Risk}{s.CommandCategory ? ` · ${s.CommandCategory}` : ''}</td></tr>
-            {s.NetworkHost && <tr><td className={`${td} text-muted`}>主机</td><td className={td}>{s.NetworkHost}</td></tr>}
-            {s.MCPServer && <tr><td className={`${td} text-muted`}>MCP</td><td className={td}>{s.MCPServer}/{s.MCPTool}</td></tr>}
-            {req.targets && req.targets.length > 0 && (
-              <tr><td className={`${td} text-muted`}>目标</td><td className={td}>{req.targets.map((t) => <code key={t} className="bg-inset px-1.5 py-0.5 rounded mr-1.5 mb-1.5 inline-block">{t}</code>)}</td></tr>
+        ) : (
+          <>
+            {req.harmReason && (
+              <div className="mb-3 flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5">
+                <span className="text-red flex-none mt-px"><Icon name="shield" size={16} /></span>
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-semibold text-red">模型判定可能有害</div>
+                  <div className="text-[12.5px] text-ink mt-0.5 break-words">{req.harmReason}</div>
+                </div>
+              </div>
             )}
-          </tbody>
-        </table>
-        <div className="mt-3.5 text-[12px] text-faint">
-          「本次会话」后，对本项目文件的增删改、或同类命令在本次会话内都不再询问（推荐）；「仅此一次」每次都会再问。
-        </div>
+            {req.command && (
+              <div className="mb-3">
+                <div className="text-[12px] text-muted mb-1.5">将执行命令</div>
+                <pre className="m-0 bg-surface2 border border-line rounded-lg px-3 py-2.5 font-mono text-[12.5px] text-ink whitespace-pre-wrap break-all max-h-[160px] overflow-auto">{req.command}</pre>
+              </div>
+            )}
+            <table className="w-full border-collapse text-[13px]">
+              <tbody>
+                <tr><td className={`${td} text-muted w-16`}>工具</td><td className={td}>{s.ToolName}</td></tr>
+                <tr><td className={`${td} text-muted`}>操作</td><td className={td}>{s.Operation} · 风险 {s.Risk}{s.CommandCategory ? ` · ${s.CommandCategory}` : ''}</td></tr>
+                {s.NetworkHost && <tr><td className={`${td} text-muted`}>主机</td><td className={td}>{s.NetworkHost}</td></tr>}
+                {s.MCPServer && <tr><td className={`${td} text-muted`}>MCP</td><td className={td}>{s.MCPServer}/{s.MCPTool}</td></tr>}
+                {req.targets && req.targets.length > 0 && (
+                  <tr><td className={`${td} text-muted`}>目标</td><td className={td}>{req.targets.map((t) => <code key={t} className="bg-inset px-1.5 py-0.5 rounded mr-1.5 mb-1.5 inline-block">{t}</code>)}</td></tr>
+                )}
+              </tbody>
+            </table>
+            <div className="mt-3.5 text-[12px] text-faint">
+              「本次会话」后，对本项目文件的增删改、或同类命令在本次会话内都不再询问（推荐）；「仅此一次」每次都会再问。
+            </div>
+          </>
+        )}
         <div className="flex gap-2.5 mt-2.5">
           <button className={`${BTN} flex-1 ${BTN_PRIMARY}`} onClick={() => onDecide('allow-session')}>本次会话</button>
           <button className={`${BTN} flex-1`} onClick={() => onDecide('allow-once')}>仅此一次</button>

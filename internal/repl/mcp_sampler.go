@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"errors"
 
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/pkg/llm"
@@ -11,6 +12,10 @@ import (
 // no limit (or an unreasonably large one).
 const defaultSamplingMaxTokens = 1024
 
+// errSamplingDenied is returned when the user declines a server's sampling
+// request; the mcp layer reports it to the server as a generic "sampling failed".
+var errSamplingDenied = errors.New("mcp sampling denied by user")
+
 // NewMCPSampler builds an mcp.Sampler that runs a model completion via the given
 // provider and model. It is the seam that lets an MCP server request a completion
 // (sampling/createMessage) without the mcp package depending on a provider.
@@ -19,8 +24,17 @@ const defaultSamplingMaxTokens = 1024
 // and system prompt are sent, and the request declares no tools (so it carries no
 // tool blocks). Enabling sampling is the user's pre-authorization — this function
 // is only wired up when the user opts in and the permission mode is not safe.
-func NewMCPSampler(provider llm.Provider, model string, maxTokens int) mcp.Sampler {
+func NewMCPSampler(provider llm.Provider, model string, maxTokens int, approve func(ctx context.Context, serverName string) (bool, error)) mcp.Sampler {
 	return func(ctx context.Context, req mcp.SamplingRequest) (mcp.SamplingResult, error) {
+		if approve != nil {
+			ok, err := approve(ctx, req.ServerName)
+			if err != nil {
+				return mcp.SamplingResult{}, err
+			}
+			if !ok {
+				return mcp.SamplingResult{}, errSamplingDenied
+			}
+		}
 		messages := make([]llm.Message, 0, len(req.Messages))
 		for _, m := range req.Messages {
 			messages = append(messages, llm.Message{
