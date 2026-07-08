@@ -57,10 +57,12 @@ func (p *previewServer) stop() {
 	}
 }
 
-// previewPathWithinRoot reports whether the request path stays inside root,
-// reusing the shared fail-closed containment check (so the static server and
-// ReadArtifact enforce identical boundaries).
+// previewPathWithinRoot reports whether the request path stays inside root. It
+// applies http-style dot-segment cleaning to the URL first (so /a/../../b clamps to
+// /b at the root, matching a browser/ServeMux), then delegates the symlink/junction
+// fail-closed check to the shared containment helper.
 func previewPathWithinRoot(root, urlPath string) bool {
-	_, err := resolveWithinWorkspace(root, strings.TrimPrefix(urlPath, "/"))
+	clean := filepath.Clean("/" + strings.TrimPrefix(urlPath, "/"))
+	_, err := resolveWithinWorkspace(root, strings.TrimPrefix(clean, "/"))
 	return err == nil
 }

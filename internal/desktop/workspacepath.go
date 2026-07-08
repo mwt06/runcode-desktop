@@ -12,8 +12,8 @@ import (
 // closed: a non-existent path, or a reparse point Go cannot walk (Windows
 // junctions are ModeIrregular, not ModeSymlink, and abort EvalSymlinks), returns
 // an error rather than a path the OS might follow outside ws. This is the single
-// containment check reused by ReadArtifact, the preview static server, and the
-// open/reveal bindings.
+// containment check reused by ReadArtifact and the preview static server (and, in
+// a later task, the open/reveal bindings).
 func resolveWithinWorkspace(ws, relPath string) (string, error) {
 	if ws == "" {
 		return "", errors.New("no active workspace")

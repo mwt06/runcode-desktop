@@ -1,7 +1,9 @@
 package desktop
 
 import (
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -108,6 +110,34 @@ func TestPreviewServerRejectsSymlinkEscape(t *testing.T) {
 	resp, body := getPreview(t, base, "escape/secret.txt")
 	if resp.StatusCode == 200 {
 		t.Fatalf("symlink escape served an outside-workspace file: %d %q", resp.StatusCode, body)
+	}
+}
+
+func TestPreviewServerServesClampedTraversal(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "bar"), []byte("BAR"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ps := newPreviewServer()
+	base, _ := ps.start(ws)
+	defer ps.stop()
+	// /foo/../../bar clamps to /bar (an existing in-workspace file) and must be
+	// served. Send the raw request line over TCP so the ".." segments are not
+	// cleaned by the HTTP client before reaching the server.
+	addr := strings.TrimPrefix(strings.TrimSuffix(base, "/"), "http://")
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprintf(conn, "GET /foo/../../bar HTTP/1.0\r\nHost: %s\r\n\r\n", addr)
+	resp, _ := io.ReadAll(conn)
+	s := string(resp)
+	if !strings.Contains(s, " 200 ") || !strings.Contains(s, "BAR") {
+		t.Fatalf("clamped traversal to in-workspace file not served; response:\n%s", s)
 	}
 }
 
