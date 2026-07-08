@@ -33,6 +33,9 @@ const DefaultMaxIterations = 8
 var (
 	ErrInvalidSession = errors.New("invalid session")
 	ErrMaxIterations  = errors.New("max react iterations reached")
+	// ErrTurnInProgress is returned by RunTurn when a turn is already running on this
+	// session; turns share mutable state and must not run concurrently or re-enter.
+	ErrTurnInProgress = errors.New("a turn is already in progress")
 	// ErrPromptBlockedByHook is returned from RunTurn when a UserPromptSubmit hook
 	// rejects the prompt. Its message carries the hook's feedback.
 	ErrPromptBlockedByHook = errors.New("prompt blocked by hook")
@@ -140,17 +143,26 @@ type Session struct {
 	// task, so later turns don't re-run the pass or re-arm the gate. It resets when
 	// the thinking model is switched (SetReasoningScenario).
 	analyzeDone atomic.Bool
-	telemetry   telemetry.Recorder
-	traceID     string
-	transcript  transcript.Recorder
-	sessionID   string
+	// turnActive guards against concurrent or re-entrant runTurn. A turn owns shared
+	// session state (analyzeGate, the history working set) for its duration, so a
+	// second RunTurn is rejected (ErrTurnInProgress) rather than allowed to race.
+	turnActive atomic.Bool
+	telemetry  telemetry.Recorder
+	traceID    string
+	transcript transcript.Recorder
+	sessionID  string
 	// historyMu guards history, which a turn goroutine commits to at the end of
 	// RunTurn while the TUI may concurrently read it (History) or replace it
 	// (ResetHistory, Compact). Expensive work (LLM streaming, compaction
 	// summarization) runs on a local snapshot outside the lock; only the read at
 	// the start of a turn and the commit at the end are guarded.
-	historyMu          sync.RWMutex
-	history            []llm.Message
+	historyMu sync.RWMutex
+	history   []llm.Message
+	// historyVersion bumps on every history replacement (turn commit, ResetHistory,
+	// Compact). A turn captures it when it reads the working set and only commits its
+	// result if it is unchanged since — so a concurrent /clear or /compact wins
+	// instead of being silently clobbered.
+	historyVersion     uint64
 	maxHistoryMessages int
 	streamDelta        func(delta string)
 	streamThinking     func(delta string)
@@ -281,6 +293,13 @@ func (s *Session) RunTurnWithImages(ctx context.Context, userText string, images
 }
 
 func (s *Session) runTurn(ctx context.Context, userText string, images []llm.ImageSource) (TurnResult, error) {
+	// Turns are not re-entrant: one turn owns the session's mutable working state at
+	// a time. Reject a concurrent call instead of racing it.
+	if !s.turnActive.CompareAndSwap(false, true) {
+		return TurnResult{}, ErrTurnInProgress
+	}
+	defer s.turnActive.Store(false)
+
 	var result TurnResult
 
 	// A UserPromptSubmit hook may reject the prompt (non-zero exit) or inject
@@ -292,7 +311,7 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 
 	startContext := s.ensureSessionStart(ctx)
 
-	messages := s.historySnapshot()
+	messages, historyVersion := s.historySnapshotVersioned()
 	currentUserIndex := len(messages)
 	if startContext != "" {
 		messages = append(messages, userMessage(sessionStartPrefix+startContext))
@@ -403,7 +422,7 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 		if !hasToolUse(assistant) {
 			// Final answer: record it, then finalize history/transcript.
 			s.persistTurn(ctx, turn.id, []llm.Message{assistant})
-			if err := s.commitTurn(ctx, turn.id, userText, &result, messages, currentUserIndex, assistant); err != nil {
+			if err := s.commitTurn(ctx, turn.id, userText, &result, messages, currentUserIndex, assistant, historyVersion); err != nil {
 				return fail(err)
 			}
 			return result, turn.end(ctx, result)
@@ -431,7 +450,7 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 			// The user denied a tool and asked to stop. Finalize and return without
 			// looping back to the model, so control returns to the user.
 			result.Stopped = true
-			if err := s.commitTurn(ctx, turn.id, userText, &result, messages, currentUserIndex, assistant); err != nil {
+			if err := s.commitTurn(ctx, turn.id, userText, &result, messages, currentUserIndex, assistant, historyVersion); err != nil {
 				return fail(err)
 			}
 			return result, turn.end(ctx, result)
@@ -451,13 +470,16 @@ func (s *Session) runTurn(ctx context.Context, userText string, images []llm.Ima
 // Stop hook. The lock is never held across the LLM round-trip that compaction may
 // perform: compaction runs on the local nextHistory and only its result is
 // committed under the lock.
-func (s *Session) commitTurn(ctx context.Context, turnID string, userText string, result *TurnResult, messages []llm.Message, currentUserIndex int, lastAssistant llm.Message) error {
+func (s *Session) commitTurn(ctx context.Context, turnID string, userText string, result *TurnResult, messages []llm.Message, currentUserIndex int, lastAssistant llm.Message, historyVersion uint64) error {
 	nextHistory, _ := trimMessagesForHistoryBudget(messages, s.maxHistoryMessages, currentUserIndex)
 	if err := s.recordTranscriptTurn(ctx, turnID, userText, *result); err != nil {
 		return err
 	}
-	s.setHistory(nextHistory)
-	s.setHistory(s.maybeCompact(ctx, turnID, nextHistory, result.FinalUsage))
+	// Compact off-lock (it may call the LLM), then apply the result only if no /clear
+	// or /compact replaced the history since this turn read it — otherwise their
+	// action wins and this turn's history update is dropped rather than clobbering it.
+	final := s.maybeCompact(ctx, turnID, nextHistory, result.FinalUsage)
+	s.commitHistory(final, historyVersion)
 	s.fireStop(ctx, lastAssistant)
 	return nil
 }
@@ -574,7 +596,32 @@ func (s *Session) historySnapshot() []llm.Message {
 func (s *Session) setHistory(h []llm.Message) {
 	s.historyMu.Lock()
 	s.history = h
+	s.historyVersion++
 	s.historyMu.Unlock()
+}
+
+// historySnapshotVersioned returns a copy of the working history together with the
+// version it was read at, so a turn can detect an intervening replacement before
+// committing its result.
+func (s *Session) historySnapshotVersioned() ([]llm.Message, uint64) {
+	s.historyMu.RLock()
+	defer s.historyMu.RUnlock()
+	return cloneMessages(s.history), s.historyVersion
+}
+
+// commitHistory replaces the working history with h, but only if nothing else has
+// replaced it since version `since` — a concurrent ResetHistory (/clear) or Compact
+// (/compact) wins and the turn's update is dropped rather than clobbering it.
+// Reports whether it applied.
+func (s *Session) commitHistory(h []llm.Message, since uint64) bool {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	if s.historyVersion != since {
+		return false
+	}
+	s.history = h
+	s.historyVersion++
+	return true
 }
 
 // Model returns the model the session currently sends requests with.
