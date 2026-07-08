@@ -122,6 +122,9 @@ type SessionInfo struct {
 	InputPricePerMTok  float64 `json:"inputPricePerMTok"`
 	OutputPricePerMTok float64 `json:"outputPricePerMTok"`
 	PricingSource      string  `json:"pricingSource"`
+	// PreviewBaseURL is the loopback static-server root for previewing workspace
+	// files (empty if the server could not start). e.g. "http://127.0.0.1:52713/".
+	PreviewBaseURL string `json:"previewBaseURL"`
 }
 
 // AssistantDelta is one streamed text fragment from the model.

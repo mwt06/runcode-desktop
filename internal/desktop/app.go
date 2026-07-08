@@ -59,6 +59,10 @@ type App struct {
 	// workspace without re-collecting provider/model/credentials.
 	workspace string
 	config    engine.Config
+	// preview is the loopback static server for the active workspace, and
+	// previewURL its base URL (see startPreview/stopPreview in preview.go).
+	preview    *previewServer
+	previewURL string
 }
 
 // New returns an App that emits events to sink.
@@ -139,6 +143,19 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 	a.toolEvents = toolEvents
 	a.pumpCancel = pumpCancel
 	a.config = cfg
+
+	// Restart the workspace preview server for this session (non-fatal on error).
+	if a.preview != nil {
+		a.preview.stop()
+		a.preview = nil
+		a.previewURL = ""
+	}
+	if ps := newPreviewServer(); cfg.CWD != "" {
+		if url, err := ps.start(cfg.CWD); err == nil {
+			a.preview = ps
+			a.previewURL = url
+		}
+	}
 	return a.statusLocked(), nil
 }
 
@@ -408,6 +425,7 @@ func (a *App) statusLocked() SessionInfo {
 		InputPricePerMTok:  st.InputPricePerMTok,
 		OutputPricePerMTok: st.OutputPricePerMTok,
 		PricingSource:      st.PricingSource,
+		PreviewBaseURL:     a.previewURL,
 	}
 }
 
@@ -430,6 +448,11 @@ func (a *App) closeLocked(ctx context.Context) {
 	if a.session != nil {
 		_ = a.session.Close(ctx)
 		a.session = nil
+	}
+	if a.preview != nil {
+		a.preview.stop()
+		a.preview = nil
+		a.previewURL = ""
 	}
 	a.toolEvents = nil
 	a.inFlight = false

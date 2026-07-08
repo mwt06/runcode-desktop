@@ -59,3 +59,42 @@ func (a *App) ReadArtifact(relPath string) (string, error) {
 	}
 	return string(data), nil
 }
+
+// startPreview (re)starts the workspace preview server. It replaces any running
+// one so a workspace switch is clean. Failures are non-fatal (previews of
+// text-based types still work via ReadArtifact).
+func (a *App) startPreview(workspace string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.preview != nil {
+		a.preview.stop()
+		a.preview = nil
+		a.previewURL = ""
+	}
+	if workspace == "" {
+		return
+	}
+	ps := newPreviewServer()
+	url, err := ps.start(workspace)
+	if err != nil {
+		return
+	}
+	a.preview = ps
+	a.previewURL = url
+}
+
+func (a *App) stopPreview() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.preview != nil {
+		a.preview.stop()
+		a.preview = nil
+		a.previewURL = ""
+	}
+}
+
+func (a *App) previewBaseURL() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.previewURL
+}
