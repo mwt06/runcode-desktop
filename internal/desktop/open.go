@@ -13,7 +13,7 @@ func (a *App) OpenExternal(relPath string) error {
 	if err != nil {
 		return err
 	}
-	return openInOS(full)
+	return openCommand(full).Start()
 }
 
 // RevealInFolder shows the workspace file in the OS file manager.
@@ -22,7 +22,7 @@ func (a *App) RevealInFolder(relPath string) error {
 	if err != nil {
 		return err
 	}
-	return revealInOS(full)
+	return revealCommand(full).Start()
 }
 
 // ResolveArtifactPath returns the absolute path of a workspace file, for the
@@ -38,25 +38,32 @@ func (a *App) resolveArtifact(relPath string) (string, error) {
 	return resolveWithinWorkspace(ws, relPath)
 }
 
-func openInOS(path string) error {
+// openCommand builds the command to open path with the OS default app WITHOUT a
+// shell, so an attacker-chosen filename (the workspace is AI-written) cannot inject
+// commands. On Windows, rundll32 is invoked directly (path passed as inert argv),
+// never cmd.exe's parser. If rundll32+FileProtocolHandler ever proves flaky for a
+// path shape in manual testing, switch to the ShellExecute API — do NOT reintroduce
+// cmd /c start.
+func openCommand(path string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "windows":
-		// start needs an (empty) title arg first so a quoted path isn't taken as one.
-		return exec.Command("cmd", "/c", "start", "", path).Start()
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	case "darwin":
-		return exec.Command("open", path).Start()
+		return exec.Command("open", path)
 	default:
-		return exec.Command("xdg-open", path).Start()
+		return exec.Command("xdg-open", path)
 	}
 }
 
-func revealInOS(path string) error {
+// revealCommand builds the command to reveal path in the OS file manager, also
+// shell-free (explorer/open/xdg-open invoked directly).
+func revealCommand(path string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "windows":
-		return exec.Command("explorer", "/select,"+path).Start()
+		return exec.Command("explorer", "/select,"+path)
 	case "darwin":
-		return exec.Command("open", "-R", path).Start()
+		return exec.Command("open", "-R", path)
 	default:
-		return exec.Command("xdg-open", filepath.Dir(path)).Start()
+		return exec.Command("xdg-open", filepath.Dir(path))
 	}
 }

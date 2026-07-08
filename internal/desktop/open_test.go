@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,5 +34,27 @@ func TestOpenBindingsRejectEscape(t *testing.T) {
 	}
 	if _, err := a.ResolveArtifactPath("../../evil.txt"); err == nil {
 		t.Fatal("ResolveArtifactPath allowed an out-of-workspace path")
+	}
+}
+
+func TestOpenCommandDoesNotUseShell(t *testing.T) {
+	// A filename with a cmd metacharacter must be passed as inert argv, never through
+	// a shell (no cmd.exe/sh). Builds the command only; does not launch it.
+	mal := filepath.Join("C:\\ws", "x&calc.exe")
+	for _, cmd := range []*exec.Cmd{openCommand(mal), revealCommand(mal)} {
+		base := strings.ToLower(filepath.Base(cmd.Path))
+		if strings.HasPrefix(base, "cmd") || base == "sh" || base == "bash" {
+			t.Fatalf("command routes through a shell: %v", cmd.Args)
+		}
+	}
+	// The open command passes the malicious path as one intact argument.
+	found := false
+	for _, a := range openCommand(mal).Args {
+		if a == mal {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("path not passed as a single inert arg: %v", openCommand(mal).Args)
 	}
 }
