@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth } from './preview'
+
+describe('clampPreviewWidth', () => {
+  it('keeps an in-range stored value', () => {
+    expect(clampPreviewWidth(560, 1280)).toBe(560)
+    expect(clampPreviewWidth(700, 1280)).toBe(700) // 700 <= floor(1280*0.6)=768
+  })
+  it('resets an oversized value to the default, capped to the window', () => {
+    expect(clampPreviewWidth(2000, 1280)).toBe(560) // default 560 <= 768 max
+    expect(clampPreviewWidth(2000, 800)).toBe(480) // default 560 > 480 max → 480
+  })
+  it('resets a too-small or NaN value to the default', () => {
+    expect(clampPreviewWidth(100, 1280)).toBe(560)
+    expect(clampPreviewWidth(NaN, 1280)).toBe(560)
+  })
+})
 
 describe('classifyPreview', () => {
   it('maps by extension, case-insensitively', () => {

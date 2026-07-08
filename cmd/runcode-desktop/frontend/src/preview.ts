@@ -127,3 +127,12 @@ export function filterFiles(files: string[], query: string): string[] {
   if (!q) return files
   return files.filter((f) => f.toLowerCase().includes(q))
 }
+
+// clampPreviewWidth keeps a persisted preview-pane width within a sane range for the
+// current window, so a stale/oversized value can't start the pane wider than the
+// screen (which would collapse the chat column). Returns the default 560 (capped to
+// 60% of the window) when the stored value is missing, NaN, or out of range.
+export function clampPreviewWidth(stored: number, windowWidth: number): number {
+  const max = Math.floor(windowWidth * 0.6)
+  return stored >= 360 && stored <= max ? stored : Math.min(560, max)
+}

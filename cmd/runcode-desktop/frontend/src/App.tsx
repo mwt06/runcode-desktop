@@ -58,7 +58,7 @@ import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
 import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
-import { isPreviewable, toWorkspaceRel } from './preview'
+import { isPreviewable, toWorkspaceRel, clampPreviewWidth } from './preview'
 import { openTab, closeTab, setActive, type PreviewTab } from './preview-tabs'
 
 let seq = 0
@@ -333,13 +333,9 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([])
   const [tabs, setTabs] = useState<PreviewTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
-  const [previewWidth, setPreviewWidth] = useState<number>(() => {
-    // Clamp the persisted width to the current window so a stale/oversized value
-    // can't start the pane wider than the screen (which would collapse the chat).
-    const max = Math.floor(window.innerWidth * 0.6)
-    const v = Number(localStorage.getItem('preview.width'))
-    return v >= 360 && v <= max ? v : Math.min(560, max)
-  })
+  const [previewWidth, setPreviewWidth] = useState<number>(() =>
+    clampPreviewWidth(Number(localStorage.getItem('preview.width')), window.innerWidth),
+  )
   const [browseOpen, setBrowseOpen] = useState(false)
   const [chatSkills, setChatSkills] = useState<SkillInfo[]>([])
   const [chatAgents, setChatAgents] = useState<AgentInfo[]>([])
