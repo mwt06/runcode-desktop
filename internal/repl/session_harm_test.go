@@ -12,16 +12,16 @@ func TestAssessHarmRetriesWhenReplyIsNotCleanJSON(t *testing.T) {
 	t.Parallel()
 	provider := newFakeProviderSequence(
 		fakeProviderResponse{events: textEvents("Sure — this is a routine build command, totally fine.")},
-		fakeProviderResponse{events: textEvents(`{"harmful": false, "reason": "常规构建命令"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "low", "reason": "常规构建命令"}`)},
 	)
 	session := newTestSession(t, SessionOptions{Provider: provider, Model: "mock-model"})
 
-	harmful, reason, err := session.AssessHarm(context.Background(), "", "Run this shell command: go test ./...")
+	risk, reason, err := session.AssessHarm(context.Background(), "", "Run this shell command: go test ./...")
 	if err != nil {
 		t.Fatalf("AssessHarm: %v (the retry should have recovered)", err)
 	}
-	if harmful {
-		t.Fatal("harmful = true, want false for a safe command")
+	if risk != "low" {
+		t.Fatalf("risk = %q, want low for a safe command", risk)
 	}
 	if reason != "常规构建命令" {
 		t.Fatalf("reason = %q, want 常规构建命令", reason)
@@ -34,16 +34,16 @@ func TestAssessHarmRetriesWhenReplyIsNotCleanJSON(t *testing.T) {
 func TestAssessHarmNoRetryWhenFirstReplyIsClean(t *testing.T) {
 	t.Parallel()
 	provider := newFakeProviderSequence(
-		fakeProviderResponse{events: textEvents(`{"harmful": true, "reason": "会删除数据"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "critical", "reason": "会删除数据"}`)},
 	)
 	session := newTestSession(t, SessionOptions{Provider: provider, Model: "mock-model"})
 
-	harmful, reason, err := session.AssessHarm(context.Background(), "", "Run this shell command: rm -rf /data")
+	risk, reason, err := session.AssessHarm(context.Background(), "", "Run this shell command: rm -rf /data")
 	if err != nil {
 		t.Fatalf("AssessHarm: %v", err)
 	}
-	if !harmful || reason != "会删除数据" {
-		t.Fatalf("verdict = (%v, %q), want (true, 会删除数据)", harmful, reason)
+	if risk != "critical" || reason != "会删除数据" {
+		t.Fatalf("verdict = (%q, %q), want (critical, 会删除数据)", risk, reason)
 	}
 	if len(provider.requests) != 1 {
 		t.Fatalf("provider requests = %d, want 1 (no retry needed)", len(provider.requests))

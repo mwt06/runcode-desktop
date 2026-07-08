@@ -138,7 +138,7 @@ func (s *Session) GenerateTitle(ctx context.Context, userText string) (string, e
 // harm gate. It takes the trusted classifier facts and the untrusted raw action
 // text separately so the session can fence the untrusted text against injection.
 // Returns an error on a transport or parse failure so the caller can fail safe.
-func (s *Session) AssessHarm(ctx context.Context, facts, untrusted string) (bool, string, error) {
+func (s *Session) AssessHarm(ctx context.Context, facts, untrusted string) (risk string, reason string, err error) {
 	return s.repl.AssessHarm(ctx, facts, untrusted)
 }
 

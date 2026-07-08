@@ -42,11 +42,47 @@ func (j modelHarmJudge) Assess(ctx context.Context, action permissions.Action) (
 		return permissions.HarmVerdict{}, errNoSession
 	}
 	facts, untrusted := describeAction(action)
-	harmful, reason, err := session.AssessHarm(ctx, facts, untrusted)
+	risk, reason, err := session.AssessHarm(ctx, facts, untrusted)
 	if err != nil {
 		return permissions.HarmVerdict{}, err
 	}
-	return permissions.HarmVerdict{Harmful: harmful, Reason: reason}, nil
+	// Map the risk tier to the prompt/auto-allow decision (none/low auto-allow, the
+	// rest prompt) and fold the tier into the reason so the UI shows the severity.
+	return permissions.HarmVerdict{Harmful: harmRiskPrompts(risk), Reason: labelHarmReason(risk, reason)}, nil
+}
+
+// harmRiskPrompts reports whether a harm-judge risk tier should escalate to a
+// prompt (medium and above) rather than auto-allow (none/low). An unknown tier
+// prompts, cautiously.
+func harmRiskPrompts(risk string) bool {
+	switch risk {
+	case "none", "low":
+		return false
+	default:
+		return true
+	}
+}
+
+// harmRiskLabelZH names each risk tier for the UI.
+var harmRiskLabelZH = map[string]string{
+	"none":     "无风险",
+	"low":      "低风险",
+	"medium":   "中风险",
+	"high":     "高风险",
+	"critical": "严重风险",
+}
+
+// labelHarmReason folds the risk tier into the harm-judge reason so the auto-allow
+// marker and the approval prompt show the severity, not just the explanation.
+func labelHarmReason(risk, reason string) string {
+	label := harmRiskLabelZH[risk]
+	if label == "" {
+		return reason
+	}
+	if reason == "" {
+		return "风险等级：" + label
+	}
+	return "风险等级：" + label + " · " + reason
 }
 
 // describeAction splits an action into two parts for the harm judge: trusted

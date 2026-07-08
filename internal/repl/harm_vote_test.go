@@ -5,46 +5,46 @@ import (
 	"testing"
 )
 
-// With HarmVotes > 1 the harm check is a majority vote across independent samples,
-// so a single fooled "safe" verdict cannot pass an action the others flag.
+// With HarmVotes > 1 the harm check takes the median risk across independent
+// samples, so a single fooled "low" cannot pass an action the others rate high.
 func TestAssessHarmMajorityVoteHarmful(t *testing.T) {
 	t.Parallel()
 	provider := newFakeProviderSequence(
-		fakeProviderResponse{events: textEvents(`{"harmful": false, "reason": "看着没事"}`)},
-		fakeProviderResponse{events: textEvents(`{"harmful": true, "reason": "会删数据"}`)},
-		fakeProviderResponse{events: textEvents(`{"harmful": true, "reason": "会删数据"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "low", "reason": "看着没事"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "high", "reason": "会删数据"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "high", "reason": "会删数据"}`)},
 	)
 	session := newTestSession(t, SessionOptions{Provider: provider, Model: "m", HarmVotes: 3})
 
-	harmful, _, err := session.AssessHarm(context.Background(), "", "rm -rf /data")
+	risk, _, err := session.AssessHarm(context.Background(), "", "rm -rf /data")
 	if err != nil {
 		t.Fatalf("AssessHarm: %v", err)
 	}
-	if !harmful {
-		t.Fatal("majority (2/3) said harmful, want harmful")
+	if harmRiskRank(risk) < harmRiskRank("medium") {
+		t.Fatalf("median of [low, high, high] = %q, want a prompt-worthy tier", risk)
 	}
 	if len(provider.requests) != 3 {
 		t.Fatalf("provider requests = %d, want 3 (one per vote)", len(provider.requests))
 	}
 }
 
-// The majority still wins the other way: a lone harmful vote does not block an
-// action the majority deems safe.
+// The median still wins the other way: a lone high vote does not block an action
+// the majority rates low.
 func TestAssessHarmMajorityVoteSafe(t *testing.T) {
 	t.Parallel()
 	provider := newFakeProviderSequence(
-		fakeProviderResponse{events: textEvents(`{"harmful": false, "reason": "常规"}`)},
-		fakeProviderResponse{events: textEvents(`{"harmful": false, "reason": "常规"}`)},
-		fakeProviderResponse{events: textEvents(`{"harmful": true, "reason": "误判"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "low", "reason": "常规"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "low", "reason": "常规"}`)},
+		fakeProviderResponse{events: textEvents(`{"risk": "high", "reason": "误判"}`)},
 	)
 	session := newTestSession(t, SessionOptions{Provider: provider, Model: "m", HarmVotes: 3})
 
-	harmful, _, err := session.AssessHarm(context.Background(), "", "go test ./...")
+	risk, _, err := session.AssessHarm(context.Background(), "", "go test ./...")
 	if err != nil {
 		t.Fatalf("AssessHarm: %v", err)
 	}
-	if harmful {
-		t.Fatal("majority (2/3) said safe, want not harmful")
+	if harmRiskRank(risk) >= harmRiskRank("medium") {
+		t.Fatalf("median of [low, low, high] = %q, want an auto-allow tier", risk)
 	}
 }
 
