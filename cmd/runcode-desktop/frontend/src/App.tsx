@@ -1084,8 +1084,11 @@ export default function App() {
                     const arts = previewableArtifacts(g.tools)
                     const artPaths = new Set(arts.map((a) => a.path))
                     const steps = g.tools.filter((t) => {
+                      // Only a Write/Edit can be "already shown as an artifact card";
+                      // Read/Grep/Glob also carry a path input and must never be hidden.
+                      if (t.toolName !== 'Write' && t.toolName !== 'Edit') return true
                       const p = toolTargetPath(t)
-                      return !(p && artPaths.has(p)) // hide tools already shown as artifact cards
+                      return !(p && artPaths.has(p))
                     })
                     return (
                       <>
