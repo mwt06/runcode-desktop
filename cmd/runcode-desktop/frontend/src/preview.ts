@@ -111,12 +111,26 @@ export function artifactKindLabel(kind: PreviewKind): string {
   }
 }
 
-// kindIcon maps a preview kind to an existing Icon name (see icons.tsx).
+// kindIcon maps a preview kind to a file-type Icon name (see icons.tsx).
 export function kindIcon(kind: PreviewKind): string {
   switch (kind) {
-    case 'html': return 'globe'
-    case 'code': return 'terminal'
-    default: return 'file'
+    case 'html': return 'file-html'
+    case 'markdown': return 'file-md'
+    case 'code': return 'file-code'
+    case 'image': case 'svg': return 'file-image'
+    default: return 'file-text'
+  }
+}
+
+// kindAccent maps a preview kind to its accent color — the signature color-coding
+// carried on artifact-card rails, the preview tab edge, and the type badge.
+export function kindAccent(kind: PreviewKind): string {
+  switch (kind) {
+    case 'html': return '#E39A3B'
+    case 'markdown': return '#4C82F7'
+    case 'code': return '#2FAE6A'
+    case 'image': case 'svg': return '#E0679B'
+    default: return '#8A94A6'
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, kindAccent, filterFiles, clampPreviewWidth } from './preview'
 
 describe('clampPreviewWidth', () => {
   it('keeps an in-range stored value', () => {
@@ -98,10 +98,24 @@ describe('artifactKindLabel', () => {
 })
 
 describe('kindIcon', () => {
-  it('maps kinds to existing Icon names', () => {
-    expect(kindIcon('html')).toBe('globe')
-    expect(kindIcon('code')).toBe('terminal')
-    expect(kindIcon('markdown')).toBe('file')
+  it('maps kinds to file-type icon names', () => {
+    expect(kindIcon('html')).toBe('file-html')
+    expect(kindIcon('markdown')).toBe('file-md')
+    expect(kindIcon('code')).toBe('file-code')
+    expect(kindIcon('image')).toBe('file-image')
+    expect(kindIcon('text')).toBe('file-text')
+    expect(kindIcon('unsupported')).toBe('file-text')
+  })
+})
+
+describe('kindAccent', () => {
+  it('maps kinds to accent colors, slate for unknown', () => {
+    expect(kindAccent('html')).toBe('#E39A3B')
+    expect(kindAccent('markdown')).toBe('#4C82F7')
+    expect(kindAccent('code')).toBe('#2FAE6A')
+    expect(kindAccent('image')).toBe('#E0679B')
+    expect(kindAccent('svg')).toBe('#E0679B')
+    expect(kindAccent('unsupported')).toBe('#8A94A6')
   })
 })
 
