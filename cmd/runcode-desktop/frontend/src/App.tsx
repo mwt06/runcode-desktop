@@ -1572,21 +1572,8 @@ function PlanMark({ status }: { status: string }) {
   return <span className="w-[13px] h-[13px] flex-none rounded-full border-[1.6px] border-line2 bg-surface" />
 }
 
-// Avatar is the small identity mark shown beside a message: the XRUN logo for the
-// assistant, a "你" chip for the user.
-function Avatar({ bot }: { bot?: boolean }) {
-  return bot ? (
-    <span className="w-[30px] h-[30px] rounded-[9px] flex-none inline-flex items-center justify-center bg-surface border border-line2 shadow-xs">
-      <Logo size={18} />
-    </span>
-  ) : (
-    <span className="w-[30px] h-[30px] rounded-full flex-none inline-flex items-center justify-center font-semibold text-[12px] bg-inset text-muted">你</span>
-  )
-}
-
 // BotRow wraps an assistant-side entry (message, tool card, notice). The assistant
-// carries no avatar — it reads as plain content in the flow, while the user's
-// messages are the ones marked with an avatar.
+// output is left-aligned and flows naturally, while user messages are right-aligned flat blocks.
 function BotRow({ children }: { children: ReactNode }) {
   return <div className="anim-rise min-w-0">{children}</div>
 }
