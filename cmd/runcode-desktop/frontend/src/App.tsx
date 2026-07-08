@@ -957,9 +957,7 @@ export default function App() {
   if (!started) {
     return (
       <div className="flex flex-col h-screen">
-        <div className="h-9 flex-none flex items-center justify-end bg-surface border-b border-line2 select-none" style={DRAG}>
-          <WindowControls />
-        </div>
+        <TitleBar />
         {initialReq ? (
           <StartForm onStart={handleStart} starting={starting} error={startError} initial={initialReq} />
         ) : (
@@ -982,6 +980,7 @@ export default function App() {
   }
   return (
     <div className="flex flex-col h-screen">
+      <TitleBar />
       <div className="flex flex-1 min-h-0">
         <Sidebar
           recents={recents}
@@ -1001,7 +1000,8 @@ export default function App() {
         />
 
         <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface">
-        {/* Single top bar: also the window drag region (no separate title bar). */}
+        {/* Secondary bar below the full-width TitleBar: status + context meter + preview toggle.
+            Also a drag region, since it spans the top of the main pane. */}
         <header className="h-[52px] flex-none flex items-center justify-between pl-[22px] pr-1.5 bg-surface border-b border-line2 select-none" style={DRAG}>
           <span className={`inline-flex items-center gap-1.5 text-[12.5px] ${busy ? 'text-green' : 'text-muted'}`}>
             <span className={`w-[7px] h-[7px] rounded-full ${busy ? 'bg-green blip shadow-[0_0_0_3px_rgba(31,157,99,0.16)]' : 'bg-faint'}`} />
@@ -1024,7 +1024,6 @@ export default function App() {
                   .catch(() => {})
               }}
             >预览</button>
-            <WindowControls />
           </div>
         </header>
 
@@ -1567,6 +1566,21 @@ function GhostBtn({ children, onClick, title }: { children: ReactNode; onClick?:
 const DRAG = { ['--wails-draggable' as string]: 'drag' } as CSSProperties
 const NO_DRAG = { ['--wails-draggable' as string]: 'no-drag' } as CSSProperties
 
+// TitleBar is the full-width top row (the frameless-window drag region): the XRUN
+// wordmark on the left, an empty drag middle, and the window controls at the right.
+function TitleBar() {
+  return (
+    <div className="h-[38px] flex-none flex items-center pl-3.5 bg-surface border-b border-line2 select-none" style={DRAG}>
+      <span className="flex items-center gap-2 font-semibold text-[13.5px] tracking-tight">
+        <span className="w-[20px] h-[20px] inline-flex items-center justify-center"><Logo size={18} /></span>
+        XRUN
+      </span>
+      <div className="flex-1" />
+      <WindowControls />
+    </div>
+  )
+}
+
 // WindowControls is the minimize / maximize / close cluster, placed at the far
 // right of whichever bar hosts it.
 function WindowControls() {
@@ -1618,10 +1632,6 @@ function Sidebar({
   ]
   return (
     <aside className="w-[268px] flex-none bg-surface border-r border-line2 flex flex-col p-4">
-      <div className="flex items-center gap-2.5 px-1.5 pt-1 pb-[18px]">
-        <span className="w-[32px] h-[32px] rounded-[9px] inline-flex items-center justify-center bg-surface border border-line2 shadow-xs"><Logo size={22} /></span>
-        <span className="text-[18px] font-bold tracking-tight">XRUN</span>
-      </div>
       <button className="w-full border-none bg-primary text-white font-semibold text-sm py-3 rounded-[11px] cursor-pointer inline-flex items-center justify-center gap-2 shadow-[0_5px_14px_rgba(91,108,240,0.3)] hover:brightness-105 transition" onClick={onNew}>
         <Icon name="plus" size={16} /> 新建对话
       </button>
