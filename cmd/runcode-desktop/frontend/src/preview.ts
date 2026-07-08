@@ -64,3 +64,35 @@ export function toWorkspaceRel(path: string, cwd: string): string {
   // relative path untouched so a non-workspace path isn't mislabeled as relative.
   return p.replace(/^\.\//, '')
 }
+
+export type FileNode = { name: string; path: string; dir: boolean; children?: FileNode[] }
+
+export function buildFileTree(paths: string[]): FileNode[] {
+  type Dir = { node: FileNode; dirs: Map<string, Dir>; files: FileNode[] }
+  const root: Dir = { node: { name: '', path: '', dir: true, children: [] }, dirs: new Map(), files: [] }
+  for (const raw of paths) {
+    const parts = raw.replace(/\\/g, '/').split('/').filter(Boolean)
+    let cur = root
+    for (let i = 0; i < parts.length; i++) {
+      const isFile = i === parts.length - 1
+      const path = parts.slice(0, i + 1).join('/')
+      if (isFile) {
+        cur.files.push({ name: parts[i], path, dir: false })
+      } else {
+        let child = cur.dirs.get(parts[i])
+        if (!child) {
+          child = { node: { name: parts[i], path, dir: true, children: [] }, dirs: new Map(), files: [] }
+          cur.dirs.set(parts[i], child)
+        }
+        cur = child
+      }
+    }
+  }
+  const collect = (d: Dir): FileNode[] => {
+    const dirs = [...d.dirs.values()].sort((a, b) => a.node.name.localeCompare(b.node.name))
+    for (const sub of dirs) sub.node.children = collect(sub)
+    const files = d.files.sort((a, b) => a.name.localeCompare(b.name))
+    return [...dirs.map((x) => x.node), ...files]
+  }
+  return collect(root)
+}

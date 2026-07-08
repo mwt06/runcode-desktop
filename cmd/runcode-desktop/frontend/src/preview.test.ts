@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree } from './preview'
 
 describe('classifyPreview', () => {
   it('maps by extension, case-insensitively', () => {
@@ -52,5 +52,18 @@ describe('toWorkspaceRel', () => {
   it('leaves an absolute path that is not under cwd unchanged', () => {
     expect(toWorkspaceRel('/etc/passwd', '/home/u/ws')).toBe('/etc/passwd')
     expect(toWorkspaceRel('C:\\other\\a.ts', 'D:\\ws')).toBe('C:/other/a.ts')
+  })
+})
+
+describe('buildFileTree', () => {
+  it('nests by directory, dirs before files, sorted', () => {
+    const tree = buildFileTree(['src/b.ts', 'src/a.ts', 'README.md', 'src/ui/x.css'])
+    // top level: dir "src" before file "README.md"
+    expect(tree.map((n) => n.name)).toEqual(['src', 'README.md'])
+    const src = tree[0]
+    expect(src.dir).toBe(true)
+    // inside src: subdir "ui" before files a.ts, b.ts
+    expect(src.children!.map((n) => n.name)).toEqual(['ui', 'a.ts', 'b.ts'])
+    expect(src.children![1].path).toBe('src/a.ts')
   })
 })
