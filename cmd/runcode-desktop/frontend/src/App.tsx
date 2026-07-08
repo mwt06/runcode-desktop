@@ -56,8 +56,10 @@ import {
 } from './chat'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
 import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
-import { PreviewPanel, FileBrowser } from './preview-panel'
+import { PreviewPane, FileBrowser } from './preview-panel'
+import { ArtifactCard } from './artifact-card'
 import { isPreviewable, toWorkspaceRel } from './preview'
+import { openTab, closeTab, setActive, type PreviewTab } from './preview-tabs'
 
 let seq = 0
 const nextID = () => `b${++seq}`
@@ -167,6 +169,24 @@ function toolTargetPath(t: ToolEvent): string | undefined {
   if (fromFiles) return fromFiles
   const p = toolInputObj(t).path
   return typeof p === 'string' && p ? p : undefined
+}
+
+// previewableArtifacts extracts the workspace files a group's Write/Edit steps
+// produced, de-duplicated, for rendering as artifact cards.
+function previewableArtifacts(tools: ToolEvent[]): { path: string; add: number; del: number }[] {
+  const seen = new Set<string>()
+  const out: { path: string; add: number; del: number }[] = []
+  for (const t of tools) {
+    if ((t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed') {
+      const p = toolTargetPath(t)
+      if (p && isPreviewable(p) && !seen.has(p)) {
+        seen.add(p)
+        const { add, del } = diffStats(t)
+        out.push({ path: p, add, del })
+      }
+    }
+  }
+  return out
 }
 
 // toolLabel is the flat "verb target +adds -dels" string for places that need plain
@@ -311,7 +331,12 @@ export default function App() {
   const [recents, setRecents] = useState<SessionSummary[]>([])
   const [initialReq, setInitialReq] = useState<StartSessionRequest | null>(null)
   const [files, setFiles] = useState<string[]>([])
-  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  const [tabs, setTabs] = useState<PreviewTab[]>([])
+  const [activeTab, setActiveTab] = useState<string | null>(null)
+  const [previewWidth, setPreviewWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem('preview.width'))
+    return v >= 360 ? v : 560
+  })
   const [browseOpen, setBrowseOpen] = useState(false)
   const [chatSkills, setChatSkills] = useState<SkillInfo[]>([])
   const [chatAgents, setChatAgents] = useState<AgentInfo[]>([])
@@ -323,6 +348,35 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const selItemRef = useRef<HTMLDivElement>(null)
+
+  const openArtifact = (rel: string) => {
+    const r = openTab(tabs, activeTab, rel)
+    setTabs(r.tabs)
+    setActiveTab(r.active)
+    setBrowseOpen(false)
+  }
+  const closePreviewTab = (rel: string) => {
+    const r = closeTab(tabs, activeTab, rel)
+    setTabs(r.tabs)
+    setActiveTab(r.active)
+  }
+  const dragW = useRef<{ startX: number; startW: number } | null>(null)
+  const onPreviewDragStart = (e: React.PointerEvent) => {
+    dragW.current = { startX: e.clientX, startW: previewWidth }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onPreviewDragMove = (e: React.PointerEvent) => {
+    if (!dragW.current) return
+    const dx = dragW.current.startX - e.clientX // dragging the left edge leftward grows the pane
+    const w = Math.min(Math.max(dragW.current.startW + dx, 360), Math.floor(window.innerWidth * 0.6))
+    setPreviewWidth(w)
+  }
+  const onPreviewDragEnd = () => {
+    if (dragW.current) {
+      localStorage.setItem('preview.width', String(previewWidth))
+      dragW.current = null
+    }
+  }
 
   // Keep the highlighted picker item visible as the selection moves with ↑/↓.
   useEffect(() => {
@@ -964,12 +1018,11 @@ export default function App() {
               title="文件预览"
               onClick={() => {
                 setBrowseOpen((v) => !v)
-                setPreviewPath(null)
-                if (!browseOpen) {
-                  listFiles()
-                    .then((f) => setFiles(f ?? []))
-                    .catch(() => {})
-                }
+                if (browseOpen) return
+                // opening: refresh files
+                listFiles()
+                  .then((f) => setFiles(f ?? []))
+                  .catch(() => {})
               }}
             >预览</button>
             <WindowControls />
@@ -1028,7 +1081,25 @@ export default function App() {
             )}
             {groups.map((g) =>
               g.kind === 'exec' ? (
-                <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} onPreview={(raw) => setPreviewPath(toWorkspaceRel(raw, info?.cwd ?? ''))} /></BotRow>
+                <BotRow key={g.id}>
+                  <ExecutionCard tools={g.tools} harmAllows={harmAllows} />
+                  {(() => {
+                    const arts = previewableArtifacts(g.tools)
+                    return arts.length > 0 ? (
+                      <div className="flex flex-col gap-1.5 mt-1.5">
+                        {arts.map((a) => (
+                          <ArtifactCard
+                            key={a.path}
+                            relPath={toWorkspaceRel(a.path, info?.cwd ?? '')}
+                            add={a.add}
+                            del={a.del}
+                            onOpen={openArtifact}
+                          />
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
+                </BotRow>
               ) : g.kind === 'ask' ? (
                 <BotRow key={g.id}><AskCard tool={g.tool} busy={busy} onAnswer={send} /></BotRow>
               ) : g.kind === 'analyze' ? (
@@ -1296,20 +1367,37 @@ export default function App() {
         </>
         )}
         </main>
-        {view === 'chat' && (previewPath || browseOpen) && (
-          <aside className="w-[44%] max-w-[720px] min-w-[320px] flex-none border-l border-line2 flex flex-col min-h-0 bg-surface">
-            {previewPath ? (
-              <PreviewPanel baseURL={info?.previewBaseURL ?? ''} relPath={previewPath} onClose={() => { setPreviewPath(null); setBrowseOpen(false) }} />
-            ) : (
-              <div className="flex flex-col h-full min-h-0">
-                <div className="flex-none flex items-center h-[52px] px-3 border-b border-line2">
-                  <span className="text-[13px] font-medium text-ink flex-1">文件预览</span>
-                  <button className="text-muted hover:text-ink px-1.5" title="关闭" onClick={() => setBrowseOpen(false)}>✕</button>
+        {view === 'chat' && (tabs.length > 0 || browseOpen) && (
+          <>
+            <div
+              className="w-[5px] flex-none cursor-col-resize hover:bg-primary/30 active:bg-primary/40"
+              onPointerDown={onPreviewDragStart}
+              onPointerMove={onPreviewDragMove}
+              onPointerUp={onPreviewDragEnd}
+            />
+            <aside style={{ width: previewWidth }} className="flex-none border-l border-line2 flex flex-col min-h-0 bg-surface">
+              {tabs.length > 0 ? (
+                <PreviewPane
+                  tabs={tabs}
+                  active={activeTab}
+                  baseURL={info?.previewBaseURL ?? ''}
+                  onSelect={(p) => setActiveTab(setActive(tabs, activeTab, p))}
+                  onCloseTab={closePreviewTab}
+                  onClose={() => { setTabs([]); setActiveTab(null) }}
+                />
+              ) : (
+                <div className="flex flex-col h-full min-h-0">
+                  <div className="flex-none flex items-center h-[44px] px-3 border-b border-line2">
+                    <span className="text-[13px] font-medium text-ink flex-1">文件预览</span>
+                    <button className="text-muted hover:text-ink px-1.5" title="关闭" onClick={() => setBrowseOpen(false)}>✕</button>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <FileBrowser files={files} onPick={(p) => { if (isPreviewable(p)) openArtifact(toWorkspaceRel(p, info?.cwd ?? '')) }} />
+                  </div>
                 </div>
-                <FileBrowser files={files} onPick={(p) => { if (isPreviewable(p)) setPreviewPath(toWorkspaceRel(p, info?.cwd ?? '')) }} />
-              </div>
-            )}
-          </aside>
+              )}
+            </aside>
+          </>
         )}
       </div>
     </div>
@@ -1698,7 +1786,7 @@ function PlanChoiceCard({ busy, onExecute, onDismiss }: { busy: boolean; onExecu
 // rows are the tool calls in one run. Each row shows the tool's icon chip, its verb +
 // mono target, a diff badge for edits, and a live/done/failed status; clicking a row
 // drills into its parameters and output.
-function ExecutionCard({ tools, harmAllows, onPreview }: { tools: ToolEvent[]; harmAllows?: Record<string, string>; onPreview?: (rawPath: string) => void }) {
+function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmAllows?: Record<string, string> }) {
   const [sel, setSel] = useState<number | null>(null)
   const runningIdx = tools.findIndex((t) => t.type !== 'completed' && t.type !== 'failed')
   const activeIdx = sel != null && sel < tools.length ? sel : runningIdx
@@ -1742,9 +1830,6 @@ function ExecutionCard({ tools, harmAllows, onPreview }: { tools: ToolEvent[]; h
                 <span title="智能模式已自动放行，展开查看原因" className="flex-none inline-flex items-center gap-1 text-[10.5px] text-primaryink bg-primarysoft rounded px-1.5 py-0.5">
                   <Icon name="shield" size={11} /> 智能放行
                 </span>
-              )}
-              {onPreview && (t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed' && toolTargetPath(t) && isPreviewable(toolTargetPath(t)!) && (
-                <button className="flex-none text-[10.5px] text-primaryink hover:underline px-1" title="预览" onClick={(e) => { e.stopPropagation(); onPreview(toolTargetPath(t)!) }}>预览</button>
               )}
               {st === 'failed' ? (
                 <span className="text-[11px] text-red bg-redbg rounded-md px-1.5 py-0.5 flex-none">{failText(t)}</span>
