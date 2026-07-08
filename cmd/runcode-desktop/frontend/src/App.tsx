@@ -58,7 +58,7 @@ import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
 import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
-import { isPreviewable, toWorkspaceRel, clampPreviewWidth } from './preview'
+import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath } from './preview'
 import { openTab, closeTab, setActive, type PreviewTab } from './preview-tabs'
 
 let seq = 0
@@ -363,14 +363,27 @@ export default function App() {
   }
   const autoRef = useRef({ autoOpen, blocks, cwd: info?.cwd ?? '' })
   autoRef.current = { autoOpen, blocks, cwd: info?.cwd ?? '' }
+  const turnStartLen = useRef(0)
   const prevBusy = useRef(false)
   useEffect(() => {
-    if (prevBusy.current && !busy) {
+    if (!prevBusy.current && busy) {
+      // Turn starting: remember where this turn's blocks begin.
+      turnStartLen.current = autoRef.current.blocks.length
+    } else if (prevBusy.current && !busy) {
+      // Turn ended: open the newest previewable file THIS turn wrote (if any).
       const { autoOpen: on, blocks: bs, cwd } = autoRef.current
       if (on) {
-        const tools = bs.filter((b) => b.kind === 'tool').map((b) => (b as Extract<Block, { kind: 'tool' }>).tool)
-        const newest = previewableArtifacts(tools).at(-1)
-        if (newest) openArtifact(toWorkspaceRel(newest.path, cwd))
+        const paths: string[] = []
+        for (const b of bs.slice(turnStartLen.current)) {
+          if (b.kind !== 'tool') continue
+          const t = (b as Extract<Block, { kind: 'tool' }>).tool
+          if ((t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed') {
+            const p = toolTargetPath(t)
+            if (p) paths.push(toWorkspaceRel(p, cwd))
+          }
+        }
+        const rel = lastPreviewablePath(paths)
+        if (rel) openArtifact(rel)
       }
     }
     prevBusy.current = busy

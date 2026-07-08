@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, kindAccent, filterFiles, clampPreviewWidth } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, kindAccent, filterFiles, clampPreviewWidth, lastPreviewablePath } from './preview'
 
 describe('clampPreviewWidth', () => {
   it('keeps an in-range stored value', () => {
@@ -125,5 +125,16 @@ describe('filterFiles', () => {
     expect(filterFiles(fs, '')).toEqual(fs)
     expect(filterFiles(fs, 'app')).toEqual(['src/App.tsx'])
     expect(filterFiles(fs, 'SRC/')).toEqual(['src/App.tsx', 'src/preview.ts'])
+  })
+})
+
+describe('lastPreviewablePath', () => {
+  it('returns the last previewable path (most recently written)', () => {
+    expect(lastPreviewablePath(['a.go', 'b.md', 'a.go'])).toBe('a.go') // last occurrence wins
+    expect(lastPreviewablePath(['a.md', 'b.zip'])).toBe('a.md') // skips a non-previewable last entry
+  })
+  it('returns null when none is previewable or the list is empty', () => {
+    expect(lastPreviewablePath(['x.zip', 'y.bin'])).toBe(null)
+    expect(lastPreviewablePath([])).toBe(null)
   })
 })

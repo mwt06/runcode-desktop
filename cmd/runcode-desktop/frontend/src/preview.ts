@@ -150,3 +150,12 @@ export function clampPreviewWidth(stored: number, windowWidth: number): number {
   const max = Math.floor(windowWidth * 0.6)
   return stored >= 360 && stored <= max ? stored : Math.min(560, max)
 }
+
+// lastPreviewablePath returns the last (most-recently-written) previewable path from
+// an ordered list of workspace file paths, or null if none is previewable/empty.
+export function lastPreviewablePath(paths: string[]): string | null {
+  for (let i = paths.length - 1; i >= 0; i--) {
+    if (isPreviewable(paths[i])) return paths[i]
+  }
+  return null
+}
