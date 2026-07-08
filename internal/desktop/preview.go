@@ -1,0 +1,61 @@
+package desktop
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+// maxArtifactBytes caps how large a text artifact ReadArtifact returns, so a giant
+// file cannot lock up the renderer. Larger files are opened externally instead.
+const maxArtifactBytes = 2 << 20 // 2 MiB
+
+// ReadArtifact returns the UTF-8 text of a workspace file for React-rendered
+// previews (Markdown/code/text). It rejects paths outside the workspace (both
+// lexical ".." and symlink/junction escapes), files over maxArtifactBytes, and
+// binary (non-UTF-8) content.
+func (a *App) ReadArtifact(relPath string) (string, error) {
+	a.mu.Lock()
+	ws := a.workspace
+	a.mu.Unlock()
+	if ws == "" {
+		return "", errors.New("no active workspace")
+	}
+	full := filepath.Join(ws, filepath.FromSlash(relPath))
+	// Lexical bound first (cheap; catches ".." before touching the filesystem).
+	if rel, err := filepath.Rel(ws, full); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("path is outside the workspace")
+	}
+	// Resolved bound — fail closed. EvalSymlinks errors on a non-existent file or a
+	// junction/reparse point Go cannot walk (Windows junctions are ModeIrregular,
+	// not ModeSymlink); in either case refuse rather than let os.ReadFile follow it
+	// outside the workspace.
+	wsResolved, err := filepath.EvalSymlinks(ws)
+	if err != nil {
+		wsResolved = ws
+	}
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return "", err
+	}
+	if r, err := filepath.Rel(wsResolved, resolved); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return "", errors.New("path resolves outside the workspace")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if info.Size() > maxArtifactBytes {
+		return "", errors.New("file too large to preview")
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !utf8.Valid(data) {
+		return "", errors.New("file is not text")
+	}
+	return string(data), nil
+}
