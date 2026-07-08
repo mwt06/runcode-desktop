@@ -34,6 +34,7 @@ declare global {
           SaveSettings(req: unknown): Promise<unknown>
           ListTools(): Promise<unknown>
           ListFiles(): Promise<unknown>
+          ReadArtifact(relPath: string): Promise<string>
           ListSkills(): Promise<unknown>
           SaveSkill(req: unknown): Promise<unknown>
           DeleteSkill(name: string, scope: string): Promise<unknown>
@@ -53,6 +54,7 @@ declare global {
       WindowMaximise(): void
       WindowUnmaximise(): void
       Quit(): void
+      BrowserOpenURL(url: string): void
     }
   }
 }
