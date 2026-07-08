@@ -25,11 +25,13 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
 
   useEffect(() => {
     if (!textual) return
+    let ignore = false
     setText(null)
     setErr('')
     readArtifact(relPath)
-      .then(setText)
-      .catch((e) => setErr(String(e)))
+      .then((t) => { if (!ignore) setText(t) })
+      .catch((e) => { if (!ignore) setErr(String(e)) })
+    return () => { ignore = true }
   }, [relPath, kind, bust, textual])
 
   return (
