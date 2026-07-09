@@ -205,3 +205,30 @@ func countKept(keep []bool, from int) int {
 	}
 	return count
 }
+
+// statMaxInput bounds the O(n*m) LCS for Stat; past it Stat returns a coarse
+// estimate (both sides treated as fully changed) instead of blowing up.
+const statMaxInput = 50000
+
+// Stat returns the exact number of added and removed lines between oldText and
+// newText, without the display truncation Unified applies. Binary or oversized
+// input yields a coarse estimate rather than an exact count.
+func Stat(oldText, newText string) (added, removed int) {
+	oldLines := splitLines(oldText)
+	newLines := splitLines(newText)
+	if looksBinary(oldText) || looksBinary(newText) {
+		return len(newLines), len(oldLines)
+	}
+	if len(oldLines) > statMaxInput || len(newLines) > statMaxInput {
+		return len(newLines), len(oldLines)
+	}
+	for _, o := range lcsOps(oldLines, newLines) {
+		switch o.kind {
+		case opInsert:
+			added++
+		case opDelete:
+			removed++
+		}
+	}
+	return added, removed
+}
