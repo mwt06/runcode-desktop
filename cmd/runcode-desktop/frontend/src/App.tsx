@@ -340,6 +340,15 @@ export default function App() {
     setActiveTab(r.active)
     setBrowseOpen(false)
   }
+  const resolveWsFile = useMemo(() => {
+    const norm = (s: string) => s.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+    const set = files.map(norm)
+    return (token: string): string | null => {
+      const cn = norm(token)
+      if (!cn) return null
+      return set.find((f) => f === cn || f.endsWith('/' + cn)) ?? null
+    }
+  }, [files])
   const closePreviewTab = (rel: string) => {
     const r = closeTab(tabs, activeTab, rel)
     setTabs(r.tabs)
@@ -1108,7 +1117,7 @@ export default function App() {
                 <BotRow key={g.block.id}><PlanChoiceCard busy={busy} onExecute={executePlanAs} onDismiss={dismissPlanChoice} /></BotRow>
               ) : (
                 <div key={g.block.id}>
-                  <BlockView block={g.block} />
+                  <BlockView block={g.block} onOpenFile={openArtifact} resolveFile={resolveWsFile} />
                   {g.block.kind === 'assistant' && (
                     <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} cwd={info?.cwd ?? ''} onOpen={openArtifact} />
                   )}
@@ -2413,7 +2422,7 @@ function fmtDuration(ms?: number): string {
   return `${m}m${Math.round(s % 60)}s`
 }
 
-function BlockView({ block }: { block: Block }) {
+function BlockView({ block, onOpenFile, resolveFile }: { block: Block; onOpenFile?: (relPath: string) => void; resolveFile?: (token: string) => string | null }) {
   // While an assistant answer streams, keep it in a fixed-height window pinned to
   // the newest text (consistent with the tool/agent cards); release to full height
   // when done so the finished answer reads normally in the page flow.
@@ -2456,7 +2465,7 @@ function BlockView({ block }: { block: Block }) {
                 onScroll={block.streaming ? aScroll.onScroll : undefined}
                 className={`text-[15px] text-[#3f4653] leading-[1.75] break-words${block.streaming ? ' max-h-[58vh] overflow-y-auto pr-1' : ''}`}
               >
-                <Markdown>{block.text}</Markdown>
+                <Markdown onOpenFile={onOpenFile} resolveFile={resolveFile}>{block.text}</Markdown>
                 {block.streaming && <span className="caret">▍</span>}
               </div>
             )}

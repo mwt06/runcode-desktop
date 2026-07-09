@@ -5,7 +5,7 @@ import rehypeHighlight from 'rehype-highlight'
 // Markdown renders assistant text as GitHub-flavored Markdown with code syntax
 // highlighting, styled to match the app theme. Block code keeps the highlight.js
 // theme colors; inline code gets a compact chip.
-export function Markdown({ children }: { children: string }) {
+export function Markdown({ children, onOpenFile, resolveFile }: { children: string; onOpenFile?: (relPath: string) => void; resolveFile?: (token: string) => string | null }) {
   return (
     <div className="mdx">
       <ReactMarkdown
@@ -17,7 +17,13 @@ export function Markdown({ children }: { children: string }) {
           ol: (props) => <ol className="my-2 pl-5 list-decimal space-y-1" {...props} />,
           li: (props) => <li className="leading-[1.7]" {...props} />,
           strong: (props) => <strong className="font-semibold text-ink" {...props} />,
-          a: (props) => <a className="text-primaryink underline underline-offset-2" target="_blank" rel="noreferrer" {...props} />,
+          a: ({ href, children, ...props }) => {
+            const rel = href && resolveFile ? resolveFile(href) : null
+            if (rel && onOpenFile) {
+              return <a className="text-primaryink underline underline-offset-2 cursor-pointer" href={href} onClick={(e) => { e.preventDefault(); onOpenFile(rel) }}>{children}</a>
+            }
+            return <a className="text-primaryink underline underline-offset-2" target="_blank" rel="noreferrer" href={href} {...props}>{children}</a>
+          },
           h1: (props) => <h1 className="text-[18px] font-bold mt-3 mb-1.5" {...props} />,
           h2: (props) => <h2 className="text-[16px] font-bold mt-3 mb-1.5" {...props} />,
           h3: (props) => <h3 className="text-[15px] font-semibold mt-2.5 mb-1" {...props} />,
@@ -32,6 +38,18 @@ export function Markdown({ children }: { children: string }) {
             const isBlock = /language-/.test(className || '') || text.includes('\n')
             if (isBlock) {
               return <code className={className} {...rest}>{children}</code>
+            }
+            const rel = resolveFile ? resolveFile(text) : null
+            if (rel && onOpenFile) {
+              return (
+                <code
+                  className="bg-inset text-primaryink px-1.5 py-0.5 rounded text-[0.9em] font-mono break-words cursor-pointer hover:underline"
+                  title={'预览 ' + rel}
+                  onClick={() => onOpenFile(rel)}
+                >
+                  {children}
+                </code>
+              )
             }
             return (
               <code className="bg-inset text-[#7c3aed] px-1.5 py-0.5 rounded text-[0.9em] font-mono break-words" {...rest}>
