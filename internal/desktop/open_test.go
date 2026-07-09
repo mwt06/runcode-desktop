@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -56,5 +57,19 @@ func TestOpenCommandDoesNotUseShell(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("path not passed as a single inert arg: %v", openCommand(mal).Args)
+	}
+}
+
+func TestOpenCommandWindowsUsesExplorer(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only open command")
+	}
+	cmd := openCommand(`C:\ws\a.md`)
+	base := strings.ToLower(filepath.Base(cmd.Path))
+	if !strings.HasPrefix(base, "explorer") {
+		t.Fatalf("windows open should use explorer, got %q (args %v)", base, cmd.Args)
+	}
+	if strings.HasPrefix(base, "rundll32") {
+		t.Fatal("windows open must not use rundll32 (unreliable for local files)")
 	}
 }

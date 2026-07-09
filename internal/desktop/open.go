@@ -40,14 +40,14 @@ func (a *App) resolveArtifact(relPath string) (string, error) {
 
 // openCommand builds the command to open path with the OS default app WITHOUT a
 // shell, so an attacker-chosen filename (the workspace is AI-written) cannot inject
-// commands. On Windows, rundll32 is invoked directly (path passed as inert argv),
-// never cmd.exe's parser. If rundll32+FileProtocolHandler ever proves flaky for a
-// path shape in manual testing, switch to the ShellExecute API — do NOT reintroduce
-// cmd /c start.
+// commands — each binary is invoked directly with the path as an inert argv element.
+// Windows uses explorer.exe (opens a file with its default handler); rundll32 was
+// tried but is unreliable for local files. If explorer ever proves flaky for some
+// type, switch to the ShellExecute API (build-tagged) — do NOT reintroduce cmd /c start.
 func openCommand(path string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+		return exec.Command("explorer", path)
 	case "darwin":
 		return exec.Command("open", path)
 	default:
