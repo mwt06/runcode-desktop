@@ -23,6 +23,8 @@ import {
   loadConfig,
   saveSettings,
   listFiles,
+  listEdits,
+  revertEdit,
   listSkills,
   saveSkill,
   deleteSkill,
@@ -58,6 +60,7 @@ import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
 import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
+import { EditedCards } from './edited-card'
 import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles } from './preview'
 import { openTab, closeTab, type PreviewTab } from './preview-tabs'
 
@@ -317,6 +320,10 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([])
   const [tabs, setTabs] = useState<PreviewTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
+  // revertedEdits tracks which edited-file snapshots the user has undone, by
+  // snapshotId, so their "已编辑" card renders grey with 已撤销 instead of the
+  // 撤销/审核 actions (both live and after a resume re-attach).
+  const [revertedEdits, setRevertedEdits] = useState<Set<string>>(new Set())
   const [previewWidth, setPreviewWidth] = useState<number>(() =>
     clampPreviewWidth(Number(localStorage.getItem('preview.width')), window.innerWidth),
   )
@@ -345,6 +352,18 @@ export default function App() {
     setTabs(r.tabs)
     setActiveTab(r.active)
     setBrowseOpen(false)
+  }
+  // handleUndo reverts one edit snapshot (Write/Edit) and marks its card reverted;
+  // a revert can create/delete/restore a file, so the workspace file list is
+  // refreshed too.
+  const handleUndo = async (snapshotId: string) => {
+    try {
+      await revertEdit(snapshotId)
+      setRevertedEdits((s) => new Set(s).add(snapshotId))
+      listFiles().then((f) => setFiles(f ?? [])).catch(() => {})
+    } catch (e) {
+      setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: '撤销失败：' + String(e) }])
+    }
   }
   const resolveWsFile = useMemo(() => {
     const norm = (s: string) => s.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
@@ -976,6 +995,20 @@ export default function App() {
           }
         }),
       )
+      // Re-attach edit metadata to resumed tool steps by tool-use id, so the "已编辑"
+      // cards + undo/review re-render (the resume payload itself carries no diffs).
+      const edits = (await listEdits()) ?? []
+      if (edits.length > 0) {
+        const byTUID = new Map(edits.map((e) => [e.toolUseId, e]))
+        setBlocks((prev) => prev.map((b) => {
+          if (b.kind !== 'tool' || !b.tool.toolUseID) return b
+          const e = byTUID.get(b.tool.toolUseID)
+          return e ? { ...b, tool: { ...b.tool, data: e } } : b
+        }))
+        setRevertedEdits(new Set(edits.filter((e) => e.reverted).map((e) => e.snapshotId)))
+      } else {
+        setRevertedEdits(new Set())
+      }
       clearPlan()
       setTokens({ in: 0, out: 0 })
       // Seed the usage bar with the reopened history's estimated occupancy so it
@@ -1117,6 +1150,8 @@ export default function App() {
                 <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} /></BotRow>
               ) : g.kind === 'ask' ? (
                 <BotRow key={g.id}><AskCard tool={g.tool} busy={busy} onAnswer={send} /></BotRow>
+              ) : g.kind === 'edits' ? (
+                <BotRow key={g.id}><EditedCards edits={g.edits} reverted={revertedEdits} onReview={openDiffTab} onUndo={handleUndo} /></BotRow>
               ) : g.kind === 'analyze' ? (
                 <BotRow key={g.id}><AnalyzeCard tool={g.tool} /></BotRow>
               ) : g.block.kind === 'planchoice' ? (

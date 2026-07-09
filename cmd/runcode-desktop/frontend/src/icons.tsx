@@ -331,6 +331,20 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M9 17h6" />
         </svg>
       )
+    case 'file-edit':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" />
+          <path d="M16.5 3.5a1.6 1.6 0 0 1 2.3 2.3L14 10.6l-3 .7.7-3z" />
+        </svg>
+      )
+    case 'undo':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M9 7 4 12l5 5" />
+          <path d="M4 12h11a5 5 0 0 1 0 10h-1" />
+        </svg>
+      )
     default:
       return null
   }
