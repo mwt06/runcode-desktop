@@ -51,7 +51,6 @@ export function ArtifactCard({ relPath, add, del, onOpen, autoOpened }: { relPat
   return (
     <div
       onClick={() => previewable && onOpen(relPath)}
-      style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
       className={`group flex items-center gap-2.5 border border-line2 rounded-lg pl-3 pr-2.5 py-2 bg-surface ${previewable ? 'cursor-pointer hover:bg-surface2/40' : ''}`}
     >
       <span className="flex-none" style={{ color: accent }}><Icon name={kindIcon(kind)} size={17} /></span>
