@@ -147,6 +147,36 @@ func TestEditStoreBeginTurnStartsNewBaseline(t *testing.T) {
 	}
 }
 
+func TestEditStoreRejectsUnsafeSessionID(t *testing.T) {
+	ws := t.TempDir()
+	s := newEditStore()
+	s.BeginSession(ws, "../evil")
+	if s.dir != "" {
+		t.Fatalf("unsafe session id must leave the store unbound, got dir=%q", s.dir)
+	}
+	if h := s.BeginEdit("a.md", "tu1"); h != nil {
+		t.Fatal("BeginEdit must be a no-op when the store is unbound")
+	}
+}
+
+func TestEditStoreRevertedFlagSurvivesReopen(t *testing.T) {
+	ws := t.TempDir()
+	writeFile(t, filepath.Join(ws, "a.md"), "old\n")
+	s := newEditStore()
+	s.BeginSession(ws, "sess1")
+	s.BeginTurn()
+	rec := simulateEdit(t, s, ws, "a.md", "tu1", "new\n")
+	if err := s.Revert(rec.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	s2 := newEditStore()
+	s2.BeginSession(ws, "sess1")
+	list := s2.List()
+	if len(list) != 1 || !list[0].Reverted {
+		t.Fatalf("reverted flag must survive reopen (atomic index rewrite), got %+v", list)
+	}
+}
+
 func TestResolveForWriteRejectsEscape(t *testing.T) {
 	ws := t.TempDir()
 	for _, rel := range []string{"../evil.txt", "..", "a/../../evil"} {

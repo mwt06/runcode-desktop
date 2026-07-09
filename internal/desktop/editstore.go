@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/wt68/runcode/internal/diff"
+	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/pkg/tool"
 )
@@ -78,7 +79,7 @@ func (s *editStore) BeginSession(ws, sessionID string) {
 	s.meta = map[string]baselineMeta{}
 	s.records = nil
 	s.nextID = 1
-	if ws == "" || sessionID == "" {
+	if ws == "" || sessionID == "" || transcript.ValidateSessionID(sessionID) != nil {
 		s.ws = ""
 		s.dir = ""
 		return
@@ -204,8 +205,7 @@ func (s *editStore) Revert(snapshotID string) error {
 			return err
 		}
 	}
-	s.markRevertedLocked(snapshotID)
-	return nil
+	return s.markRevertedLocked(snapshotID)
 }
 
 // Diff returns the review of snapshotID: baseline vs the turn's latest content.
@@ -315,8 +315,9 @@ func (s *editStore) loadIndexLocked() {
 }
 
 // markRevertedLocked flips the reverted flag for snapshotID in memory and rewrites
-// the index so it survives reopen.
-func (s *editStore) markRevertedLocked(snapshotID string) {
+// the index so it survives reopen. The rewrite is atomic (temp file + rename) so a
+// mid-write failure never truncates or corrupts the existing index.
+func (s *editStore) markRevertedLocked(snapshotID string) error {
 	m := s.meta[snapshotID]
 	m.reverted = true
 	s.meta[snapshotID] = m
@@ -333,7 +334,36 @@ func (s *editStore) markRevertedLocked(snapshotID string) {
 		b.Write(j)
 		b.WriteByte('\n')
 	}
-	_ = os.WriteFile(filepath.Join(s.dir, "index.jsonl"), []byte(b.String()), 0o600)
+	return writeFileAtomic(s.dir, "index.jsonl", []byte(b.String()))
+}
+
+// writeFileAtomic writes data to <dir>/<name> via a temp file + rename, so a
+// mid-write failure (disk full, AV/indexer lock on Windows) never truncates or
+// corrupts the existing file. os.Rename replaces the destination on both POSIX and
+// Windows for a same-directory move.
+func writeFileAtomic(dir, name string, data []byte) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, name+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, filepath.Join(dir, name)); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // readCapped reads path if it exists and is within the size cap. Returns
