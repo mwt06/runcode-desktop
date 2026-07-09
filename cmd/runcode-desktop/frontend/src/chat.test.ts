@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { mergeTool, groupBlocks, parsePlan, finalizeTools, type Block } from './chat'
-import type { ToolEvent } from './bridge'
+import type { EditRecord, ToolEvent } from './bridge'
 
 const ev = (o: Partial<ToolEvent>): ToolEvent => ({ type: 'started', ...o })
 const line = (text: string) => ({ stream: 'stdout', text })
+
+function editTool(id: string, tuid: string, rel: string, snapshotId: string, added: number): Block {
+  const rec: EditRecord = { snapshotId, toolUseId: tuid, relPath: rel, added, removed: 0, created: false }
+  return { kind: 'tool', id, tool: { type: 'completed', toolName: 'Write', toolUseID: tuid, data: rec } }
+}
 
 describe('mergeTool', () => {
   it('appends streamed output across progress events', () => {
@@ -97,5 +102,57 @@ describe('finalizeTools', () => {
     const done = ev({ type: 'completed', toolName: 'Read' })
     const [b] = finalizeTools([{ kind: 'tool', id: '1', tool: done }])
     expect(b.kind === 'tool' && b.tool).toBe(done)
+  })
+})
+
+describe('mergeTool preserves edit metadata', () => {
+  it('carries data from the completed event onto the started block', () => {
+    const started: ToolEvent = { type: 'started', toolName: 'Write', toolUseID: 'tu1', input: {} }
+    const rec: EditRecord = { snapshotId: '1', toolUseId: 'tu1', relPath: 'a.md', added: 3, removed: 0, created: true }
+    const completed: ToolEvent = { type: 'completed', toolName: 'Write', toolUseID: 'tu1', data: rec }
+    expect(mergeTool(started, completed).data).toEqual(rec)
+  })
+})
+
+describe('groupBlocks edits group', () => {
+  it('emits one edits group per turn, one card per file, at the turn end', () => {
+    const blocks: Block[] = [
+      { kind: 'user', id: 'u1', text: 'go', ts: '' },
+      editTool('t1', 'tu1', 'a.md', '1', 3),
+      { kind: 'assistant', id: 'a1', text: 'done', streaming: false, ts: '' },
+    ]
+    const g = groupBlocks(blocks)
+    const edits = g.filter((x) => x.kind === 'edits')
+    expect(edits).toHaveLength(1)
+    expect(edits[0].kind === 'edits' && edits[0].edits.map((e) => e.relPath)).toEqual(['a.md'])
+    // The edits group comes after the assistant block.
+    const idxEdits = g.findIndex((x) => x.kind === 'edits')
+    const idxAsst = g.findIndex((x) => x.kind === 'block' && x.block.kind === 'assistant')
+    expect(idxEdits).toBeGreaterThan(idxAsst)
+    // The Write step is still present in an exec group.
+    expect(g.some((x) => x.kind === 'exec')).toBe(true)
+  })
+
+  it('dedupes two edits to the same file in a turn, keeping the latest stat', () => {
+    const blocks: Block[] = [
+      { kind: 'user', id: 'u1', text: 'go', ts: '' },
+      editTool('t1', 'tu1', 'a.md', '1', 3),
+      editTool('t2', 'tu2', 'a.md', '1', 5), // same baseline id, later stat
+    ]
+    const g = groupBlocks(blocks)
+    const edits = g.find((x) => x.kind === 'edits')
+    expect(edits && edits.kind === 'edits' && edits.edits).toHaveLength(1)
+    expect(edits && edits.kind === 'edits' && edits.edits[0].added).toBe(5)
+  })
+
+  it('separates edits across two turns', () => {
+    const blocks: Block[] = [
+      { kind: 'user', id: 'u1', text: 'go', ts: '' },
+      editTool('t1', 'tu1', 'a.md', '1', 3),
+      { kind: 'user', id: 'u2', text: 'again', ts: '' },
+      editTool('t2', 'tu2', 'b.md', '2', 4),
+    ]
+    const g = groupBlocks(blocks)
+    expect(g.filter((x) => x.kind === 'edits')).toHaveLength(2)
   })
 })

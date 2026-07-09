@@ -1,7 +1,8 @@
 // Pure conversation-model logic for the chat UI: the block/group data model and the
 // reducers that fold streaming tool events into it. Kept free of React so it can be
 // unit-tested directly (see chat.test.ts).
-import type { ToolEvent, PlanSnapshot, PlanItem } from './bridge'
+import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord } from './bridge'
+import { isEditRecord } from './bridge'
 
 // AgentNested holds a sub-agent's live activity, shown nested inside its Task card:
 // the streamed assistant text and the child tool events (merged by tool-use id).
@@ -23,6 +24,7 @@ export type Group =
   | { kind: 'exec'; id: string; tools: ToolEvent[] }
   | { kind: 'ask'; id: string; tool: ToolEvent }
   | { kind: 'analyze'; id: string; tool: ToolEvent }
+  | { kind: 'edits'; id: string; edits: EditRecord[] }
 
 export function finalizeStreaming(blocks: Block[]): Block[] {
   return blocks.map((b) => (b.kind === 'assistant' && b.streaming ? { ...b, streaming: false } : b))
@@ -78,16 +80,42 @@ export function mergeTool(prev: ToolEvent | undefined, ev: ToolEvent): ToolEvent
     output,
     outputTotal: ev.outputTotal ?? prev.outputTotal,
     outputTruncated: ev.outputTruncated ?? prev.outputTruncated,
+    // Side-channel payload (edit metadata / plan snapshot) arrives on the final
+    // event; keep whichever event carries it so the edited card survives the merge.
+    data: ev.data ?? prev.data,
   }
 }
 
 // groupBlocks routes blocks into render groups: TodoWrite is dropped (it drives the
 // progress pill), AskUser/Analyze/Task each become their own card, and consecutive
-// plain tool calls collapse into one execution group.
+// plain tool calls collapse into one execution group. A Write/Edit that carries edit
+// metadata also accumulates into that turn's `edits` group, flushed at the turn's end.
 export function groupBlocks(blocks: Block[]): Group[] {
   const out: Group[] = []
+  // Per-turn edited files, deduped by relPath (latest wins). Flushed as one `edits`
+  // group at the end of each turn (before the next user block, or at the end), so
+  // the cards sit under the reply — matching the artifact cards' placement.
+  let pending = new Map<string, EditRecord>()
+  let pendingId = ''
+  const flush = () => {
+    if (pending.size === 0) return
+    out.push({ kind: 'edits', id: 'edits-' + pendingId, edits: [...pending.values()] })
+    pending = new Map()
+    pendingId = ''
+  }
   for (const b of blocks) {
+    if (b.kind === 'user') {
+      flush() // end of the previous turn
+      out.push({ kind: 'block', block: b })
+      continue
+    }
     if (b.kind === 'tool') {
+      // A Write/Edit that carries edit metadata also contributes an "已编辑" card.
+      if (isEditRecord(b.tool.data)) {
+        const rec = b.tool.data
+        pending.set(rec.relPath, rec)
+        if (!pendingId) pendingId = b.id
+      }
       // TodoWrite drives the progress pill, never a stream row. This also covers
       // resumed sessions, whose tool blocks bypass the live handler.
       if (b.tool.toolName === 'TodoWrite') continue
@@ -112,10 +140,11 @@ export function groupBlocks(blocks: Block[]): Group[] {
       const last = out[out.length - 1]
       if (last && last.kind === 'exec') last.tools.push(b.tool)
       else out.push({ kind: 'exec', id: b.id, tools: [b.tool] })
-    } else {
-      out.push({ kind: 'block', block: b })
+      continue
     }
+    out.push({ kind: 'block', block: b })
   }
+  flush() // trailing turn
   return out
 }
 
