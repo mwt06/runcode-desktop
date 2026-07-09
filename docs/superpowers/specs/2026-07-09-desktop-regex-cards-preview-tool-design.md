@@ -30,10 +30,10 @@
 ### #4 `preview` 模型工具（后端 + 引擎 + 前端捕获）
 
 **工具**（`tools/preview/preview.go`）：实现 `tool.Tool`。
-- `Name() = "preview"`；`Description()` 引导："在你生成了文档类产物或网站(H5)后，调用它把该文件在用户桌面预览面板中打开。参数 path 为工作区内相对路径。"
+- `Name() = "open_preview"`（模型看到的工具名）；`Description()` 引导："在你生成了文档类产物或网站(H5)后，调用它把该文件在用户桌面预览面板中打开。参数 path 为工作区内相对路径。"
 - `InputSchema`：`{ path: string }`（必填）。
 - `IsConcurrencySafe() = true`（只读展示）。
-- `Run`：把 `path` 相对 `tctx.WorkingDirectory` 解析并校验在工作区内（复用 `internal/toolpath` 边界校验）、存在；然后在 `out` 上发一个事件带结构化 `Data`（仿 TodoWrite）：`out <- tool.Event{Type: EventTypeProgress, ToolName: "preview", Message: "预览 "+rel, Data: previewData{Path: rel}}`；返回 `Result` 文本（如"已在桌面打开预览：<rel>"）。越界/不存在 → 返回错误 `Result`（模型看到"文件不在工作区/不存在"），不发事件。
+- `Run`：把 `path` 相对 `tctx.WorkingDirectory` 解析并校验在工作区内（复用 `internal/toolpath` 边界校验）、存在；然后在 `out` 上发一个事件带结构化 `Data`（仿 TodoWrite）：`out <- tool.Event{Type: EventTypeProgress, ToolName: "open_preview", Message: "预览 "+rel, Data: previewData{Path: rel}}`；返回 `Result` 文本（如"已在桌面打开预览：<rel>"）。越界/不存在 → 返回错误 `Result`（模型看到"文件不在工作区/不存在"），不发事件。
 - CLI 下该工具**不注册**（见下），所以 CLI 模型看不到、不会调用。
 
 **引擎注入点**（`internal/engine/engine.go` + `build.go`）：
@@ -41,15 +41,15 @@
 - `build.go`：在 sub-agent 工具快照**之后**（与 Task/Remember 一致，仅主会话可用）`sessionTools = append(sessionTools, opts.ExtraTools...)`。
 - 桌面 `internal/desktop/app.go`（engine.Build 调用处）传 `ExtraTools: []tool.Tool{preview.New()}`；CLI（`cmd/runcode`）不传 → nil → 不注册。
 
-**前端捕获**（`App.tsx` 工具事件处理）：收到 `toolName === 'preview'` 且 `data.path` 的工具事件时，`openArtifact(toWorkspaceRel(data.path, cwd))`（开成标签、展示右栏）。它仍会作为一条工具步骤出现在执行卡里（正常），额外触发一次预览打开。
+**前端捕获**（`App.tsx` 工具事件处理）：收到 `toolName === 'open_preview'` 且 `data.path` 的工具事件时，`openArtifact(toWorkspaceRel(data.path, cwd))`（开成标签、展示右栏）。它仍会作为一条工具步骤出现在执行卡里（正常），额外触发一次预览打开。
 
 ## 数据流
 
 ```
 AI 回复正文 → extractFilePaths → matchWorkspaceFiles(与 files 比对) → 现有 ArtifactCard（正文下方）
 回合结束 → 刷新 files（新写文件可被匹配）
-模型调用 preview(path) → 工具校验 → 发 tool.Event{ToolName:"preview", Data:{path}} → 桌面前端捕获 → openArtifact
-CLI：preview 工具不注册，模型无此能力
+模型调用 open_preview(path) → 工具校验 → 发 tool.Event{ToolName:"open_preview", Data:{path}} → 桌面前端捕获 → openArtifact
+CLI：open_preview 工具不注册，模型无此能力
 ```
 
 ## 错误处理 / 安全
@@ -65,10 +65,10 @@ CLI：preview 工具不注册，模型无此能力
 - `matchWorkspaceFiles`：候选与 files 比对，命中真实文件（全路径或 basename 结尾）返回相对路径、去重保序；不存在的候选被丢弃。
 
 **Go**：
-- `preview` 工具 `Run`：工作区内存在文件 → 返回成功 Result 且 `out` 收到 `ToolName=="preview"`、`Data` 为 `previewData{Path: rel}`；越界/不存在 → 错误 Result 且无事件。
+- `open_preview` 工具 `Run`：工作区内存在文件 → 返回成功 Result 且 `out` 收到 `ToolName=="open_preview"`、`Data` 为 `previewData{Path: rel}`；越界/不存在 → 错误 Result 且无事件。
 - 引擎：`opts.ExtraTools` 被 append 进 sessionTools（可加个小测试或靠现有 build 测试覆盖）。
 
-**手动**：桌面让模型生成 `site.html` 并调用 `preview` → 右栏自动打开；正文提到的 `README.md` 出卡可点开；CLI 里 `preview` 不在工具列表。
+**手动**：桌面让模型生成 `site.html` 并调用 `open_preview` → 右栏自动打开；正文提到的 `README.md` 出卡可点开；CLI 里 `open_preview` 不在工具列表。
 
 ## 落点（文件）
 
@@ -78,5 +78,5 @@ CLI：preview 工具不注册，模型无此能力
 ## 已定决策
 
 - 卡片来源：**只用正则**（扫 AI 回复正文，存在性校验挡误报），不再用 Write/Edit 工具事件生卡；exec 卡恢复显示全部步骤。
-- `preview` 工具：**仅桌面注册**（`engine.Options.ExtraTools`），CLI 不暴露；经工具事件 `Data` 通道通知前端。
+- `open_preview` 工具：**仅桌面注册**（`engine.Options.ExtraTools`），CLI 不暴露；经工具事件 `Data` 通道通知前端。
 - 本轮只扫 AI 回复正文（不扫工具输出）。
