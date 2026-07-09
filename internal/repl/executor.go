@@ -39,9 +39,10 @@ const (
 )
 
 type Executor struct {
-	tools       map[string]tool.Tool
-	permissions *permissions.Service
-	hooks       hooks.Runner
+	tools        map[string]tool.Tool
+	permissions  *permissions.Service
+	hooks        hooks.Runner
+	editRecorder EditRecorder
 }
 
 type ExecutorOptions struct {
@@ -50,6 +51,9 @@ type ExecutorOptions struct {
 	// Hooks runs PreToolUse/PostToolUse hooks around tool execution. Nil means no
 	// hooks (a Noop runner).
 	Hooks hooks.Runner
+	// EditRecorder, when set, captures Write/Edit pre/post content for host-side
+	// undo/review. nil (the default, e.g. CLI) disables capture.
+	EditRecorder EditRecorder
 }
 
 type ExecuteRequest struct {
@@ -103,7 +107,7 @@ func NewExecutorWithOptions(opts ExecutorOptions) (*Executor, error) {
 	if hookRunner == nil {
 		hookRunner = hooks.Noop{}
 	}
-	return &Executor{tools: indexed, permissions: permissionService, hooks: hookRunner}, nil
+	return &Executor{tools: indexed, permissions: permissionService, hooks: hookRunner, editRecorder: opts.EditRecorder}, nil
 }
 
 func isNilTool(candidate tool.Tool) bool {
@@ -210,6 +214,12 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		},
 	})
 
+	var editHandle EditHandle
+	if e.editRecorder != nil && isEditTool(req.Name) {
+		if rel, ok := editMutationRelPath(req.Input, tctx); ok {
+			editHandle = e.editRecorder.BeginEdit(rel, tctx.ToolUseID)
+		}
+	}
 	readSetBefore := cloneReadSetForEvents(tctx.ReadSet)
 	result, err := e.runTool(ctx, runner, req, tctx)
 	readFiles, readFilesTotal := readSetDeltaFileReferences(readSetBefore, tctx.ReadSet, tctx)
@@ -272,6 +282,11 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResu
 		event.FilesTotal = readFilesTotal
 		attachToolOutput(&event, outputLines, outputTotal, outputTruncated)
 		event.Image = imageForEvent(result)
+		if editHandle != nil {
+			if data, cerr := editHandle.Commit(); cerr == nil && data != nil {
+				event.Data = data
+			}
+		}
 		emitToolEvent(req.Events, event)
 	}
 	// AskUser halts the turn so the user can reply (their next message is the
