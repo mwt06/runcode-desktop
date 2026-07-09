@@ -64,11 +64,14 @@ type App struct {
 	// previewURL its base URL (see startPreview/stopPreview in preview.go).
 	preview    *previewServer
 	previewURL string
+	// edits captures Write/Edit pre/post content for the "已编辑" cards' undo/review.
+	// One instance for the App's lifetime, rebound to each session via BeginSession.
+	edits *editStore
 }
 
 // New returns an App that emits events to sink.
 func New(sink EventSink) *App {
-	return &App{sink: sink}
+	return &App{sink: sink, edits: newEditStore()}
 }
 
 // SetDialoger installs the native file-dialog provider (called by the shell).
@@ -132,6 +135,7 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 		ToolEvents:     toolEvents,
 		Warn:           warnWriter{sink: a.sink},
 		ExtraTools:     []tool.Tool{preview.New()},
+		EditRecorder:   a.edits,
 	})
 	if err != nil {
 		return SessionInfo{}, err
@@ -145,6 +149,7 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 	a.toolEvents = toolEvents
 	a.pumpCancel = pumpCancel
 	a.config = cfg
+	a.edits.BeginSession(cfg.CWD, session.SessionID())
 
 	// Restart the workspace preview server for this session (non-fatal on error).
 	// closeLocked above already stopped and cleared any previous preview server.
@@ -174,6 +179,7 @@ func (a *App) SendMessage(text string) error {
 	turnCtx, cancel := context.WithCancel(context.Background())
 	a.turnCancel = cancel
 	a.inFlight = true
+	a.edits.BeginTurn()
 	a.mu.Unlock()
 
 	go func() {

@@ -51,6 +51,7 @@ func (a *App) SendMessageWithImages(text string, paths []string) error {
 	turnCtx, cancel := context.WithCancel(context.Background())
 	a.turnCancel = cancel
 	a.inFlight = true
+	a.edits.BeginTurn()
 	a.mu.Unlock()
 
 	go func() {

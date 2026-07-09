@@ -383,6 +383,16 @@ func readCapped(path string) (content []byte, existed bool, ok bool) {
 	return data, true, true
 }
 
+// RevertEdit restores the file for snapshotID to its turn baseline (Wails binding).
+func (a *App) RevertEdit(snapshotID string) error { return a.edits.Revert(snapshotID) }
+
+// ReviewEdit returns the baseline-vs-latest red/green diff for snapshotID (Wails binding).
+func (a *App) ReviewEdit(snapshotID string) (EditDiff, error) { return a.edits.Diff(snapshotID) }
+
+// ListEdits returns every recorded edit for the active session, so a resumed
+// session can re-render its "已编辑" cards (Wails binding).
+func (a *App) ListEdits() []EditRecord { return a.edits.List() }
+
 // resolveForWrite resolves a workspace-relative path to an absolute path for
 // writing/deleting, tolerating a not-yet-existing target: it rejects lexical
 // escapes and verifies the nearest existing ancestor resolves within ws (symlink
