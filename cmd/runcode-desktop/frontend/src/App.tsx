@@ -118,6 +118,7 @@ const VERB: Record<string, string> = {
   Read: '读取文件', Write: '写入文件', Edit: '编辑', Delete: '删除', Glob: '查找文件', Grep: '搜索项目代码',
   Bash: '运行命令', BashOutput: '后台输出', KillShell: '终止命令', WebFetch: '抓取网页',
   TodoWrite: '规划任务', Task: '委派子代理', Skill: '加载技能', Remember: '记录记忆', Analyze: '结构化分析',
+  open_preview: '预览',
 }
 const basename = (p?: string) => (p ? p.replace(/\\/g, '/').split('/').pop() || p : '')
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
@@ -128,6 +129,7 @@ const TOOL_ICON: Record<string, string> = {
   Grep: 'search', Glob: 'search', WebFetch: 'globe',
   Task: 'bot', Skill: 'book', Remember: 'sparkles', Analyze: 'sparkles',
   TodoWrite: 'grid', AskUser: 'chat',
+  open_preview: 'file',
 }
 const toolIcon = (name?: string) => TOOL_ICON[name || ''] || 'grid'
 // toolInputObj parses a tool call's arguments into an object (live events carry the

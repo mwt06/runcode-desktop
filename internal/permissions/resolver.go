@@ -84,6 +84,11 @@ func (DefaultResolver) Resolve(_ context.Context, req ResolveRequest) (Action, e
 		// Asking the user a question has no side effects (it halts for a reply), so
 		// it is side-effect-free management, allowed without approval.
 		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
+	case "open_preview":
+		// Opening a workspace file in the desktop preview panel is a display-only UI
+		// action — no files, commands, or network — so it is side-effect-free
+		// management, allowed without approval.
+		return Action{ToolName: req.ToolName, Operation: OperationManage, Risk: RiskLow}, nil
 	case "Skill":
 		// Loading a skill only returns in-memory instruction text — no files,
 		// commands, or network — so it is side-effect-free management and allowed
