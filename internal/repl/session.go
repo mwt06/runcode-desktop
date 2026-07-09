@@ -98,6 +98,9 @@ type SessionOptions struct {
 	// Thinking requests provider-native extended thinking on each turn's main
 	// request. The zero value leaves it disabled.
 	Thinking llm.ThinkingConfig
+	// EditRecorder, when set, captures Write/Edit pre/post content for host-side
+	// undo/review (desktop only). nil disables it.
+	EditRecorder EditRecorder
 }
 
 type Session struct {
@@ -222,7 +225,7 @@ func NewSession(opts SessionOptions) (*Session, error) {
 		hookRunner = hooks.Noop{}
 	}
 	tools := cloneTools(opts.Tools)
-	executor, err := NewExecutorWithOptions(ExecutorOptions{Tools: tools, Permissions: opts.Permissions, Hooks: hookRunner})
+	executor, err := NewExecutorWithOptions(ExecutorOptions{Tools: tools, Permissions: opts.Permissions, Hooks: hookRunner, EditRecorder: opts.EditRecorder})
 	if err != nil {
 		return nil, err
 	}

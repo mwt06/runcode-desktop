@@ -55,6 +55,10 @@ type Options struct {
 	// (after the sub-agent snapshot, so sub-agents don't get them). The desktop uses
 	// this to register the open_preview tool; the CLI leaves it nil.
 	ExtraTools []tool.Tool
+	// EditRecorder, when set, is threaded to the session's executor so the host can
+	// capture Write/Edit pre/post content for undo/review. The desktop supplies its
+	// editStore; the CLI leaves it nil.
+	EditRecorder repl.EditRecorder
 }
 
 func (o Options) warnWriter() io.Writer {

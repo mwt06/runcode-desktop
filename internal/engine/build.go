@@ -218,6 +218,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		MaxIterations:      cfg.MaxIterations,
 		Hooks:              hookRunner,
 		Thinking:           cfg.Thinking,
+		EditRecorder:       opts.EditRecorder,
 		Reasoning:          reasoningOptions(cfg.ReasoningScenario),
 	})
 	if err != nil {
