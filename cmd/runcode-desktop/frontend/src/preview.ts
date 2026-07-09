@@ -122,18 +122,6 @@ export function kindIcon(kind: PreviewKind): string {
   }
 }
 
-// kindAccent maps a preview kind to its accent color — the signature color-coding
-// carried on artifact-card rails, the preview tab edge, and the type badge.
-export function kindAccent(kind: PreviewKind): string {
-  switch (kind) {
-    case 'html': return '#E39A3B'
-    case 'markdown': return '#4C82F7'
-    case 'code': return '#2FAE6A'
-    case 'image': case 'svg': return '#E0679B'
-    default: return '#8A94A6'
-  }
-}
-
 // filterFiles keeps workspace-relative paths that contain query (case-insensitive);
 // an empty/whitespace query returns the list unchanged.
 export function filterFiles(files: string[], query: string): string[] {

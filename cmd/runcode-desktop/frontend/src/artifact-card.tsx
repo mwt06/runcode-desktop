@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Icon } from './icons'
-import { classifyPreview, artifactKindLabel, kindIcon, kindAccent } from './preview'
+import { classifyPreview, artifactKindLabel, kindIcon } from './preview'
 import { openExternal, revealInFolder, resolveArtifactPath, copyText } from './bridge'
 
 async function copyArtifactPath(relPath: string) {
@@ -46,18 +46,17 @@ function OpenWithMenu({ relPath, previewable, onPreview }: { relPath: string; pr
 export function ArtifactCard({ relPath, add, del, onOpen, autoOpened }: { relPath: string; add: number; del: number; onOpen: (relPath: string) => void; autoOpened?: boolean }) {
   const { kind } = classifyPreview(relPath)
   const previewable = kind !== 'unsupported'
-  const accent = kindAccent(kind)
   const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath
   return (
     <div
       onClick={() => previewable && onOpen(relPath)}
       className={`group flex items-center gap-2.5 border border-line2 rounded-lg pl-3 pr-2.5 py-2 bg-surface ${previewable ? 'cursor-pointer hover:bg-surface2/40' : ''}`}
     >
-      <span className="flex-none" style={{ color: accent }}><Icon name={kindIcon(kind)} size={17} /></span>
+      <span className="flex-none text-muted"><Icon name={kindIcon(kind)} size={17} /></span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-[13px] font-medium text-ink font-mono truncate" title={relPath}>
           {name}
-          {autoOpened && <span className="flex-none text-[10px] font-sans font-semibold uppercase tracking-wide rounded px-1.5 py-0.5" style={{ color: accent, background: accent + '1a' }}>已预览</span>}
+          {autoOpened && <span className="flex-none text-[10px] font-semibold rounded px-1.5 py-0.5 text-muted bg-inset">已预览</span>}
         </div>
         <div className="text-[11px] text-faint font-mono">
           {artifactKindLabel(kind)}

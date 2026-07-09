@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Markdown } from './markdown'
 import { readArtifact, openExternal, resolveArtifactPath, copyText } from './bridge'
 import { Icon } from './icons'
-import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, kindAccent, filterFiles, buildFileTree, type FileNode } from './preview'
+import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, filterFiles, buildFileTree, type FileNode } from './preview'
 import type { PreviewTab } from './preview-tabs'
 
 // fencedCode wraps source in a Markdown code fence long enough to survive any run
@@ -27,7 +27,6 @@ function IconBtn({ name, title, onClick }: { name: string; title: string; onClic
 
 export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; relPath: string; onClose: () => void }) {
   const { kind, lang } = classifyPreview(relPath)
-  const accent = kindAccent(kind)
   const [bust, setBust] = useState(1)
   const [text, setText] = useState<string | null>(null)
   const [err, setErr] = useState('')
@@ -52,8 +51,8 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
   return (
     <div className="flex flex-col h-full min-h-0 bg-surface">
       <div className="flex-none flex items-center gap-1.5 h-[44px] px-2.5 border-b border-line2">
-        <span className="flex-none" style={{ color: accent }}><Icon name={kindIcon(kind)} size={15} /></span>
-        <span className="flex-none text-[10.5px] font-medium rounded px-1.5 py-0.5 mr-auto" style={{ color: accent, background: accent + '1a' }}>{artifactKindLabel(kind)}</span>
+        <Icon name={kindIcon(kind)} size={15} className="flex-none text-muted" />
+        <span className="flex-none text-[10.5px] text-faint bg-inset rounded px-1.5 py-0.5 mr-auto">{artifactKindLabel(kind)}</span>
         <IconBtn name="refresh" title="刷新" onClick={() => setBust((v) => v + 1)} />
         <IconBtn name="external-link" title="用系统默认程序打开" onClick={() => { openExternal(relPath).catch(() => {}) }} />
         <IconBtn name="copy" title="复制路径" onClick={copyPath} />
@@ -96,7 +95,6 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: Preview
             key={t.relPath}
             onClick={() => onSelect(t.relPath)}
             title={t.relPath}
-            style={on ? { boxShadow: `inset 2px 0 0 ${kindAccent(classifyPreview(t.relPath).kind)}` } : undefined}
             className={`group flex items-center gap-1.5 pl-3 pr-2 max-w-[180px] flex-none cursor-pointer border-r border-line2 text-[12.5px] ${on ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2/60'}`}
           >
             <span className="truncate">{name}</span>
