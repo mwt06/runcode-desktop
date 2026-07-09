@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, kindAccent, filterFiles, clampPreviewWidth, lastPreviewablePath } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, kindAccent, filterFiles, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles } from './preview'
 
 describe('clampPreviewWidth', () => {
   it('keeps an in-range stored value', () => {
@@ -136,5 +136,29 @@ describe('lastPreviewablePath', () => {
   it('returns null when none is previewable or the list is empty', () => {
     expect(lastPreviewablePath(['x.zip', 'y.bin'])).toBe(null)
     expect(lastPreviewablePath([])).toBe(null)
+  })
+})
+
+describe('extractFilePaths', () => {
+  it('pulls path-like tokens with a known-ish extension', () => {
+    expect(extractFilePaths('我建了 cat.html 和 src/app.py 两个文件')).toEqual(['cat.html', 'src/app.py'])
+  })
+  it('trims trailing punctuation and leading ./', () => {
+    expect(extractFilePaths('详见 ./README.md。')).toEqual(['README.md'])
+    expect(extractFilePaths('见 report.md, notes.txt.')).toEqual(['report.md', 'notes.txt'])
+  })
+  it('ignores prose without a file extension', () => {
+    expect(extractFilePaths('这是一段没有文件的普通文字')).toEqual([])
+  })
+})
+
+describe('matchWorkspaceFiles', () => {
+  const files = ['README.md', 'src/app.py', 'src/ui/index.html']
+  it('keeps candidates that exist (full path or basename/suffix), workspace-relative', () => {
+    expect(matchWorkspaceFiles(['app.py', 'README.md'], files)).toEqual(['src/app.py', 'README.md'])
+    expect(matchWorkspaceFiles(['src/ui/index.html'], files)).toEqual(['src/ui/index.html'])
+  })
+  it('drops candidates that do not exist, dedups', () => {
+    expect(matchWorkspaceFiles(['nope.md', 'README.md', 'README.md'], files)).toEqual(['README.md'])
   })
 })

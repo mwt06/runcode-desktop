@@ -159,3 +159,42 @@ export function lastPreviewablePath(paths: string[]): string | null {
   }
   return null
 }
+
+// extractFilePaths pulls file-path-like tokens out of prose: word/path chars ending
+// in a short extension. Permissive by design — matchWorkspaceFiles is the real gate
+// (the path must exist in the workspace). Trailing ASCII/Chinese punctuation is
+// trimmed; a leading "./" is dropped by the first-char class.
+export function extractFilePaths(text: string): string[] {
+  const re = /[A-Za-z0-9_@][\w./\\@+-]*\.[A-Za-z0-9]{1,12}/g
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const m of text.matchAll(re)) {
+    const tok = m[0].replace(/[)\]}.,;:!?，。、）】]+$/, '')
+    if (tok && !seen.has(tok)) {
+      seen.add(tok)
+      out.push(tok)
+    }
+  }
+  return out
+}
+
+// matchWorkspaceFiles keeps candidates that correspond to a real workspace file,
+// returning the actual workspace-relative paths (forward-slash), deduped, in order.
+// A candidate matches if — normalized — it equals a file path or a file path ends
+// with "/" + the candidate (basename/suffix match).
+export function matchWorkspaceFiles(candidates: string[], files: string[]): string[] {
+  const norm = (s: string) => s.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+  const fileset = files.map(norm)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const c of candidates) {
+    const cn = norm(c)
+    if (!cn) continue
+    const hit = fileset.find((f) => f === cn || f.endsWith('/' + cn))
+    if (hit && !seen.has(hit)) {
+      seen.add(hit)
+      out.push(hit)
+    }
+  }
+  return out
+}
