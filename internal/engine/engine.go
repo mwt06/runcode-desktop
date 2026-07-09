@@ -51,6 +51,10 @@ type Options struct {
 	// TelemetryWriter is where JSONL telemetry is written when Config.Telemetry is
 	// "jsonl". nil falls back to os.Stderr.
 	TelemetryWriter io.Writer
+	// ExtraTools are host-supplied tools appended to the main session's tool set
+	// (after the sub-agent snapshot, so sub-agents don't get them). The desktop uses
+	// this to register the open_preview tool; the CLI leaves it nil.
+	ExtraTools []tool.Tool
 }
 
 func (o Options) warnWriter() io.Writer {

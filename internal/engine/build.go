@@ -188,6 +188,8 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	// snapshot, so sub-agents read memory but cannot write it — only the main
 	// session saves new memories.
 	sessionTools = append(sessionTools, memory.NewTool(memStore))
+	// Host-supplied extra tools (e.g. the desktop's open_preview), main session only.
+	sessionTools = append(sessionTools, opts.ExtraTools...)
 	promptOpts.Agents = agent.Catalog(agentSet)
 
 	session, err := repl.NewSession(repl.SessionOptions{

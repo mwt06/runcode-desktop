@@ -12,6 +12,7 @@ import (
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/pkg/llm"
 	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/tools/preview"
 )
 
 // toolEventBuffer bounds the per-session tool-event channel so a burst of tool
@@ -130,6 +131,7 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 		StreamThinking: func(delta string) { a.sink.Emit(EventAssistantThinking, AssistantDelta{Text: delta}) },
 		ToolEvents:     toolEvents,
 		Warn:           warnWriter{sink: a.sink},
+		ExtraTools:     []tool.Tool{preview.New()},
 	})
 	if err != nil {
 		return SessionInfo{}, err
