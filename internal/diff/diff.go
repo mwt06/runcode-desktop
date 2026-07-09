@@ -206,29 +206,48 @@ func countKept(keep []bool, from int) int {
 	return count
 }
 
-// statMaxInput bounds the O(n*m) LCS for Stat; past it Stat returns a coarse
-// estimate (both sides treated as fully changed) instead of blowing up.
-const statMaxInput = 50000
+// maxStatCells bounds Stat's O(n*m) comparison time (its space is already linear).
+// Past it — or for binary input — Stat returns a coarse estimate rather than
+// spending seconds comparing a pathological pair.
+const maxStatCells = 100_000_000
 
 // Stat returns the exact number of added and removed lines between oldText and
-// newText, without the display truncation Unified applies. Binary or oversized
-// input yields a coarse estimate rather than an exact count.
+// newText, without the display truncation Unified applies, and in space linear in
+// the shorter side. Binary input, or a pair whose comparison would exceed
+// maxStatCells, yields a coarse estimate (all added / all removed) instead.
 func Stat(oldText, newText string) (added, removed int) {
 	oldLines := splitLines(oldText)
 	newLines := splitLines(newText)
-	if looksBinary(oldText) || looksBinary(newText) {
+	// The division (not multiplication) avoids overflow on huge inputs.
+	tooBig := len(oldLines) > 0 && len(newLines) > maxStatCells/len(oldLines)
+	if looksBinary(oldText) || looksBinary(newText) || tooBig {
 		return len(newLines), len(oldLines)
 	}
-	if len(oldLines) > statMaxInput || len(newLines) > statMaxInput {
-		return len(newLines), len(oldLines)
+	common := lcsLen(oldLines, newLines)
+	return len(newLines) - common, len(oldLines) - common
+}
+
+// lcsLen returns the length of the longest common subsequence of a and b using two
+// rolling rows: O(len(a)*len(b)) time but only O(min(len(a),len(b))) space, so it
+// never allocates the full O(n*m) table Unified's lcsOps builds. Callers bound the
+// time via maxStatCells.
+func lcsLen(a, b []string) int {
+	if len(b) > len(a) {
+		a, b = b, a // roll over the shorter dimension
 	}
-	for _, o := range lcsOps(oldLines, newLines) {
-		switch o.kind {
-		case opInsert:
-			added++
-		case opDelete:
-			removed++
+	prev := make([]int32, len(b)+1)
+	curr := make([]int32, len(b)+1)
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				curr[j] = prev[j+1] + 1
+			} else if prev[j] >= curr[j+1] {
+				curr[j] = prev[j]
+			} else {
+				curr[j] = curr[j+1]
+			}
 		}
+		prev, curr = curr, prev
 	}
-	return added, removed
+	return int(prev[0])
 }

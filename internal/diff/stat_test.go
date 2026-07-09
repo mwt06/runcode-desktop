@@ -1,6 +1,9 @@
 package diff
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestStatCountsAddedAndRemoved(t *testing.T) {
 	cases := []struct {
@@ -35,5 +38,23 @@ func TestStatCountsBeyondDisplayCap(t *testing.T) {
 	add, del := Stat(old, new)
 	if add != 500 || del != 0 {
 		t.Fatalf("Stat = (+%d -%d), want (+500 -0)", add, del)
+	}
+}
+
+func TestStatBinaryFallsBackToEstimate(t *testing.T) {
+	// NUL byte → looksBinary → coarse estimate: newLines=1, oldLines=2.
+	add, del := Stat("a\nb\n", "a\x00b\n")
+	if add != 1 || del != 2 {
+		t.Fatalf("binary Stat = (+%d -%d), want estimate (+1 -2)", add, del)
+	}
+}
+
+func TestStatOversizedFallsBackToEstimate(t *testing.T) {
+	// 10001*10001 = 100,020,001 > maxStatCells → estimate. Identical content's true
+	// diff is 0/0, so a non-zero result proves the LCS was skipped (guard worked).
+	big := strings.Repeat("x\n", 10001)
+	add, del := Stat(big, big)
+	if add != 10001 || del != 10001 {
+		t.Fatalf("oversized Stat = (+%d -%d), want coarse estimate (+10001 -10001)", add, del)
 	}
 }
