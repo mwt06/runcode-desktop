@@ -1,35 +1,34 @@
 import { describe, it, expect } from 'vitest'
-import { openTab, closeTab, setActive, type PreviewTab } from './preview-tabs'
+import { openTab, closeTab, tabKey, type PreviewTab } from './preview-tabs'
 
-const tabs = (...p: string[]): PreviewTab[] => p.map((relPath) => ({ relPath }))
+const file = (relPath: string): PreviewTab => ({ kind: 'file', relPath })
+const diff = (snapshotId: string, relPath: string): PreviewTab => ({ kind: 'diff', snapshotId, relPath })
 
-describe('openTab', () => {
-  it('appends a new tab and focuses it', () => {
-    expect(openTab(tabs('a'), 'a', 'b')).toEqual({ tabs: tabs('a', 'b'), active: 'b' })
+describe('preview-tabs union', () => {
+  it('opens a file tab and focuses it', () => {
+    const r = openTab([], null, file('a.md'))
+    expect(r.tabs).toHaveLength(1)
+    expect(r.active).toBe('a.md')
   })
-  it('focuses an existing tab without duplicating', () => {
-    expect(openTab(tabs('a', 'b'), 'a', 'b')).toEqual({ tabs: tabs('a', 'b'), active: 'b' })
+  it('opens a diff tab keyed by snapshotId, distinct from the file tab', () => {
+    const r1 = openTab([], null, file('a.md'))
+    const r2 = openTab(r1.tabs, r1.active, diff('7', 'a.md'))
+    expect(r2.tabs).toHaveLength(2)
+    expect(r2.active).toBe('diff:7')
   })
-})
-
-describe('closeTab', () => {
-  it('closing the active tab focuses the right neighbor', () => {
-    expect(closeTab(tabs('a', 'b', 'c'), 'b', 'b')).toEqual({ tabs: tabs('a', 'c'), active: 'c' })
+  it('does not duplicate an already-open diff tab', () => {
+    const r1 = openTab([], null, diff('7', 'a.md'))
+    const r2 = openTab(r1.tabs, r1.active, diff('7', 'a.md'))
+    expect(r2.tabs).toHaveLength(1)
   })
-  it('closing the active last tab focuses the left neighbor', () => {
-    expect(closeTab(tabs('a', 'b'), 'b', 'b')).toEqual({ tabs: tabs('a'), active: 'a' })
+  it('closes by key and moves focus', () => {
+    const t = [file('a.md'), diff('7', 'a.md')]
+    const r = closeTab(t, 'diff:7', 'diff:7')
+    expect(r.tabs).toHaveLength(1)
+    expect(r.active).toBe('a.md')
   })
-  it('closing the only tab yields null active', () => {
-    expect(closeTab(tabs('a'), 'a', 'a')).toEqual({ tabs: [], active: null })
-  })
-  it('closing a non-active tab keeps active', () => {
-    expect(closeTab(tabs('a', 'b'), 'a', 'b')).toEqual({ tabs: tabs('a'), active: 'a' })
-  })
-})
-
-describe('setActive', () => {
-  it('activates an existing tab, ignores unknown', () => {
-    expect(setActive(tabs('a', 'b'), 'a', 'b')).toBe('b')
-    expect(setActive(tabs('a', 'b'), 'a', 'zzz')).toBe('a')
+  it('tabKey distinguishes file vs diff', () => {
+    expect(tabKey(file('a.md'))).toBe('a.md')
+    expect(tabKey(diff('7', 'a.md'))).toBe('diff:7')
   })
 })

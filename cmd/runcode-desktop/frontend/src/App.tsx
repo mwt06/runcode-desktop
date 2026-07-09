@@ -59,7 +59,7 @@ import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPa
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
 import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles } from './preview'
-import { openTab, closeTab, setActive, type PreviewTab } from './preview-tabs'
+import { openTab, closeTab, type PreviewTab } from './preview-tabs'
 
 let seq = 0
 const nextID = () => `b${++seq}`
@@ -335,7 +335,13 @@ export default function App() {
   const selItemRef = useRef<HTMLDivElement>(null)
 
   const openArtifact = (rel: string) => {
-    const r = openTab(tabs, activeTab, rel)
+    const r = openTab(tabs, activeTab, { kind: 'file', relPath: rel })
+    setTabs(r.tabs)
+    setActiveTab(r.active)
+    setBrowseOpen(false)
+  }
+  const openDiffTab = (snapshotId: string, relPath: string) => {
+    const r = openTab(tabs, activeTab, { kind: 'diff', snapshotId, relPath })
     setTabs(r.tabs)
     setActiveTab(r.active)
     setBrowseOpen(false)
@@ -349,8 +355,8 @@ export default function App() {
       return set.find((f) => f === cn || f.endsWith('/' + cn)) ?? null
     }
   }, [files])
-  const closePreviewTab = (rel: string) => {
-    const r = closeTab(tabs, activeTab, rel)
+  const closePreviewTab = (key: string) => {
+    const r = closeTab(tabs, activeTab, key)
     setTabs(r.tabs)
     setActiveTab(r.active)
   }
@@ -1395,7 +1401,7 @@ export default function App() {
                   tabs={tabs}
                   active={activeTab}
                   baseURL={info?.previewBaseURL ?? ''}
-                  onSelect={(p) => setActiveTab(setActive(tabs, activeTab, p))}
+                  onSelect={setActiveTab}
                   onCloseTab={closePreviewTab}
                   onClose={() => { setTabs([]); setActiveTab(null) }}
                 />
@@ -1572,7 +1578,7 @@ function ReplyArtifacts({ text, files, tabs, cwd, onOpen }: { text: string; file
   return (
     <div className="flex flex-col gap-1.5 mt-1.5">
       {paths.map((p) => (
-        <ArtifactCard key={p} relPath={p} add={0} del={0} onOpen={onOpen} autoOpened={tabs.some((t) => t.relPath === p)} />
+        <ArtifactCard key={p} relPath={p} add={0} del={0} onOpen={onOpen} autoOpened={tabs.some((t) => t.kind === 'file' && t.relPath === p)} />
       ))}
     </div>
   )

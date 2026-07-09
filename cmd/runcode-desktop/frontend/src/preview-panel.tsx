@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Markdown } from './markdown'
-import { readArtifact, openExternal, resolveArtifactPath, copyText } from './bridge'
+import { readArtifact, openExternal, resolveArtifactPath, copyText, reviewEdit, type EditDiff } from './bridge'
 import { Icon } from './icons'
 import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, filterFiles, buildFileTree, type FileNode } from './preview'
-import type { PreviewTab } from './preview-tabs'
+import { type PreviewTab, tabKey } from './preview-tabs'
 
 // fencedCode wraps source in a Markdown code fence long enough to survive any run
 // of backticks in the source, so the shared Markdown renderer (rehype-highlight)
@@ -82,25 +82,59 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
   )
 }
 
-// PreviewTabs is the tab strip above the preview: one tab per open file, active
+// DiffPanel renders the red/green review of one edit (baseline vs the turn's latest
+// content), fetched via ReviewEdit. Reuses the diff-line CSS classes (.cl.diff_*).
+function DiffPanel({ snapshotId, relPath, onClose }: { snapshotId: string; relPath: string; onClose: () => void }) {
+  const [diff, setDiff] = useState<EditDiff | null>(null)
+  const [err, setErr] = useState('')
+  const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath
+  useEffect(() => {
+    let ignore = false
+    setDiff(null)
+    setErr('')
+    reviewEdit(snapshotId)
+      .then((d) => { if (!ignore) setDiff(d) })
+      .catch((e) => { if (!ignore) setErr(String(e)) })
+    return () => { ignore = true }
+  }, [snapshotId])
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-surface">
+      <div className="flex-none flex items-center gap-1.5 h-[44px] px-2.5 border-b border-line2">
+        <Icon name="diff" size={15} className="flex-none text-muted" />
+        <span className="flex-none text-[10.5px] text-faint bg-inset rounded px-1.5 py-0.5 mr-auto">审核 · {name}</span>
+        <IconBtn name="win-close" title="关闭" onClick={onClose} />
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto py-2 font-mono text-[12.5px] leading-[1.6]">
+        {err && <div className="p-6 text-[13px] text-red">{err}</div>}
+        {diff && diff.lines.length === 0 && <div className="p-6 text-[13px] text-muted">无差异。</div>}
+        {diff && diff.lines.map((l, i) => (
+          <div key={i} className={(l.stream || '').startsWith('diff') ? `cl ${l.stream}` : 'px-2.5 whitespace-pre text-muted'}>{l.text}</div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// PreviewTabs is the tab strip above the preview: one tab per open file/diff, active
 // highlighted, each closable.
-export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: PreviewTab[]; active: string | null; onSelect: (relPath: string) => void; onClose: (relPath: string) => void }) {
+export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: PreviewTab[]; active: string | null; onSelect: (key: string) => void; onClose: (key: string) => void }) {
   return (
     <div className="flex-none flex items-stretch h-[36px] border-b border-line2 overflow-x-auto bg-surface">
       {tabs.map((t) => {
-        const name = t.relPath.replace(/\\/g, '/').split('/').pop() || t.relPath
-        const on = t.relPath === active
+        const key = tabKey(t)
+        const name = (t.kind === 'diff' ? '⇄ ' : '') + (t.relPath.replace(/\\/g, '/').split('/').pop() || t.relPath)
+        const on = key === active
         return (
           <div
-            key={t.relPath}
-            onClick={() => onSelect(t.relPath)}
+            key={key}
+            onClick={() => onSelect(key)}
             title={t.relPath}
             className={`group flex items-center gap-1.5 pl-3 pr-2 max-w-[180px] flex-none cursor-pointer border-r border-line2 text-[12.5px] ${on ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2/60'}`}
           >
             <span className="truncate">{name}</span>
             <button
               className="flex-none w-4 h-4 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-line2 hover:text-ink"
-              onClick={(e) => { e.stopPropagation(); onClose(t.relPath) }}
+              onClick={(e) => { e.stopPropagation(); onClose(key) }}
             >
               <Icon name="win-close" size={10} />
             </button>
@@ -111,13 +145,15 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: Preview
   )
 }
 
-// PreviewPane composes the tab strip with the active file's PreviewPanel.
-export function PreviewPane({ tabs, active, baseURL, onSelect, onClose, onCloseTab }: { tabs: PreviewTab[]; active: string | null; baseURL: string; onSelect: (relPath: string) => void; onClose: () => void; onCloseTab: (relPath: string) => void }) {
+// PreviewPane composes the tab strip with the active tab's panel (file or diff).
+export function PreviewPane({ tabs, active, baseURL, onSelect, onClose, onCloseTab }: { tabs: PreviewTab[]; active: string | null; baseURL: string; onSelect: (key: string) => void; onClose: () => void; onCloseTab: (key: string) => void }) {
+  const activeTab = tabs.find((t) => tabKey(t) === active) ?? null
   return (
     <div className="flex flex-col h-full min-h-0">
       <PreviewTabs tabs={tabs} active={active} onSelect={onSelect} onClose={onCloseTab} />
       <div className="flex-1 min-h-0">
-        {active ? <PreviewPanel key={active} baseURL={baseURL} relPath={active} onClose={onClose} /> : null}
+        {activeTab?.kind === 'file' && <PreviewPanel key={active} baseURL={baseURL} relPath={activeTab.relPath} onClose={onClose} />}
+        {activeTab?.kind === 'diff' && <DiffPanel key={active} snapshotId={activeTab.snapshotId} relPath={activeTab.relPath} onClose={onClose} />}
       </div>
     </div>
   )

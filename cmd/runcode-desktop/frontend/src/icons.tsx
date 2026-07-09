@@ -324,6 +324,13 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M14 4v4h4M8.5 13h7M8.5 16.5h7" />
         </svg>
       )
+    case 'diff':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M12 4v6M9 7h6" />
+          <path d="M9 17h6" />
+        </svg>
+      )
     default:
       return null
   }
