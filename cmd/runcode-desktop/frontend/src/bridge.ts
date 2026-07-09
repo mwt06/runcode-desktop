@@ -93,6 +93,32 @@ export interface ToolEvent {
   durationMs?: number
 }
 
+// EditRecord is the per-edit metadata a Write/Edit tool event carries on `data`
+// (live), and that ListEdits returns (resume). Anchored to a tool step by toolUseId.
+export interface EditRecord {
+  snapshotId: string
+  toolUseId: string
+  relPath: string
+  added: number
+  removed: number
+  created: boolean
+  reverted?: boolean
+}
+
+// EditDiff is the red/green review of one edit (turn baseline vs the turn's latest
+// content for that file).
+export interface EditDiff {
+  relPath: string
+  created: boolean
+  lines: { stream?: string; text: string }[]
+}
+
+// isEditRecord narrows a ToolEvent's opaque `data` to an EditRecord (Write/Edit),
+// distinguishing it from TodoWrite's PlanSnapshot.
+export function isEditRecord(data: unknown): data is EditRecord {
+  return !!data && typeof data === 'object' && 'snapshotId' in (data as object) && 'relPath' in (data as object)
+}
+
 // PlanItem is one task in the model's TodoWrite list. status is one of
 // 'pending' | 'in_progress' | 'completed'; activeForm is the present-continuous
 // label shown while the item is in progress.
@@ -140,6 +166,9 @@ export interface ResumedTool {
   path?: string
   isError?: boolean
   output?: string
+  // Attached client-side after resume (from ListEdits, by toolUseId) so an edited
+  // file's card + undo/review re-render; not sent by the backend resume payload.
+  data?: EditRecord
 }
 
 export interface ResumedBlock {
@@ -298,6 +327,9 @@ export const readArtifact = (relPath: string) => app().ReadArtifact(relPath) as 
 export const openExternal = (relPath: string) => app().OpenExternal(relPath) as Promise<void>
 export const revealInFolder = (relPath: string) => app().RevealInFolder(relPath) as Promise<void>
 export const resolveArtifactPath = (relPath: string) => app().ResolveArtifactPath(relPath) as Promise<string>
+export const revertEdit = (snapshotId: string) => app().RevertEdit(snapshotId) as Promise<void>
+export const reviewEdit = (snapshotId: string) => app().ReviewEdit(snapshotId) as Promise<EditDiff>
+export const listEdits = () => app().ListEdits() as Promise<EditRecord[] | null>
 
 // copyText writes to the clipboard via the Wails runtime, falling back to the
 // browser clipboard API.
