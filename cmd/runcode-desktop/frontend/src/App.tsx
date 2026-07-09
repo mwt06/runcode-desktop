@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, useMemo, type ReactNode, type CSSProperties, type PointerEvent } from 'react'
 import { Icon, Logo } from './icons'
 import { Markdown } from './markdown'
 import {
@@ -1107,16 +1107,9 @@ export default function App() {
               ) : (
                 <div key={g.block.id}>
                   <BlockView block={g.block} />
-                  {g.block.kind === 'assistant' && (() => {
-                    const paths = matchWorkspaceFiles(extractFilePaths(g.block.text), files)
-                    return paths.length > 0 ? (
-                      <div className="flex flex-col gap-1.5 mt-1.5">
-                        {paths.map((p) => (
-                          <ArtifactCard key={p} relPath={p} add={0} del={0} onOpen={openArtifact} autoOpened={tabs.some((t) => t.relPath === p)} />
-                        ))}
-                      </div>
-                    ) : null
-                  })()}
+                  {g.block.kind === 'assistant' && (
+                    <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} cwd={info?.cwd ?? ''} onOpen={openArtifact} />
+                  )}
                 </div>
               ),
             )}
@@ -1556,6 +1549,21 @@ function GhostBtn({ children, onClick, title }: { children: ReactNode; onClick?:
     <button className="border-none bg-transparent text-muted text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 hover:bg-surface2 hover:text-ink" onClick={onClick} title={title}>
       {children}
     </button>
+  )
+}
+
+// ReplyArtifacts renders the regex-matched workspace files mentioned in an assistant
+// reply as clickable cards. Memoized so it only recomputes when the reply text or the
+// workspace file list changes — not on every streaming re-render.
+function ReplyArtifacts({ text, files, tabs, cwd, onOpen }: { text: string; files: string[]; tabs: PreviewTab[]; cwd: string; onOpen: (relPath: string) => void }) {
+  const paths = useMemo(() => matchWorkspaceFiles(extractFilePaths(text), files), [text, files])
+  if (paths.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1.5 mt-1.5">
+      {paths.map((p) => (
+        <ArtifactCard key={p} relPath={p} add={0} del={0} onOpen={onOpen} autoOpened={tabs.some((t) => t.relPath === p)} />
+      ))}
+    </div>
   )
 }
 
