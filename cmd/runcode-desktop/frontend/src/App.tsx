@@ -58,7 +58,7 @@ import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
 import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
-import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath } from './preview'
+import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles } from './preview'
 import { openTab, closeTab, setActive, type PreviewTab } from './preview-tabs'
 
 let seq = 0
@@ -169,24 +169,6 @@ function toolTargetPath(t: ToolEvent): string | undefined {
   if (fromFiles) return fromFiles
   const p = toolInputObj(t).path
   return typeof p === 'string' && p ? p : undefined
-}
-
-// previewableArtifacts extracts the workspace files a group's Write/Edit steps
-// produced, de-duplicated, for rendering as artifact cards.
-function previewableArtifacts(tools: ToolEvent[]): { path: string; add: number; del: number }[] {
-  const seen = new Set<string>()
-  const out: { path: string; add: number; del: number }[] = []
-  for (const t of tools) {
-    if ((t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed') {
-      const p = toolTargetPath(t)
-      if (p && isPreviewable(p) && !seen.has(p)) {
-        seen.add(p)
-        const { add, del } = diffStats(t)
-        out.push({ path: p, add, del })
-      }
-    }
-  }
-  return out
 }
 
 // toolLabel is the flat "verb target +adds -dels" string for places that need plain
@@ -363,6 +345,8 @@ export default function App() {
   }
   const autoRef = useRef({ autoOpen, blocks, cwd: info?.cwd ?? '' })
   autoRef.current = { autoOpen, blocks, cwd: info?.cwd ?? '' }
+  const openPreviewRef = useRef<(path: string) => void>(() => {})
+  openPreviewRef.current = (path: string) => openArtifact(toWorkspaceRel(path, info?.cwd ?? ''))
   const turnStartLen = useRef(0)
   const prevBusy = useRef(false)
   useEffect(() => {
@@ -614,6 +598,10 @@ export default function App() {
           if (snap) setPlan(snap)
           return
         }
+        if (!ev.parentToolUseID && ev.toolName === 'open_preview') {
+          const p = (ev.data as { path?: string } | undefined)?.path
+          if (p) openPreviewRef.current(p)
+        }
         setBlocks((prev) => {
           // A sub-agent's child event nests under its parent Task card (live), rather
           // than creating a top-level row.
@@ -652,6 +640,7 @@ export default function App() {
       }),
       onEvent<TurnEnd>(Events.TurnEnd, (end) => {
         setBusy(false)
+        listFiles().then((f) => setFiles(f ?? [])).catch(() => {})
         // The turn is over; any still-queued prompts were denied on the backend
         // (context cancel / DenyAll), so drop stale modals.
         setPermQueue([])
@@ -1108,35 +1097,7 @@ export default function App() {
             )}
             {groups.map((g) =>
               g.kind === 'exec' ? (
-                <BotRow key={g.id}>
-                  {(() => {
-                    const arts = previewableArtifacts(g.tools)
-                    const artPaths = new Set(arts.map((a) => a.path))
-                    const steps = g.tools.filter((t) => {
-                      // Only a Write/Edit can be "already shown as an artifact card";
-                      // Read/Grep/Glob also carry a path input and must never be hidden.
-                      if (t.toolName !== 'Write' && t.toolName !== 'Edit') return true
-                      const p = toolTargetPath(t)
-                      return !(p && artPaths.has(p))
-                    })
-                    return (
-                      <>
-                        {steps.length > 0 && <ExecutionCard tools={steps} harmAllows={harmAllows} />}
-                        {arts.length > 0 && (
-                          <div className="flex flex-col gap-1.5 mt-1.5">
-                            <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-faint pl-0.5">写入</div>
-                            {arts.map((a) => {
-                              const rel = toWorkspaceRel(a.path, info?.cwd ?? '')
-                              return (
-                                <ArtifactCard key={a.path} relPath={rel} add={a.add} del={a.del} onOpen={openArtifact} autoOpened={tabs.some((t) => t.relPath === rel)} />
-                              )
-                            })}
-                          </div>
-                        )}
-                      </>
-                    )
-                  })()}
-                </BotRow>
+                <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} /></BotRow>
               ) : g.kind === 'ask' ? (
                 <BotRow key={g.id}><AskCard tool={g.tool} busy={busy} onAnswer={send} /></BotRow>
               ) : g.kind === 'analyze' ? (
@@ -1144,7 +1105,19 @@ export default function App() {
               ) : g.block.kind === 'planchoice' ? (
                 <BotRow key={g.block.id}><PlanChoiceCard busy={busy} onExecute={executePlanAs} onDismiss={dismissPlanChoice} /></BotRow>
               ) : (
-                <BlockView key={g.block.id} block={g.block} />
+                <div key={g.block.id}>
+                  <BlockView block={g.block} />
+                  {g.block.kind === 'assistant' && (() => {
+                    const paths = matchWorkspaceFiles(extractFilePaths(g.block.text), files)
+                    return paths.length > 0 ? (
+                      <div className="flex flex-col gap-1.5 mt-1.5">
+                        {paths.map((p) => (
+                          <ArtifactCard key={p} relPath={p} add={0} del={0} onOpen={openArtifact} autoOpened={tabs.some((t) => t.relPath === p)} />
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
+                </div>
               ),
             )}
             {busy && (
