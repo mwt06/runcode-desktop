@@ -73,6 +73,8 @@ runcode 桌面端（Wails，Windows 为主）目前没有用户/登录概念，�
    - 请求体 `user` 字段注入 `UserId`（AI.Core 记入会话日志 UserId）。
 4. `me.MeController`
    - `GET /api/me`：直接从 JWT claims 返回 `{userId, userName, name, nickname, avatar, tenantId}`（不回源 Passport userinfo）。
+5. `oauth.OAuthRelayController`（回调中转，已实现）
+   - `GET /oauth/callback`（匿名）：Passport 只注册本端点这一个 redirect_uri；桌面端把临时回环端口编进 state（`<nonce>.<port>`），本端点校验端口（1024-65535）后 302 回跳 `http://127.0.0.1:<port>/callback` 并原样透传 query。跳转目标主机/路径写死，仅端口可变，不构成开放重定向；PKCE 保证经手的授权码无法被兑换。
 
 ### 错误语义
 
@@ -97,7 +99,7 @@ runcode 桌面端（Wails，Windows 为主）目前没有用户/登录概念，�
 
 - `ClientId = runcode-desktop`；
 - `AllowedGrantTypes = authorization_code`，`RequirePkce = true`，`RequireClientSecret = false`（公共客户端）；
-- `RedirectUris`：注册 3 个固定回环端口 —— `http://127.0.0.1:53682/callback`、`:53683`、`:53684`（IdentityServer4 严格 URI 匹配，多注册备用端口即可，不改 Passport 代码支持通配端口）；
+- `RedirectUris`：只注册 Bridge 的中转端点 `https://<Bridge域名>/oauth/callback`（本地联调另加 `http://localhost:8080/oauth/callback`）。桌面端任意空闲回环端口都可用——端口经 state 传给 Bridge 中转回跳，Passport 侧无需注册回环 URI；
 - `AllowOfflineAccess = true`（refresh token）；
 - `AllowedScopes = openid profile offline_access passportapi`（**必须含 `passportapi` 这类带用户声明的 API scope**——IdentityServer4 中 `TenantId/UserId` 等 UserClaims 只随 ApiScope 进入 access token，身份资源声明只进 id_token/userinfo；Bridge 从 access token 读取 claims，缺失时返回 403）；
 - Access token 有效期维持默认 3600s。
@@ -112,7 +114,7 @@ runcode 桌面端（Wails，Windows 为主）目前没有用户/登录概念，�
 
 ### Go 侧（`internal/desktop/passport.go` + `internal/desktop/oauth.go`）
 
-- `PassportLogin()`：生成 PKCE verifier/challenge + state → 依次尝试绑定回环端口 53682/53683/53684 → 系统浏览器打开 authorize URL → 回调校验 state、收 code → `POST /connect/token` 换令牌 → DPAPI 加密存入 `desktop.json`（复用 `protectSecret`）→ 发 `passport:changed` 事件。整体超时 5 分钟，可取消；回调页向浏览器返回"登录成功，请返回应用"。
+- `PassportLogin()`：生成 PKCE verifier/challenge + nonce → 绑定任意空闲回环端口，`state = <nonce>.<端口>`，`redirect_uri = https://<Bridge域名>/oauth/callback` → 系统浏览器打开 authorize URL → Bridge 中转 302 回跳本地回环 → 校验 state、收 code → `POST /connect/token` 换令牌 → DPAPI 加密存入 `desktop.json`（复用 `protectSecret`）→ 发 `passport:changed` 事件。整体超时 5 分钟，可取消；回调页向浏览器返回"登录成功，请返回应用"。
 - **令牌管理器**：内存持有 access/refresh/expiry；过期前或收 401 时用 refresh token 静默续期；续期失败 → 置登出态 + `passport:changed`。同一对象即 LLM 引擎的 `TokenSource`。
 - `PassportStatus()`：登录态 + 用户信息（来自 Bridge `/api/me`）；
 - `PassportLogout()`：清本地凭证（不调 endsession——桌面登出不应顺带登出浏览器 SSO）；
