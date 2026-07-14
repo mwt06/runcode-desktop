@@ -97,6 +97,35 @@ func TestPassportLogoutClearsAndEmits(t *testing.T) {
 	}
 }
 
+func TestSaveSettingsKeepsPassportWiring(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+
+	req := StartSessionRequest{CWD: t.TempDir(), Provider: "passport", Model: "qwen-max"}
+	if _, err := app.StartSession(req); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	if _, err := app.SaveSettings(req); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	app.mu.Lock()
+	cfg := app.config
+	app.mu.Unlock()
+	if cfg.Provider != "openai" || cfg.TokenSource == nil {
+		t.Fatalf("config after SaveSettings: provider=%q tokenSource-nil=%v, want openai wiring kept", cfg.Provider, cfg.TokenSource == nil)
+	}
+}
+
+func TestStartSessionPassportRequiresLogin(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	req := StartSessionRequest{CWD: t.TempDir(), Provider: "passport", Model: "qwen-max"}
+	if _, err := app.StartSession(req); err == nil {
+		t.Fatal("want error when starting passport session while logged out")
+	}
+}
+
 func TestPassportStatusRetriesFetchMeAfterFailure(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	fail := true

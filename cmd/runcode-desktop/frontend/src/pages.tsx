@@ -1211,17 +1211,32 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   // passport model only needs its id (the backend resolves auth/base URL),
   // a custom model resends its stored baseURL/apiKey, and manual keeps the
   // legacy free-form fields for anyone not using the passport flow yet.
-  const buildRequest = (): StartSessionRequest => {
+  // Returns null when the current modelChoice cannot be honored (a passport
+  // selection while logged out, or a custom model that no longer exists) —
+  // the caller must surface an error rather than silently degrade the request.
+  const buildRequest = (): StartSessionRequest | null => {
     const base = { cwd, permissionMode, thinkingEffort, maxContextTokens, harmJudgeModel, harmJudgeVotes }
     if (modelChoice.startsWith('passport:')) {
+      if (!passport.loggedIn) return null
       return { ...base, provider: 'passport', model: modelChoice.slice('passport:'.length) }
     }
     if (modelChoice.startsWith('custom:')) {
       const cm = customModels.find((m) => `custom:${m.name}` === modelChoice)
-      if (cm) return { ...base, provider: 'openai', model: cm.model, baseURL: cm.baseURL, apiKey: cm.apiKey }
+      if (!cm) return null
+      return { ...base, provider: 'openai', model: cm.model, baseURL: cm.baseURL, apiKey: cm.apiKey }
     }
     return { ...base, provider, model: manualModel, baseURL, apiKey }
   }
+
+  // modelChoiceOptions is the set of values actually rendered in the model
+  // <select> below; used to detect a dangling modelChoice (e.g. the custom
+  // model it points to was just deleted, or passport login was lost) so the
+  // select can show an explicit placeholder instead of rendering blank.
+  const modelChoiceOptions = new Set<string>([
+    'manual',
+    ...(passport.loggedIn ? platformModels.map((m) => `passport:${m.id}`) : []),
+    ...customModels.map((m) => `custom:${m.name}`),
+  ])
 
   return (
     <div className="flex items-center justify-center flex-1 min-h-0 p-6">
@@ -1293,6 +1308,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         <div className="grid grid-cols-2 gap-3">
           <label className={label}>模型
             <select className={field} value={modelChoice} onChange={(e) => setModelChoice(e.target.value)}>
+              {!modelChoiceOptions.has(modelChoice) && <option value={modelChoice} disabled>已失效的选择</option>}
               {passport.loggedIn && platformModels.length > 0 && (
                 <optgroup label="平台模型（通行证）">
                   {platformModels.map((m) => <option key={m.id} value={`passport:${m.id}`}>{m.id}（{m.ownedBy}）</option>)}
@@ -1349,7 +1365,10 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
               {customModels.map((m) => (
                 <div key={m.name} className="flex items-center justify-between text-[12.5px]">
                   <span className="truncate">{m.name} <span className="text-muted">({m.model})</span></span>
-                  <button type="button" className="text-muted hover:text-red" onClick={async () => setCustomModels((await deleteCustomModel(m.name)) ?? [])}>删除</button>
+                  <button type="button" className="text-muted hover:text-red" onClick={async () => {
+                    if (modelChoice === `custom:${m.name}`) setModelChoice('manual')
+                    setCustomModels((await deleteCustomModel(m.name)) ?? [])
+                  }}>删除</button>
                 </div>
               ))}
               <input className={field} placeholder="显示名称（如 本地 Ollama）" value={cmName} onChange={(e) => setCmName(e.target.value)} />
@@ -1365,8 +1384,15 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             </div>
           )}
         </div>
+        {/* passport.loggedIn guards this so the message isn't shown twice — while
+            logged out, the login block above already renders passportError. */}
+        {passport.loggedIn && passportError && <div className="text-red text-[12.5px]">{passportError}</div>}
         {error && <div className="text-red text-[13px]">{error}</div>}
-        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart(buildRequest())}>
+        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => {
+          const req = buildRequest()
+          if (!req) { setPassportError('所选模型不可用，请重新选择'); return }
+          onStart(req)
+        }}>
           {starting ? '启动中…' : '开始会话'}
         </button>
       </div>

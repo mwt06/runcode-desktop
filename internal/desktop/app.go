@@ -100,6 +100,9 @@ func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
 		return SessionInfo{}, err
 	}
 	cfg = a.applyPassport(cfg, req)
+	if strings.EqualFold(strings.TrimSpace(req.Provider), "passport") && !a.tokens.LoggedIn() {
+		return SessionInfo{}, errors.New("未登录通行证，请先登录后再选择平台模型")
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.workspace = cfg.CWD
@@ -304,10 +307,17 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 	saveConfig(req)
 
 	// Rebuild the stored engine config so a subsequent New/Resume session adopts the
-	// new connection settings; the workspace stays put.
+	// new connection settings; the workspace stays put. applyPassport mirrors
+	// StartSession so a persisted provider:"passport" config keeps its Bridge
+	// wiring (BaseURL/TokenSource) instead of degrading to a literal "passport"
+	// provider the engine cannot build.
 	if ws != "" {
 		if cfg, err := buildConfig(req); err == nil {
 			cfg.CWD = ws
+			cfg = a.applyPassport(cfg, req)
+			if strings.EqualFold(strings.TrimSpace(req.Provider), "passport") && !a.tokens.LoggedIn() {
+				return SessionInfo{}, errors.New("未登录通行证，请先登录后再选择平台模型")
+			}
 			a.mu.Lock()
 			a.config = cfg
 			a.mu.Unlock()
