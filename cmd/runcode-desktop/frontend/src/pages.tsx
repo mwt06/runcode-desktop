@@ -10,11 +10,15 @@ import {
   saveSettings, pickWorkspaceFolder,
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
   listTools, readProjectContext, saveProjectContext, readMemory,
+  passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels,
+  listCustomModels, saveCustomModel, deleteCustomModel,
+  onEvent, Events,
   type SkillInfo, type SkillList,
   type AgentInfo, type AgentList,
   type MCPServerInfo, type MCPServerInput,
   type ToolInfo, type ProjectContextInfo, type MemoryInfo,
   type SessionInfo, type StartSessionRequest,
+  type PassportStatus, type PassportModel, type CustomModel,
 } from './bridge'
 
 export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
@@ -1143,7 +1147,19 @@ function shortenPath(p: string): string {
 
 export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: StartSessionRequest }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
-  const [model, setModel] = useState(initial.model ?? '')
+  const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
+  const [platformModels, setPlatformModels] = useState<PassportModel[]>([])
+  const [customModels, setCustomModels] = useState<CustomModel[]>([])
+  const [loggingIn, setLoggingIn] = useState(false)
+  const [passportError, setPassportError] = useState('')
+  // modelChoice: 'passport:<id>' | 'custom:<name>' | 'manual'
+  const [modelChoice, setModelChoice] = useState(initial.provider === 'passport' && initial.model ? `passport:${initial.model}` : 'manual')
+  const [showCustomEditor, setShowCustomEditor] = useState(false)
+  const [cmName, setCmName] = useState('')
+  const [cmModel, setCmModel] = useState('')
+  const [cmBaseURL, setCmBaseURL] = useState('')
+  const [cmApiKey, setCmApiKey] = useState('')
+  const [manualModel, setManualModel] = useState(initial.model ?? '')
   const [provider, setProvider] = useState(initial.provider || 'openai')
   const [baseURL, setBaseURL] = useState(initial.baseURL ?? 'https://tenantapi-ai.ouchn.edu.cn/v1')
   const [permissionMode, setPermissionMode] = useState(initial.permissionMode || 'interactive')
@@ -1162,6 +1178,51 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     } catch { /* user cancelled the native picker */ }
   }
 
+  // refreshPassport re-syncs login status + the two model catalogs it feeds
+  // (platform models require a live login; custom models are local either way).
+  const refreshPassport = async () => {
+    try {
+      const st = await passportStatus()
+      setPassport(st)
+      if (st.loggedIn) setPlatformModels((await passportModels()) ?? [])
+    } catch { /* Bridge 不可达时留空，界面提示 */ }
+    try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
+  }
+  useEffect(() => {
+    void refreshPassport()
+    return onEvent<PassportStatus>(Events.PassportChanged, (st) => {
+      setPassport(st)
+      if (!st.loggedIn) { setPlatformModels([]); setModelChoice('manual') }
+      else void refreshPassport()
+    })
+  }, [])
+
+  const doLogin = async () => {
+    setLoggingIn(true); setPassportError('')
+    try {
+      await passportLogin()
+      await refreshPassport()
+    } catch (e) {
+      setPassportError(String(e))
+    } finally { setLoggingIn(false) }
+  }
+
+  // buildRequest maps the selected model source onto the wire request: a
+  // passport model only needs its id (the backend resolves auth/base URL),
+  // a custom model resends its stored baseURL/apiKey, and manual keeps the
+  // legacy free-form fields for anyone not using the passport flow yet.
+  const buildRequest = (): StartSessionRequest => {
+    const base = { cwd, permissionMode, thinkingEffort, maxContextTokens, harmJudgeModel, harmJudgeVotes }
+    if (modelChoice.startsWith('passport:')) {
+      return { ...base, provider: 'passport', model: modelChoice.slice('passport:'.length) }
+    }
+    if (modelChoice.startsWith('custom:')) {
+      const cm = customModels.find((m) => `custom:${m.name}` === modelChoice)
+      if (cm) return { ...base, provider: 'openai', model: cm.model, baseURL: cm.baseURL, apiKey: cm.apiKey }
+    }
+    return { ...base, provider, model: manualModel, baseURL, apiKey }
+  }
+
   return (
     <div className="flex items-center justify-center flex-1 min-h-0 p-6">
       <div className="w-[480px] bg-surface rounded-[18px] p-8 flex flex-col gap-[13px] shadow-card">
@@ -1172,6 +1233,20 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             <p className="mt-[3px] text-muted text-[13px]">你的 AI 编程伙伴 · 打开一个工作区开始会话</p>
           </div>
         </div>
+        {passport.loggedIn ? (
+          <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+            <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
+            <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doLogin()}>
+              {loggingIn ? '等待浏览器登录…' : '通行证登录'}
+            </button>
+            {loggingIn && <button type="button" className="text-[12px] text-muted" onClick={() => void passportCancelLogin()}>取消</button>}
+            {passportError && <div className="text-red text-[12.5px]">{passportError}</div>}
+          </div>
+        )}
         <div className={label}>工作区目录
           <div className="flex gap-2">
             <input className={`${field} flex-1 min-w-0`} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="C:\path\to\project" />
@@ -1198,12 +1273,14 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           )}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <label className={label}>服务商
-            <select className={field} value={provider} onChange={(e) => setProvider(e.target.value)}>
-              <option value="openai">openai</option>
-              <option value="anthropic">anthropic</option>
-            </select>
-          </label>
+          {modelChoice === 'manual' && (
+            <label className={label}>服务商
+              <select className={field} value={provider} onChange={(e) => setProvider(e.target.value)}>
+                <option value="openai">openai</option>
+                <option value="anthropic">anthropic</option>
+              </select>
+            </label>
+          )}
           <label className={label}>权限模式
             <select className={field} value={permissionMode} onChange={(e) => setPermissionMode(e.target.value)}>
               <option value="interactive">交互（逐项询问）</option>
@@ -1214,7 +1291,21 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           </label>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <label className={label}>模型<input className={field} value={model} onChange={(e) => setModel(e.target.value)} placeholder="留空则用 $ANTHROPIC_MODEL" /></label>
+          <label className={label}>模型
+            <select className={field} value={modelChoice} onChange={(e) => setModelChoice(e.target.value)}>
+              {passport.loggedIn && platformModels.length > 0 && (
+                <optgroup label="平台模型（通行证）">
+                  {platformModels.map((m) => <option key={m.id} value={`passport:${m.id}`}>{m.id}（{m.ownedBy}）</option>)}
+                </optgroup>
+              )}
+              {customModels.length > 0 && (
+                <optgroup label="自定义模型">
+                  {customModels.map((m) => <option key={m.name} value={`custom:${m.name}`}>{m.name}</option>)}
+                </optgroup>
+              )}
+              <option value="manual">手动配置…</option>
+            </select>
+          </label>
           <label className={label}>思考强度（推理模型可见思考过程）
             <select className={field} value={thinkingEffort} onChange={(e) => setThinkingEffort(e.target.value)}>
               <option value="">不启用</option>
@@ -1242,10 +1333,40 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             <option value="200000">200K · 大窗口</option>
           </select>
         </label>
-        <label className={label}>Base URL<input className={field} value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="https://api.anthropic.com" /></label>
-        <label className={label}>API 密钥<input className={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="可留空，改用环境变量" /></label>
+        {modelChoice === 'manual' && (
+          <>
+            <label className={label}>手动模型<input className={field} value={manualModel} onChange={(e) => setManualModel(e.target.value)} placeholder="留空则用 $ANTHROPIC_MODEL" /></label>
+            <label className={label}>Base URL<input className={field} value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="https://api.anthropic.com" /></label>
+            <label className={label}>API 密钥<input className={field} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="可留空，改用环境变量" /></label>
+          </>
+        )}
+        <div className={label}>
+          <button type="button" className="text-left text-[12.5px] text-muted hover:text-ink" onClick={() => setShowCustomEditor(!showCustomEditor)}>
+            {showCustomEditor ? '▾' : '▸'} 自定义模型管理（{customModels.length}）
+          </button>
+          {showCustomEditor && (
+            <div className="flex flex-col gap-2 rounded-[9px] border border-line2 p-3">
+              {customModels.map((m) => (
+                <div key={m.name} className="flex items-center justify-between text-[12.5px]">
+                  <span className="truncate">{m.name} <span className="text-muted">({m.model})</span></span>
+                  <button type="button" className="text-muted hover:text-red" onClick={async () => setCustomModels((await deleteCustomModel(m.name)) ?? [])}>删除</button>
+                </div>
+              ))}
+              <input className={field} placeholder="显示名称（如 本地 Ollama）" value={cmName} onChange={(e) => setCmName(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <input className={field} placeholder="模型 ID" value={cmModel} onChange={(e) => setCmModel(e.target.value)} />
+                <input className={field} placeholder="Base URL" value={cmBaseURL} onChange={(e) => setCmBaseURL(e.target.value)} />
+              </div>
+              <input className={field} type="password" placeholder="API 密钥（可空）" value={cmApiKey} onChange={(e) => setCmApiKey(e.target.value)} />
+              <button type="button" className={BTN} disabled={!cmName.trim() || !cmModel.trim()} onClick={async () => {
+                const list = await saveCustomModel({ name: cmName.trim(), model: cmModel.trim(), baseURL: cmBaseURL.trim(), apiKey: cmApiKey })
+                setCustomModels(list ?? []); setCmName(''); setCmModel(''); setCmBaseURL(''); setCmApiKey('')
+              }}>保存自定义模型</button>
+            </div>
+          )}
+        </div>
         {error && <div className="text-red text-[13px]">{error}</div>}
-        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart({ cwd, model, provider, baseURL, permissionMode, apiKey, thinkingEffort, maxContextTokens, harmJudgeModel, harmJudgeVotes })}>
+        <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || starting} onClick={() => onStart(buildRequest())}>
           {starting ? '启动中…' : '开始会话'}
         </button>
       </div>
