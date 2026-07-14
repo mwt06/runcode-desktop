@@ -77,6 +77,7 @@ func saveConfig(req StartSessionRequest) {
 	// sent (it only ever echoes back what it was given).
 	prev := loadRawConfig()
 	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
+	req.CustomModels = prev.CustomModels
 	req = protectRequestSecrets(req)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
@@ -132,6 +133,24 @@ func loadRawConfig() StartSessionRequest {
 		return StartSessionRequest{}
 	}
 	return req
+}
+
+// saveRawConfig writes the raw persisted request back as-is (used by the
+// custom-model CRUD, which manages its own field encryption). Failures are
+// non-fatal, mirroring saveConfig.
+func saveRawConfig(req StartSessionRequest) {
+	path, err := desktopConfigPath()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	data, err := json.MarshalIndent(req, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o600)
 }
 
 // mergeRecentWorkspaces promotes cwd to the front of the MRU list, de-duplicating

@@ -1,0 +1,80 @@
+package desktop
+
+import (
+	"errors"
+	"strings"
+)
+
+// CustomModel 是用户自定义的直连模型接入点（OpenAI 兼容），与通行证平台模型
+// 并列显示在模型选择器里；选中后按老的直连路径起会话。
+type CustomModel struct {
+	Name    string `json:"name"`
+	Model   string `json:"model"`
+	BaseURL string `json:"baseURL"`
+	APIKey  string `json:"apiKey,omitempty"`
+	// APIKeyProtected 是 DPAPI 加密后的落盘形态（同 StartSessionRequest 的凭证）。
+	APIKeyProtected string `json:"apiKeyProtected,omitempty"`
+}
+
+// ListCustomModels 返回解密后的自定义模型列表（给表单编辑/起会话用）。
+func (a *App) ListCustomModels() []CustomModel {
+	raw := loadRawConfig().CustomModels
+	out := make([]CustomModel, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, unprotectCustomModel(m))
+	}
+	return out
+}
+
+// SaveCustomModel 新增或同名覆盖一个自定义模型，返回最新列表（已解密）。
+func (a *App) SaveCustomModel(m CustomModel) ([]CustomModel, error) {
+	m.Name = strings.TrimSpace(m.Name)
+	m.Model = strings.TrimSpace(m.Model)
+	if m.Name == "" {
+		return nil, errors.New("模型名称不能为空")
+	}
+	if m.Model == "" {
+		return nil, errors.New("模型 ID 不能为空")
+	}
+	cfg := loadRawConfig()
+	next := make([]CustomModel, 0, len(cfg.CustomModels)+1)
+	for _, existing := range cfg.CustomModels {
+		if existing.Name != m.Name {
+			next = append(next, existing)
+		}
+	}
+	next = append(next, protectCustomModel(m))
+	cfg.CustomModels = next
+	saveRawConfig(cfg)
+	return a.ListCustomModels(), nil
+}
+
+// DeleteCustomModel 按名称删除，返回最新列表。
+func (a *App) DeleteCustomModel(name string) []CustomModel {
+	cfg := loadRawConfig()
+	next := cfg.CustomModels[:0]
+	for _, m := range cfg.CustomModels {
+		if m.Name != name {
+			next = append(next, m)
+		}
+	}
+	cfg.CustomModels = next
+	saveRawConfig(cfg)
+	return a.ListCustomModels()
+}
+
+func protectCustomModel(m CustomModel) CustomModel {
+	m.APIKeyProtected, _ = protectSecret(m.APIKey)
+	m.APIKey = ""
+	return m
+}
+
+func unprotectCustomModel(m CustomModel) CustomModel {
+	if m.APIKeyProtected != "" {
+		if s, ok := unprotectSecret(m.APIKeyProtected); ok {
+			m.APIKey = s
+		}
+	}
+	m.APIKeyProtected = ""
+	return m
+}

@@ -108,6 +108,10 @@ type StartSessionRequest struct {
 	// re-browsing. It is maintained backend-side (saveConfig recomputes it from the
 	// chosen CWD); values sent by the frontend are ignored.
 	RecentWorkspaces []string `json:"recentWorkspaces,omitempty"`
+	// CustomModels is the user-defined direct-connection model list, maintained
+	// backend-side (Save/Delete methods); values sent by the frontend are ignored.
+	// API keys are DPAPI-protected at rest like the top-level credentials.
+	CustomModels []CustomModel `json:"customModels,omitempty"`
 }
 
 // SessionInfo is the display state returned when a session starts and by Status.
