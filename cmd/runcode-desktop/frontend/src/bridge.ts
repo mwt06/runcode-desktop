@@ -291,6 +291,28 @@ export interface ResumedSession {
   contextTokens?: number
 }
 
+export interface PassportStatus {
+  loggedIn: boolean
+  userId?: string
+  userName?: string
+  name?: string
+  nickname?: string
+  avatar?: string
+  tenantId?: string
+}
+
+export interface PassportModel {
+  id: string
+  ownedBy: string
+}
+
+export interface CustomModel {
+  name: string
+  model: string
+  baseURL: string
+  apiKey?: string
+}
+
 const app = () => window.go.desktop.App
 
 export const startSession = (req: StartSessionRequest) =>
@@ -352,6 +374,15 @@ export const importAgent = (scope: string) => app().ImportAgent(scope) as Promis
 export const saveSettings = (req: StartSessionRequest) =>
   app().SaveSettings(req) as Promise<SessionInfo>
 
+export const passportStatus = () => app().PassportStatus() as Promise<PassportStatus>
+export const passportLogin = () => app().PassportLogin() as Promise<PassportStatus>
+export const passportCancelLogin = () => app().PassportCancelLogin()
+export const passportLogout = () => app().PassportLogout()
+export const passportModels = () => app().PassportModels() as Promise<PassportModel[] | null>
+export const listCustomModels = () => app().ListCustomModels() as Promise<CustomModel[] | null>
+export const saveCustomModel = (m: CustomModel) => app().SaveCustomModel(m) as Promise<CustomModel[] | null>
+export const deleteCustomModel = (name: string) => app().DeleteCustomModel(name) as Promise<CustomModel[] | null>
+
 export function onEvent<T>(name: string, cb: (data: T) => void): () => void {
   return window.runtime.EventsOn(name, (data) => cb(data as T))
 }
@@ -366,4 +397,5 @@ export const Events = {
   Warning: 'warning',
   SessionRenamed: 'session:renamed',
   HarmAutoAllow: 'harm:autoallow',
+  PassportChanged: 'passport:changed',
 } as const

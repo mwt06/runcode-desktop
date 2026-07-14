@@ -46,6 +46,14 @@ declare global {
           SaveAgent(req: unknown): Promise<unknown>
           DeleteAgent(name: string, scope: string): Promise<unknown>
           ImportAgent(scope: string): Promise<unknown>
+          PassportStatus(): Promise<unknown>
+          PassportLogin(): Promise<unknown>
+          PassportCancelLogin(): Promise<void>
+          PassportLogout(): Promise<void>
+          PassportModels(): Promise<unknown>
+          ListCustomModels(): Promise<unknown>
+          SaveCustomModel(m: unknown): Promise<unknown>
+          DeleteCustomModel(name: string): Promise<unknown>
         }
       }
     }
