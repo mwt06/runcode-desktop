@@ -70,7 +70,7 @@ type PassportModel struct {
 // loginTimeout 是等待用户在浏览器完成登录的上限。
 const loginTimeout = 5 * time.Minute
 
-// PassportStatus 返回当前登录态；已登录且未缓存用户信息时尝试拉取（失败不阻断）。
+// PassportStatus 返回当前登录态；已登录且未缓存用户信息时尝试拉取（失败不缓存、下次重试）。
 func (a *App) PassportStatus() PassportStatus {
 	if !a.tokens.LoggedIn() {
 		return PassportStatus{}
@@ -84,15 +84,25 @@ func (a *App) PassportStatus() PassportStatus {
 	st := PassportStatus{LoggedIn: true}
 	if me, err := a.fetchMe(); err == nil {
 		st = me
+		a.mu.Lock()
+		a.passportUser = &st
+		a.mu.Unlock()
 	}
-	a.mu.Lock()
-	a.passportUser = &st
-	a.mu.Unlock()
+	// 失败：返回临时占位（LoggedIn=true 无档案），不缓存 —— 下次调用会重试 fetchMe
 	return st
 }
 
 // PassportLogin 执行完整登录流程，阻塞至完成/超时/取消。
 func (a *App) PassportLogin() (PassportStatus, error) {
+	// 防护并发登录：若已有登录流程进行中，拒绝新请求
+	a.mu.Lock()
+	if a.loginCancel != nil {
+		a.mu.Unlock()
+		return PassportStatus{}, errors.New("已有登录流程进行中，请先完成或取消")
+	}
+	a.mu.Unlock()
+	// 注意：此处与后续 loginCancel 赋值间存在 TOCTOU 窗口（UI 双击时无害）
+
 	cfg := passportConfig()
 
 	cs, err := startCallbackServer()
@@ -150,10 +160,11 @@ func (a *App) PassportLogin() (PassportStatus, error) {
 	st := PassportStatus{LoggedIn: true}
 	if me, err := a.fetchMe(); err == nil {
 		st = me
+		a.mu.Lock()
+		a.passportUser = &st
+		a.mu.Unlock()
 	}
-	a.mu.Lock()
-	a.passportUser = &st
-	a.mu.Unlock()
+	// 失败：返回临时占位（LoggedIn=true 无档案），不缓存 —— 下次调用会重试 fetchMe
 	a.sink.Emit(EventPassportChanged, st)
 	return st, nil
 }

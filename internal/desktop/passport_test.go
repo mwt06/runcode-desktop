@@ -93,3 +93,32 @@ func TestPassportLogoutClearsAndEmits(t *testing.T) {
 		t.Fatal("passport:changed must be emitted")
 	}
 }
+
+func TestPassportStatusRetriesFetchMeAfterFailure(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	fail := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"userId":"u-1","userName":"zhangsan","name":"张三","tenantId":"t-1"}`))
+	}))
+	defer srv.Close()
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
+
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+
+	st := app.PassportStatus()
+	if !st.LoggedIn || st.UserID != "" {
+		t.Fatalf("first status = %+v, want logged-in placeholder without profile", st)
+	}
+
+	fail = false
+	st = app.PassportStatus()
+	if st.UserID != "u-1" || st.Name != "张三" {
+		t.Fatalf("second status = %+v, want full profile after bridge recovers (fetchMe must be retried)", st)
+	}
+}
