@@ -35,32 +35,51 @@ func newTokenManager(tokenURL, clientID string, hc *http.Client, onLoggedOut fun
 
 // Token 返回可用的 access token（TokenSource 签名）。临期/过期先静默续期；
 // 续期失败视为登出（清空 + 通知），错误提示引导重新登录。
+//
+// 硬约束：绝不返回 ("", nil) —— 快路径要求 access token 非空，否则落到刷新分支。
+// 锁语义：显式加解锁而非 defer，因为不同阶段需要不同的持锁范围：
+//   - 刷新网络调用（refreshGrant）必须持锁：Passport 的 refresh token 一次性使用
+//     （轮换），并发调用者若都拿着同一个 refresh token 发起刷新，先到者成功、
+//     后到者会收到 invalid_grant 并被误判为登出。持锁把刷新串行化：并发调用者
+//     阻塞在 m.mu.Lock() 上，等前一个刷新完成后走快路径拿新 token，不会重复刷新。
+//     不要为“优化并发”而在刷新期间释放锁。
+//   - 回调（onLoggedOut）与磁盘落盘（persistTokens）必须在解锁之后调用：
+//     前者避免 tokenManager.mu 与调用方（如 App.mu）之间形成锁序耦合，
+//     后者是磁盘 I/O，不应占着内存锁等待文件系统，且与 Set() 的落锁方式一致。
 func (m *tokenManager) Token() (string, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.ts.AccessToken == "" && m.ts.RefreshToken == "" {
+		m.mu.Unlock()
 		return "", errNotLoggedIn
 	}
-	if time.Until(m.ts.Expiry) > refreshSkew {
-		return m.ts.AccessToken, nil
+	// 快路径要求 access token 非空（合同：绝不返回 ("", nil)）
+	if m.ts.AccessToken != "" && time.Until(m.ts.Expiry) > refreshSkew {
+		tok := m.ts.AccessToken
+		m.mu.Unlock()
+		return tok, nil
 	}
 	if m.ts.RefreshToken == "" {
 		m.clearLocked()
+		m.mu.Unlock()
 		return "", errNotLoggedIn
 	}
+	// 持锁刷新：refresh token 一次性使用（轮换），串行化避免并发双刷
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	fresh, err := refreshGrant(ctx, m.hc, m.tokenURL, m.clientID, m.ts.RefreshToken)
+	cancel()
 	if err != nil {
 		m.clearLocked()
+		m.mu.Unlock()
+		// 回调与事件发射不持锁（避免 tokenManager.mu → App.mu 锁序耦合）
 		if m.onLoggedOut != nil {
 			m.onLoggedOut()
 		}
 		return "", errors.Join(errNotLoggedIn, err)
 	}
 	m.ts = fresh
-	persistTokens(fresh)
-	return m.ts.AccessToken, nil
+	m.mu.Unlock()
+	persistTokens(fresh) // 磁盘 I/O 不持锁，与 Set() 一致
+	return fresh.AccessToken, nil
 }
 
 // Set 记录一次登录成功的令牌并落盘。
