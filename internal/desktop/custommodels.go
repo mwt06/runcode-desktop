@@ -51,6 +51,7 @@ func (a *App) SaveCustomModel(m CustomModel) ([]CustomModel, error) {
 
 // DeleteCustomModel 按名称删除，返回最新列表。
 func (a *App) DeleteCustomModel(name string) []CustomModel {
+	name = strings.TrimSpace(name)
 	cfg := loadRawConfig()
 	next := cfg.CustomModels[:0]
 	for _, m := range cfg.CustomModels {

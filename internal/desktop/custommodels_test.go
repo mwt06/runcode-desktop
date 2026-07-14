@@ -18,10 +18,18 @@ func TestCustomModelsCRUDRoundTrip(t *testing.T) {
 		t.Fatalf("after save = %+v", list)
 	}
 
-	// 重新 List：APIKey 应解密可读（Windows DPAPI 往返）
+	// 重新 List：Windows(DPAPI) 上 APIKey 应解密可读；无平台加密时（secret_other 的
+	// no-op）密钥按设计被丢弃——两种情况 protected 字段都必须已清空
 	got := app.ListCustomModels()
-	if len(got) != 1 || got[0].APIKey != "sk-local" || got[0].APIKeyProtected != "" {
-		t.Fatalf("list = %+v, want decrypted key", got)
+	if len(got) != 1 || got[0].APIKeyProtected != "" {
+		t.Fatalf("list = %+v, want one entry with cleared protected field", got)
+	}
+	if _, ok := protectSecret("probe"); ok {
+		if got[0].APIKey != "sk-local" {
+			t.Fatalf("list = %+v, want decrypted key on this platform", got)
+		}
+	} else if got[0].APIKey != "" {
+		t.Fatalf("list = %+v, want dropped key on platform without secret protection", got)
 	}
 
 	// 同名覆盖
