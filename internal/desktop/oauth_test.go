@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -212,5 +213,58 @@ func TestCallbackServerDeliversProviderError(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no result delivered")
+	}
+}
+
+func TestCallbackServerConcurrentDuplicatesOneShot(t *testing.T) {
+	cs, err := startCallbackServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	state, _ := genState(cs.Port)
+	cs.ExpectState(state)
+
+	const n = 8
+	statuses := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/callback?code=C&state=%s", cs.Port, url.QueryEscape(state)))
+			if err != nil {
+				statuses <- -1
+				return
+			}
+			resp.Body.Close()
+			statuses <- resp.StatusCode
+		}()
+	}
+	wg.Wait()
+	close(statuses)
+	ok, bad := 0, 0
+	for s := range statuses {
+		if s == http.StatusOK {
+			ok++
+		} else {
+			bad++
+		}
+	}
+	if ok != 1 || bad != n-1 {
+		t.Fatalf("ok=%d bad=%d, want exactly one 200", ok, bad)
+	}
+	select {
+	case r := <-cs.Result:
+		if r.Err != nil || r.Code != "C" {
+			t.Fatalf("result = %+v", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no result delivered")
+	}
+	select {
+	case r := <-cs.Result:
+		t.Fatalf("second result delivered: %+v", r)
+	case <-time.After(200 * time.Millisecond):
 	}
 }

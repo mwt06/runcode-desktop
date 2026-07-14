@@ -134,13 +134,13 @@ type callbackResult struct {
 // Bridge 的 /oauth/callback 会按 state 里的端口把浏览器 302 回跳到这里。
 type callbackServer struct {
 	Port   int
-	Result chan callbackResult
+	Result <-chan callbackResult
 
-	mu       sync.Mutex
+	mu     sync.Mutex
 	expected string
-	done     bool
-	srv      *http.Server
-	ln       net.Listener
+	done   bool
+	srv    *http.Server
+	result chan callbackResult // writable end, internal
 }
 
 // startCallbackServer 绑定 127.0.0.1 的随机端口并开始服务 /callback。
@@ -150,10 +150,11 @@ func startCallbackServer() (*callbackServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("绑定回环端口失败: %w", err)
 	}
+	result := make(chan callbackResult, 1)
 	cs := &callbackServer{
 		Port:   ln.Addr().(*net.TCPAddr).Port,
-		Result: make(chan callbackResult, 1),
-		ln:     ln,
+		Result: result,
+		result: result,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", cs.handle)
@@ -172,12 +173,14 @@ func (cs *callbackServer) ExpectState(state string) {
 func (cs *callbackServer) handle(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	cs.mu.Lock()
-	expected, done := cs.expected, cs.done
-	cs.mu.Unlock()
-	if done || expected == "" || q.Get("state") != expected {
+	// Check-and-set in one critical section to prevent race.
+	if cs.done || cs.expected == "" || q.Get("state") != cs.expected {
+		cs.mu.Unlock()
 		http.Error(w, "state 校验失败", http.StatusBadRequest)
 		return
 	}
+	cs.done = true
+	cs.mu.Unlock()
 
 	var result callbackResult
 	if e := q.Get("error"); e != "" {
@@ -189,17 +192,13 @@ func (cs *callbackServer) handle(w http.ResponseWriter, r *http.Request) {
 		result.Err = fmt.Errorf("回调缺少 code")
 	}
 
-	cs.mu.Lock()
-	cs.done = true
-	cs.mu.Unlock()
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if result.Err != nil {
 		_, _ = w.Write([]byte("<html><body style='font-family:sans-serif'><h3>登录未完成</h3><p>请返回应用重试。</p></body></html>"))
 	} else {
 		_, _ = w.Write([]byte("<html><body style='font-family:sans-serif'><h3>登录成功</h3><p>您可以关闭此页面并返回应用。</p></body></html>"))
 	}
-	cs.Result <- result
+	cs.result <- result
 }
 
 // Close 停止监听。可安全多次调用。
