@@ -67,11 +67,26 @@ type App struct {
 	// edits captures Write/Edit pre/post content for the "已编辑" cards' undo/review.
 	// One instance for the App's lifetime, rebound to each session via BeginSession.
 	edits *editStore
+	// tokens holds the Passport OAuth tokens (memory + DPAPI persistence); it is
+	// also the engine's TokenSource. passportUser caches /api/me for PassportStatus.
+	// loginCancel cancels an in-flight browser login wait.
+	tokens       *tokenManager
+	passportUser *PassportStatus
+	loginCancel  context.CancelFunc
 }
 
 // New returns an App that emits events to sink.
 func New(sink EventSink) *App {
-	return &App{sink: sink, edits: newEditStore()}
+	a := &App{sink: sink, edits: newEditStore()}
+	pc := passportConfig()
+	a.tokens = newTokenManager(pc.tokenURL(), pc.ClientID, passportHTTP(), func() {
+		a.mu.Lock()
+		a.passportUser = nil
+		a.mu.Unlock()
+		sink.Emit(EventPassportChanged, PassportStatus{})
+	})
+	a.tokens.loadPersisted()
+	return a
 }
 
 // SetDialoger installs the native file-dialog provider (called by the shell).
@@ -84,6 +99,7 @@ func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	cfg = a.applyPassport(cfg, req)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.workspace = cfg.CWD

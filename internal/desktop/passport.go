@@ -1,0 +1,283 @@
+package desktop
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/wt68/runcode/internal/engine"
+)
+
+// Passport（通行证）登录：系统浏览器 + authorization_code + PKCE。
+// redirect_uri 恒为 Bridge 的中转端点，本地端口经 state 传递（Bridge 302 回跳）。
+
+// passportSettings 是登录与 Bridge 访问的端点配置，默认值为 AI 环境实测值，
+// 均可用环境变量覆盖。
+type passportSettings struct {
+	Authority     string // 如 https://passport-ai.ouchn.edu.cn
+	ClientID      string
+	Scopes        string
+	BridgeBaseURL string // 如 http://localhost:8199（不含 /v1）
+	RedirectURI   string // BridgeBaseURL + /oauth/callback
+}
+
+func passportConfig() passportSettings {
+	authority := strings.TrimRight(envOr("RUNCODE_PASSPORT_AUTHORITY", "https://passport-ai.ouchn.edu.cn"), "/")
+	bridge := strings.TrimRight(envOr("RUNCODE_BRIDGE_BASE_URL", "http://localhost:8199"), "/")
+	return passportSettings{
+		Authority:     authority,
+		ClientID:      envOr("RUNCODE_PASSPORT_CLIENT_ID", "runcode-desktop"),
+		Scopes:        "openid profile offline_access passportapi",
+		BridgeBaseURL: bridge,
+		RedirectURI:   bridge + "/oauth/callback",
+	}
+}
+
+func (s passportSettings) tokenURL() string { return s.Authority + "/connect/token" }
+
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// PassportStatus 是前端展示用的登录态 + 用户信息。
+type PassportStatus struct {
+	LoggedIn bool   `json:"loggedIn"`
+	UserID   string `json:"userId,omitempty"`
+	UserName string `json:"userName,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Nickname string `json:"nickname,omitempty"`
+	Avatar   string `json:"avatar,omitempty"`
+	TenantID string `json:"tenantId,omitempty"`
+}
+
+// PassportModel 是 Bridge /v1/models 列表项。
+type PassportModel struct {
+	ID      string `json:"id"`
+	OwnedBy string `json:"ownedBy"`
+}
+
+// loginTimeout 是等待用户在浏览器完成登录的上限。
+const loginTimeout = 5 * time.Minute
+
+// PassportStatus 返回当前登录态；已登录且未缓存用户信息时尝试拉取（失败不阻断）。
+func (a *App) PassportStatus() PassportStatus {
+	if !a.tokens.LoggedIn() {
+		return PassportStatus{}
+	}
+	a.mu.Lock()
+	cached := a.passportUser
+	a.mu.Unlock()
+	if cached != nil {
+		return *cached
+	}
+	st := PassportStatus{LoggedIn: true}
+	if me, err := a.fetchMe(); err == nil {
+		st = me
+	}
+	a.mu.Lock()
+	a.passportUser = &st
+	a.mu.Unlock()
+	return st
+}
+
+// PassportLogin 执行完整登录流程，阻塞至完成/超时/取消。
+func (a *App) PassportLogin() (PassportStatus, error) {
+	cfg := passportConfig()
+
+	cs, err := startCallbackServer()
+	if err != nil {
+		return PassportStatus{}, err
+	}
+	defer cs.Close()
+
+	verifier, challenge, err := genPKCE()
+	if err != nil {
+		return PassportStatus{}, err
+	}
+	state, err := genState(cs.Port)
+	if err != nil {
+		return PassportStatus{}, err
+	}
+	cs.ExpectState(state)
+
+	ctx, cancel := context.WithTimeout(context.Background(), loginTimeout)
+	a.mu.Lock()
+	a.loginCancel = cancel
+	a.mu.Unlock()
+	defer func() {
+		cancel()
+		a.mu.Lock()
+		a.loginCancel = nil
+		a.mu.Unlock()
+	}()
+
+	authURL := buildAuthorizeURL(cfg.Authority, cfg.ClientID, cfg.RedirectURI, cfg.Scopes, state, challenge)
+	if err := openBrowser(authURL); err != nil {
+		return PassportStatus{}, fmt.Errorf("无法打开系统浏览器: %w", err)
+	}
+
+	var code string
+	select {
+	case r := <-cs.Result:
+		if r.Err != nil {
+			return PassportStatus{}, r.Err
+		}
+		code = r.Code
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return PassportStatus{}, errors.New("登录已取消")
+		}
+		return PassportStatus{}, errors.New("登录超时，请重试")
+	}
+
+	ts, err := exchangeCode(ctx, passportHTTP(), cfg.tokenURL(), cfg.ClientID, code, verifier, cfg.RedirectURI)
+	if err != nil {
+		return PassportStatus{}, err
+	}
+	a.tokens.Set(ts)
+
+	st := PassportStatus{LoggedIn: true}
+	if me, err := a.fetchMe(); err == nil {
+		st = me
+	}
+	a.mu.Lock()
+	a.passportUser = &st
+	a.mu.Unlock()
+	a.sink.Emit(EventPassportChanged, st)
+	return st, nil
+}
+
+// PassportCancelLogin 取消进行中的登录等待。
+func (a *App) PassportCancelLogin() {
+	a.mu.Lock()
+	cancel := a.loginCancel
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// PassportLogout 清除本地令牌（不调 Passport endsession——桌面登出不应
+// 顺带登出浏览器里的 SSO 会话）。
+func (a *App) PassportLogout() {
+	a.tokens.Clear()
+	a.mu.Lock()
+	a.passportUser = nil
+	a.mu.Unlock()
+	a.sink.Emit(EventPassportChanged, PassportStatus{})
+}
+
+// PassportModels 经 Bridge 列平台模型。
+func (a *App) PassportModels() ([]PassportModel, error) {
+	body, err := a.bridgeGet("/v1/models")
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("解析模型列表失败: %w", err)
+	}
+	models := make([]PassportModel, 0, len(payload.Data))
+	for _, m := range payload.Data {
+		models = append(models, PassportModel{ID: m.ID, OwnedBy: m.OwnedBy})
+	}
+	return models, nil
+}
+
+// fetchMe 经 Bridge /api/me 拉取用户信息。
+func (a *App) fetchMe() (PassportStatus, error) {
+	body, err := a.bridgeGet("/api/me")
+	if err != nil {
+		return PassportStatus{}, err
+	}
+	var me struct {
+		UserID   string `json:"userId"`
+		UserName string `json:"userName"`
+		Name     string `json:"name"`
+		Nickname string `json:"nickname"`
+		Avatar   string `json:"avatar"`
+		TenantID string `json:"tenantId"`
+	}
+	if err := json.Unmarshal(body, &me); err != nil {
+		return PassportStatus{}, err
+	}
+	return PassportStatus{LoggedIn: true, UserID: me.UserID, UserName: me.UserName,
+		Name: me.Name, Nickname: me.Nickname, Avatar: me.Avatar, TenantID: me.TenantID}, nil
+}
+
+// bridgeGet 带登录令牌 GET Bridge 端点，返回响应体。
+func (a *App) bridgeGet(path string) ([]byte, error) {
+	tok, err := a.tokens.Token()
+	if err != nil {
+		return nil, err
+	}
+	cfg := passportConfig()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BridgeBaseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := passportHTTP().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("访问中间服务失败: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("中间服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
+}
+
+// applyPassport 在 provider=="passport" 时把引擎配置切到 Bridge + TokenSource。
+func (a *App) applyPassport(cfg engine.Config, req StartSessionRequest) engine.Config {
+	if !strings.EqualFold(strings.TrimSpace(req.Provider), "passport") {
+		return cfg
+	}
+	pc := passportConfig()
+	cfg.Provider = "openai"
+	cfg.BaseURL = pc.BridgeBaseURL + "/v1"
+	cfg.APIKey = ""
+	cfg.AuthToken = ""
+	cfg.TokenSource = a.tokens.Token
+	return cfg
+}
+
+// passportHTTP 是调 Passport/Bridge 的普通客户端。不用 internal/webclient——
+// 那个加固客户端拒连回环/内网地址，而 Bridge 常部署在内网。
+func passportHTTP() *http.Client {
+	return &http.Client{Timeout: 60 * time.Second}
+}
+
+// openBrowser 用系统默认浏览器打开 URL（登录页）。
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// rundll32 是打开默认浏览器的稳妥方式（explorer 对带 query 的 URL 处理不一致）
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
+}

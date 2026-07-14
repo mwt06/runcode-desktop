@@ -39,6 +39,9 @@ const (
 	// harm gate auto-allows a risky action without a prompt, or trips its
 	// per-session breaker — so the user can review what smart mode decided.
 	EventHarmAutoAllow = "harm:autoallow"
+	// EventPassportChanged carries a PassportStatus whenever login state changes
+	// (login success, logout, or refresh-token expiry forcing re-login).
+	EventPassportChanged = "passport:changed"
 )
 
 // HarmAutoAllow is the payload of EventHarmAutoAllow: a sanitized record of a
