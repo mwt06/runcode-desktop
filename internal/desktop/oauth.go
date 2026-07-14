@@ -136,11 +136,11 @@ type callbackServer struct {
 	Port   int
 	Result <-chan callbackResult
 
-	mu     sync.Mutex
+	mu       sync.Mutex
 	expected string
-	done   bool
-	srv    *http.Server
-	result chan callbackResult // writable end, internal
+	done     bool
+	srv      *http.Server
+	result   chan callbackResult // writable end, internal
 }
 
 // startCallbackServer 绑定 127.0.0.1 的随机端口并开始服务 /callback。
