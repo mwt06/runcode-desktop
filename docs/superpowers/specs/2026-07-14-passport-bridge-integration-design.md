@@ -99,7 +99,7 @@ runcode 桌面端（Wails，Windows 为主）目前没有用户/登录概念，�
 - `AllowedGrantTypes = authorization_code`，`RequirePkce = true`，`RequireClientSecret = false`（公共客户端）；
 - `RedirectUris`：注册 3 个固定回环端口 —— `http://127.0.0.1:53682/callback`、`:53683`、`:53684`（IdentityServer4 严格 URI 匹配，多注册备用端口即可，不改 Passport 代码支持通配端口）；
 - `AllowOfflineAccess = true`（refresh token）；
-- `AllowedScopes = openid profile offline_access OUCOnline.AI.Passport`；
+- `AllowedScopes = openid profile offline_access passportapi`（**必须含 `passportapi` 这类带用户声明的 API scope**——IdentityServer4 中 `TenantId/UserId` 等 UserClaims 只随 ApiScope 进入 access token，身份资源声明只进 id_token/userinfo；Bridge 从 access token 读取 claims，缺失时返回 403）；
 - Access token 有效期维持默认 3600s。
 
 ## 子项目 C：桌面端（runcode_desktop）
