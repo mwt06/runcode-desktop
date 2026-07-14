@@ -17,6 +17,10 @@ type Config struct {
 	MaxContextTokens int
 	MaxRetries       int
 	Options          map[string]string
+	// TokenSource, when set, is consulted per request for a fresh bearer token
+	// (e.g. an OAuth access token that auto-refreshes). It takes precedence over
+	// APIKey/AuthToken; a nil TokenSource keeps the static-credential behavior.
+	TokenSource func() (string, error)
 }
 
 // Factory builds a Provider from neutral Config. Each provider package registers

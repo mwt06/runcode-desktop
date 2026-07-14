@@ -56,6 +56,8 @@ type Config struct {
 	// via flag/env/config), "builtin" (the model matched the built-in pricing
 	// table), or "" (unpriced).
 	PriceSource string
+	// TokenSource supplies a per-request bearer token (OAuth). Overrides APIKey/AuthToken when set.
+	TokenSource func() (string, error)
 	MCPServers  []mcp.ServerConfig
 	// AllowMCPSampling opts in to serving MCP servers' sampling requests. Even
 	// when true, safe mode refuses sampling.

@@ -60,6 +60,7 @@ type httpClient struct {
 	doer        doer
 	baseURL     string
 	bearer      string
+	tokenSource func() (string, error)
 	maxRetries  int
 	baseBackoff time.Duration
 	sleep       func(context.Context, time.Duration) error
@@ -82,6 +83,7 @@ func newHTTPClient(opts Options) *httpClient {
 		doer:        client,
 		baseURL:     baseURL,
 		bearer:      bearer,
+		tokenSource: opts.TokenSource,
 		maxRetries:  resolveMaxRetries(opts.MaxRetries),
 		baseBackoff: defaultBaseBackoff,
 		sleep:       sleepContext,
@@ -138,8 +140,17 @@ func (c *httpClient) attempt(ctx context.Context, payload []byte) (sseStream, ti
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	if c.bearer != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.bearer)
+	bearer := c.bearer
+	if c.tokenSource != nil {
+		tok, err := c.tokenSource()
+		if err != nil {
+			// 凭证取不到（如刷新令牌已过期）不是可重试的瞬时故障
+			return nil, 0, false, fmt.Errorf("openai: token source: %w", err)
+		}
+		bearer = tok
+	}
+	if bearer != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+bearer)
 	}
 
 	resp, err := c.doer.Do(httpReq)

@@ -35,6 +35,8 @@ type Options struct {
 	// 0 uses the default, a negative value disables retries, and a positive
 	// value sets the count.
 	MaxRetries int
+	// TokenSource supplies a per-request bearer token (OAuth). Overrides APIKey/AuthToken when set.
+	TokenSource func() (string, error)
 }
 
 type Provider struct {
@@ -58,6 +60,7 @@ func init() {
 			MaxContextTokens:   cfg.MaxContextTokens,
 			MaxRetries:         cfg.MaxRetries,
 			DisableStreamUsage: cfg.Options["disable_stream_usage"] == "true",
+			TokenSource:        cfg.TokenSource,
 		})
 	})
 }
