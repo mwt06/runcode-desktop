@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -120,4 +122,87 @@ func postTokenForm(ctx context.Context, hc *http.Client, tokenURL string, form u
 		RefreshToken: payload.RefreshToken,
 		Expiry:       time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second),
 	}, nil
+}
+
+// callbackResult 是一次授权回调的结果：code 或错误，二选一。
+type callbackResult struct {
+	Code string
+	Err  error
+}
+
+// callbackServer 是登录期间临时监听 127.0.0.1 随机端口的一次性回调接收器。
+// Bridge 的 /oauth/callback 会按 state 里的端口把浏览器 302 回跳到这里。
+type callbackServer struct {
+	Port   int
+	Result chan callbackResult
+
+	mu       sync.Mutex
+	expected string
+	done     bool
+	srv      *http.Server
+	ln       net.Listener
+}
+
+// startCallbackServer 绑定 127.0.0.1 的随机端口并开始服务 /callback。
+// 调用方拿到端口后生成 state，再 ExpectState 告知校验值。
+func startCallbackServer() (*callbackServer, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("绑定回环端口失败: %w", err)
+	}
+	cs := &callbackServer{
+		Port:   ln.Addr().(*net.TCPAddr).Port,
+		Result: make(chan callbackResult, 1),
+		ln:     ln,
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", cs.handle)
+	cs.srv = &http.Server{Handler: mux}
+	go func() { _ = cs.srv.Serve(ln) }()
+	return cs, nil
+}
+
+// ExpectState 设定本次登录合法的 state 值（含 nonce），此前到达的请求一律 400。
+func (cs *callbackServer) ExpectState(state string) {
+	cs.mu.Lock()
+	cs.expected = state
+	cs.mu.Unlock()
+}
+
+func (cs *callbackServer) handle(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	cs.mu.Lock()
+	expected, done := cs.expected, cs.done
+	cs.mu.Unlock()
+	if done || expected == "" || q.Get("state") != expected {
+		http.Error(w, "state 校验失败", http.StatusBadRequest)
+		return
+	}
+
+	var result callbackResult
+	if e := q.Get("error"); e != "" {
+		desc := q.Get("error_description")
+		result.Err = fmt.Errorf("授权失败: %s %s", e, desc)
+	} else if code := q.Get("code"); code != "" {
+		result.Code = code
+	} else {
+		result.Err = fmt.Errorf("回调缺少 code")
+	}
+
+	cs.mu.Lock()
+	cs.done = true
+	cs.mu.Unlock()
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if result.Err != nil {
+		_, _ = w.Write([]byte("<html><body style='font-family:sans-serif'><h3>登录未完成</h3><p>请返回应用重试。</p></body></html>"))
+	} else {
+		_, _ = w.Write([]byte("<html><body style='font-family:sans-serif'><h3>登录成功</h3><p>您可以关闭此页面并返回应用。</p></body></html>"))
+	}
+	cs.Result <- result
+}
+
+// Close 停止监听。可安全多次调用。
+func (cs *callbackServer) Close() {
+	_ = cs.srv.Close()
 }

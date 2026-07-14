@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -136,5 +137,80 @@ func TestRefreshGrant(t *testing.T) {
 	}
 	if form.Get("grant_type") != "refresh_token" || form.Get("refresh_token") != "RT1" {
 		t.Fatalf("form = %v", form)
+	}
+}
+
+func TestCallbackServerDeliversCode(t *testing.T) {
+	cs, err := startCallbackServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	state, _ := genState(cs.Port)
+	cs.ExpectState(state)
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/callback?code=THE-CODE&state=%s", cs.Port, url.QueryEscape(state)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	select {
+	case r := <-cs.Result:
+		if r.Err != nil || r.Code != "THE-CODE" {
+			t.Fatalf("result = %+v", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no result delivered")
+	}
+}
+
+func TestCallbackServerRejectsWrongState(t *testing.T) {
+	cs, err := startCallbackServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	state, _ := genState(cs.Port)
+	cs.ExpectState(state)
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/callback?code=X&state=forged.%d", cs.Port, cs.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	select {
+	case r := <-cs.Result:
+		t.Fatalf("must not deliver on forged state, got %+v", r)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestCallbackServerDeliversProviderError(t *testing.T) {
+	cs, err := startCallbackServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	state, _ := genState(cs.Port)
+	cs.ExpectState(state)
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/callback?error=access_denied&state=%s", cs.Port, url.QueryEscape(state)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	select {
+	case r := <-cs.Result:
+		if r.Err == nil || !strings.Contains(r.Err.Error(), "access_denied") {
+			t.Fatalf("result = %+v, want access_denied error", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no result delivered")
 	}
 }
