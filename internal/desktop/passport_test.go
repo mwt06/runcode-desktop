@@ -33,6 +33,7 @@ func TestPassportConfigDefaultsAndEnvOverride(t *testing.T) {
 }
 
 func TestApplyPassportProvider(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir()) // 隔离 passport.json，New() 的 loadPersisted 不读真实登录
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
 
@@ -69,6 +70,7 @@ func TestPassportModels(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
+	t.Setenv("APPDATA", t.TempDir()) // 隔离 passport.json
 
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
@@ -82,6 +84,7 @@ func TestPassportModels(t *testing.T) {
 }
 
 func TestPassportLogoutClearsAndEmits(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir()) // 隔离：PassportLogout 会删除 passport.json，不能碰真实登录
 	sink := &recordingSink{}
 	app := New(sink)
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
