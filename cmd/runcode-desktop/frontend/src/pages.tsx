@@ -150,6 +150,241 @@ async function applyScopeChange(
   if (curProject !== tp) await setFn(name, 'project', !tp)
 }
 
+// Toggle 是参考设计里的 iOS 拨动开关：蓝色=开，灰色=关。
+function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); onChange(!on) }}
+      className={`relative inline-flex h-[24px] w-[42px] flex-none items-center rounded-full transition-colors ${on ? 'bg-primary' : 'bg-line2'} ${disabled ? 'opacity-40 cursor-default' : 'cursor-pointer'}`}
+    >
+      <span className={`inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-[21px]' : 'translate-x-[3px]'}`} />
+    </button>
+  )
+}
+
+// 内置工具/子代理的行首图标(与对话内工具卡片一致的图标名)。
+const PLUGIN_ICON: Record<string, string> = {
+  Read: 'file', Write: 'pencil', Edit: 'pencil', Delete: 'trash',
+  Bash: 'terminal', BashOutput: 'terminal', KillShell: 'terminal',
+  Grep: 'search', Glob: 'search', WebFetch: 'globe', WebSearch: 'globe',
+  TodoWrite: 'grid', Analyze: 'sparkles', AskUser: 'chat', open_preview: 'file',
+  'general-purpose': 'bot', 'code-reviewer': 'shield', 'code-explorer': 'search',
+  planner: 'grid', debugger: 'terminal',
+}
+
+// AgentDetail 是子代理的全屏详情/编辑页(替代原来的左右分栏)。内置只读。
+function AgentDetail({ agent, onBack, onChanged, onUse }: {
+  agent: AgentInfo | 'new'
+  onBack: () => void
+  onChanged: () => void
+  onUse: (name: string) => void
+}) {
+  const isNew = agent === 'new'
+  const ag = isNew ? null : agent
+  const zh = ag && ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
+  const [name, setName] = useState(ag?.name ?? '')
+  const [description, setDescription] = useState(zh?.desc ?? ag?.description ?? '')
+  const [tools, setTools] = useState(ag?.tools ?? '')
+  const [model, setModel] = useState(ag?.model ?? '')
+  const [prompt, setPrompt] = useState(zh?.prompt ?? ag?.prompt ?? '')
+  const [scope, setScope] = useState(isNew ? 'project' : ag?.source === 'user' ? 'user' : 'project')
+  const editable = isNew || (ag?.editable ?? false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)] disabled:opacity-60'
+  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
+
+  async function save() {
+    setBusy(true); setError('')
+    try {
+      await saveAgent({ originalName: ag?.name ?? '', name: name.trim(), description, tools, model, prompt, scope })
+      onChanged(); onBack()
+    } catch (e) { setError(String(e)) } finally { setBusy(false) }
+  }
+  async function remove() {
+    if (!ag) return
+    setBusy(true); setError('')
+    try { await deleteAgent(ag.name, ag.source); onChanged(); onBack() } catch (e) { setError(String(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-[30px] py-6">
+      <div className="max-w-[720px] mx-auto flex flex-col gap-3.5">
+        <button type="button" className="self-start text-[13px] text-muted hover:text-ink inline-flex items-center gap-1" onClick={onBack}>← 返回列表</button>
+        {!editable && <div className="text-[12.5px] text-muted bg-surface2 border border-line2 rounded-[9px] px-3 py-2">内置子代理，只读。可「在对话中使用」，或在用户/项目级新建同名子代理来覆盖它。以下描述与指令正文为中文对照，模型收到的仍是原始定义。</div>}
+        <label className={label}>名称<input className={field} value={name} disabled={!editable} onChange={(e) => setName(e.target.value)} placeholder="如 code-reviewer(字母、数字、- 或 _)" /></label>
+        <label className={label}>
+          范围
+          {isNew ? (
+            <select className={field} value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="project">项目(仅本工作区 .runcode/agents)</option>
+              <option value="user">用户(全局，所有项目可用)</option>
+            </select>
+          ) : (
+            <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : scope === 'project' ? '项目(本工作区)' : '内置'}</div>
+          )}
+        </label>
+        <label className={label}>描述(一句话，告诉 AI 何时委派它)<input className={field} value={description} disabled={!editable} onChange={(e) => setDescription(e.target.value)} placeholder="如 审查代码，找出 bug 与风险" /></label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className={label}>工具(可选，逗号分隔；留空=继承全部)<input className={field} value={tools} disabled={!editable} onChange={(e) => setTools(e.target.value)} placeholder="如 Read, Grep, Glob" /></label>
+          <label className={label}>模型(可选，覆盖默认)<input className={field} value={model} disabled={!editable} onChange={(e) => setModel(e.target.value)} placeholder="留空=继承会话模型" /></label>
+        </div>
+        <label className={label}>
+          指令正文(Markdown，子代理的系统提示)
+          <textarea className={`${field} min-h-[280px] font-mono text-[13px] leading-[1.6] resize-y`} value={prompt} disabled={!editable} onChange={(e) => setPrompt(e.target.value)} />
+        </label>
+        {error && <div className="text-[12.5px] text-red">{error}</div>}
+        <div className="flex gap-2.5">
+          {editable && <button className={`${BTN} ${BTN_PRIMARY}`} disabled={busy || !name.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>}
+          {!isNew && <button className={BTN} onClick={() => onUse(ag!.name)}>在对话中使用</button>}
+          {!isNew && editable && <button className={`${BTN} ${BTN_DANGER}`} disabled={busy} onClick={remove}>删除</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// PluginsPage 是统一的能力管理页：标签页切换 工具/子代理/技能/MCP，顶部选停用
+// 范围 + 搜索，每行图标+名称+描述+iOS 开关(参考设计)。技能/MCP 复用现有管理。
+export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: string) => void; onUseAgent: (name: string) => void }) {
+  const [tab, setTab] = useState<'tools' | 'agents' | 'skills' | 'mcp'>('tools')
+  const [scope, setScope] = useState<'project' | 'user'>('project')
+  const [query, setQuery] = useState('')
+  const [toolList, setToolList] = useState<ToolInfo[]>([])
+  const [agentList, setAgentList] = useState<AgentInfo[]>([])
+  const [err, setErr] = useState('')
+  const [detail, setDetail] = useState<AgentInfo | 'new' | null>(null)
+
+  const reloadTools = async () => { try { setToolList((await listTools()) ?? []) } catch { /* ignore */ } }
+  const reloadAgents = async () => { try { const l = await listAgents(); setAgentList(l?.agents ?? []) } catch { /* ignore */ } }
+  useEffect(() => { void reloadTools(); void reloadAgents() }, [])
+
+  // 子代理详情为全屏单页(替代分栏)。
+  if (tab === 'agents' && detail !== null) {
+    return <AgentDetail agent={detail} onBack={() => setDetail(null)} onChanged={reloadAgents} onUse={onUseAgent} />
+  }
+
+  const scopeOn = (du: boolean, dp: boolean) => (scope === 'project' ? !dp : !du)
+  const otherOffLabel = (du: boolean, dp: boolean) =>
+    scope === 'project' ? (du ? '全局已停用' : '') : dp ? '本项目已停用' : ''
+  const toggleTool = async (t: ToolInfo, next: boolean) => {
+    setErr('')
+    try { await setToolEnabled(t.name, scope, next); await reloadTools() } catch (e) { setErr(String(e)) }
+  }
+  const toggleAgent = async (a: AgentInfo, next: boolean) => {
+    setErr('')
+    try { await setAgentEnabled(a.name, scope, next); await reloadAgents() } catch (e) { setErr(String(e)) }
+  }
+
+  const q = query.trim().toLowerCase()
+  const hit = (a: string, b: string, name: string) => !q || name.toLowerCase().includes(q) || a.toLowerCase().includes(q) || b.toLowerCase().includes(q)
+  const shownTools = toolList.filter((t) => t.toggleable).filter((t) => { const z = TOOL_ZH[t.name]; return hit(z?.label ?? '', z?.desc ?? t.description, t.name) })
+  const shownAgents = agentList.filter((a) => { const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined; return hit(z?.label ?? '', z?.desc ?? a.description, a.name) })
+
+  const tabs: { k: typeof tab; label: string; n?: number }[] = [
+    { k: 'tools', label: '工具', n: toolList.filter((t) => t.toggleable).length },
+    { k: 'agents', label: '子代理', n: agentList.length },
+    { k: 'skills', label: '技能' },
+    { k: 'mcp', label: 'MCP' },
+  ]
+  const showControls = tab === 'tools' || tab === 'agents'
+  const scopeBtn = (s: 'project' | 'user', text: string) => (
+    <button type="button" onClick={() => setScope(s)} className={`px-3 py-1 text-[12.5px] ${scope === s ? 'bg-primary text-white' : 'text-muted hover:text-ink'}`}>{text}</button>
+  )
+
+  const row = (icon: string, titleZh: string, rawName: string, tag: string, desc: string, on: boolean, otherOff: string, onToggle: (n: boolean) => void, onClick?: () => void, showRaw?: boolean) => (
+    <div
+      key={rawName}
+      onClick={onClick}
+      className={`flex items-center gap-3.5 py-3 border-b border-line last:border-b-0 ${onClick ? 'cursor-pointer' : ''} ${on ? '' : 'opacity-60'}`}
+    >
+      <span className="w-9 h-9 rounded-[9px] bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={icon} size={17} /></span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-[14px] text-ink truncate">{titleZh}</span>
+          {showRaw && <span className="font-mono text-[11px] text-faint flex-none">{rawName}</span>}
+          {tag && <span className="text-[11px] text-faint flex-none">{tag}</span>}
+        </div>
+        <div className="text-[12.5px] text-muted mt-0.5 truncate">{desc}</div>
+      </div>
+      {otherOff && <span className="text-[11px] text-red/70 flex-none">{otherOff}</span>}
+      <Toggle on={on} onChange={onToggle} />
+    </div>
+  )
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="px-[30px] pt-7 pb-3 flex-none">
+        <h2 className="m-0 text-[20px] font-bold tracking-tight">插件</h2>
+        <p className="mt-1 text-muted text-[13px]">管理工具、子代理、技能与 MCP</p>
+        <div className="flex items-center gap-3 mt-4">
+          <div className="flex items-center gap-1">
+            {tabs.map((t) => (
+              <button
+                key={t.k}
+                type="button"
+                onClick={() => setTab(t.k)}
+                className={`px-3 py-1.5 rounded-[9px] text-[13px] transition ${tab === t.k ? 'bg-surface2 text-ink font-medium' : 'text-muted hover:text-ink'}`}
+              >
+                {t.label}{t.n !== undefined && <span className="ml-1.5 text-faint text-[12px]">{t.n}</span>}
+              </button>
+            ))}
+          </div>
+          {showControls && (
+            <div className="ml-auto flex items-center gap-3">
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none"><Icon name="search" size={14} /></span>
+                <input className="w-[220px] font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] pl-8 pr-3 py-1.5 outline-none focus:border-primary" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索" />
+              </div>
+            </div>
+          )}
+          {tab === 'agents' && (
+            <button type="button" className={`${BTN} ${BTN_PRIMARY} px-3.5 py-1.5 text-[13px]`} onClick={() => setDetail('new')}>+ 新建</button>
+          )}
+        </div>
+        {showControls && (
+          <div className="flex items-center gap-2.5 mt-3 text-[12.5px]">
+            <span className="text-muted">停用范围</span>
+            <div className="inline-flex rounded-[8px] border border-line2 overflow-hidden">
+              {scopeBtn('project', '本项目')}
+              {scopeBtn('user', '全局(用户级)')}
+            </div>
+            <span className="text-faint">关闭的不传给模型，下次新建会话生效</span>
+          </div>
+        )}
+        {err && <p className="mt-2 text-red text-[12.5px]">{err}</p>}
+      </div>
+
+      {tab === 'skills' ? (
+        <SkillsPage onUse={onUseSkill} />
+      ) : tab === 'mcp' ? (
+        <MCPPage />
+      ) : (
+        <div className="flex-1 overflow-y-auto px-[30px] pb-8">
+          <div className="max-w-[860px] mx-auto">
+            {tab === 'tools'
+              ? shownTools.map((t) => {
+                  const z = TOOL_ZH[t.name]
+                  return row(PLUGIN_ICON[t.name] ?? 'grid', z?.label ?? t.name, t.name, t.source === 'mcp' ? (t.server ?? '') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t, n), undefined, !!z)
+                })
+              : shownAgents.map((a) => {
+                  const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined
+                  const badge = a.source === 'builtin' ? '内置' : a.source === 'user' ? '用户' : '项目'
+                  return row(PLUGIN_ICON[a.name] ?? 'bot', z?.label ?? a.name, a.name, badge, z?.desc ?? a.description, scopeOn(a.disabledUser, a.disabledProject), otherOffLabel(a.disabledUser, a.disabledProject), (n) => toggleAgent(a, n), () => setDetail(a), !!z)
+                })}
+            {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-10">没有匹配的工具</div>}
+            {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-10">没有匹配的子代理</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
   const [list, setList] = useState<SkillList>({ skills: [], problems: [] })
   const [sel, setSel] = useState<string | 'new' | null>(null)

@@ -57,7 +57,7 @@ import {
   type Group,
 } from './chat'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
-import { SkillsPage, AgentsPage, SettingsPage, PermissionsPage, MCPPage, ToolsPage, MemoryPage, StartForm } from './pages'
+import { PluginsPage, SettingsPage, PermissionsPage, MemoryPage, StartForm } from './pages'
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
 import { EditedCards } from './edited-card'
@@ -281,7 +281,7 @@ function askPayload(input: unknown): { question: string; options: string[] } {
 
 export default function App() {
   const [started, setStarted] = useState(false)
-  const [view, setView] = useState<'chat' | 'settings' | 'skills' | 'agents' | 'permissions' | 'mcp' | 'tools' | 'memory'>('chat')
+  const [view, setView] = useState<'chat' | 'settings' | 'plugins' | 'permissions' | 'memory'>('chat')
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const infoRef = useRef(info)
   useEffect(() => {
@@ -1097,17 +1097,14 @@ export default function App() {
 
         {view === 'settings' ? (
           <SettingsPage initial={initialReq ?? {}} info={info} onSaved={(i) => setInfo(i)} />
-        ) : view === 'skills' ? (
-          <SkillsPage
-            onUse={(skillName) => {
+        ) : view === 'plugins' ? (
+          <PluginsPage
+            onUseSkill={(skillName) => {
               setView('chat')
               setInput((prev) => (prev.trim() ? prev + ' ' : '') + `请使用「${skillName}」技能完成：`)
               requestAnimationFrame(() => taRef.current?.focus())
             }}
-          />
-        ) : view === 'agents' ? (
-          <AgentsPage
-            onUse={(agentName) => {
+            onUseAgent={(agentName) => {
               setView('chat')
               setInput((prev) => (prev.trim() ? prev + ' ' : '') + `请委派「${agentName}」子代理完成：`)
               requestAnimationFrame(() => taRef.current?.focus())
@@ -1115,10 +1112,6 @@ export default function App() {
           />
         ) : view === 'permissions' ? (
           <PermissionsPage mode={info?.permissionMode} onPickMode={pickMode} />
-        ) : view === 'mcp' ? (
-          <MCPPage />
-        ) : view === 'tools' ? (
-          <ToolsPage />
         ) : view === 'memory' ? (
           <MemoryPage />
         ) : (
@@ -1425,12 +1418,12 @@ export default function App() {
         {view === 'chat' && (tabs.length > 0 || browseOpen) && (
           <>
             <div
-              className="w-[5px] flex-none cursor-col-resize hover:bg-primary/30 active:bg-primary/40"
+              className="w-[6px] flex-none cursor-col-resize bg-surface2 hover:bg-line2 active:bg-primary/40 transition-colors"
               onPointerDown={onPreviewDragStart}
               onPointerMove={onPreviewDragMove}
               onPointerUp={onPreviewDragEnd}
             />
-            <aside style={{ width: previewWidth, maxWidth: '60%' }} className="flex-none border-l border-line2 flex flex-col min-h-0 bg-surface">
+            <aside style={{ width: previewWidth, maxWidth: '60%' }} className="flex-none flex flex-col min-h-0 bg-surface">
               {tabs.length > 0 ? (
                 <PreviewPane
                   tabs={tabs}
@@ -1673,18 +1666,15 @@ function Sidebar({
   currentId?: string
   cwd?: string
   onSwitchWorkspace: () => void
-  view: 'chat' | 'settings' | 'skills' | 'agents' | 'permissions' | 'mcp' | 'tools' | 'memory'
-  onNav: (v: 'chat' | 'settings' | 'skills' | 'agents' | 'permissions' | 'mcp' | 'tools' | 'memory') => void
+  view: 'chat' | 'settings' | 'plugins' | 'permissions' | 'memory'
+  onNav: (v: 'chat' | 'settings' | 'plugins' | 'permissions' | 'memory') => void
   onNew: () => void
   onResume: (id: string) => void
 }) {
   const wsName = cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '—'
   const nav = [
     { label: '对话', name: 'chat', view: 'chat' as const },
-    { label: '技能', name: 'book', view: 'skills' as const },
-    { label: '子代理', name: 'bot', view: 'agents' as const },
-    { label: 'MCP', name: 'plug', view: 'mcp' as const },
-    { label: '工具', name: 'grid', view: 'tools' as const },
+    { label: '插件', name: 'grid', view: 'plugins' as const },
     { label: '记忆', name: 'file', view: 'memory' as const },
     { label: '权限', name: 'shield', view: 'permissions' as const },
     { label: '设置', name: 'settings', view: 'settings' as const },
