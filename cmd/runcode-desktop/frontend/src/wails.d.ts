@@ -35,6 +35,7 @@ declare global {
           ListTools(): Promise<unknown>
           SetToolEnabled(name: string, scope: string, enabled: boolean): Promise<void>
           SetAgentEnabled(name: string, scope: string, enabled: boolean): Promise<void>
+          SetSkillEnabled(name: string, scope: string, enabled: boolean): Promise<void>
           ListFiles(): Promise<unknown>
           ReadArtifact(relPath: string): Promise<string>
           OpenExternal(relPath: string): Promise<void>

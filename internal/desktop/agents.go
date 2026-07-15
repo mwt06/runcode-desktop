@@ -111,7 +111,8 @@ func (a *App) ListAgents() AgentList {
 	a.mu.Unlock()
 	userCfg, _ := os.UserConfigDir()
 	set, problems := engine.LoadAgents(ws, userCfg)
-	_, _, userAgents, projAgents := disabledSets(ws)
+	uc, pc := scopeDisabled(ws)
+	userAgents, projAgents := toStringSet(uc.Agents), toStringSet(pc.Agents)
 	out := AgentList{Agents: []AgentInfo{}, Problems: []AgentProblem{}}
 	for _, ag := range set.All() {
 		out.Agents = append(out.Agents, AgentInfo{

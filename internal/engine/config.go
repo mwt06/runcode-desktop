@@ -80,4 +80,5 @@ type Config struct {
 	// model never sees them; an empty slice disables nothing.
 	DisabledTools  []string
 	DisabledAgents []string
+	DisabledSkills []string
 }

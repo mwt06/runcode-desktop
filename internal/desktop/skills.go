@@ -18,6 +18,10 @@ type SkillInfo struct {
 	Source      string `json:"source"` // "project" or "user"
 	Path        string `json:"path"`
 	Editable    bool   `json:"editable"` // project skills under the workspace can be edited here
+	// DisabledUser / DisabledProject report whether this skill is turned off at that
+	// scope. Effective-enabled = neither is true. Takes effect on the next new session.
+	DisabledUser    bool `json:"disabledUser"`
+	DisabledProject bool `json:"disabledProject"`
 }
 
 // SkillProblem reports a skill directory that failed to load.
@@ -92,15 +96,22 @@ func (a *App) ListSkills() SkillList {
 		roots = append(roots, skill.Root{Dir: project, Source: skill.SourceProject})
 	}
 	set, problems := skill.Load(skill.LoadOptions{Roots: roots})
+	a.mu.Lock()
+	ws := a.workspace
+	a.mu.Unlock()
+	uc, pc := scopeDisabled(ws)
+	userSkills, projSkills := toStringSet(uc.Skills), toStringSet(pc.Skills)
 	out := SkillList{Skills: []SkillInfo{}, Problems: []SkillProblem{}}
 	for _, sk := range set.All() {
 		out.Skills = append(out.Skills, SkillInfo{
-			Name:        sk.Name,
-			Description: sk.Description,
-			Body:        sk.Body,
-			Source:      string(sk.Source),
-			Path:        sk.Path,
-			Editable:    true,
+			Name:            sk.Name,
+			Description:     sk.Description,
+			Body:            sk.Body,
+			Source:          string(sk.Source),
+			Path:            sk.Path,
+			Editable:        true,
+			DisabledUser:    userSkills[sk.Name],
+			DisabledProject: projSkills[sk.Name],
 		})
 	}
 	for _, p := range problems {

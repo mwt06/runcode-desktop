@@ -236,6 +236,8 @@ export interface SkillInfo {
   source: string
   path: string
   editable: boolean
+  disabledUser: boolean
+  disabledProject: boolean
 }
 
 export interface SkillProblem {
@@ -352,6 +354,7 @@ export const loadConfig = () => app().LoadConfig() as Promise<StartSessionReques
 export const listTools = () => app().ListTools() as Promise<ToolInfo[] | null>
 export const setToolEnabled = (name: string, scope: string, enabled: boolean) => app().SetToolEnabled(name, scope, enabled) as Promise<void>
 export const setAgentEnabled = (name: string, scope: string, enabled: boolean) => app().SetAgentEnabled(name, scope, enabled) as Promise<void>
+export const setSkillEnabled = (name: string, scope: string, enabled: boolean) => app().SetSkillEnabled(name, scope, enabled) as Promise<void>
 export const listMCPServers = () => app().ListMCPServers() as Promise<MCPServerInfo[] | null>
 export const saveMCPServer = (s: MCPServerInput) => app().SaveMCPServer(s) as Promise<void>
 export const deleteMCPServer = (name: string) => app().DeleteMCPServer(name) as Promise<void>

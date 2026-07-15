@@ -47,7 +47,8 @@ func (a *App) ListTools() []ToolInfo {
 	ws := a.workspace
 	a.mu.Unlock()
 
-	userTools, projTools, _, _ := disabledSets(ws)
+	uc, pc := scopeDisabled(ws)
+	userTools, projTools := toStringSet(uc.Tools), toStringSet(pc.Tools)
 	out := make([]ToolInfo, 0, 24)
 	seen := make(map[string]bool)
 	add := func(name, desc string, safe bool, source, server string, toggleable bool) {

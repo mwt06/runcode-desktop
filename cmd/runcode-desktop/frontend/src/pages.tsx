@@ -11,7 +11,7 @@ import {
   listAgents, saveAgent, deleteAgent, importAgent,
   saveSettings, pickWorkspaceFolder,
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
-  listTools, setToolEnabled, setAgentEnabled, readProjectContext, saveProjectContext, readMemory,
+  listTools, setToolEnabled, setAgentEnabled, setSkillEnabled, readProjectContext, saveProjectContext, readMemory,
   passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
   listCustomModels, saveCustomModel, deleteCustomModel,
   onEvent, Events,
@@ -250,134 +250,197 @@ function AgentDetail({ agent, onBack, onChanged, onUse }: {
 
 // PluginsPage 是统一的能力管理页：标签页切换 工具/子代理/技能/MCP，顶部选停用
 // 范围 + 搜索，每行图标+名称+描述+iOS 开关(参考设计)。技能/MCP 复用现有管理。
+// SkillDetail 是技能的全屏详情/编辑页。技能均为用户/项目文件，可编辑。
+function SkillDetail({ skill, onBack, onChanged, onUse }: {
+  skill: SkillInfo | 'new'
+  onBack: () => void
+  onChanged: () => void
+  onUse: (name: string) => void
+}) {
+  const isNew = skill === 'new'
+  const sk = isNew ? null : skill
+  const [name, setName] = useState(sk?.name ?? '')
+  const [description, setDescription] = useState(sk?.description ?? '')
+  const [body, setBody] = useState(sk?.body ?? '')
+  const [scope, setScope] = useState(isNew ? 'project' : sk?.source === 'user' ? 'user' : 'project')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
+  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
+  async function save() {
+    setBusy(true); setError('')
+    try { await saveSkill({ originalName: sk?.name ?? '', name: name.trim(), description, body, scope }); onChanged(); onBack() } catch (e) { setError(String(e)) } finally { setBusy(false) }
+  }
+  async function remove() {
+    if (!sk) return
+    setBusy(true); setError('')
+    try { await deleteSkill(sk.name, sk.source); onChanged(); onBack() } catch (e) { setError(String(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="flex-1 overflow-y-auto px-10 py-7">
+      <div className="max-w-[820px] mx-auto flex flex-col gap-4">
+        <button type="button" className="self-start text-[13px] text-muted hover:text-ink inline-flex items-center gap-1" onClick={onBack}>← 返回列表</button>
+        <label className={label}>名称<input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="如 ppt-maker(字母、数字、- 或 _)" /></label>
+        <label className={label}>
+          范围
+          {isNew ? (
+            <select className={field} value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="project">项目(仅本工作区 .runcode/skills)</option>
+              <option value="user">用户(全局，所有项目可用)</option>
+            </select>
+          ) : (
+            <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : '项目(本工作区)'}</div>
+          )}
+        </label>
+        <label className={label}>描述(一句话，告诉 AI 何时加载它)<input className={field} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如 制作 PPT 演示文稿" /></label>
+        <label className={label}>
+          正文(Markdown，技能的完整指令)
+          <textarea className={`${field} min-h-[320px] font-mono text-[13px] leading-[1.6] resize-y`} value={body} onChange={(e) => setBody(e.target.value)} />
+        </label>
+        {error && <div className="text-[12.5px] text-red">{error}</div>}
+        <div className="flex gap-2.5">
+          <button className={`${BTN} ${BTN_PRIMARY}`} disabled={busy || !name.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
+          {!isNew && <button className={BTN} onClick={() => onUse(sk!.name)}>在对话中使用</button>}
+          {!isNew && <button className={`${BTN} ${BTN_DANGER}`} disabled={busy} onClick={remove}>删除</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: string) => void; onUseAgent: (name: string) => void }) {
   const [tab, setTab] = useState<'tools' | 'agents' | 'skills' | 'mcp'>('tools')
   const [scope, setScope] = useState<'project' | 'user'>('project')
   const [query, setQuery] = useState('')
   const [toolList, setToolList] = useState<ToolInfo[]>([])
   const [agentList, setAgentList] = useState<AgentInfo[]>([])
+  const [skillList, setSkillList] = useState<SkillInfo[]>([])
   const [err, setErr] = useState('')
-  const [detail, setDetail] = useState<AgentInfo | 'new' | null>(null)
+  const [detail, setDetail] = useState<{ k: 'agent'; item: AgentInfo | 'new' } | { k: 'skill'; item: SkillInfo | 'new' } | null>(null)
 
   const reloadTools = async () => { try { setToolList((await listTools()) ?? []) } catch { /* ignore */ } }
   const reloadAgents = async () => { try { const l = await listAgents(); setAgentList(l?.agents ?? []) } catch { /* ignore */ } }
-  useEffect(() => { void reloadTools(); void reloadAgents() }, [])
+  const reloadSkills = async () => { try { const l = await listSkills(); setSkillList(l?.skills ?? []) } catch { /* ignore */ } }
+  useEffect(() => { void reloadTools(); void reloadAgents(); void reloadSkills() }, [])
 
-  // 子代理详情为全屏单页(替代分栏)。
-  if (tab === 'agents' && detail !== null) {
-    return <AgentDetail agent={detail} onBack={() => setDetail(null)} onChanged={reloadAgents} onUse={onUseAgent} />
-  }
+  // 详情为全屏单页(替代左右分栏)。
+  if (detail?.k === 'agent') return <AgentDetail agent={detail.item} onBack={() => setDetail(null)} onChanged={reloadAgents} onUse={onUseAgent} />
+  if (detail?.k === 'skill') return <SkillDetail skill={detail.item} onBack={() => setDetail(null)} onChanged={reloadSkills} onUse={onUseSkill} />
 
   const scopeOn = (du: boolean, dp: boolean) => (scope === 'project' ? !dp : !du)
-  const otherOffLabel = (du: boolean, dp: boolean) =>
-    scope === 'project' ? (du ? '全局已停用' : '') : dp ? '本项目已停用' : ''
-  const toggleTool = async (t: ToolInfo, next: boolean) => {
+  const otherOffLabel = (du: boolean, dp: boolean) => (scope === 'project' ? (du ? '全局已停用' : '') : dp ? '本项目已停用' : '')
+  const toggle = (setFn: (n: string, s: string, e: boolean) => Promise<void>, reload: () => Promise<void>) => async (name: string, next: boolean) => {
     setErr('')
-    try { await setToolEnabled(t.name, scope, next); await reloadTools() } catch (e) { setErr(String(e)) }
+    try { await setFn(name, scope, next); await reload() } catch (e) { setErr(String(e)) }
   }
-  const toggleAgent = async (a: AgentInfo, next: boolean) => {
-    setErr('')
-    try { await setAgentEnabled(a.name, scope, next); await reloadAgents() } catch (e) { setErr(String(e)) }
-  }
+  const toggleTool = toggle(setToolEnabled, reloadTools)
+  const toggleAgent = toggle(setAgentEnabled, reloadAgents)
+  const toggleSkill = toggle(setSkillEnabled, reloadSkills)
 
   const q = query.trim().toLowerCase()
   const hit = (a: string, b: string, name: string) => !q || name.toLowerCase().includes(q) || a.toLowerCase().includes(q) || b.toLowerCase().includes(q)
   const shownTools = toolList.filter((t) => t.toggleable).filter((t) => { const z = TOOL_ZH[t.name]; return hit(z?.label ?? '', z?.desc ?? t.description, t.name) })
   const shownAgents = agentList.filter((a) => { const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined; return hit(z?.label ?? '', z?.desc ?? a.description, a.name) })
+  const shownSkills = skillList.filter((s) => hit(s.name, s.description, s.name))
 
   const tabs: { k: typeof tab; label: string; n?: number }[] = [
     { k: 'tools', label: '工具', n: toolList.filter((t) => t.toggleable).length },
     { k: 'agents', label: '子代理', n: agentList.length },
-    { k: 'skills', label: '技能' },
+    { k: 'skills', label: '技能', n: skillList.length },
     { k: 'mcp', label: 'MCP' },
   ]
-  const showControls = tab === 'tools' || tab === 'agents'
+  const showControls = tab !== 'mcp'
   const scopeBtn = (s: 'project' | 'user', text: string) => (
-    <button type="button" onClick={() => setScope(s)} className={`px-3 py-1 text-[12.5px] ${scope === s ? 'bg-primary text-white' : 'text-muted hover:text-ink'}`}>{text}</button>
+    <button type="button" onClick={() => setScope(s)} className={`px-3.5 py-1 text-[12.5px] transition ${scope === s ? 'bg-primary text-white' : 'text-muted hover:text-ink'}`}>{text}</button>
   )
 
-  const row = (icon: string, titleZh: string, rawName: string, tag: string, desc: string, on: boolean, otherOff: string, onToggle: (n: boolean) => void, onClick?: () => void, showRaw?: boolean) => (
+  // 一张能力卡片：图标 + 名称(+原名/徽章) + 描述 + [使用] + iOS 开关。可点击项进入详情。
+  const card = (key: string, icon: string, title: string, raw: string, tag: string, desc: string, on: boolean, otherOff: string, onToggle: (n: boolean) => void, onClick?: () => void, onUse?: () => void) => (
     <div
-      key={rawName}
+      key={key}
       onClick={onClick}
-      className={`flex items-center gap-3.5 py-3 border-b border-line last:border-b-0 ${onClick ? 'cursor-pointer' : ''} ${on ? '' : 'opacity-60'}`}
+      className={`bg-surface border border-line2 rounded-[14px] px-5 py-4 flex items-center gap-4 transition ${onClick ? 'cursor-pointer hover:border-primary hover:shadow-xs' : ''} ${on ? '' : 'opacity-60'}`}
     >
-      <span className="w-9 h-9 rounded-[9px] bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={icon} size={17} /></span>
+      <span className="w-10 h-10 rounded-[11px] bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={icon} size={19} /></span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-[14px] text-ink truncate">{titleZh}</span>
-          {showRaw && <span className="font-mono text-[11px] text-faint flex-none">{rawName}</span>}
-          {tag && <span className="text-[11px] text-faint flex-none">{tag}</span>}
+          <span className="font-semibold text-[14.5px] text-ink truncate">{title}</span>
+          {raw && <span className="font-mono text-[11.5px] text-faint flex-none">{raw}</span>}
+          {tag && <span className="text-[10.5px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{tag}</span>}
         </div>
-        <div className="text-[12.5px] text-muted mt-0.5 truncate">{desc}</div>
+        <div className="text-[12.5px] text-muted mt-1 line-clamp-2 leading-relaxed">{desc}</div>
       </div>
       {otherOff && <span className="text-[11px] text-red/70 flex-none">{otherOff}</span>}
+      {onUse && <button type="button" className="text-[12px] text-muted hover:text-primary flex-none" onClick={(e) => { e.stopPropagation(); onUse() }}>使用</button>}
       <Toggle on={on} onChange={onToggle} />
     </div>
   )
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="px-[30px] pt-7 pb-3 flex-none">
-        <h2 className="m-0 text-[20px] font-bold tracking-tight">插件</h2>
-        <p className="mt-1 text-muted text-[13px]">管理工具、子代理、技能与 MCP</p>
-        <div className="flex items-center gap-3 mt-4">
-          <div className="flex items-center gap-1">
-            {tabs.map((t) => (
-              <button
-                key={t.k}
-                type="button"
-                onClick={() => setTab(t.k)}
-                className={`px-3 py-1.5 rounded-[9px] text-[13px] transition ${tab === t.k ? 'bg-surface2 text-ink font-medium' : 'text-muted hover:text-ink'}`}
-              >
-                {t.label}{t.n !== undefined && <span className="ml-1.5 text-faint text-[12px]">{t.n}</span>}
-              </button>
-            ))}
+      <div className="flex-none px-10 pt-9 pb-5 border-b border-line">
+        <div className="max-w-[1080px] mx-auto">
+          <h2 className="m-0 text-[22px] font-bold tracking-tight">插件</h2>
+          <p className="mt-1.5 text-muted text-[13px]">管理工具、子代理、技能与 MCP · 关闭的不传给模型</p>
+          <div className="flex items-center gap-3 mt-5">
+            <div className="flex items-center gap-1">
+              {tabs.map((t) => (
+                <button
+                  key={t.k}
+                  type="button"
+                  onClick={() => setTab(t.k)}
+                  className={`px-3.5 py-1.5 rounded-[9px] text-[13.5px] transition ${tab === t.k ? 'bg-surface2 text-ink font-medium' : 'text-muted hover:text-ink'}`}
+                >
+                  {t.label}{t.n !== undefined && <span className="ml-1.5 text-faint text-[12px]">{t.n}</span>}
+                </button>
+              ))}
+            </div>
+            {showControls && (
+              <div className="ml-auto relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none"><Icon name="search" size={14} /></span>
+                <input className="w-[240px] font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[10px] pl-9 pr-3 py-2 outline-none focus:border-primary" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索" />
+              </div>
+            )}
+            {tab === 'agents' && <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4 py-2 text-[13px]`} onClick={() => setDetail({ k: 'agent', item: 'new' })}>+ 新建</button>}
+            {tab === 'skills' && <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4 py-2 text-[13px]`} onClick={() => setDetail({ k: 'skill', item: 'new' })}>+ 新建</button>}
           </div>
           {showControls && (
-            <div className="ml-auto flex items-center gap-3">
-              <div className="relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none"><Icon name="search" size={14} /></span>
-                <input className="w-[220px] font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] pl-8 pr-3 py-1.5 outline-none focus:border-primary" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索" />
+            <div className="flex items-center gap-3 mt-4 text-[12.5px]">
+              <span className="text-muted">停用范围</span>
+              <div className="inline-flex rounded-[9px] border border-line2 overflow-hidden">
+                {scopeBtn('project', '本项目')}
+                {scopeBtn('user', '全局(用户级)')}
               </div>
+              <span className="text-faint">下次新建会话生效</span>
             </div>
           )}
-          {tab === 'agents' && (
-            <button type="button" className={`${BTN} ${BTN_PRIMARY} px-3.5 py-1.5 text-[13px]`} onClick={() => setDetail('new')}>+ 新建</button>
-          )}
+          {err && <p className="mt-3 text-red text-[12.5px]">{err}</p>}
         </div>
-        {showControls && (
-          <div className="flex items-center gap-2.5 mt-3 text-[12.5px]">
-            <span className="text-muted">停用范围</span>
-            <div className="inline-flex rounded-[8px] border border-line2 overflow-hidden">
-              {scopeBtn('project', '本项目')}
-              {scopeBtn('user', '全局(用户级)')}
-            </div>
-            <span className="text-faint">关闭的不传给模型，下次新建会话生效</span>
-          </div>
-        )}
-        {err && <p className="mt-2 text-red text-[12.5px]">{err}</p>}
       </div>
 
-      {tab === 'skills' ? (
-        <SkillsPage onUse={onUseSkill} />
-      ) : tab === 'mcp' ? (
+      {tab === 'mcp' ? (
         <MCPPage />
       ) : (
-        <div className="flex-1 overflow-y-auto px-[30px] pb-8">
-          <div className="max-w-[860px] mx-auto">
-            {tab === 'tools'
-              ? shownTools.map((t) => {
-                  const z = TOOL_ZH[t.name]
-                  return row(PLUGIN_ICON[t.name] ?? 'grid', z?.label ?? t.name, t.name, t.source === 'mcp' ? (t.server ?? '') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t, n), undefined, !!z)
-                })
-              : shownAgents.map((a) => {
-                  const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined
-                  const badge = a.source === 'builtin' ? '内置' : a.source === 'user' ? '用户' : '项目'
-                  return row(PLUGIN_ICON[a.name] ?? 'bot', z?.label ?? a.name, a.name, badge, z?.desc ?? a.description, scopeOn(a.disabledUser, a.disabledProject), otherOffLabel(a.disabledUser, a.disabledProject), (n) => toggleAgent(a, n), () => setDetail(a), !!z)
-                })}
-            {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-10">没有匹配的工具</div>}
-            {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-10">没有匹配的子代理</div>}
+        <div className="flex-1 overflow-y-auto px-10 py-6">
+          <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
+            {tab === 'tools' && shownTools.map((t) => {
+              const z = TOOL_ZH[t.name]
+              return card('t/' + t.name, PLUGIN_ICON[t.name] ?? 'grid', z?.label ?? t.name, z ? t.name : '', t.source === 'mcp' ? (t.server ?? 'MCP') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t.name, n))
+            })}
+            {tab === 'agents' && shownAgents.map((a) => {
+              const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined
+              const badge = a.source === 'builtin' ? '内置' : a.source === 'user' ? '用户' : '项目'
+              // 内置子代理不可查看详情(只读)；用户/项目的点击进入编辑。所有子代理都可「使用」。
+              const onClick = a.source === 'builtin' ? undefined : () => setDetail({ k: 'agent', item: a })
+              return card('a/' + a.source + '/' + a.name, PLUGIN_ICON[a.name] ?? 'bot', z?.label ?? a.name, z ? a.name : '', badge, z?.desc ?? a.description, scopeOn(a.disabledUser, a.disabledProject), otherOffLabel(a.disabledUser, a.disabledProject), (n) => toggleAgent(a.name, n), onClick, () => onUseAgent(a.name))
+            })}
+            {tab === 'skills' && shownSkills.map((s) => {
+              const badge = s.source === 'user' ? '用户' : '项目'
+              return card('s/' + s.source + '/' + s.name, 'book', s.name, '', badge, s.description, scopeOn(s.disabledUser, s.disabledProject), otherOffLabel(s.disabledUser, s.disabledProject), (n) => toggleSkill(s.name, n), () => setDetail({ k: 'skill', item: s }))
+            })}
+            {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-16">没有匹配的工具</div>}
+            {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-16">没有匹配的子代理</div>}
+            {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建一个</div>}
           </div>
         </div>
       )}

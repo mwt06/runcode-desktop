@@ -12,7 +12,7 @@ func TestSetToolEnabledUserScopePersistsAndReflects(t *testing.T) {
 	if err := app.SetToolEnabled("Bash", "user", false); err != nil {
 		t.Fatalf("disable Bash: %v", err)
 	}
-	tools, _ := effectiveDisabled("")
+	tools, _, _ := effectiveDisabled("")
 	if !contains(tools, "Bash") {
 		t.Fatalf("effective disabled tools = %v, want Bash", tools)
 	}
@@ -34,7 +34,7 @@ func TestSetToolEnabledUserScopePersistsAndReflects(t *testing.T) {
 	if err := app.SetToolEnabled("Bash", "user", true); err != nil {
 		t.Fatalf("enable Bash: %v", err)
 	}
-	if tools, _ = effectiveDisabled(""); contains(tools, "Bash") {
+	if tools, _, _ = effectiveDisabled(""); contains(tools, "Bash") {
 		t.Fatalf("Bash still disabled after enable: %v", tools)
 	}
 }

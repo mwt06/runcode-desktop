@@ -97,8 +97,8 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 	// misconfigured server must not block session start in the GUI, so on any error
 	// we start without MCP; the MCP management page surfaces config problems.
 	cfg.MCPServers, cfg.AllowMCPSampling = loadDesktopMCP(abs)
-	// Tools / sub-agents the user turned off (user-global ∪ this workspace).
-	cfg.DisabledTools, cfg.DisabledAgents = effectiveDisabled(abs)
+	// Tools / sub-agents / skills the user turned off (user-global ∪ this workspace).
+	cfg.DisabledTools, cfg.DisabledAgents, cfg.DisabledSkills = effectiveDisabled(abs)
 	return cfg, nil
 }
 

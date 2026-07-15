@@ -132,6 +132,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
 	skillSet, skillProblems := LoadSkills(cfg.CWD, userConfigDir())
 	reportSkillProblems(warn, skillProblems)
+	skillSet = filterDisabledSkills(skillSet, cfg.DisabledSkills)
 	// The Skill tool is always registered (even with no skills yet) so the desktop
 	// can hot-add skills mid-session via ReloadSkills. With an empty catalog the
 	// model has nothing to load, so it won't call it.
@@ -271,6 +272,26 @@ func filterDisabledAgents(set *agent.Set, disabled []string) *agent.Set {
 		}
 	}
 	return agent.NewSet(kept)
+}
+
+// filterDisabledSkills rebuilds the skill set without the disabled names, so a
+// skill the user turned off is neither disclosed by the Skill tool nor listed in
+// the prompt catalog.
+func filterDisabledSkills(set *skill.Set, disabled []string) *skill.Set {
+	if len(disabled) == 0 || set == nil {
+		return set
+	}
+	off := make(map[string]bool, len(disabled))
+	for _, n := range disabled {
+		off[n] = true
+	}
+	kept := make([]skill.Skill, 0, set.Len())
+	for _, s := range set.All() {
+		if !off[s.Name] {
+			kept = append(kept, s)
+		}
+	}
+	return skill.NewSet(kept)
 }
 
 // defaultHarmJudgeModel is the independent model the harm-judge check falls back

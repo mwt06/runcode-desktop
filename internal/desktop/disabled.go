@@ -17,6 +17,7 @@ import (
 type disabledConfig struct {
 	Tools  []string `json:"tools"`
 	Agents []string `json:"agents"`
+	Skills []string `json:"skills"`
 }
 
 func userDisabledPath() (string, error) {
@@ -61,25 +62,20 @@ func saveDisabled(path string, c disabledConfig) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-// effectiveDisabled 返回某工作区下用户级 ∪ 项目级的关闭名单(工具、子代理)。
-func effectiveDisabled(workspace string) (tools, agents []string) {
-	var uc disabledConfig
-	if p, err := userDisabledPath(); err == nil {
-		uc = loadDisabled(p)
-	}
-	pc := loadDisabled(projectDisabledPath(workspace))
-	return unionStrings(uc.Tools, pc.Tools), unionStrings(uc.Agents, pc.Agents)
+// effectiveDisabled 返回某工作区下用户级 ∪ 项目级的关闭名单(工具、子代理、技能)。
+func effectiveDisabled(workspace string) (tools, agents, skills []string) {
+	uc, pc := scopeDisabled(workspace)
+	return unionStrings(uc.Tools, pc.Tools), unionStrings(uc.Agents, pc.Agents), unionStrings(uc.Skills, pc.Skills)
 }
 
-// disabledSets 返回某工作区下用户级、项目级各自的关闭集合(供 UI 显示每个作用域
+// scopeDisabled 返回某工作区下用户级、项目级各自的关闭清单(供 UI 显示每个作用域
 // 的状态)。
-func disabledSets(workspace string) (userTools, projTools, userAgents, projAgents map[string]bool) {
-	var uc disabledConfig
+func scopeDisabled(workspace string) (user, project disabledConfig) {
 	if p, err := userDisabledPath(); err == nil {
-		uc = loadDisabled(p)
+		user = loadDisabled(p)
 	}
-	pc := loadDisabled(projectDisabledPath(workspace))
-	return toStringSet(uc.Tools), toStringSet(pc.Tools), toStringSet(uc.Agents), toStringSet(pc.Agents)
+	project = loadDisabled(projectDisabledPath(workspace))
+	return user, project
 }
 
 func toStringSet(list []string) map[string]bool {
@@ -141,17 +137,24 @@ func (a *App) disabledScopePath(scope string) (string, error) {
 	}
 }
 
-// setDisabled 在指定作用域开关一个工具或子代理，落盘后刷新内存中的会话配置，
-// 使下次新建/恢复会话生效。isTool=false 表示操作的是子代理。
-func (a *App) setDisabled(scope string, enabled bool, name string, isTool bool) error {
+// setDisabled 在指定作用域开关一个工具/子代理/技能(kind)，落盘后刷新内存中的
+// 会话配置，使下次新建/恢复会话生效。
+func (a *App) setDisabled(scope, kind string, enabled bool, name string) error {
 	path, err := a.disabledScopePath(scope)
 	if err != nil {
 		return err
 	}
 	c := loadDisabled(path)
-	target := &c.Agents
-	if isTool {
+	var target *[]string
+	switch kind {
+	case "tool":
 		target = &c.Tools
+	case "agent":
+		target = &c.Agents
+	case "skill":
+		target = &c.Skills
+	default:
+		return errors.New("未知的类型")
 	}
 	if enabled {
 		*target = removeString(*target, name)
@@ -171,19 +174,25 @@ func (a *App) refreshDisabledInConfig() {
 	a.mu.Lock()
 	ws := a.workspace
 	a.mu.Unlock()
-	t, ag := effectiveDisabled(ws)
+	t, ag, sk := effectiveDisabled(ws)
 	a.mu.Lock()
 	a.config.DisabledTools = t
 	a.config.DisabledAgents = ag
+	a.config.DisabledSkills = sk
 	a.mu.Unlock()
 }
 
 // SetToolEnabled 在 scope("user"/"project")开关一个工具。下次新建会话生效。
 func (a *App) SetToolEnabled(name, scope string, enabled bool) error {
-	return a.setDisabled(scope, enabled, name, true)
+	return a.setDisabled(scope, "tool", enabled, name)
 }
 
 // SetAgentEnabled 在 scope("user"/"project")开关一个子代理。下次新建会话生效。
 func (a *App) SetAgentEnabled(name, scope string, enabled bool) error {
-	return a.setDisabled(scope, enabled, name, false)
+	return a.setDisabled(scope, "agent", enabled, name)
+}
+
+// SetSkillEnabled 在 scope("user"/"project")开关一个技能。下次新建会话生效。
+func (a *App) SetSkillEnabled(name, scope string, enabled bool) error {
+	return a.setDisabled(scope, "skill", enabled, name)
 }
