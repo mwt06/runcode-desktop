@@ -1284,6 +1284,9 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   useEffect(() => {
     if (autoStarted.current || !passport.loggedIn || starting || error) return
     if (!(initial.cwd ?? '').trim()) return
+    // 只有上次保存的就是通行证会话才自动进入；旧的手动配置一律显示表单，
+    // 让用户能选择租户 + 平台模型（否则会被旧配置直接带进会话，看不到选择界面）。
+    if (initial.provider !== 'passport') return
     const req = buildRequest()
     if (!req || !(req.model ?? '').trim()) return
     autoStarted.current = true
