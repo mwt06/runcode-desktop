@@ -311,6 +311,7 @@ export interface PassportModel {
 export interface PassportTenant {
   id: string
   name: string
+  parentId: string
 }
 
 export interface CustomModel {
