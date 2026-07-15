@@ -13,6 +13,7 @@ import {
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
   listTools, setToolEnabled, setAgentEnabled, setSkillEnabled, readProjectContext, saveProjectContext, readMemory,
   passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
+  setActiveTenant, activeTenant,
   listCustomModels, saveCustomModel, deleteCustomModel,
   onEvent, Events,
   type SkillInfo, type SkillList,
@@ -883,6 +884,34 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   useEffect(() => {
     void (async () => { try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ } })()
   }, [])
+  // 账号：登录态 + 租户切换。
+  const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
+  const [tenants, setTenants] = useState<PassportTenant[]>([])
+  const [tenantId, setTenantId] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
+  const [acctMsg, setAcctMsg] = useState('')
+  const refreshAccount = async () => {
+    try {
+      const st = await passportStatus()
+      setPassport(st)
+      if (st.loggedIn) {
+        setTenants((await passportTenants()) ?? [])
+        setTenantId(await activeTenant())
+      } else { setTenants([]) }
+    } catch { /* ignore */ }
+  }
+  useEffect(() => {
+    void refreshAccount()
+    return onEvent<PassportStatus>(Events.PassportChanged, () => void refreshAccount())
+  }, [])
+  const doAcctLogin = async () => {
+    setLoggingIn(true); setAcctMsg('')
+    try { await passportLogin(); await refreshAccount() } catch (e) { setAcctMsg(String(e)) } finally { setLoggingIn(false) }
+  }
+  const onSwitchTenant = async (tid: string) => {
+    setTenantId(tid); setAcctMsg('')
+    try { await setActiveTenant(tid) } catch (e) { setAcctMsg(String(e)) }
+  }
   const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
   const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
 
@@ -926,6 +955,32 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
           <h2 className="m-0 text-[20px] font-bold tracking-tight">设置</h2>
           <p className="mt-1 text-muted text-[13px]">模型与权限模式即时生效；连接设置在下次新建会话时生效。</p>
         </div>
+
+        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
+          <div className="text-[13px] font-semibold text-ink">账号(通行证)</div>
+          {passport.loggedIn ? (
+            <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+              <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
+              <button type="button" className="text-[12.5px] text-muted hover:text-red" onClick={() => { void passportLogout() }}>登出</button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin()}>
+                {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
+              </button>
+              {loggingIn && <button type="button" className="text-[12px] text-muted" onClick={() => void passportCancelLogin()}>取消</button>}
+            </div>
+          )}
+          {passport.loggedIn && tenants.length > 0 && (
+            <label className={label}>租户(切换后下次新建会话生效)
+              <select className={field} value={tenantId} onChange={(e) => void onSwitchTenant(e.target.value)}>
+                {!tenants.some((t) => t.id === tenantId) && <option value={tenantId}>{tenantId || '(令牌自带租户)'}</option>}
+                {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}（{t.id}）</option>)}
+              </select>
+            </label>
+          )}
+          {acctMsg && <div className="text-red text-[12.5px]">{acctMsg}</div>}
+        </section>
 
         <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
           <div className="text-[13px] font-semibold text-ink">会话</div>

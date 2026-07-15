@@ -397,7 +397,10 @@ export const passportLogin = () => app().PassportLogin() as Promise<PassportStat
 export const passportCancelLogin = () => app().PassportCancelLogin()
 export const passportLogout = () => app().PassportLogout()
 export const passportTenants = () => app().PassportTenants() as Promise<PassportTenant[] | null>
+export const setActiveTenant = (tenantId: string) => app().SetActiveTenant(tenantId) as Promise<void>
+export const activeTenant = () => app().ActiveTenant() as Promise<string>
 export const passportModels = (tenantId: string) => app().PassportModels(tenantId) as Promise<PassportModel[] | null>
+export const sessionModels = () => app().SessionModels() as Promise<PassportModel[] | null>
 export const listCustomModels = () => app().ListCustomModels() as Promise<CustomModel[] | null>
 export const saveCustomModel = (m: CustomModel) => app().SaveCustomModel(m) as Promise<CustomModel[] | null>
 export const deleteCustomModel = (name: string) => app().DeleteCustomModel(name) as Promise<CustomModel[] | null>

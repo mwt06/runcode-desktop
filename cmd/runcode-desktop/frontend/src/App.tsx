@@ -11,6 +11,8 @@ import {
   interrupt,
   resolvePermission,
   setPermissionMode,
+  setModel,
+  sessionModels,
   setPlanMode,
   setReasoningScenario,
   setThinkingEffort,
@@ -39,6 +41,7 @@ import {
   type AgentList,
   type SessionInfo,
   type SessionSummary,
+  type PassportModel,
   type StartSessionRequest,
   type PermissionRequest,
   type ToolEvent,
@@ -283,6 +286,19 @@ export default function App() {
   const [started, setStarted] = useState(false)
   const [view, setView] = useState<'chat' | 'settings' | 'plugins' | 'permissions' | 'memory'>('chat')
   const [info, setInfo] = useState<SessionInfo | null>(null)
+  // 对话内模型选择器：点底部模型名弹出，模糊检索，最多显示 10 个。
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [modelOptions, setModelOptions] = useState<PassportModel[]>([])
+  const [modelQuery, setModelQuery] = useState('')
+  const openModelPicker = async () => {
+    setModelQuery('')
+    setModelPickerOpen(true)
+    try { setModelOptions((await sessionModels()) ?? []) } catch { setModelOptions([]) }
+  }
+  const pickModel = async (id: string) => {
+    setModelPickerOpen(false)
+    try { await setModel(id); setInfo((prev) => (prev ? { ...prev, model: id } : prev)) } catch { /* 切换失败保持原样 */ }
+  }
   const infoRef = useRef(info)
   useEffect(() => {
     infoRef.current = info
@@ -1403,7 +1419,53 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="font-mono text-[12px] text-muted bg-surface2 border border-line px-[11px] py-[5px] rounded-lg">模型 · {info?.model}</span>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => (modelPickerOpen ? setModelPickerOpen(false) : void openModelPicker())}
+                  className="font-mono text-[12px] text-muted bg-surface2 border border-line px-[11px] py-[5px] rounded-lg inline-flex items-center gap-1.5 hover:border-primary hover:text-ink transition"
+                  title="点击切换模型"
+                >
+                  模型 · {info?.model}
+                  <Icon name="chevron-down" size={12} />
+                </button>
+                {modelPickerOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setModelPickerOpen(false)} />
+                    <div className="absolute bottom-full right-0 mb-2 w-[320px] max-h-[380px] bg-surface border border-line2 rounded-[13px] shadow-[0_18px_50px_rgba(30,35,60,0.22)] z-20 flex flex-col overflow-hidden">
+                      <div className="p-2.5 border-b border-line">
+                        <input
+                          autoFocus
+                          value={modelQuery}
+                          onChange={(e) => setModelQuery(e.target.value)}
+                          placeholder="搜索模型…"
+                          className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2 outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="overflow-y-auto py-1">
+                        {(() => {
+                          const q = modelQuery.trim().toLowerCase()
+                          const matches = modelOptions.filter((m) => !q || m.id.toLowerCase().includes(q) || (m.ownedBy ?? '').toLowerCase().includes(q)).slice(0, 10)
+                          if (modelOptions.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">无可选模型(仅通行证会话可切换)</div>
+                          if (matches.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">没有匹配的模型</div>
+                          return matches.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => void pickModel(m.id)}
+                              className={`w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 transition ${m.id === info?.model ? 'text-primary' : 'text-ink'}`}
+                            >
+                              <span className="font-mono text-[12.5px] truncate flex-1">{m.id}</span>
+                              {m.ownedBy && <span className="text-[11px] text-faint flex-none">{m.ownedBy}</span>}
+                              {m.id === info?.model && <span className="text-primary text-[13px] flex-none">✓</span>}
+                            </button>
+                          ))
+                        })()}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
               {busy ? (
                 <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(224,86,74,0.3)] hover:brightness-105" onClick={() => interrupt()} title="停止"><Icon name="stop" size={16} /></button>
               ) : (

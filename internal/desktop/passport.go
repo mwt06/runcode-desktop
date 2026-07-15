@@ -217,6 +217,42 @@ func (a *App) PassportTenants() ([]PassportTenant, error) {
 	return tenants, nil
 }
 
+// SetActiveTenant 切换当前活动租户：持久化到 desktop.json，并更新内存配置(供对话内
+// 模型选择器与下次新建/恢复会话使用)。仅在通行证会话下更新 baseURL。
+func (a *App) SetActiveTenant(tenantID string) error {
+	tenantID = strings.TrimSpace(tenantID)
+	raw := loadRawConfig()
+	raw.TenantID = tenantID
+	saveRawConfig(raw)
+	pc := passportConfig()
+	a.mu.Lock()
+	a.passportTenant = tenantID
+	if a.config.Provider == "openai" && strings.HasPrefix(a.config.BaseURL, pc.BridgeBaseURL) {
+		a.config.BaseURL = pc.BridgeBaseURL + tenantPathPrefix(tenantID) + "/v1"
+	}
+	a.mu.Unlock()
+	return nil
+}
+
+// ActiveTenant 返回当前活动租户 id(可能为空 = 令牌自带租户)。
+func (a *App) ActiveTenant() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.passportTenant
+}
+
+// SessionModels 返回当前通行证会话所选租户的平台模型，供对话内模型选择器使用；
+// 未登录返回空。
+func (a *App) SessionModels() ([]PassportModel, error) {
+	if !a.tokens.LoggedIn() {
+		return nil, nil
+	}
+	a.mu.Lock()
+	tid := a.passportTenant
+	a.mu.Unlock()
+	return a.PassportModels(tid)
+}
+
 // PassportModels 经 Bridge 列指定租户的平台模型（tenantID 空 = 令牌自带租户）。
 func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 	body, err := a.bridgeGet(tenantPathPrefix(tenantID) + "/v1/models")
@@ -300,6 +336,9 @@ func (a *App) applyPassport(cfg engine.Config, req StartSessionRequest) engine.C
 	cfg.TokenSource = a.tokens.Token
 	// 服务端 401(令牌过期/被拒)时强制刷新一次令牌后重试。
 	cfg.OnUnauthorized = a.tokens.ForceRefresh
+	a.mu.Lock()
+	a.passportTenant = strings.TrimSpace(req.TenantID)
+	a.mu.Unlock()
 	return cfg
 }
 

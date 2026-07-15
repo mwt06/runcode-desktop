@@ -73,6 +73,9 @@ type App struct {
 	tokens       *tokenManager
 	passportUser *PassportStatus
 	loginCancel  context.CancelFunc
+	// passportTenant is the tenant selected for the active passport session, so the
+	// in-chat model picker can list that tenant's models.
+	passportTenant string
 }
 
 // New returns an App that emits events to sink.
