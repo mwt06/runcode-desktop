@@ -1186,8 +1186,18 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     try {
       const st = await passportStatus()
       setPassport(st)
-      if (st.loggedIn) setPlatformModels((await passportModels()) ?? [])
-    } catch { /* Bridge 不可达时留空，界面提示 */ }
+      if (st.loggedIn) {
+        try {
+          setPlatformModels((await passportModels()) ?? [])
+          setPassportError('')
+        } catch (e) {
+          // 平台模型取不到必须让用户看见（中间服务 401/403/不可达都会走到这），
+          // 否则下拉里平台分组静默消失，无从排查。
+          setPlatformModels([])
+          setPassportError(`获取平台模型失败：${String(e)}`)
+        }
+      }
+    } catch { /* 登录状态读取失败：保持当前状态 */ }
     try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
   }
   useEffect(() => {

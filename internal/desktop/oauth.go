@@ -194,11 +194,32 @@ func (cs *callbackServer) handle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if result.Err != nil {
-		_, _ = w.Write([]byte("<html><body style='font-family:sans-serif'><h3>登录未完成</h3><p>请返回应用重试。</p></body></html>"))
+		_, _ = w.Write([]byte(callbackPage("✕", "#e5484d", "登录未完成", "授权未成功，请返回应用重试。")))
 	} else {
-		_, _ = w.Write([]byte("<html><body style='font-family:sans-serif'><h3>登录成功</h3><p>您可以关闭此页面并返回应用。</p></body></html>"))
+		_, _ = w.Write([]byte(callbackPage("✓", "#2e6bff", "登录成功", "您可以关闭此页面，返回应用继续。")))
 	}
 	cs.result <- result
+}
+
+// callbackPage 渲染浏览器回调结果页。内容全部为静态常量拼接（图标/颜色/文案
+// 均来自本函数的调用点），不反射任何请求参数，无注入面。
+func callbackPage(mark, color, title, subtitle string) string {
+	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>` + title + `</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  font-family:'Segoe UI','Microsoft YaHei',sans-serif;
+  background:linear-gradient(160deg,#eef3fb 0%,#f6f8fd 45%,#e8f0fc 100%);">
+<div style="background:#fff;border-radius:20px;padding:56px 72px;text-align:center;
+  box-shadow:0 18px 50px rgba(46,107,255,.12);">
+  <div style="width:76px;height:76px;margin:0 auto 22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:38px;font-weight:700;
+    background:linear-gradient(135deg,` + color + `,` + color + `cc);
+    box-shadow:0 10px 26px ` + color + `40;">` + mark + `</div>
+  <div style="font-size:22px;font-weight:700;color:#1c2b4a;letter-spacing:.04em;">` + title + `</div>
+  <div style="margin-top:10px;font-size:14px;color:#7a8699;">` + subtitle + `</div>
+  <div style="margin-top:26px;font-size:12px;color:#aab3c2;">智开AI · 统一认证</div>
+</div>
+</body></html>`
 }
 
 // Close 停止监听。可安全多次调用。
