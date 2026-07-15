@@ -23,6 +23,36 @@ import {
   type PassportStatus, type PassportModel, type PassportTenant, type CustomModel,
 } from './bridge'
 
+// 内置工具/子代理的中文显示映射。仅用于界面展示——发送给模型的工具定义、
+// 子代理名称与描述、以及 prompt 全部保持原样(英文),所以模型的工具调用与
+// 委派判断不受影响。MCP/用户自定义的工具与子代理不在此映射内，按原样显示。
+const TOOL_ZH: Record<string, { label: string; desc: string }> = {
+  Read: { label: '读取文件', desc: '读取文件内容。文本返回带行号的内容；图片(png/jpg/jpeg/gif/webp)直接返回图像。' },
+  Write: { label: '写入文件', desc: '创建或覆盖写入一个文件。' },
+  Edit: { label: '编辑文件', desc: '在已读取的文件里做精确文本替换。' },
+  Delete: { label: '删除', desc: '删除工作区里的文件或目录，默认移入回收站(可恢复)，permanent=true 则不可逆删除。' },
+  Glob: { label: '查找文件', desc: '按 glob 通配符查找工作区文件。' },
+  Grep: { label: '搜索代码', desc: '用正则搜索工作区文件内容，支持内容/文件名/计数等输出模式、上下文行与多行匹配。' },
+  Bash: { label: '运行命令', desc: '在工作区执行非交互 shell 命令(需授权，Windows 用 cmd，其余用 bash)。' },
+  BashOutput: { label: '后台命令输出', desc: '读取后台运行命令的新增输出。' },
+  KillShell: { label: '终止后台命令', desc: '终止一个后台运行的命令。' },
+  TodoWrite: { label: '规划任务', desc: '记录当前任务清单，每次传完整列表并替换上一次。' },
+  WebFetch: { label: '抓取网页', desc: '抓取一个网址并按提示词处理其内容。' },
+  WebSearch: { label: '联网搜索', desc: '通过搜索引擎联网检索并返回结果(标题、网址、摘要)。' },
+  Analyze: { label: '结构化分析', desc: '为当前思考协议记录结构化分析。' },
+  AskUser: { label: '询问用户', desc: '向用户提问并停下等待回复，用于需要用户决策或缺少关键信息时。' },
+  open_preview: { label: '预览产物', desc: '在桌面预览面板打开工作区文件(仅桌面版)。' },
+  Task: { label: '委派子代理', desc: '把一个自包含的子任务委派给子代理独立执行。' },
+  Skill: { label: '加载技能', desc: '加载并执行一个已定义的技能。' },
+}
+const AGENT_ZH: Record<string, { label: string; desc: string }> = {
+  'general-purpose': { label: '通用代理', desc: '通用型代理，用于研究复杂问题、检索代码库、执行多步骤任务。任务开放式或没把握几步内找到答案时使用。' },
+  'code-reviewer': { label: '代码审查', desc: '审查 diff 或一组文件，找出 bug、安全与质量问题，只报高置信度发现并给出具体修法。只读，写完/改完代码后用。' },
+  'code-explorer': { label: '代码探索', desc: '追踪某个功能或流程在代码库里如何工作，返回关键文件、类型、调用路径的地图。只读，改陌生代码前用来理解。' },
+  planner: { label: '实现规划', desc: '研究代码库并产出有序的实现计划(要改哪些文件、构建顺序、风险)，不做任何改动。只读，动手前用来设计非平凡改动。' },
+  debugger: { label: '调试定位', desc: '带证据定位失败根因(崩溃、测试失败、输出错误)并给出最小修法但不落地。出问题且原因不明时用。' },
+}
+
 export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
   const [list, setList] = useState<SkillList>({ skills: [], problems: [] })
   const [sel, setSel] = useState<string | 'new' | null>(null)
@@ -343,14 +373,19 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
             {list.agents.length === 0 ? (
               <div className="text-faint text-[13px] px-1 py-3 text-center border border-dashed border-line2 rounded-[11px]">还没有子代理<br />点「新建」或「导入」</div>
             ) : (
-              list.agents.map((ag) => (
+              list.agents.map((ag) => {
+                // 内置子代理用中文名+描述，同时保留真实名(供 @ 引用)；用户/项目
+                // 自定义的按原样显示。
+                const zh = ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
+                return (
                 <div
                   key={ag.source + '/' + ag.name}
                   onClick={() => edit(ag)}
                   className={`group p-3 rounded-[11px] border cursor-pointer transition ${sel === ag.name ? 'border-primary bg-primarysoft' : 'border-line2 bg-surface hover:border-primary'}`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[13.5px] text-ink truncate min-w-0">{ag.name}</span>
+                    <span className="font-semibold text-[13.5px] text-ink truncate min-w-0">{zh?.label ?? ag.name}</span>
+                    {zh && <span className="font-mono text-[11px] text-faint flex-none">{ag.name}</span>}
                     <span className="text-[10px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{sourceBadge(ag.source)}</span>
                     {ag.editable && (
                       <button
@@ -363,9 +398,10 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                       </button>
                     )}
                   </div>
-                  <div className="text-[12px] text-muted mt-1 line-clamp-2">{ag.description}</div>
+                  <div className="text-[12px] text-muted mt-1 line-clamp-2">{zh?.desc ?? ag.description}</div>
                 </div>
-              ))
+                )
+              })
             )}
           </div>
 
@@ -1002,13 +1038,20 @@ export function ToolsPage() {
     const p = `mcp__${t.server}__`
     return t.source === 'mcp' && t.server && t.name.startsWith(p) ? t.name.slice(p.length) : t.name
   }
-  const row = (t: ToolInfo) => (
-    <div key={t.name} className="flex items-start gap-3 py-2.5 border-t border-line first:border-t-0">
-      <span className="font-mono text-[13px] text-ink font-medium flex-none min-w-[132px] break-all" title={t.name}>{shortName(t)}</span>
-      <span className="text-[12.5px] text-muted flex-1 min-w-0 leading-relaxed">{t.description}</span>
-      {t.concurrencySafe && <span className="flex-none text-[10.5px] font-medium text-green bg-green/12 rounded-full px-2 py-0.5 mt-0.5">并行</span>}
-    </div>
-  )
+  const row = (t: ToolInfo) => {
+    // 内置工具用中文名+描述；MCP 工具保持原样(第三方，无中文对照)。
+    const zh = t.source !== 'mcp' ? TOOL_ZH[shortName(t)] : undefined
+    return (
+      <div key={t.name} className="flex items-start gap-3 py-2.5 border-t border-line first:border-t-0">
+        <span className="flex-none min-w-[132px]" title={t.name}>
+          <span className="text-[13px] text-ink font-medium">{zh?.label ?? shortName(t)}</span>
+          {zh && <span className="block font-mono text-[11px] text-faint mt-0.5 break-all">{shortName(t)}</span>}
+        </span>
+        <span className="text-[12.5px] text-muted flex-1 min-w-0 leading-relaxed">{zh?.desc ?? t.description}</span>
+        {t.concurrencySafe && <span className="flex-none text-[10.5px] font-medium text-green bg-green/12 rounded-full px-2 py-0.5 mt-0.5">并行</span>}
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-[22px] py-7">
