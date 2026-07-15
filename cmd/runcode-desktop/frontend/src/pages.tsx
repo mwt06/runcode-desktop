@@ -2,6 +2,8 @@
 // managers and the initial start form. Extracted from App.tsx to keep it focused.
 import { useEffect, useState } from 'react'
 import { Icon, Logo } from './icons'
+import loginBg from './assets/login-bg.jpg'
+import loginMascot from './assets/login-mascot.svg'
 import { Markdown } from './markdown'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
 import {
@@ -1238,6 +1240,37 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     ...customModels.map((m) => `custom:${m.name}`),
   ])
 
+  // 未登录：整屏登录门——背景 + 吉祥物 + 标语 + 唯一的"统一认证登录"入口。
+  // 工作区/模型等表单只在登录成功后出现。
+  if (!passport.loggedIn) {
+    return (
+      <div
+        className="relative flex flex-col items-center justify-center flex-1 min-h-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${loginBg})` }}
+      >
+        <img src={loginMascot} alt="" draggable={false} className="w-[190px] h-auto select-none pointer-events-none" />
+        <h1 className="mt-7 mb-12 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
+          智开AI，您的AI办公助手
+        </h1>
+        <button
+          type="button"
+          disabled={loggingIn}
+          onClick={() => void doLogin()}
+          className="w-[300px] py-3.5 rounded-full text-white text-[16px] font-semibold tracking-[0.15em] shadow-[0_10px_24px_rgba(46,107,255,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-70 disabled:cursor-default"
+          style={{ background: 'linear-gradient(90deg, #2050d8 0%, #3f7bff 55%, #55a5ff 100%)' }}
+        >
+          {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
+        </button>
+        {loggingIn && (
+          <button type="button" className="mt-4 text-[13px] text-muted hover:text-ink" onClick={() => void passportCancelLogin()}>
+            取消登录
+          </button>
+        )}
+        {passportError && <div className="mt-4 max-w-[420px] text-center text-red text-[13px]">{passportError}</div>}
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center justify-center flex-1 min-h-0 p-6">
       <div className="w-[480px] bg-surface rounded-[18px] p-8 flex flex-col gap-[13px] shadow-card">
@@ -1248,20 +1281,10 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             <p className="mt-[3px] text-muted text-[13px]">你的 AI 编程伙伴 · 打开一个工作区开始会话</p>
           </div>
         </div>
-        {passport.loggedIn ? (
-          <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
-            <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
-            <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doLogin()}>
-              {loggingIn ? '等待浏览器登录…' : '通行证登录'}
-            </button>
-            {loggingIn && <button type="button" className="text-[12px] text-muted" onClick={() => void passportCancelLogin()}>取消</button>}
-            {passportError && <div className="text-red text-[12.5px]">{passportError}</div>}
-          </div>
-        )}
+        <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+          <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
+          <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
+        </div>
         <div className={label}>工作区目录
           <div className="flex gap-2">
             <input className={`${field} flex-1 min-w-0`} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="C:\path\to\project" />
