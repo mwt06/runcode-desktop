@@ -12,7 +12,7 @@ import {
   saveSettings, pickWorkspaceFolder,
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
   listTools, readProjectContext, saveProjectContext, readMemory,
-  passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels,
+  passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
   listCustomModels, saveCustomModel, deleteCustomModel,
   onEvent, Events,
   type SkillInfo, type SkillList,
@@ -20,7 +20,7 @@ import {
   type MCPServerInfo, type MCPServerInput,
   type ToolInfo, type ProjectContextInfo, type MemoryInfo,
   type SessionInfo, type StartSessionRequest,
-  type PassportStatus, type PassportModel, type CustomModel,
+  type PassportStatus, type PassportModel, type PassportTenant, type CustomModel,
 } from './bridge'
 
 export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
@@ -1150,6 +1150,8 @@ function shortenPath(p: string): string {
 export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: StartSessionRequest }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
   const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
+  const [tenants, setTenants] = useState<PassportTenant[]>([])
+  const [tenantId, setTenantId] = useState(initial.tenantId ?? '')
   const [platformModels, setPlatformModels] = useState<PassportModel[]>([])
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [loggingIn, setLoggingIn] = useState(false)
@@ -1180,22 +1182,40 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     } catch { /* user cancelled the native picker */ }
   }
 
-  // refreshPassport re-syncs login status + the two model catalogs it feeds
-  // (platform models require a live login; custom models are local either way).
+  // loadModels 拉取指定租户的平台模型；失败必须显式提示（不静默清空）。
+  const loadModels = async (tid: string) => {
+    try {
+      setPlatformModels((await passportModels(tid)) ?? [])
+      setPassportError('')
+    } catch (e) {
+      setPlatformModels([])
+      setPassportError(`获取平台模型失败：${String(e)}`)
+    }
+  }
+
+  // refreshPassport re-syncs login status, the tenant list, the platform models
+  // for the active tenant, and the local custom models. Single tenant → auto-
+  // select; multiple → keep the persisted/selected one (or first) and let the
+  // user switch. Platform models require a live login; custom models are local.
   const refreshPassport = async () => {
     try {
       const st = await passportStatus()
       setPassport(st)
       if (st.loggedIn) {
+        let tid = tenantId
         try {
-          setPlatformModels((await passportModels()) ?? [])
-          setPassportError('')
+          const list = (await passportTenants()) ?? []
+          setTenants(list)
+          // 选定租户：沿用已选（若仍有效），否则取第一个；无租户则留空走令牌自带。
+          if (list.length > 0 && !list.some((t) => t.id === tid)) {
+            tid = list[0].id
+          }
+          setTenantId(tid)
         } catch (e) {
-          // 平台模型取不到必须让用户看见（中间服务 401/403/不可达都会走到这），
-          // 否则下拉里平台分组静默消失，无从排查。
-          setPlatformModels([])
-          setPassportError(`获取平台模型失败：${String(e)}`)
+          setTenants([])
+          setPassportError(`获取租户列表失败：${String(e)}`)
         }
+        await loadModels(tid)
       }
     } catch { /* 登录状态读取失败：保持当前状态 */ }
     try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
@@ -1204,10 +1224,17 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     void refreshPassport()
     return onEvent<PassportStatus>(Events.PassportChanged, (st) => {
       setPassport(st)
-      if (!st.loggedIn) { setPlatformModels([]); setModelChoice('manual') }
+      if (!st.loggedIn) { setPlatformModels([]); setTenants([]); setModelChoice('manual') }
       else void refreshPassport()
     })
   }, [])
+
+  // 用户切换租户：重拉该租户模型，清掉可能已失效的平台模型选择。
+  const switchTenant = async (tid: string) => {
+    setTenantId(tid)
+    if (modelChoice.startsWith('passport:')) setModelChoice('manual')
+    await loadModels(tid)
+  }
 
   const doLogin = async () => {
     setLoggingIn(true); setPassportError('')
@@ -1230,7 +1257,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     const base = { cwd, permissionMode, thinkingEffort, maxContextTokens, harmJudgeModel, harmJudgeVotes }
     if (modelChoice.startsWith('passport:')) {
       if (!passport.loggedIn) return null
-      return { ...base, provider: 'passport', model: modelChoice.slice('passport:'.length) }
+      return { ...base, provider: 'passport', model: modelChoice.slice('passport:'.length), tenantId }
     }
     if (modelChoice.startsWith('custom:')) {
       const cm = customModels.find((m) => `custom:${m.name}` === modelChoice)
@@ -1322,6 +1349,13 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
           <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
         </div>
+        {tenants.length > 1 && (
+          <label className={label}>租户（切换后平台模型随之更新）
+            <select className={field} value={tenantId} onChange={(e) => void switchTenant(e.target.value)}>
+              {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}（{t.id}）</option>)}
+            </select>
+          </label>
+        )}
         <div className={label}>工作区目录
           <div className="flex gap-2">
             <input className={`${field} flex-1 min-w-0`} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="C:\path\to\project" />

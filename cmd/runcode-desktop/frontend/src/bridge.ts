@@ -20,6 +20,8 @@ export interface StartSessionRequest {
   cwd: string
   provider?: string
   model?: string
+  /** Selected AI.Core tenant for a passport session (empty = token's own tenant). */
+  tenantId?: string
   baseURL?: string
   apiKey?: string
   authToken?: string
@@ -306,6 +308,11 @@ export interface PassportModel {
   ownedBy: string
 }
 
+export interface PassportTenant {
+  id: string
+  name: string
+}
+
 export interface CustomModel {
   name: string
   model: string
@@ -378,7 +385,8 @@ export const passportStatus = () => app().PassportStatus() as Promise<PassportSt
 export const passportLogin = () => app().PassportLogin() as Promise<PassportStatus>
 export const passportCancelLogin = () => app().PassportCancelLogin()
 export const passportLogout = () => app().PassportLogout()
-export const passportModels = () => app().PassportModels() as Promise<PassportModel[] | null>
+export const passportTenants = () => app().PassportTenants() as Promise<PassportTenant[] | null>
+export const passportModels = (tenantId: string) => app().PassportModels(tenantId) as Promise<PassportModel[] | null>
 export const listCustomModels = () => app().ListCustomModels() as Promise<CustomModel[] | null>
 export const saveCustomModel = (m: CustomModel) => app().SaveCustomModel(m) as Promise<CustomModel[] | null>
 export const deleteCustomModel = (name: string) => app().DeleteCustomModel(name) as Promise<CustomModel[] | null>

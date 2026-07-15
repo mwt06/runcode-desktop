@@ -74,12 +74,75 @@ func TestPassportModels(t *testing.T) {
 
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
-	models, err := app.PassportModels()
+	models, err := app.PassportModels("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(models) != 2 || models[0].ID != "qwen-max" || models[1].OwnedBy != "zhipu" {
 		t.Fatalf("models = %+v", models)
+	}
+}
+
+func TestPassportModelsForTenant(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/t/changsha/v1/models" {
+			t.Fatalf("path = %s, want tenant-scoped", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"glm-4.6","owned_by":"zhipu"}]}`))
+	}))
+	defer srv.Close()
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
+	t.Setenv("APPDATA", t.TempDir())
+
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+	models, err := app.PassportModels("changsha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].ID != "glm-4.6" {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
+func TestPassportTenants(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tenants" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"changsha","name":"changs学院"},{"id":"crtvup","name":"出版社"}]`))
+	}))
+	defer srv.Close()
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
+	t.Setenv("APPDATA", t.TempDir())
+
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+	tenants, err := app.PassportTenants()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tenants) != 2 || tenants[0].ID != "changsha" || tenants[1].Name != "出版社" {
+		t.Fatalf("tenants = %+v", tenants)
+	}
+}
+
+func TestApplyPassportTenantScopedBaseURL(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "http://bridge.local:8199")
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+
+	req := StartSessionRequest{CWD: t.TempDir(), Provider: "passport", Model: "glm-4.6", TenantID: "changsha"}
+	cfg, err := buildConfig(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg = app.applyPassport(cfg, req)
+	if cfg.BaseURL != "http://bridge.local:8199/t/changsha/v1" {
+		t.Fatalf("baseURL = %q, want tenant-scoped", cfg.BaseURL)
 	}
 }
 

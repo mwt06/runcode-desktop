@@ -72,6 +72,10 @@ type StartSessionRequest struct {
 	CWD       string `json:"cwd"`
 	Provider  string `json:"provider"`
 	Model     string `json:"model"`
+	// TenantID is the selected AI.Core tenant for a passport session (multi-tenant
+	// users pick one; single-tenant is auto-selected). Empty falls back to the
+	// token's own tenant. Only meaningful when Provider == "passport".
+	TenantID  string `json:"tenantId"`
 	BaseURL   string `json:"baseURL"`
 	APIKey    string `json:"apiKey"`
 	AuthToken string `json:"authToken"`

@@ -67,6 +67,21 @@ type PassportModel struct {
 	OwnedBy string `json:"ownedBy"`
 }
 
+// PassportTenant 是当前用户可用的租户（Bridge /api/tenants）。
+type PassportTenant struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// tenantPathPrefix 把选定的租户拼进 Bridge 路径前缀：非空 → /t/{tenantId}，
+// 空 → ""（走令牌自带租户/兜底）。租户 ID 已由 Bridge 侧白名单校验，这里原样拼。
+func tenantPathPrefix(tenantID string) string {
+	if strings.TrimSpace(tenantID) == "" {
+		return ""
+	}
+	return "/t/" + tenantID
+}
+
 // loginTimeout 是等待用户在浏览器完成登录的上限。
 const loginTimeout = 5 * time.Minute
 
@@ -189,9 +204,22 @@ func (a *App) PassportLogout() {
 	a.sink.Emit(EventPassportChanged, PassportStatus{})
 }
 
-// PassportModels 经 Bridge 列平台模型。
-func (a *App) PassportModels() ([]PassportModel, error) {
-	body, err := a.bridgeGet("/v1/models")
+// PassportTenants 列出当前用户可用的租户；单租户时前端自动选定，多租户让用户选。
+func (a *App) PassportTenants() ([]PassportTenant, error) {
+	body, err := a.bridgeGet("/api/tenants")
+	if err != nil {
+		return nil, err
+	}
+	var tenants []PassportTenant
+	if err := json.Unmarshal(body, &tenants); err != nil {
+		return nil, fmt.Errorf("解析租户列表失败: %w", err)
+	}
+	return tenants, nil
+}
+
+// PassportModels 经 Bridge 列指定租户的平台模型（tenantID 空 = 令牌自带租户）。
+func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
+	body, err := a.bridgeGet(tenantPathPrefix(tenantID) + "/v1/models")
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +293,8 @@ func (a *App) applyPassport(cfg engine.Config, req StartSessionRequest) engine.C
 	}
 	pc := passportConfig()
 	cfg.Provider = "openai"
-	cfg.BaseURL = pc.BridgeBaseURL + "/v1"
+	// 选定租户 → /t/{tenantId}/v1，让 Bridge 按该租户计费/限额；空则走令牌自带租户。
+	cfg.BaseURL = pc.BridgeBaseURL + tenantPathPrefix(req.TenantID) + "/v1"
 	cfg.APIKey = ""
 	cfg.AuthToken = ""
 	cfg.TokenSource = a.tokens.Token

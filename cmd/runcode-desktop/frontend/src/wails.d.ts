@@ -50,7 +50,8 @@ declare global {
           PassportLogin(): Promise<unknown>
           PassportCancelLogin(): Promise<void>
           PassportLogout(): Promise<void>
-          PassportModels(): Promise<unknown>
+          PassportTenants(): Promise<unknown>
+          PassportModels(tenantId: string): Promise<unknown>
           ListCustomModels(): Promise<unknown>
           SaveCustomModel(m: unknown): Promise<unknown>
           DeleteCustomModel(name: string): Promise<unknown>
