@@ -13,6 +13,7 @@ import (
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/tools"
 )
 
 // ToolInfo is a tool's name and description for the @-mention picker.
@@ -26,27 +27,72 @@ type ToolInfo struct {
 	Server string `json:"server,omitempty"`
 	// ConcurrencySafe reports whether the tool can run in parallel with siblings.
 	ConcurrencySafe bool `json:"concurrencySafe"`
+	// Toggleable is true for tools the user may turn off (built-in work tools and
+	// MCP tools); false for infrastructure tools (Skill/Task/Remember/preview).
+	Toggleable bool `json:"toggleable"`
+	// DisabledUser / DisabledProject report whether the tool is turned off at that
+	// scope. Effective-enabled = neither is true. Disabling takes effect on the
+	// next new session.
+	DisabledUser    bool `json:"disabledUser"`
+	DisabledProject bool `json:"disabledProject"`
 }
 
-// ListTools returns the active session's tools (builtins plus any MCP/skill
-// tools), annotated with source and concurrency-safety. Nil when there is no
-// session.
+// ListTools returns the full catalog of built-in tools (always, so a disabled one
+// still shows and can be re-enabled) plus the active session's MCP and infra
+// tools, each annotated with source, concurrency-safety, and per-scope disabled
+// state. Built-in work tools and MCP tools are toggleable; infra tools are not.
 func (a *App) ListTools() []ToolInfo {
 	a.mu.Lock()
 	session := a.session
+	ws := a.workspace
 	a.mu.Unlock()
-	if session == nil {
-		return nil
-	}
-	descs := session.ToolList()
-	out := make([]ToolInfo, 0, len(descs))
-	for _, d := range descs {
-		info := ToolInfo{Name: d.Name, Description: d.Description, ConcurrencySafe: d.ConcurrencySafe, Source: "builtin"}
-		if server, _, ok := mcp.ParseToolName(d.Name); ok {
-			info.Source = "mcp"
-			info.Server = server
+
+	userTools, projTools, _, _ := disabledSets(ws)
+	out := make([]ToolInfo, 0, 24)
+	seen := make(map[string]bool)
+	add := func(name, desc string, safe bool, source, server string, toggleable bool) {
+		if seen[name] {
+			return
 		}
-		out = append(out, info)
+		seen[name] = true
+		out = append(out, ToolInfo{
+			Name: name, Description: desc, ConcurrencySafe: safe,
+			Source: source, Server: server, Toggleable: toggleable,
+			DisabledUser: userTools[name], DisabledProject: projTools[name],
+		})
+	}
+
+	// Built-in work tools: enumerated statically so a disabled one still appears.
+	for _, t := range tools.Builtins() {
+		add(t.Name(), t.Description(), t.IsConcurrencySafe(), "builtin", "", true)
+	}
+	// Session tools: MCP (toggleable) and infra (Skill/Task/Remember/preview, not).
+	if session != nil {
+		for _, d := range session.ToolList() {
+			if server, _, ok := mcp.ParseToolName(d.Name); ok {
+				add(d.Name, d.Description, d.ConcurrencySafe, "mcp", server, true)
+			} else {
+				add(d.Name, d.Description, d.ConcurrencySafe, "builtin", "", false)
+			}
+		}
+	}
+	// Disabled MCP tools not in the current session still show so they can be
+	// re-enabled (a fresh session started with them off would not list them).
+	for name := range unionSets(userTools, projTools) {
+		if server, _, ok := mcp.ParseToolName(name); ok {
+			add(name, "(已停用的 MCP 工具)", false, "mcp", server, true)
+		}
+	}
+	return out
+}
+
+func unionSets(a, b map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(a)+len(b))
+	for k := range a {
+		out[k] = true
+	}
+	for k := range b {
+		out[k] = true
 	}
 	return out
 }

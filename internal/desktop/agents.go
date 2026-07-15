@@ -8,7 +8,20 @@ import (
 	"strings"
 
 	"github.com/wt68/runcode/internal/engine"
+	"github.com/wt68/runcode/internal/subagent"
 )
+
+// isBuiltinAgentName reports whether name is one of the compiled-in agents, which
+// are read-only: they can be shadowed by a same-named user/project agent but
+// never edited or deleted in place.
+func isBuiltinAgentName(name string) bool {
+	for _, ag := range subagent.BuiltinAgents() {
+		if ag.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
 // AgentInfo is one sub-agent for the UI's sub-agent manager. Built-in agents are
 // listed read-only (Editable=false) so the user sees them but cannot remove them.
@@ -21,6 +34,11 @@ type AgentInfo struct {
 	Source      string `json:"source"` // "builtin" | "user" | "project"
 	Path        string `json:"path"`
 	Editable    bool   `json:"editable"`
+	// DisabledUser / DisabledProject report whether this sub-agent is turned off at
+	// that scope (built-ins can be disabled even though they cannot be edited).
+	// Effective-enabled = neither is true. Takes effect on the next new session.
+	DisabledUser    bool `json:"disabledUser"`
+	DisabledProject bool `json:"disabledProject"`
 }
 
 // AgentProblem reports a sub-agent file that failed to load.
@@ -93,17 +111,20 @@ func (a *App) ListAgents() AgentList {
 	a.mu.Unlock()
 	userCfg, _ := os.UserConfigDir()
 	set, problems := engine.LoadAgents(ws, userCfg)
+	_, _, userAgents, projAgents := disabledSets(ws)
 	out := AgentList{Agents: []AgentInfo{}, Problems: []AgentProblem{}}
 	for _, ag := range set.All() {
 		out.Agents = append(out.Agents, AgentInfo{
-			Name:        ag.Name,
-			Description: ag.Description,
-			Tools:       strings.Join(ag.Tools, ", "),
-			Model:       ag.Model,
-			Prompt:      ag.Prompt,
-			Source:      string(ag.Source),
-			Path:        ag.Path,
-			Editable:    ag.Path != "", // builtins have no file and cannot be edited here
+			Name:            ag.Name,
+			Description:     ag.Description,
+			Tools:           strings.Join(ag.Tools, ", "),
+			Model:           ag.Model,
+			Prompt:          ag.Prompt,
+			Source:          string(ag.Source),
+			Path:            ag.Path,
+			Editable:        ag.Path != "", // builtins have no file and cannot be edited here
+			DisabledUser:    userAgents[ag.Name],
+			DisabledProject: projAgents[ag.Name],
 		})
 	}
 	for _, p := range problems {
@@ -121,6 +142,11 @@ func (a *App) SaveAgent(req AgentSaveRequest) (AgentList, error) {
 	name := strings.TrimSpace(req.Name)
 	if !validSkillName(name) {
 		return AgentList{}, errors.New("子代理名只能包含字母、数字、- 或 _，且不超过 64 个字符")
+	}
+	// 内置子代理不可就地修改（编辑/重命名内置本身）。允许在用户/项目级新建同名
+	// 子代理来覆盖它——那是 originalName 为空的新建路径，不受此拦截影响。
+	if old := strings.TrimSpace(req.OriginalName); old != "" && isBuiltinAgentName(old) {
+		return AgentList{}, errors.New("内置子代理不可修改；如需自定义，请在用户/项目级新建同名子代理来覆盖它")
 	}
 	description := strings.TrimSpace(collapseLine(req.Description))
 	if description == "" {
@@ -167,6 +193,9 @@ func (a *App) DeleteAgent(name, scope string) (AgentList, error) {
 	name = strings.TrimSpace(name)
 	if !validSkillName(name) {
 		return AgentList{}, errors.New("无效的子代理名")
+	}
+	if isBuiltinAgentName(name) {
+		return AgentList{}, errors.New("内置子代理不可删除")
 	}
 	if err := os.Remove(filepath.Join(root, name+".md")); err != nil && !os.IsNotExist(err) {
 		return AgentList{}, fmt.Errorf("delete agent: %w", err)

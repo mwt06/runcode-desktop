@@ -185,6 +185,9 @@ export interface ToolInfo {
   source: string
   server?: string
   concurrencySafe: boolean
+  toggleable: boolean
+  disabledUser: boolean
+  disabledProject: boolean
 }
 
 export interface MCPServerInfo {
@@ -263,6 +266,8 @@ export interface AgentInfo {
   source: string
   path: string
   editable: boolean
+  disabledUser: boolean
+  disabledProject: boolean
 }
 
 export interface AgentProblem {
@@ -345,6 +350,8 @@ export const pickWorkspaceFolder = () => app().PickWorkspaceFolder() as Promise<
 export const switchWorkspace = (dir: string) => app().SwitchWorkspace(dir) as Promise<SessionInfo>
 export const loadConfig = () => app().LoadConfig() as Promise<StartSessionRequest>
 export const listTools = () => app().ListTools() as Promise<ToolInfo[] | null>
+export const setToolEnabled = (name: string, scope: string, enabled: boolean) => app().SetToolEnabled(name, scope, enabled) as Promise<void>
+export const setAgentEnabled = (name: string, scope: string, enabled: boolean) => app().SetAgentEnabled(name, scope, enabled) as Promise<void>
 export const listMCPServers = () => app().ListMCPServers() as Promise<MCPServerInfo[] | null>
 export const saveMCPServer = (s: MCPServerInput) => app().SaveMCPServer(s) as Promise<void>
 export const deleteMCPServer = (name: string) => app().DeleteMCPServer(name) as Promise<void>

@@ -11,7 +11,7 @@ import {
   listAgents, saveAgent, deleteAgent, importAgent,
   saveSettings, pickWorkspaceFolder,
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
-  listTools, readProjectContext, saveProjectContext, readMemory,
+  listTools, setToolEnabled, setAgentEnabled, readProjectContext, saveProjectContext, readMemory,
   passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
   listCustomModels, saveCustomModel, deleteCustomModel,
   onEvent, Events,
@@ -51,6 +51,31 @@ const AGENT_ZH: Record<string, { label: string; desc: string }> = {
   'code-explorer': { label: '代码探索', desc: '追踪某个功能或流程在代码库里如何工作，返回关键文件、类型、调用路径的地图。只读，改陌生代码前用来理解。' },
   planner: { label: '实现规划', desc: '研究代码库并产出有序的实现计划(要改哪些文件、构建顺序、风险)，不做任何改动。只读，动手前用来设计非平凡改动。' },
   debugger: { label: '调试定位', desc: '带证据定位失败根因(崩溃、测试失败、输出错误)并给出最小修法但不落地。出问题且原因不明时用。' },
+}
+
+// ScopeToggles 是工具/子代理行尾的两个作用域开关(用户级 / 工作目录级)。红色✕
+// 表示已在该作用域关闭；点击切换。有效状态 = 两个作用域都未关闭才算启用。
+function ScopeToggles({ disabledUser, disabledProject, onToggle }: {
+  disabledUser: boolean
+  disabledProject: boolean
+  onToggle: (scope: 'user' | 'project', enabled: boolean) => void
+}) {
+  const chip = (scope: 'user' | 'project', off: boolean, label: string) => (
+    <button
+      type="button"
+      title={off ? `已在${label}关闭，点击启用` : `点击在${label}关闭(下次新建会话生效)`}
+      onClick={(e) => { e.stopPropagation(); onToggle(scope, off) }}
+      className={`text-[11px] px-2 py-0.5 rounded-full border transition ${off ? 'border-red/45 text-red bg-red/10' : 'border-line2 text-faint hover:border-primary hover:text-primary'}`}
+    >
+      {label}{off ? ' ✕' : ''}
+    </button>
+  )
+  return (
+    <span className="flex items-center gap-1 flex-none">
+      {chip('user', disabledUser, '用户')}
+      {chip('project', disabledProject, '项目')}
+    </span>
+  )
 }
 
 export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
@@ -266,6 +291,15 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
   useEffect(() => {
     refresh()
   }, [])
+  const onToggle = (agName: string) => async (scope: 'user' | 'project', enabled: boolean) => {
+    setError('')
+    try {
+      await setAgentEnabled(agName, scope, enabled)
+      refresh()
+    } catch (e) {
+      setError(String(e))
+    }
+  }
 
   function edit(ag: AgentInfo) {
     setSel(ag.name)
@@ -377,11 +411,12 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                 // 内置子代理用中文名+描述，同时保留真实名(供 @ 引用)；用户/项目
                 // 自定义的按原样显示。
                 const zh = ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
+                const off = ag.disabledUser || ag.disabledProject
                 return (
                 <div
                   key={ag.source + '/' + ag.name}
                   onClick={() => edit(ag)}
-                  className={`group p-3 rounded-[11px] border cursor-pointer transition ${sel === ag.name ? 'border-primary bg-primarysoft' : 'border-line2 bg-surface hover:border-primary'}`}
+                  className={`group p-3 rounded-[11px] border cursor-pointer transition ${sel === ag.name ? 'border-primary bg-primarysoft' : 'border-line2 bg-surface hover:border-primary'} ${off ? 'opacity-55' : ''}`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-[13.5px] text-ink truncate min-w-0">{zh?.label ?? ag.name}</span>
@@ -389,7 +424,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                     <span className="text-[10px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{sourceBadge(ag.source)}</span>
                     {ag.editable && (
                       <button
-                        className="ml-auto flex-none p-1 -m-1 text-faint hover:text-red opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-40"
+                        className="flex-none p-1 -m-1 text-faint hover:text-red opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-40"
                         title="删除子代理"
                         disabled={busy}
                         onClick={(e) => { e.stopPropagation(); removeFromList(ag) }}
@@ -397,6 +432,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                         <Icon name="trash" size={14} />
                       </button>
                     )}
+                    <span className="ml-auto"><ScopeToggles disabledUser={ag.disabledUser} disabledProject={ag.disabledProject} onToggle={onToggle(ag.name)} /></span>
                   </div>
                   <div className="text-[12px] text-muted mt-1 line-clamp-2">{zh?.desc ?? ag.description}</div>
                 </div>
@@ -1018,6 +1054,8 @@ export function MCPPage() {
 export function ToolsPage() {
   const [tools, setTools] = useState<ToolInfo[] | null>(null)
   const [loading, setLoading] = useState(true)
+  const [toggleError, setToggleError] = useState('')
+  const reload = async () => { try { setTools(await listTools()) } catch { /* ignore */ } }
   useEffect(() => {
     void (async () => {
       try {
@@ -1027,6 +1065,15 @@ export function ToolsPage() {
       }
     })()
   }, [])
+  const onToggle = (name: string) => async (scope: 'user' | 'project', enabled: boolean) => {
+    setToggleError('')
+    try {
+      await setToolEnabled(name, scope, enabled)
+      await reload()
+    } catch (e) {
+      setToggleError(String(e))
+    }
+  }
 
   const list = tools ?? []
   const builtin = list.filter((t) => t.source !== 'mcp')
@@ -1041,14 +1088,16 @@ export function ToolsPage() {
   const row = (t: ToolInfo) => {
     // 内置工具用中文名+描述；MCP 工具保持原样(第三方，无中文对照)。
     const zh = t.source !== 'mcp' ? TOOL_ZH[shortName(t)] : undefined
+    const off = t.disabledUser || t.disabledProject
     return (
-      <div key={t.name} className="flex items-start gap-3 py-2.5 border-t border-line first:border-t-0">
+      <div key={t.name} className={`flex items-start gap-3 py-2.5 border-t border-line first:border-t-0 ${off ? 'opacity-50' : ''}`}>
         <span className="flex-none min-w-[132px]" title={t.name}>
           <span className="text-[13px] text-ink font-medium">{zh?.label ?? shortName(t)}</span>
           {zh && <span className="block font-mono text-[11px] text-faint mt-0.5 break-all">{shortName(t)}</span>}
         </span>
         <span className="text-[12.5px] text-muted flex-1 min-w-0 leading-relaxed">{zh?.desc ?? t.description}</span>
         {t.concurrencySafe && <span className="flex-none text-[10.5px] font-medium text-green bg-green/12 rounded-full px-2 py-0.5 mt-0.5">并行</span>}
+        {t.toggleable && <ScopeToggles disabledUser={t.disabledUser} disabledProject={t.disabledProject} onToggle={onToggle(t.name)} />}
       </div>
     )
   }
@@ -1058,7 +1107,8 @@ export function ToolsPage() {
       <div className="max-w-[720px] mx-auto flex flex-col gap-5">
         <div>
           <h2 className="m-0 text-[20px] font-bold tracking-tight">工具</h2>
-          <p className="mt-1 text-muted text-[13px]">当前会话可用的工具。标 <span className="text-green font-medium">并行</span> 的工具在同一轮里会并发执行(只读类)。</p>
+          <p className="mt-1 text-muted text-[13px]">标 <span className="text-green font-medium">并行</span> 的工具在同一轮里会并发执行(只读类)。行尾 <span className="text-faint">用户 / 项目</span> 可分别关闭该工具，关闭的不再传给模型，<b>下次新建会话生效</b>。</p>
+          {toggleError && <p className="mt-1 text-red text-[12.5px]">{toggleError}</p>}
         </div>
         {loading ? (
           <div className="text-muted text-[13px] py-6 text-center">加载中…</div>

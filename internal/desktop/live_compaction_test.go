@@ -41,6 +41,11 @@ func TestReopenCarriesConfiguredContextBudget(t *testing.T) {
 	preserveDesktopConfig(t)
 	app := New(&recordingSink{})
 	req := app.LoadConfig()
+	if strings.EqualFold(req.Provider, "passport") {
+		// A passport session requires a live login (StartSession refuses without
+		// one); this self-contained test can't provide that, so skip.
+		t.Skip("persisted config is a passport session (needs live login)")
+	}
 	want := req.MaxContextTokens
 	req.CWD = t.TempDir() // start in a scratch workspace, not the user's project
 	info, err := app.StartSession(req)

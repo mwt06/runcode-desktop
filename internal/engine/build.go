@@ -124,6 +124,10 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	shellManager := bash.NewManager()
 	resources.Shells = shellManager
 	sessionTools := append(tools.BuiltinsWithShells(shellManager), mcpManager.Tools()...)
+	// Drop tools the user turned off (built-in work tools + MCP tools). Applied
+	// before the infra tools (Skill/Task/Remember/extras) are appended, so those
+	// are never accidentally removed and sub-agents inherit the same filtered set.
+	sessionTools = filterDisabledTools(sessionTools, cfg.DisabledTools)
 	// Discover skills from the convention directories; the catalog goes into the
 	// prompt and the Skill tool discloses bodies on demand. Loading is tolerant.
 	skillSet, skillProblems := LoadSkills(cfg.CWD, userConfigDir())
@@ -166,6 +170,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	copy(eligibleSubagentTools, sessionTools)
 	agentSet, agentProblems := LoadAgents(cfg.CWD, userConfigDir())
 	reportAgentProblems(warn, agentProblems)
+	agentSet = filterDisabledAgents(agentSet, cfg.DisabledAgents)
 	launcher := subagent.NewLauncher(subagent.Options{
 		Provider:  provider,
 		Model:     cfg.Model,
@@ -227,6 +232,45 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		return nil, err
 	}
 	return &Session{repl: session, resources: resources, perms: permissionService, cfg: cfg, skillTool: skillTool, agentTool: agentTool}, nil
+}
+
+// filterDisabledTools removes tools whose name is in the disabled set, so a
+// tool the user turned off never reaches the model. Order is preserved.
+func filterDisabledTools(ts []tool.Tool, disabled []string) []tool.Tool {
+	if len(disabled) == 0 {
+		return ts
+	}
+	off := make(map[string]bool, len(disabled))
+	for _, n := range disabled {
+		off[n] = true
+	}
+	kept := make([]tool.Tool, 0, len(ts))
+	for _, t := range ts {
+		if !off[t.Name()] {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
+// filterDisabledAgents rebuilds the agent set without the disabled names, so a
+// sub-agent the user turned off is not offered for delegation nor listed in the
+// prompt catalog.
+func filterDisabledAgents(set *agent.Set, disabled []string) *agent.Set {
+	if len(disabled) == 0 || set == nil {
+		return set
+	}
+	off := make(map[string]bool, len(disabled))
+	for _, n := range disabled {
+		off[n] = true
+	}
+	kept := make([]agent.Agent, 0, set.Len())
+	for _, a := range set.All() {
+		if !off[a.Name] {
+			kept = append(kept, a)
+		}
+	}
+	return agent.NewSet(kept)
 }
 
 // defaultHarmJudgeModel is the independent model the harm-judge check falls back

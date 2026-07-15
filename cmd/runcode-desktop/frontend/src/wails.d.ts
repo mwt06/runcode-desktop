@@ -33,6 +33,8 @@ declare global {
           LoadConfig(): Promise<unknown>
           SaveSettings(req: unknown): Promise<unknown>
           ListTools(): Promise<unknown>
+          SetToolEnabled(name: string, scope: string, enabled: boolean): Promise<void>
+          SetAgentEnabled(name: string, scope: string, enabled: boolean): Promise<void>
           ListFiles(): Promise<unknown>
           ReadArtifact(relPath: string): Promise<string>
           OpenExternal(relPath: string): Promise<void>

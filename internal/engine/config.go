@@ -75,4 +75,9 @@ type Config struct {
 	// SystemPromptAppend is appended after the framework sections.
 	SystemPrompt       string
 	SystemPromptAppend string
+	// DisabledTools and DisabledAgents are names the frontend turned off (at user
+	// or project scope). They are filtered out of the session at build time so the
+	// model never sees them; an empty slice disables nothing.
+	DisabledTools  []string
+	DisabledAgents []string
 }
