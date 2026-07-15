@@ -1,6 +1,6 @@
 // Full-screen pages rendered by the app shell: the skills / agents / settings
 // managers and the initial start form. Extracted from App.tsx to keep it focused.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon, Logo } from './icons'
 import loginBg from './assets/login-bg.jpg'
 import loginMascot from './assets/login-mascot.svg'
@@ -1240,6 +1240,20 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     ...customModels.map((m) => `custom:${m.name}`),
   ])
 
+  // 已选过工作区（上次会话持久化了 cwd + 模型）且已登录 → 自动进入，
+  // 无需再次选择；只触发一次，启动失败(error)时回落到表单让用户处理。
+  const autoStarted = useRef(false)
+  const [autoEntering, setAutoEntering] = useState(false)
+  useEffect(() => {
+    if (autoStarted.current || !passport.loggedIn || starting || error) return
+    if (!(initial.cwd ?? '').trim()) return
+    const req = buildRequest()
+    if (!req || !(req.model ?? '').trim()) return
+    autoStarted.current = true
+    setAutoEntering(true)
+    onStart(req)
+  }, [passport.loggedIn])
+
   // 未登录：整屏登录门——背景 + 吉祥物 + 标语 + 唯一的"统一认证登录"入口。
   // 工作区/模型等表单只在登录成功后出现。
   if (!passport.loggedIn) {
@@ -1267,6 +1281,19 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           </button>
         )}
         {passportError && <div className="mt-4 max-w-[420px] text-center text-red text-[13px]">{passportError}</div>}
+      </div>
+    )
+  }
+
+  // 自动进入中：不闪现完整表单，维持登录门同款背景的过渡页；失败回落表单。
+  if (autoEntering && !error) {
+    return (
+      <div
+        className="relative flex flex-col items-center justify-center flex-1 min-h-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${loginBg})` }}
+      >
+        <img src={loginMascot} alt="" draggable={false} className="w-[150px] h-auto select-none pointer-events-none" />
+        <div className="mt-7 text-[15px] text-muted">正在进入工作区 <span className="font-mono">{shortenPath(initial.cwd ?? '')}</span>…</div>
       </div>
     )
   }
