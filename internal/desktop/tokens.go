@@ -82,6 +82,31 @@ func (m *tokenManager) Token() (string, error) {
 	return fresh.AccessToken, nil
 }
 
+// ForceRefresh 无视续期窗口立即用 refresh token 续期一次，用于服务端返回 401
+// (令牌被拒)时的补救。持锁刷新(与 Token 一致的单飞语义)；回调/落盘在锁外。
+// 无 refresh token 或续期失败则清空并通知登出。
+func (m *tokenManager) ForceRefresh() {
+	m.mu.Lock()
+	if m.ts.RefreshToken == "" {
+		m.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	fresh, err := refreshGrant(ctx, m.hc, m.tokenURL, m.clientID, m.ts.RefreshToken)
+	cancel()
+	if err != nil {
+		m.clearLocked()
+		m.mu.Unlock()
+		if m.onLoggedOut != nil {
+			m.onLoggedOut()
+		}
+		return
+	}
+	m.ts = fresh
+	m.mu.Unlock()
+	persistTokens(fresh)
+}
+
 // Set 记录一次登录成功的令牌并落盘。
 func (m *tokenManager) Set(ts tokenSet) {
 	m.mu.Lock()

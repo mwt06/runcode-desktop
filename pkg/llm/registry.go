@@ -21,6 +21,9 @@ type Config struct {
 	// (e.g. an OAuth access token that auto-refreshes). It takes precedence over
 	// APIKey/AuthToken; a nil TokenSource keeps the static-credential behavior.
 	TokenSource func() (string, error)
+	// OnUnauthorized, when set, is invoked once on a 401 to force a token refresh
+	// before retrying with a fresh token.
+	OnUnauthorized func()
 }
 
 // Factory builds a Provider from neutral Config. Each provider package registers

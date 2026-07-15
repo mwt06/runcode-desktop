@@ -37,6 +37,9 @@ type Options struct {
 	MaxRetries int
 	// TokenSource supplies a per-request bearer token (OAuth). Overrides APIKey/AuthToken when set.
 	TokenSource func() (string, error)
+	// OnUnauthorized, when set, is invoked once on a 401 to force a token refresh
+	// (an expired OAuth access token) before retrying with a fresh token.
+	OnUnauthorized func()
 }
 
 type Provider struct {
@@ -61,6 +64,7 @@ func init() {
 			MaxRetries:         cfg.MaxRetries,
 			DisableStreamUsage: cfg.Options["disable_stream_usage"] == "true",
 			TokenSource:        cfg.TokenSource,
+			OnUnauthorized:     cfg.OnUnauthorized,
 		})
 	})
 }

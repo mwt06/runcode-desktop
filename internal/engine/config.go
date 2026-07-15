@@ -58,7 +58,10 @@ type Config struct {
 	PriceSource string
 	// TokenSource supplies a per-request bearer token (OAuth). Overrides APIKey/AuthToken when set.
 	TokenSource func() (string, error)
-	MCPServers  []mcp.ServerConfig
+	// OnUnauthorized, when set, is invoked once on a 401 to force a token refresh
+	// (an expired OAuth access token) before retrying with a fresh token.
+	OnUnauthorized func()
+	MCPServers     []mcp.ServerConfig
 	// AllowMCPSampling opts in to serving MCP servers' sampling requests. Even
 	// when true, safe mode refuses sampling.
 	AllowMCPSampling bool

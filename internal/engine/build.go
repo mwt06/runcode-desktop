@@ -324,6 +324,7 @@ func BuildProvider(cfg Config) (llm.Provider, error) {
 		MaxContextTokens: cfg.MaxContextTokens,
 		MaxRetries:       cfg.MaxRetries,
 		TokenSource:      cfg.TokenSource,
+		OnUnauthorized:   cfg.OnUnauthorized,
 		Options: map[string]string{
 			// Escape hatch for OpenAI-compatible endpoints that reject stream_options.
 			"disable_stream_usage": strconv.FormatBool(boolEnv("RUNCODE_OPENAI_DISABLE_USAGE_STREAM")),

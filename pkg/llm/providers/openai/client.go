@@ -61,9 +61,12 @@ type httpClient struct {
 	baseURL     string
 	bearer      string
 	tokenSource func() (string, error)
-	maxRetries  int
-	baseBackoff time.Duration
-	sleep       func(context.Context, time.Duration) error
+	// onUnauthorized, when set, is invoked once on a 401 to force a token refresh
+	// (e.g. an expired OAuth access token) before retrying with a fresh token.
+	onUnauthorized func()
+	maxRetries     int
+	baseBackoff    time.Duration
+	sleep          func(context.Context, time.Duration) error
 }
 
 func newHTTPClient(opts Options) *httpClient {
@@ -80,13 +83,14 @@ func newHTTPClient(opts Options) *httpClient {
 		ResponseHeaderTimeout: responseHeaderTimeout,
 	}}
 	return &httpClient{
-		doer:        client,
-		baseURL:     baseURL,
-		bearer:      bearer,
-		tokenSource: opts.TokenSource,
-		maxRetries:  resolveMaxRetries(opts.MaxRetries),
-		baseBackoff: defaultBaseBackoff,
-		sleep:       sleepContext,
+		doer:           client,
+		baseURL:        baseURL,
+		bearer:         bearer,
+		tokenSource:    opts.TokenSource,
+		onUnauthorized: opts.OnUnauthorized,
+		maxRetries:     resolveMaxRetries(opts.MaxRetries),
+		baseBackoff:    defaultBaseBackoff,
+		sleep:          sleepContext,
 	}
 }
 
@@ -111,9 +115,11 @@ func (c *httpClient) stream(ctx context.Context, reqBody chatRequest) (sseStream
 
 	var lastErr error
 	var retryAfter time.Duration
+	rateLimited := false
+	authRefreshed := false
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
-			if err := c.sleep(ctx, backoffDelay(c.baseBackoff, attempt, retryAfter)); err != nil {
+			if err := c.sleep(ctx, retryBackoff(c.baseBackoff, attempt, retryAfter, rateLimited)); err != nil {
 				return nil, err
 			}
 		}
@@ -122,12 +128,47 @@ func (c *httpClient) stream(ctx context.Context, reqBody chatRequest) (sseStream
 			return sse, nil
 		}
 		lastErr = err
+		retryAfter = after
+		rateLimited = isRateLimited(err)
 		if !retryable {
+			// 401(令牌过期/被拒)：强制刷新一次令牌后重试。刷新在 onUnauthorized 里
+			// 完成，下一轮 attempt 会经 tokenSource 拿到新令牌。只补救一次，避免死循环。
+			if c.onUnauthorized != nil && !authRefreshed && isAuthError(err) {
+				authRefreshed = true
+				c.onUnauthorized()
+				continue
+			}
 			return nil, err
 		}
-		retryAfter = after
 	}
 	return nil, fmt.Errorf("openai: gave up after %d retries: %w", c.maxRetries, lastErr)
+}
+
+// rateLimitBackoff is the wait after a 429/rate-limit response when the endpoint
+// gives no Retry-After — long enough to clear a per-minute TPM window.
+const rateLimitBackoff = 30 * time.Second
+
+// retryBackoff picks the delay before a retry: an explicit Retry-After wins;
+// a rate-limit uses the fixed rateLimitBackoff; otherwise capped exponential.
+func retryBackoff(base time.Duration, attempt int, retryAfter time.Duration, rateLimited bool) time.Duration {
+	if retryAfter > 0 {
+		return retryAfter
+	}
+	if rateLimited {
+		return rateLimitBackoff
+	}
+	return backoffDelay(base, attempt, 0)
+}
+
+// isRateLimited / isAuthError classify a request error for retry handling.
+func isRateLimited(err error) bool {
+	var le *llm.Error
+	return errors.As(err, &le) && le.Kind == llm.ErrorKindRateLimited
+}
+
+func isAuthError(err error) bool {
+	var le *llm.Error
+	return errors.As(err, &le) && (le.Kind == llm.ErrorKindAuth || le.StatusCode == http.StatusUnauthorized)
 }
 
 // attempt performs one request. It reports the Retry-After hint and whether the
