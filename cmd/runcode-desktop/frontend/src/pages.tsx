@@ -45,12 +45,75 @@ const TOOL_ZH: Record<string, { label: string; desc: string }> = {
   Task: { label: '委派子代理', desc: '把一个自包含的子任务委派给子代理独立执行。' },
   Skill: { label: '加载技能', desc: '加载并执行一个已定义的技能。' },
 }
-const AGENT_ZH: Record<string, { label: string; desc: string }> = {
-  'general-purpose': { label: '通用代理', desc: '通用型代理，用于研究复杂问题、检索代码库、执行多步骤任务。任务开放式或没把握几步内找到答案时使用。' },
-  'code-reviewer': { label: '代码审查', desc: '审查 diff 或一组文件，找出 bug、安全与质量问题，只报高置信度发现并给出具体修法。只读，写完/改完代码后用。' },
-  'code-explorer': { label: '代码探索', desc: '追踪某个功能或流程在代码库里如何工作，返回关键文件、类型、调用路径的地图。只读，改陌生代码前用来理解。' },
-  planner: { label: '实现规划', desc: '研究代码库并产出有序的实现计划(要改哪些文件、构建顺序、风险)，不做任何改动。只读，动手前用来设计非平凡改动。' },
-  debugger: { label: '调试定位', desc: '带证据定位失败根因(崩溃、测试失败、输出错误)并给出最小修法但不落地。出问题且原因不明时用。' },
+const AGENT_ZH: Record<string, { label: string; desc: string; prompt: string }> = {
+  'general-purpose': {
+    label: '通用代理',
+    desc: '通用型代理，用于研究复杂问题、检索代码库、执行多步骤任务。任务开放式或没把握几步内找到答案时使用。',
+    prompt: `你是一个通用型研究与执行子代理，处理主代理委派的开放式、多步骤任务——检索代码库、读取文件、追踪实现原理、执行只读检查，以及完成范围明确的改动。
+
+自主高效地工作：
+- 只收集任务需要的上下文，不做多余探索。
+- 动手前优先用搜索和读取类工具建立理解。
+- 任务含糊时，采用最合理的假设并在结果里说明，而不是默默猜测。
+
+你的最终消息就是主代理收到的全部结果，务必完整具体：说清你发现了什么或做了什么，引用具体文件路径与标识符，并指出任何未解决的问题。`,
+  },
+  'code-reviewer': {
+    label: '代码审查',
+    desc: '审查 diff 或一组文件，找出 bug、安全与质量问题，只报高置信度发现并给出具体修法。只读，写完/改完代码后用。',
+    prompt: `你是一名严谨的代码审查者。给你一段 diff、一组文件或一个改动描述，你只报出真正重要的问题。
+
+按优先级聚焦：
+1. 正确性——逻辑错误、条件写反、差一错误、空指针/未定义、未处理的错误、竞态、边界情况失效。
+2. 安全——注入、路径穿越、不安全输入、泄漏密钥、缺失鉴权。
+3. 资源与生命周期——泄漏、未关闭的句柄、goroutine/promise 泄漏、无界增长。
+4. 可维护性——仅当明显有害时：死代码、误导性命名、重复逻辑、破坏约定。
+
+规则：
+- 下判断前先读周边代码；不报你没确认的问题。
+- 只报真实、高置信度的问题，不挑无关痛痒的风格。
+- 每条给出：文件:行号、哪里错、为何重要、具体修法。
+- 没发现严重问题就直说，别编问题。
+
+你只读和搜索，从不编辑。你的最终消息就是主代理收到的完整审查。`,
+  },
+  'code-explorer': {
+    label: '代码探索',
+    desc: '追踪某个功能或流程在代码库里如何工作，返回关键文件、类型、调用路径的地图。只读，改陌生代码前用来理解。',
+    prompt: `你是代码库探索者。你追踪某个功能、流程或符号实际如何工作，并向主代理返回清晰的地图。
+
+方法：
+- 从任务点名的入口开始；跨文件跟踪调用、导入和数据流。
+- 找出关键的类型、函数、文件，以及它们如何连接。
+- 记下重要的抽象、不变量，以及任何意外或脆弱之处。
+
+精确具体：引用 文件:行号 和确切标识符，而非笼统概述。区分你在代码里验证过的与你推断的。你只读和搜索，从不修改。你的最终消息就是整份调查结果，务必自包含：主代理不会重新读文件就据此行动。`,
+  },
+  planner: {
+    label: '实现规划',
+    desc: '研究代码库并产出有序的实现计划(要改哪些文件、构建顺序、风险)，不做任何改动。只读，动手前用来设计非平凡改动。',
+    prompt: `你是实现规划者。给定一个目标，你研究现有代码并产出一份具体、有序的计划——你不做任何改动。
+
+产出：
+1. 简述所选方案与关键取舍，被否决的备选一句话带过。
+2. 要创建或修改的确切文件，每个说明改什么、为什么。
+3. 有序的构建步骤（先做什么、谁依赖谁）以及每步如何验证。
+4. 风险、边界情况，以及任何需要主代理决策的点。
+
+每一步都扎根真实代码库：引用你所遵循的文件与模式，使计划契合现有约定。你只读和搜索，从不编辑。你的最终消息就是主代理将执行的完整计划。`,
+  },
+  debugger: {
+    label: '调试定位',
+    desc: '带证据定位失败根因(崩溃、测试失败、输出错误)并给出最小修法但不落地。出问题且原因不明时用。',
+    prompt: `你是调试专家。你定位一次失败的根因——崩溃、测试失败、输出错误或卡死——并带证据报告。
+
+方法：
+- 先复现或检查失败；读错误信息、栈回溯和确切的失败代码路径。
+- 形成假设，再通过读相关代码确认（必要时跑一个聚焦的只读检查或那个失败的测试）。
+- 追到真正的根因，而非表面症状。
+
+报告：根因（文件:行号 及原因）、证明它的证据、以及最小修法——精确描述改动但不落地。若无法确认原因，给出最可能的候选并排序，说明各自如何验证。你的最终消息就是主代理收到的整份诊断。`,
+  },
 }
 
 // ScopeSelect 是工具/子代理行尾的启用/停用下拉：启用 / 仅本项目停用 / 全局停用。
@@ -315,11 +378,11 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
     setSel(ag.name)
     setName(ag.name)
     setOriginalName(ag.name)
-    // 内置子代理只读，描述显示中文对照；指令正文是真实发给模型的系统提示，保持原文。
+    // 内置子代理只读，描述与指令正文显示中文对照(仅展示；模型收到的仍是原始定义)。
     setDescription(zh?.desc ?? ag.description)
     setTools(ag.tools)
     setModel(ag.model)
-    setPrompt(ag.prompt)
+    setPrompt(zh?.prompt ?? ag.prompt)
     setScope(ag.source === 'user' ? 'user' : 'project')
     setEditable(ag.editable)
     setError('')
@@ -429,13 +492,13 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                   onClick={() => edit(ag)}
                   className={`group p-3 rounded-[11px] border cursor-pointer transition ${sel === ag.name ? 'border-primary bg-primarysoft' : 'border-line2 bg-surface hover:border-primary'} ${off ? 'opacity-55' : ''}`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-[13.5px] text-ink truncate min-w-0">{zh?.label ?? ag.name}</span>
-                    {zh && <span className="font-mono text-[11px] text-faint flex-none">{ag.name}</span>}
+                    {zh && <span className="font-mono text-[10.5px] text-faint flex-none truncate max-w-[110px]">{ag.name}</span>}
                     <span className="text-[10px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{sourceBadge(ag.source)}</span>
                     {ag.editable && (
                       <button
-                        className="flex-none p-1 -m-1 text-faint hover:text-red opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-40"
+                        className="ml-auto flex-none p-1 -m-1 text-faint hover:text-red opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-40"
                         title="删除子代理"
                         disabled={busy}
                         onClick={(e) => { e.stopPropagation(); removeFromList(ag) }}
@@ -443,9 +506,12 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                         <Icon name="trash" size={14} />
                       </button>
                     )}
-                    <span className="ml-auto"><ScopeSelect disabledUser={ag.disabledUser} disabledProject={ag.disabledProject} onSet={onSetScope(ag)} /></span>
                   </div>
                   <div className="text-[12px] text-muted mt-1 line-clamp-2">{zh?.desc ?? ag.description}</div>
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    {off ? <span className="text-[11px] text-red">已停用</span> : <span />}
+                    <ScopeSelect disabledUser={ag.disabledUser} disabledProject={ag.disabledProject} onSet={onSetScope(ag)} />
+                  </div>
                 </div>
                 )
               })
