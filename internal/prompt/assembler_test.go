@@ -26,6 +26,53 @@ func TestBuildSystemPromptReturnsTextBlocks(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesModelIdentity(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp", Model: "deepseek-v4-flash-tx"})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	var joined string
+	for _, b := range blocks {
+		joined += b.Text + "\n"
+	}
+	if !strings.Contains(joined, `"deepseek-v4-flash-tx"`) {
+		t.Fatal("identity section must name the underlying model")
+	}
+	if !strings.Contains(joined, "Do NOT claim to be Claude") {
+		t.Fatal("identity section must forbid impersonating other assistants")
+	}
+	// Identity must be a static (pre-boundary) section so it is cache-anchored.
+	boundary := -1
+	modelIdx := -1
+	for i, b := range blocks {
+		if b.Text == DynamicBoundary {
+			boundary = i
+		}
+		if strings.Contains(b.Text, `"deepseek-v4-flash-tx"`) {
+			modelIdx = i
+		}
+	}
+	if boundary >= 0 && modelIdx >= 0 && modelIdx > boundary {
+		t.Fatal("identity section must come before the dynamic boundary")
+	}
+}
+
+func TestBuildSystemPromptNoIdentityWhenModelEmpty(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := BuildSystemPrompt(AssemblerOpts{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	for _, b := range blocks {
+		if strings.Contains(b.Text, "Your underlying model is") {
+			t.Fatal("no identity section expected when Model is unset")
+		}
+	}
+}
+
 func TestBuildSystemPromptBoundaryBetweenStaticAndDynamic(t *testing.T) {
 	t.Parallel()
 

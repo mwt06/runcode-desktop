@@ -11,6 +11,9 @@ import (
 type AssemblerOpts struct {
 	CWD               string
 	Date              string
+	// Model is the underlying model id; when set, an identity section names it so
+	// the model answers "what are you" truthfully instead of hallucinating a vendor.
+	Model             string
 	Tools             []tool.Tool
 	Skills            string
 	Agents            string
@@ -75,6 +78,9 @@ func BuildSystemPrompt(opts AssemblerOpts) ([]llm.ContentBlock, error) {
 		)
 	}
 	table = append(table,
+		// Identity anchor sits right after the framework prose (and applies even
+		// with a custom override) so the true model id dominates before tools.
+		section{sections.Identity(opts.Model), true},
 		section{opts.AgentInstructions, true},
 		section{sections.UsingTools(opts.Tools), true},
 		section{opts.Skills, true},

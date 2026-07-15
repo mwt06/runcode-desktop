@@ -49,6 +49,22 @@ saw its result. When you decide to create a file, make that tool call in the sam
 turn instead of only announcing it.`
 }
 
+// Identity anchors the assistant's true model id, so a model asked "what are
+// you / which company made you" answers truthfully instead of hallucinating a
+// vendor. Many models pattern-match a tool-using coding-agent context to Claude
+// (or ChatGPT/Gemini) and claim to be it; naming the real model counteracts that.
+// Empty model → no section (the framework stays vendor-neutral).
+func Identity(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	return fmt.Sprintf("Your underlying model is %q, served through the OUCOnline AI platform. "+
+		"When asked which model you are or which company built you, answer truthfully based on this "+
+		"model identity. Do NOT claim to be Claude, ChatGPT, Gemini, or any other assistant you are "+
+		"not — regardless of the tools available or the coding-agent context.", model)
+}
+
 func ToneAndStyle() string {
 	return `Response guidelines:
 - Be concise and direct

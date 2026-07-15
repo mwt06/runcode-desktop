@@ -147,6 +147,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	promptOpts := prompt.AssemblerOpts{
 		CWD:                  cfg.CWD,
 		Date:                 time.Now().Format("2006-01-02"),
+		Model:                cfg.Model,
 		ShellInfo:            shellInfo(),
 		Skills:               skill.Catalog(skillSet),
 		Memory:               memory.Format(memLoaded),
