@@ -53,29 +53,38 @@ const AGENT_ZH: Record<string, { label: string; desc: string }> = {
   debugger: { label: '调试定位', desc: '带证据定位失败根因(崩溃、测试失败、输出错误)并给出最小修法但不落地。出问题且原因不明时用。' },
 }
 
-// ScopeToggles 是工具/子代理行尾的两个作用域开关(用户级 / 工作目录级)。红色✕
-// 表示已在该作用域关闭；点击切换。有效状态 = 两个作用域都未关闭才算启用。
-function ScopeToggles({ disabledUser, disabledProject, onToggle }: {
+// ScopeSelect 是工具/子代理行尾的启用/停用下拉：启用 / 仅本项目停用 / 全局停用。
+// 停用时下拉标红。任一作用域停用即视为停用(下次新建会话生效)。
+function ScopeSelect({ disabledUser, disabledProject, onSet }: {
   disabledUser: boolean
   disabledProject: boolean
-  onToggle: (scope: 'user' | 'project', enabled: boolean) => void
+  onSet: (next: 'on' | 'user' | 'project') => void
 }) {
-  const chip = (scope: 'user' | 'project', off: boolean, label: string) => (
-    <button
-      type="button"
-      title={off ? `已在${label}关闭，点击启用` : `点击在${label}关闭(下次新建会话生效)`}
-      onClick={(e) => { e.stopPropagation(); onToggle(scope, off) }}
-      className={`text-[11px] px-2 py-0.5 rounded-full border transition ${off ? 'border-red/45 text-red bg-red/10' : 'border-line2 text-faint hover:border-primary hover:text-primary'}`}
-    >
-      {label}{off ? ' ✕' : ''}
-    </button>
-  )
+  const value = disabledUser ? 'user' : disabledProject ? 'project' : 'on'
   return (
-    <span className="flex items-center gap-1 flex-none">
-      {chip('user', disabledUser, '用户')}
-      {chip('project', disabledProject, '项目')}
-    </span>
+    <select
+      value={value}
+      title="启用 / 停用范围"
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => { e.stopPropagation(); onSet(e.target.value as 'on' | 'user' | 'project') }}
+      className={`text-[11.5px] rounded-[7px] border px-2 py-1 bg-surface2 outline-none flex-none cursor-pointer ${value === 'on' ? 'border-line2 text-muted' : 'border-red/50 text-red bg-red/5'}`}
+    >
+      <option value="on">启用</option>
+      <option value="project">仅本项目停用</option>
+      <option value="user">全局停用(用户级)</option>
+    </select>
   )
+}
+
+// applyScopeChange 把下拉选择落成两个作用域的开关调用(仅调用发生变化的那个)。
+async function applyScopeChange(
+  setFn: (name: string, scope: string, enabled: boolean) => Promise<void>,
+  name: string, curUser: boolean, curProject: boolean, next: 'on' | 'user' | 'project',
+) {
+  const target: Record<string, [boolean, boolean]> = { on: [false, false], user: [true, false], project: [false, true] }
+  const [tu, tp] = target[next]
+  if (curUser !== tu) await setFn(name, 'user', !tu)
+  if (curProject !== tp) await setFn(name, 'project', !tp)
 }
 
 export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
@@ -291,10 +300,10 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
   useEffect(() => {
     refresh()
   }, [])
-  const onToggle = (agName: string) => async (scope: 'user' | 'project', enabled: boolean) => {
+  const onSetScope = (ag: AgentInfo) => async (next: 'on' | 'user' | 'project') => {
     setError('')
     try {
-      await setAgentEnabled(agName, scope, enabled)
+      await applyScopeChange(setAgentEnabled, ag.name, ag.disabledUser, ag.disabledProject, next)
       refresh()
     } catch (e) {
       setError(String(e))
@@ -302,10 +311,12 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
   }
 
   function edit(ag: AgentInfo) {
+    const zh = ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
     setSel(ag.name)
     setName(ag.name)
     setOriginalName(ag.name)
-    setDescription(ag.description)
+    // 内置子代理只读，描述显示中文对照；指令正文是真实发给模型的系统提示，保持原文。
+    setDescription(zh?.desc ?? ag.description)
     setTools(ag.tools)
     setModel(ag.model)
     setPrompt(ag.prompt)
@@ -432,7 +443,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                         <Icon name="trash" size={14} />
                       </button>
                     )}
-                    <span className="ml-auto"><ScopeToggles disabledUser={ag.disabledUser} disabledProject={ag.disabledProject} onToggle={onToggle(ag.name)} /></span>
+                    <span className="ml-auto"><ScopeSelect disabledUser={ag.disabledUser} disabledProject={ag.disabledProject} onSet={onSetScope(ag)} /></span>
                   </div>
                   <div className="text-[12px] text-muted mt-1 line-clamp-2">{zh?.desc ?? ag.description}</div>
                 </div>
@@ -1065,10 +1076,10 @@ export function ToolsPage() {
       }
     })()
   }, [])
-  const onToggle = (name: string) => async (scope: 'user' | 'project', enabled: boolean) => {
+  const onSetScope = (t: ToolInfo) => async (next: 'on' | 'user' | 'project') => {
     setToggleError('')
     try {
-      await setToolEnabled(name, scope, enabled)
+      await applyScopeChange(setToolEnabled, t.name, t.disabledUser, t.disabledProject, next)
       await reload()
     } catch (e) {
       setToggleError(String(e))
@@ -1097,7 +1108,7 @@ export function ToolsPage() {
         </span>
         <span className="text-[12.5px] text-muted flex-1 min-w-0 leading-relaxed">{zh?.desc ?? t.description}</span>
         {t.concurrencySafe && <span className="flex-none text-[10.5px] font-medium text-green bg-green/12 rounded-full px-2 py-0.5 mt-0.5">并行</span>}
-        {t.toggleable && <ScopeToggles disabledUser={t.disabledUser} disabledProject={t.disabledProject} onToggle={onToggle(t.name)} />}
+        {t.toggleable && <ScopeSelect disabledUser={t.disabledUser} disabledProject={t.disabledProject} onSet={onSetScope(t)} />}
       </div>
     )
   }
