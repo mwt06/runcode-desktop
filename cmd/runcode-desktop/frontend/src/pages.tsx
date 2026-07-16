@@ -1,6 +1,6 @@
 // Full-screen pages rendered by the app shell: the skills / agents / settings
 // managers and the initial start form. Extracted from App.tsx to keep it focused.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon, Logo } from './icons'
 import loginBg from './assets/login-bg.jpg'
 import loginMascot from './assets/login-mascot.svg'
@@ -1776,7 +1776,7 @@ function shortenPath(p: string): string {
   return '…' + (p.includes('\\') ? '\\' : '/') + parts.slice(-2).join(p.includes('\\') ? '\\' : '/')
 }
 
-export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: StartSessionRequest }) {
+export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: Partial<StartSessionRequest> }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
   const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
   const [tenants, setTenants] = useState<PassportTenant[]>([])
@@ -1917,8 +1917,8 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     const build = (t: PassportTenant): TenantNode => ({ t, children: (kids.get(t.id) ?? []).map(build) })
     return roots.map(build)
   })()
-  const renderTenantNodes = (nodes: TenantNode[], depth: number) =>
-    nodes.flatMap((n) => {
+  const renderTenantNodes = (nodes: TenantNode[], depth: number): ReactNode[] =>
+    nodes.flatMap((n): ReactNode[] => {
       const pad = { paddingLeft: `${8 + depth * 16}px` }
       const leaf = n.children.length === 0
       const row = leaf ? (

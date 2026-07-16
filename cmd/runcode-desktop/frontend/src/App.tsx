@@ -361,7 +361,7 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
   const [recents, setRecents] = useState<SessionSummary[]>([])
-  const [initialReq, setInitialReq] = useState<StartSessionRequest | null>(null)
+  const [initialReq, setInitialReq] = useState<Partial<StartSessionRequest> | null>(null)
   const [files, setFiles] = useState<string[]>([])
   const [tabs, setTabs] = useState<PreviewTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
@@ -2190,8 +2190,8 @@ function formatInput(input: unknown): string {
 // useStickToBottom keeps a scroll container pinned to its newest content while it
 // streams, unless the user has scrolled up to read — then it leaves them be. dep
 // changes (growing text/output) trigger the re-pin.
-function useStickToBottom(dep: unknown) {
-  const ref = useRef<HTMLDivElement>(null)
+function useStickToBottom<T extends HTMLElement = HTMLDivElement>(dep: unknown) {
+  const ref = useRef<T>(null)
   const stick = useRef(true)
   useEffect(() => {
     const el = ref.current
@@ -2258,18 +2258,18 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
       )
       break
     case 'Read':
-      if (s('path')) return kvRows([['路径', s('path')], (o.offset || o.limit) && ['范围', `第 ${o.offset ?? 0} 行起${o.limit ? `，≤ ${s('limit')} 行` : ''}`], o.pages && ['页', s('pages')]])
+      if (s('path')) return kvRows([['路径', s('path')], !!(o.offset || o.limit) && ['范围', `第 ${o.offset ?? 0} 行起${o.limit ? `，≤ ${s('limit')} 行` : ''}`], !!o.pages && ['页', s('pages')]])
       break
     case 'Grep':
-      if (s('pattern')) return kvRows([['模式', s('pattern')], o.path && ['路径', s('path')], o.glob && ['glob', s('glob')], o.type && ['类型', s('type')], o.output_mode && ['输出', s('output_mode')]])
+      if (s('pattern')) return kvRows([['模式', s('pattern')], !!o.path && ['路径', s('path')], !!o.glob && ['glob', s('glob')], !!o.type && ['类型', s('type')], !!o.output_mode && ['输出', s('output_mode')]])
       break
     case 'Glob':
-      if (s('pattern')) return kvRows([['模式', s('pattern')], o.path && ['路径', s('path')]])
+      if (s('pattern')) return kvRows([['模式', s('pattern')], !!o.path && ['路径', s('path')]])
       break
     case 'Write':
     case 'Edit':
     case 'Delete':
-      if (s('path')) return kvRows([['路径', s('path')], tool.toolName === 'Delete' && o.permanent && ['方式', '永久删除']])
+      if (s('path')) return kvRows([['路径', s('path')], tool.toolName === 'Delete' && !!o.permanent && ['方式', '永久删除']])
       break
     case 'WebFetch':
       if (s('url')) return kvRows([['URL', s('url')]])
@@ -2283,7 +2283,7 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
 function ToolDetail({ tool }: { tool: ToolEvent }) {
   const matched = (tool.files ?? []).filter((f) => f.kind === 'matched')
   const out = tool.output ?? []
-  const outScroll = useStickToBottom(out.length)
+  const outScroll = useStickToBottom<HTMLPreElement>(out.length)
   const img = tool.image
   const imgSrc = img ? (img.url || (img.data ? `data:${img.mediaType || 'image/png'};base64,${img.data}` : '')) : ''
   return (
