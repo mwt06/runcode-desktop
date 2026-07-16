@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# go.work exists for local development only; CI builds each module through the
+# go.mod replace chain so the workspace file can never mask a broken module.
+env:
+  GOWORK: off
+
 jobs:
   lint:
     name: Lint
@@ -22,12 +27,20 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
+          cache-dependency-path: '**/go.sum'
 
-      - name: golangci-lint
+      - name: golangci-lint (root)
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout=5m
+
+      - name: golangci-lint (engine)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+          working-directory: engine
 
   test:
     name: Test (${{ matrix.os }})
@@ -45,9 +58,13 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
+          cache-dependency-path: '**/go.sum'
 
-      - name: Test
+      - name: Test (root module)
         run: go test -race ./...
+
+      - name: Test (engine module)
+        run: go -C engine test -race ./...
 
   build:
     name: Snapshot build
@@ -62,6 +79,10 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: Build (engine module)
+        run: go -C engine build ./...
 
       - name: Build
         run: go build ./cmd/runcode
@@ -71,3 +92,28 @@ jobs:
         with:
           version: latest
           args: build --snapshot --clean
+
+  deps:
+    name: Dependency direction audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      # The engine module must never import the root module: ports are defined
+      # in the engine, implementations live in the shells.
+      - name: Engine must not depend on root module
+        run: |
+          bad=$(go -C engine list -deps ./... | grep 'wt68/runcode' | grep -v 'wt68/runcode/engine' || true)
+          if [ -n "$bad" ]; then
+            echo "engine module depends on root module packages:" >&2
+            echo "$bad" >&2
+            exit 1
+          fi

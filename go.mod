@@ -2,6 +2,11 @@ module github.com/wt68/runcode
 
 go 1.26
 
+// The engine lives in a nested module (see engine/go.mod); the replace keeps
+// builds hermetic to this checkout. Kept authoritative even though go.work
+// exists: CI and goreleaser must build with GOWORK=off.
+replace github.com/wt68/runcode/engine => ./engine
+
 require (
 	github.com/anthropics/anthropic-sdk-go v1.45.0
 	github.com/charmbracelet/bubbles v1.0.0

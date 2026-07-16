@@ -65,3 +65,7 @@ require (
 )
 
 replace github.com/wt68/runcode => ../..
+
+// replace directives don't propagate across modules, so the engine replace
+// from the root go.mod must be repeated here.
+replace github.com/wt68/runcode/engine => ../../engine
