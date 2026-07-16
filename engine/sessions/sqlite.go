@@ -21,7 +21,7 @@ const (
 	sqliteFileName = "sessions.db"
 	// sqliteSchemaVersion is the current schema version, tracked in PRAGMA
 	// user_version so future versions can migrate forward.
-	sqliteSchemaVersion = 1
+	sqliteSchemaVersion = 2
 )
 
 // schemaV1 is the initial schema. messages stores the exact llm.Message JSON (so
@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS messages (
 	user_text   TEXT NOT NULL DEFAULT '',
 	data        BLOB NOT NULL,
 	PRIMARY KEY (session_id, seq)
+);`
+
+// schemaV2 adds per-session runtime meta (SessionMeta), stored as a JSON blob
+// so new fields are additive without further migrations.
+const schemaV2 = `
+CREATE TABLE IF NOT EXISTS session_meta (
+	session_id  TEXT PRIMARY KEY,
+	meta        TEXT NOT NULL
 );`
 
 // sqliteBackend stores all of a workspace's sessions in one SQLite database. A
@@ -92,6 +100,13 @@ func migrateSQLite(db *sql.DB) error {
 		if _, err := db.Exec(schemaV1); err != nil {
 			return fmt.Errorf("apply schema v1: %w", err)
 		}
+	}
+	if version < 2 {
+		if _, err := db.Exec(schemaV2); err != nil {
+			return fmt.Errorf("apply schema v2: %w", err)
+		}
+	}
+	if version < sqliteSchemaVersion {
 		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", sqliteSchemaVersion)); err != nil {
 			return fmt.Errorf("set schema version: %w", err)
 		}
@@ -99,7 +114,7 @@ func migrateSQLite(db *sql.DB) error {
 	return nil
 }
 
-func (b *sqliteBackend) OpenStore(id string) (Store, error) {
+func (b *sqliteBackend) OpenStore(_ context.Context, id string) (Store, error) {
 	if err := transcript.ValidateSessionID(id); err != nil {
 		return nil, err
 	}
@@ -163,11 +178,11 @@ func (b *sqliteBackend) append(ctx context.Context, id string, messages []llm.Me
 	return tx.Commit()
 }
 
-func (b *sqliteBackend) LoadHistory(id string) ([]llm.Message, error) {
+func (b *sqliteBackend) LoadHistory(ctx context.Context, id string) ([]llm.Message, error) {
 	if err := transcript.ValidateSessionID(id); err != nil {
 		return nil, err
 	}
-	rows, err := b.db.Query("SELECT data FROM messages WHERE session_id = ? ORDER BY seq ASC", id)
+	rows, err := b.db.QueryContext(ctx, "SELECT data FROM messages WHERE session_id = ? ORDER BY seq ASC", id)
 	if err != nil {
 		return nil, fmt.Errorf("query session history: %w", err)
 	}
@@ -199,11 +214,11 @@ SELECT s.id, s.updated_at,
   (SELECT m.user_text FROM messages m WHERE m.session_id = s.id AND m.user_text <> '' ORDER BY m.seq DESC LIMIT 1)
 FROM sessions s`
 
-func (b *sqliteBackend) List() ([]Info, error) {
+func (b *sqliteBackend) List(ctx context.Context) ([]Info, error) {
 	// rowid (insertion order) breaks updated_at ties deterministically: with WAL +
 	// synchronous(NORMAL) two appends can land on the same wall-clock tick, so
 	// ordering must not depend on timestamps being unique.
-	rows, err := b.db.Query(infoSelect + " ORDER BY s.updated_at DESC, s.rowid DESC")
+	rows, err := b.db.QueryContext(ctx, infoSelect+" ORDER BY s.updated_at DESC, s.rowid DESC")
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
@@ -220,11 +235,11 @@ func (b *sqliteBackend) List() ([]Info, error) {
 	return infos, rows.Err()
 }
 
-func (b *sqliteBackend) Describe(id string) (Info, error) {
+func (b *sqliteBackend) Describe(ctx context.Context, id string) (Info, error) {
 	if err := transcript.ValidateSessionID(id); err != nil {
 		return Info{}, err
 	}
-	rows, err := b.db.Query(infoSelect+" WHERE s.id = ?", id)
+	rows, err := b.db.QueryContext(ctx, infoSelect+" WHERE s.id = ?", id)
 	if err != nil {
 		return Info{}, fmt.Errorf("describe session: %w", err)
 	}
@@ -238,9 +253,9 @@ func (b *sqliteBackend) Describe(id string) (Info, error) {
 	return scanInfo(rows)
 }
 
-func (b *sqliteBackend) Latest() (string, error) {
+func (b *sqliteBackend) Latest(ctx context.Context) (string, error) {
 	var id string
-	err := b.db.QueryRow("SELECT id FROM sessions ORDER BY updated_at DESC, rowid DESC LIMIT 1").Scan(&id)
+	err := b.db.QueryRowContext(ctx, "SELECT id FROM sessions ORDER BY updated_at DESC, rowid DESC LIMIT 1").Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -248,6 +263,48 @@ func (b *sqliteBackend) Latest() (string, error) {
 		return "", fmt.Errorf("latest session: %w", err)
 	}
 	return id, nil
+}
+
+func (b *sqliteBackend) SaveMeta(ctx context.Context, id string, meta SessionMeta) error {
+	if err := transcript.ValidateSessionID(id); err != nil {
+		return err
+	}
+	if meta.IsZero() {
+		if _, err := b.db.ExecContext(ctx, "DELETE FROM session_meta WHERE session_id = ?", id); err != nil {
+			return fmt.Errorf("delete session meta: %w", err)
+		}
+		return nil
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal session meta: %w", err)
+	}
+	if _, err := b.db.ExecContext(ctx,
+		"INSERT INTO session_meta(session_id, meta) VALUES(?,?) ON CONFLICT(session_id) DO UPDATE SET meta = excluded.meta",
+		id, string(data),
+	); err != nil {
+		return fmt.Errorf("upsert session meta: %w", err)
+	}
+	return nil
+}
+
+func (b *sqliteBackend) LoadMeta(ctx context.Context, id string) (SessionMeta, error) {
+	if err := transcript.ValidateSessionID(id); err != nil {
+		return SessionMeta{}, err
+	}
+	var data string
+	err := b.db.QueryRowContext(ctx, "SELECT meta FROM session_meta WHERE session_id = ?", id).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionMeta{}, nil
+	}
+	if err != nil {
+		return SessionMeta{}, fmt.Errorf("load session meta: %w", err)
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal([]byte(data), &meta); err != nil {
+		return SessionMeta{}, fmt.Errorf("parse session meta: %w", err)
+	}
+	return meta, nil
 }
 
 // scanInfo reads one infoSelect row into an Info, applying the shared preview

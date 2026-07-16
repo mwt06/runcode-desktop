@@ -14,6 +14,9 @@ import (
 // must be safe for concurrent Append.
 type Store interface {
 	// Append writes the given messages to the session's history, in order.
+	// One Append call is one atomic, durable commit unit: callers commit a
+	// whole turn per call, and implementations persist it all-or-nothing —
+	// concurrent Appends may interleave between calls but never within one.
 	Append(ctx context.Context, messages []llm.Message) error
 	// Close releases any underlying resources.
 	Close(ctx context.Context) error

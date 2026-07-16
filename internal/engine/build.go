@@ -55,7 +55,9 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		closeRecorders(context.Background(), recorder)
 		return nil, err
 	}
-	sessionID, err := ResolveSessionID(cfg, backend)
+	// Build has no caller-supplied context (a facade-level change reserved for a
+	// later stage); backend calls during assembly use Background explicitly.
+	sessionID, err := ResolveSessionID(context.Background(), cfg, backend)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, backend)
 		return nil, err
@@ -65,14 +67,14 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		closeRecorders(context.Background(), recorder, backend)
 		return nil, err
 	}
-	store, err := OpenSessionStore(cfg, backend, sessionID)
+	store, err := OpenSessionStore(context.Background(), cfg, backend, sessionID)
 	if err != nil {
 		closeRecorders(context.Background(), recorder, trecorder, backend)
 		return nil, err
 	}
 	var initialHistory []llm.Message
 	if cfg.Resume != "" || cfg.Continue {
-		initialHistory, err = backend.LoadHistory(sessionID)
+		initialHistory, err = backend.LoadHistory(context.Background(), sessionID)
 		if err != nil {
 			closeRecorders(context.Background(), recorder, trecorder, store, backend)
 			return nil, err
@@ -367,12 +369,12 @@ func NewAllowStore(cwd string) (permissions.SessionAllowStore, error) {
 // ResolveSessionID determines the id for this session, honoring Resume and
 // Continue, falling back to SessionID or a freshly generated id. Continue asks
 // the backend for its most recent session.
-func ResolveSessionID(cfg Config, backend sessions.Backend) (string, error) {
+func ResolveSessionID(ctx context.Context, cfg Config, backend sessions.Backend) (string, error) {
 	if cfg.Resume != "" {
 		return cfg.Resume, nil
 	}
 	if cfg.Continue {
-		latest, err := backend.Latest()
+		latest, err := backend.Latest(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -394,11 +396,11 @@ func TranscriptRecorderForID(cfg Config, sessionID string) (transcript.Recorder,
 
 // OpenSessionStore opens the writable session-history store, or a no-op store
 // when persistence is disabled.
-func OpenSessionStore(cfg Config, backend sessions.Backend, sessionID string) (sessions.Store, error) {
+func OpenSessionStore(ctx context.Context, cfg Config, backend sessions.Backend, sessionID string) (sessions.Store, error) {
 	if !cfg.PersistSession {
 		return sessions.Noop(), nil
 	}
-	return backend.OpenStore(sessionID)
+	return backend.OpenStore(ctx, sessionID)
 }
 
 // reasoningOptions maps a configured "thinking model" selector to ReasoningOptions:

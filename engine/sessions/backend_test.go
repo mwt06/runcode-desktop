@@ -37,7 +37,7 @@ func TestBackendParity(t *testing.T) {
 			storeAppend(t, backend, "sess_b", history[2:])
 
 			// LoadHistory round-trips exactly.
-			got, err := backend.LoadHistory("sess_b")
+			got, err := backend.LoadHistory(context.Background(), "sess_b")
 			if err != nil {
 				t.Fatalf("LoadHistory: %v", err)
 			}
@@ -46,7 +46,7 @@ func TestBackendParity(t *testing.T) {
 			}
 
 			// List is newest-first with correct turn counts and previews.
-			infos, err := backend.List()
+			infos, err := backend.List(context.Background())
 			if err != nil {
 				t.Fatalf("List: %v", err)
 			}
@@ -61,14 +61,14 @@ func TestBackendParity(t *testing.T) {
 			}
 
 			// Describe and Latest.
-			d, err := backend.Describe("sess_a")
+			d, err := backend.Describe(context.Background(), "sess_a")
 			if err != nil || d.Turns != 1 || d.FirstUser != "first task" {
 				t.Fatalf("Describe(sess_a) = %+v, err=%v", d, err)
 			}
-			if _, err := backend.Describe("sess_missing"); err == nil {
+			if _, err := backend.Describe(context.Background(), "sess_missing"); err == nil {
 				t.Fatal("Describe of a missing session should error")
 			}
-			latest, err := backend.Latest()
+			latest, err := backend.Latest(context.Background())
 			if err != nil || latest != "sess_b" {
 				t.Fatalf("Latest = %q, err=%v; want sess_b", latest, err)
 			}
@@ -95,7 +95,7 @@ func TestSQLitePersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	defer reopened.Close(context.Background())
-	got, err := reopened.LoadHistory("sess_persist")
+	got, err := reopened.LoadHistory(context.Background(), "sess_persist")
 	if err != nil {
 		t.Fatalf("LoadHistory after reopen: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestLoadHistoryMissingSessionIsEmpty(t *testing.T) {
 		if err != nil {
 			t.Fatalf("open %s: %v", kind, err)
 		}
-		got, err := backend.LoadHistory("sess_none")
+		got, err := backend.LoadHistory(context.Background(), "sess_none")
 		if err != nil || got != nil {
 			t.Fatalf("%s: LoadHistory(missing) = %#v, err=%v; want nil,nil", kind, got, err)
 		}
@@ -133,7 +133,7 @@ func seedViaBackend(t *testing.T, backend Backend, id string, history []llm.Mess
 
 func storeAppend(t *testing.T, backend Backend, id string, messages []llm.Message) {
 	t.Helper()
-	store, err := backend.OpenStore(id)
+	store, err := backend.OpenStore(context.Background(), id)
 	if err != nil {
 		t.Fatalf("OpenStore(%s): %v", id, err)
 	}

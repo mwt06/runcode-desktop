@@ -97,11 +97,11 @@ func sessionsShowCmd() *cobra.Command {
 				return err
 			}
 			defer backend.Close(context.Background())
-			id, err := resolveSessionRef(backend, args[0])
+			id, err := resolveSessionRef(cmd.Context(), backend, args[0])
 			if err != nil {
 				return err
 			}
-			history, err := backend.LoadHistory(id)
+			history, err := backend.LoadHistory(cmd.Context(), id)
 			if err != nil {
 				return err
 			}
@@ -120,7 +120,7 @@ func runSessionsList(cmd *cobra.Command) error {
 		return err
 	}
 	defer backend.Close(context.Background())
-	infos, err := backend.List()
+	infos, err := backend.List(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func runSessionsList(cmd *cobra.Command) error {
 // resolveSessionRef accepts either a 1-based number from `sessions list` (newest
 // first) or a raw session id. A bare id is returned as-is; LoadHistory validates
 // it and reports a missing session.
-func resolveSessionRef(backend sessions.Backend, ref string) (string, error) {
+func resolveSessionRef(ctx context.Context, backend sessions.Backend, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", errors.New("empty session reference")
@@ -157,7 +157,7 @@ func resolveSessionRef(backend sessions.Backend, ref string) (string, error) {
 		if n < 1 {
 			return "", fmt.Errorf("invalid session number %q", ref)
 		}
-		infos, err := backend.List()
+		infos, err := backend.List(ctx)
 		if err != nil {
 			return "", err
 		}

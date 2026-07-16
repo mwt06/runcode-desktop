@@ -153,7 +153,7 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 		return nil, err
 	}
 	defer backend.Close(context.Background())
-	infos, err := backend.List()
+	infos, err := backend.List(context.Background())
 	if err != nil {
 		return nil, err
 	}

@@ -69,7 +69,7 @@ func pickSessionForTUI(cfg chatConfig) (chosenID string, cancelled bool, err err
 		return "", false, err
 	}
 	defer backend.Close(context.Background())
-	infos, err := backend.List()
+	infos, err := backend.List(context.Background())
 	if err != nil {
 		return "", false, err
 	}

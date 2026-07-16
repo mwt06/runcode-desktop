@@ -86,7 +86,7 @@ func TestSessionsListWithSQLiteBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite backend: %v", err)
 	}
-	store, err := backend.OpenStore("sess_sql")
+	store, err := backend.OpenStore(context.Background(), "sess_sql")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
