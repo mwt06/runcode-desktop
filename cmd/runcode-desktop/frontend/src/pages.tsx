@@ -594,10 +594,10 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
         <h2 className="text-[20px] font-bold tracking-tight">技能</h2>
         <p className="mt-1 text-muted text-[13px]">技能是可复用的工作流(SKILL.md)。AI 在相关时会自动调用,或用 <code className="font-mono bg-surface2 border border-line2 px-1 rounded">/</code> 指定。保存后<b>当前会话立即生效</b>。</p>
 
-        {list.problems.length > 0 && (
+        {(list.problems ?? []).length > 0 && (
           <div className="mt-3 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-red">
-            {list.problems.length} 个技能加载失败:
-            {list.problems.map((p, i) => (
+            {(list.problems ?? []).length} 个技能加载失败:
+            {(list.problems ?? []).map((p, i) => (
               <div key={i} className="font-mono mt-1 truncate" title={`${p.dir}: ${p.reason}`}>{p.dir} — {p.reason}</div>
             ))}
           </div>
@@ -613,10 +613,10 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
                 <Icon name="book" size={15} /> 导入
               </button>
             </div>
-            {list.skills.length === 0 ? (
+            {(list.skills ?? []).length === 0 ? (
               <div className="text-faint text-[13px] px-1 py-3 text-center border border-dashed border-line2 rounded-[11px]">还没有技能<br />点「新建」或「导入」</div>
             ) : (
-              list.skills.map((sk) => (
+              (list.skills ?? []).map((sk) => (
                 <div
                   key={sk.source + '/' + sk.name}
                   onClick={() => edit(sk)}
@@ -803,10 +803,10 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
         <h2 className="text-[20px] font-bold tracking-tight">子代理</h2>
         <p className="mt-1 text-muted text-[13px]">子代理是专注的助手人格,主 AI 用 <code className="font-mono bg-surface2 border border-line2 px-1 rounded">Task</code> 委派任务,或用 <code className="font-mono bg-surface2 border border-line2 px-1 rounded">/</code> 指定。保存后<b>当前会话立即生效</b>。内置子代理只读。</p>
 
-        {list.problems.length > 0 && (
+        {(list.problems ?? []).length > 0 && (
           <div className="mt-3 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-red">
-            {list.problems.length} 个子代理加载失败:
-            {list.problems.map((p, i) => (
+            {(list.problems ?? []).length} 个子代理加载失败:
+            {(list.problems ?? []).map((p, i) => (
               <div key={i} className="font-mono mt-1 truncate" title={`${p.path}: ${p.reason}`}>{p.path} — {p.reason}</div>
             ))}
           </div>
@@ -822,10 +822,10 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
                 <Icon name="book" size={15} /> 导入
               </button>
             </div>
-            {list.agents.length === 0 ? (
+            {(list.agents ?? []).length === 0 ? (
               <div className="text-faint text-[13px] px-1 py-3 text-center border border-dashed border-line2 rounded-[11px]">还没有子代理<br />点「新建」或「导入」</div>
             ) : (
-              list.agents.map((ag) => {
+              (list.agents ?? []).map((ag) => {
                 // 内置子代理用中文名+描述，同时保留真实名(供 @ 引用)；用户/项目
                 // 自定义的按原样显示。
                 const zh = ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
@@ -953,7 +953,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   }
   useEffect(() => {
     void refreshAccount()
-    return onEvent<PassportStatus>(Events.PassportChanged, () => void refreshAccount())
+    return onEvent(Events.PassportChanged, () => void refreshAccount())
   }, [])
   const doAcctLogin = async () => {
     setLoggingIn(true); setAcctMsg('')
@@ -976,9 +976,9 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
         model,
         // provider/baseURL/apiKey 不在设置里编辑（通行证会话自动接线、自定义模型
         // 各自带连接）；原样透传避免保存设置时改动会话接线。
-        provider: initial.provider,
-        baseURL: initial.baseURL,
-        apiKey: initial.apiKey,
+        provider: initial.provider ?? '',
+        baseURL: initial.baseURL ?? '',
+        apiKey: initial.apiKey ?? '',
         permissionMode,
         maxTokens: maxTokens.trim() ? parseInt(maxTokens, 10) || 0 : 0,
         maxContextTokens,
@@ -988,6 +988,13 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
         // Preserved (edited via the in-conversation picker, not this form) so saving
         // connection settings does not silently reset the reasoning strength.
         thinkingEffort: initial.thinkingEffort ?? '',
+        // 本表单不涉及的字段按 wire 零值发送 —— 与旧版直接省略这些键时 Go 端
+        // json 反序列化得到的零值完全一致（生成的 StartSessionRequest 为全量必填）。
+        tenantId: '',
+        authToken: '',
+        reasoningScenario: '',
+        resume: '',
+        continue: false,
       })
       if (i && i.model) onSaved(i)
       setSaved(true)
@@ -1363,7 +1370,7 @@ type MCPDraft = {
   enabled: boolean
 }
 
-function kvToText(m?: Record<string, string>): string {
+function kvToText(m?: Record<string, string> | null): string {
   if (!m) return ''
   return Object.entries(m).map(([k, v]) => `${k}=${v}`).join('\n')
 }
@@ -1697,7 +1704,7 @@ export function MemoryPage() {
 
   const hasWorkspace = !!ctx && ctx.path !== ''
   const dirty = !!ctx && content !== ctx.content
-  const memSection = (title: string, note: string, raw: string[] | undefined) => {
+  const memSection = (title: string, note: string, raw: string[] | null | undefined) => {
     const entries = raw ?? []
     return (
     <div>
@@ -1850,7 +1857,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   }
   useEffect(() => {
     void refreshPassport()
-    return onEvent<PassportStatus>(Events.PassportChanged, (st) => {
+    return onEvent(Events.PassportChanged, (st) => {
       setPassport(st)
       if (!st.loggedIn) { setPlatformModels([]); setTenants([]); setTenantId(''); setModelChoice('') }
       else void refreshPassport()
@@ -1887,6 +1894,17 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       maxContextTokens: initial.maxContextTokens ?? 128000,
       harmJudgeModel: initial.harmJudgeModel ?? '',
       harmJudgeVotes: initial.harmJudgeVotes ?? 1,
+      // 起始页不涉及的字段按 wire 零值发送 —— 与旧版直接省略这些键时 Go 端
+      // json 反序列化得到的零值完全一致（生成的 StartSessionRequest 为全量必填）。
+      tenantId: '',
+      baseURL: '',
+      apiKey: '',
+      authToken: '',
+      reasoningScenario: '',
+      maxTokens: 0,
+      maxHistoryMessages: 0,
+      resume: '',
+      continue: false,
     }
     if (modelChoice.startsWith('passport:')) {
       if (!passport.loggedIn || !tenantId) return null
@@ -1895,7 +1913,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     if (modelChoice.startsWith('custom:')) {
       const cm = customModels.find((m) => `custom:${m.name}` === modelChoice)
       if (!cm) return null
-      return { ...base, provider: 'openai', model: cm.model, baseURL: cm.baseURL, apiKey: cm.apiKey }
+      return { ...base, provider: 'openai', model: cm.model, baseURL: cm.baseURL, apiKey: cm.apiKey ?? '' }
     }
     return null
   }

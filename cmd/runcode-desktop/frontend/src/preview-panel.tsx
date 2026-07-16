@@ -336,8 +336,8 @@ function DiffPanel({ snapshotId, relPath, onClose }: { snapshotId: string; relPa
       </div>
       <div className="flex-1 min-h-0 overflow-auto py-2 font-mono text-[12.5px] leading-[1.6]">
         {err && <div className="p-6 text-[13px] text-red">{err}</div>}
-        {diff && diff.lines.length === 0 && <div className="p-6 text-[13px] text-muted">无差异。</div>}
-        {diff && diff.lines.map((l, i) => (
+        {diff && (diff.lines ?? []).length === 0 && <div className="p-6 text-[13px] text-muted">无差异。</div>}
+        {diff && (diff.lines ?? []).map((l, i) => (
           <div key={i} className={(l.stream || '').startsWith('diff') ? `cl ${l.stream}` : 'px-2.5 whitespace-pre text-muted'}>{l.text}</div>
         ))}
       </div>

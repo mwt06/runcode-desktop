@@ -12,3 +12,7 @@
 //   - Unknown fields must be ignored by both sides, so either end can be
 //     upgraded independently.
 package protocol
+
+// The frontend's TypeScript mirror of this package (types.ts/events.ts/
+// commands.ts under cmd/runcode-desktop/frontend/src/protocol) is generated:
+//go:generate go run ../../tools/protogen

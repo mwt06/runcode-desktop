@@ -67,6 +67,14 @@ jobs:
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # Type-check before packaging: vite build does not run tsc, so this is
+      # the frontend's only type gate.
+      - name: Frontend typecheck
+        working-directory: cmd/runcode-desktop/frontend
+        run: |
+          npm ci
+          npm run typecheck
+
       - name: Build
         run: ${{ matrix.build }}
 

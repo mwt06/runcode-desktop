@@ -44,8 +44,8 @@ import {
   type SessionSummary,
   type StartSessionRequest,
   type PermissionRequest,
+  type ResumedTool,
   type ToolEvent,
-  type TurnEnd,
   type PlanSnapshot,
   type PlanItem,
 } from './bridge'
@@ -671,7 +671,7 @@ export default function App() {
 
   useEffect(() => {
     const offs = [
-      onEvent<{ text: string }>(Events.AssistantDelta, ({ text }) => {
+      onEvent(Events.AssistantDelta, ({ text }) => {
         setBlocks((prev) => {
           const last = prev[prev.length - 1]
           if (last && last.kind === 'assistant' && last.streaming) {
@@ -683,7 +683,7 @@ export default function App() {
       // Reasoning ("thinking") arrives before the answer; fold it into the current
       // streaming assistant block (creating one if the model thinks before speaking)
       // so the UI can show the chain of thought above the answer.
-      onEvent<{ text: string }>(Events.AssistantThinking, ({ text }) => {
+      onEvent(Events.AssistantThinking, ({ text }) => {
         setBlocks((prev) => {
           const last = prev[prev.length - 1]
           if (last && last.kind === 'assistant' && last.streaming) {
@@ -692,7 +692,7 @@ export default function App() {
           return [...prev, { kind: 'assistant', id: nextID(), text: '', thinking: text, streaming: true, ts: now() }]
         })
       }),
-      onEvent<ToolEvent>(Events.ToolEvent, (ev) => {
+      onEvent(Events.ToolEvent, (ev) => {
         // The main agent's TodoWrite plan drives the right-rail progress board, not a
         // stream row, so intercept it here (all of its started/progress/completed
         // events carry toolName). Sub-agent todos (parentToolUseID set) are left to
@@ -742,7 +742,7 @@ export default function App() {
           return [...next, { kind: 'tool', id: nextID(), tool: ev }]
         })
       }),
-      onEvent<TurnEnd>(Events.TurnEnd, (end) => {
+      onEvent(Events.TurnEnd, (end) => {
         setBusy(false)
         listFiles().then((f) => setFiles(f ?? [])).catch(() => {})
         // The turn is over; any still-queued prompts were denied on the backend
@@ -799,24 +799,24 @@ export default function App() {
           return next
         })
       }),
-      onEvent<{ error: string }>(Events.TurnError, ({ error }) => {
+      onEvent(Events.TurnError, ({ error }) => {
         setBusy(false)
         setPermQueue([])
         setBlocks((prev) => [...finalizeTools(finalizeStreaming(prev)), { kind: 'error', id: nextID(), text: error }])
       }),
       // Enqueue (don't replace): concurrent tools may each prompt. Dedup by id in
       // case an event is delivered twice.
-      onEvent<PermissionRequest>(Events.PermissionRequest, (req) =>
+      onEvent(Events.PermissionRequest, (req) =>
         setPermQueue((q) => (q.some((p) => p.id === req.id) ? q : [...q, req])),
       ),
-      onEvent<{ message: string }>(Events.Warning, ({ message }) =>
+      onEvent(Events.Warning, ({ message }) =>
         setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: message }]),
       ),
       // Judge ("smart") mode auto-allowed a risky action without a prompt, or tripped
       // its per-session breaker. An auto-allow is marked on the very tool card it
       // decided (by tool-use id), with the judge's reason shown when the row expands;
       // a breaker trip is a session-level notice.
-      onEvent<{ tool: string; toolUseID: string; reason: string; outcome: string }>(
+      onEvent(
         Events.HarmAutoAllow,
         (e) => {
           if (e.outcome === 'breaker_tripped') {
@@ -829,7 +829,7 @@ export default function App() {
         },
       ),
       // A turn's generated title arrived; refresh the sidebar so it shows the name.
-      onEvent<{ id: string; title: string }>(Events.SessionRenamed, () => {
+      onEvent(Events.SessionRenamed, () => {
         void refreshRecents()
       }),
     ]
@@ -1044,8 +1044,9 @@ export default function App() {
           if (b.kind === 'assistant') return { kind: 'assistant', id: nextID(), text: b.text ?? '', streaming: false, ts: '' }
           // Rebuild a tool execution card from the persisted result. Live-only
           // details (colored diffs, file chips) aren't stored, so the card shows the
-          // tool, its target, and the result text.
-          const t = b.tool ?? {}
+          // tool, its target, and the result text. (Partial: a malformed block may
+          // arrive without its tool payload — treat every field as optional.)
+          const t: Partial<ResumedTool> = b.tool ?? {}
           const out = (t.output ?? '').trim()
           const lines = out ? out.split('\n').map((text) => ({ stream: t.isError ? 'stderr' : 'stdout', text })) : []
           return {
@@ -2285,7 +2286,7 @@ function ToolDetail({ tool }: { tool: ToolEvent }) {
   const out = tool.output ?? []
   const outScroll = useStickToBottom<HTMLPreElement>(out.length)
   const img = tool.image
-  const imgSrc = img ? (img.url || (img.data ? `data:${img.mediaType || 'image/png'};base64,${img.data}` : '')) : ''
+  const imgSrc = img ? (img.url || (img.data ? `data:${img.media_type || 'image/png'};base64,${img.data}` : '')) : ''
   return (
     <div className="min-w-0 flex flex-col gap-2.5">
       <div>
@@ -2368,7 +2369,7 @@ export function ToolPreview() {
     type: 'completed', toolName: 'Read', toolUseID: 'r2',
     input: { path: 'docs/design.png' }, files: [{ path: 'docs/design.png', kind: 'read' }],
     output: [{ stream: 'stdout', text: '[image: design.png]' }],
-    image: { mediaType: 'image/svg+xml', url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNjAiIGhlaWdodD0iMjAwIj48cmVjdCB3aWR0aD0iMzYwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzBGNzY2RSIvPjxyZWN0IHg9IjI0IiB5PSIyNiIgd2lkdGg9IjExMCIgaGVpZ2h0PSIxMiIgcng9IjQiIGZpbGw9IiNGNTlFMEIiLz48dGV4dCB4PSIyNCIgeT0iMTE1IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIyNCIgZmlsbD0iI2ZmZmZmZiI+ZGVzaWduLnBuZzwvdGV4dD48dGV4dCB4PSIyNCIgeT0iMTUwIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzk5RjZFNCI+dGh1bWJuYWlsIHByZXZpZXc8L3RleHQ+PC9zdmc+' },
+    image: { media_type: 'image/svg+xml', url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNjAiIGhlaWdodD0iMjAwIj48cmVjdCB3aWR0aD0iMzYwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzBGNzY2RSIvPjxyZWN0IHg9IjI0IiB5PSIyNiIgd2lkdGg9IjExMCIgaGVpZ2h0PSIxMiIgcng9IjQiIGZpbGw9IiNGNTlFMEIiLz48dGV4dCB4PSIyNCIgeT0iMTE1IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIyNCIgZmlsbD0iI2ZmZmZmZiI+ZGVzaWduLnBuZzwvdGV4dD48dGV4dCB4PSIyNCIgeT0iMTUwIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzk5RjZFNCI+dGh1bWJuYWlsIHByZXZpZXc8L3RleHQ+PC9zdmc+' },
   }
   return (
     <div className="min-h-screen p-8">
