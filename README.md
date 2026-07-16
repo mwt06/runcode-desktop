@@ -7,13 +7,13 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **Status: v0.1-alpha.** The project has a minimal provider-backed `chat` command, an in-memory ReAct loop, a minimal Bubble Tea `tui` command, safe/interactive permissions for CLI chat, telemetry, and built-in `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` tools. It is not a full TUI product yet.
+> **Status: alpha.** One engine, three frontends: a shell-friendly `chat` command, a Bubble Tea `tui`, and a Wails desktop app (**XRUN**, see [docs/desktop.md](./docs/desktop.md)). The engine ships 14 built-in tools plus MCP / skills / sub-agents / memory / hooks, safe/interactive permissions (the desktop adds judge/flight modes with a model-based harm gate), full session persistence with resume, and context compaction.
 
 ## What is runcode?
 
 `runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
 
-The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The Bubble Tea TUI is currently a minimal MVP; some planned systems — richer TUI permissions/tool UI and broader multi-provider support — are still scaffolds or deferred work.
+The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The same engine also powers a Bubble Tea TUI (still an MVP) and a full desktop app (`cmd/runcode-desktop`, product name XRUN) through the shared `internal/engine` facade.
 
 ## Quick start
 
@@ -148,11 +148,14 @@ Memory has two scopes, each a Markdown file of one-line bullet entries:
 
 ### Hooks
 
-**Hooks** run a user-configured command at a lifecycle event, so you can enforce policy, audit, or inject context without changing runcode. Three events are supported:
+**Hooks** run a user-configured command at a lifecycle event, so you can enforce policy, audit, or inject context without changing runcode. Eight events are supported:
 
 - **PreToolUse** — fires after a tool call is authorized, before it runs. A non-zero exit **blocks** the tool; the command's output is returned to the model.
 - **PostToolUse** — fires after a tool runs. Its output is appended to the result as feedback (it cannot un-run the tool).
 - **UserPromptSubmit** — fires when you submit a prompt. A non-zero exit **rejects** the prompt; otherwise the output is injected as additional context for the turn.
+- **Stop / SubagentStop** — fire when the main agent finishes a turn / when a delegated sub-agent finishes.
+- **SessionStart / SessionEnd** — fire once at the first turn and at session close.
+- **PreCompact** — fires before context compaction runs.
 
 Hooks are configured in the **user-level** config only — like MCP servers, a project file can never register one, since hooks run arbitrary commands. The command runs directly (no shell) with the event payload as JSON on stdin; output is bounded and sanitized. A hook that runs and exits non-zero is a deliberate block; one that *fails to run* (missing binary, timeout) fails open with a warning so a broken hook never bricks the session.
 
@@ -169,7 +172,7 @@ event = "UserPromptSubmit"
 command = ["/abs/path/inject-git-status.sh"]
 ```
 
-Tool hooks cover builtin, MCP, and skill tool calls. `runcode config` lists the configured hooks as `event:matcher` without printing their commands. Session lifecycle events and structured-JSON decisions are not implemented yet.
+Tool hooks cover builtin, MCP, and skill tool calls. `runcode config` lists the configured hooks as `event:matcher` without printing their commands. Structured-JSON hook decisions and matcher globs/regex are not implemented yet.
 
 Run `runcode config` to print the effective configuration and which files were loaded (credential values are never printed).
 
@@ -208,18 +211,23 @@ Built-in tools are registered in `tools.Builtins()` and exposed to both the mode
 
 | Tool | Current effect |
 |------|----------------|
-| `Read` | Reads workspace files with line numbers and records complete/partial read metadata. |
+| `Read` | Reads workspace files — text with line numbers (recording complete/partial read metadata), images (png/jpg/gif/webp) returned as images. |
 | `Write` | Creates files or overwrites fresh-read files inside the workspace. |
 | `Edit` | Performs exact string replacement on fresh-read files inside the workspace. |
+| `Delete` | Deletes a workspace file/directory — to the system recycle bin by default (recoverable), irreversibly with `permanent=true`. |
 | `Glob` | Finds workspace files with slash glob patterns and `**`; concurrency-safe with sibling safe tool calls. |
-| `Grep` | Searches workspace text files with Go regular expressions; concurrency-safe with sibling safe tool calls. |
-| `Bash` | Runs a single-line non-interactive bash command in the workspace after permission approval. |
+| `Grep` | Searches workspace files with regular expressions; content/files/count output modes, context lines, multiline; concurrency-safe. |
+| `Bash` | Runs a non-interactive shell command after permission approval (cmd on Windows, bash elsewhere); supports multi-line commands and `run_in_background`. |
+| `BashOutput` / `KillShell` | Read new output from, or terminate, a background shell started with `run_in_background`. |
 | `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
-| `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); a network operation that requires approval (shown per host). |
+| `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); SSRF-hardened; a network operation that requires approval (shown per host). |
+| `WebSearch` | Searches the web (DuckDuckGo's no-JS page) and returns top results with title/URL/snippet. |
+| `Analyze` | Records structured analysis steps for the active thinking protocol (only advertised when an in-turn reasoning gate is active). |
+| `AskUser` | Asks the user a question and stops the turn to wait for their reply. |
 | `Task` | Delegates a self-contained task to a named sub-agent (its own session, restricted tools, optional model) and returns the sub-agent's report; orchestration allowed without approval, since each child tool call is authorized individually (see [Sub-agents](#sub-agents)). |
 | `Remember` | Saves a durable fact to runcode's persistent memory (project by default, or user scope) so it is recalled in future sessions; runcode-managed metadata written to a fixed path, allowed without approval (see [Memory](#memory)). |
 
-MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)), and the `Task` tool delegates to sub-agents (see [Sub-agents](#sub-agents)). WebSearch and plugin tools are not implemented yet.
+MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), and the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)). Plugin tools are not implemented yet.
 
 ## Permissions and safety
 
@@ -260,29 +268,35 @@ User input
 
 See:
 
-- [docs/architecture.md](./docs/architecture.md) for the implemented architecture.
-- [docs/data-flow-and-prompt.md](./docs/data-flow-and-prompt.md) for the request/tool/prompt data flow.
-- [docs/implementation-status.md](./docs/implementation-status.md) for current gaps and intentionally minimal areas.
+- [docs/architecture.md](./docs/architecture.md) for the implemented architecture, subsystem boundaries, and data flow.
+- [docs/desktop.md](./docs/desktop.md) for the desktop app (XRUN) architecture and build.
 
 ## Project layout
 
 ```text
-cmd/runcode/           Cobra CLI: version, chat, and minimal tui
-internal/ui/           Bubble Tea TUI MVP: bottom status area, viewport, input, Markdown rendering, tool progress/file summaries, slash commands
-internal/repl/         ReAct session, executor, tool result conversion, telemetry
-internal/permissions/  action/resource/risk model, policy, approval, command classification
-internal/mcp/          Model Context Protocol client: JSON-RPC, stdio + HTTP transports, tool adapter, manager
+cmd/runcode/           Cobra CLI: version, chat, tui, config, permissions, sessions, transcript
+cmd/runcode-desktop/   nested Go module: Wails desktop shell + React frontend (XRUN)
+internal/engine/       transport-agnostic engine facade shared by all three frontends
+internal/repl/         ReAct session, executor, streaming, harm judge, reasoning
+internal/desktop/      desktop core (session manager, events, async approver; no Wails dependency)
+internal/ui/           Bubble Tea TUI: status area, viewport, input, Markdown, tool cards, slash-command registry
+internal/permissions/  action/resource/risk model, policy, approval, command classification, harm gate
+internal/mcp/          Model Context Protocol client: JSON-RPC, stdio + HTTP, tools/resources/prompts/roots/sampling
+internal/subagent/     Task tool and sub-agent launcher
+internal/hooks/        user-configured lifecycle hooks (8 events)
 internal/prompt/       system prompt assembler and cache boundary
+internal/compaction/   token-budget semantic history compaction
 internal/telemetry/    event model, JSONL, async, memory recorders
-internal/persistence/  opt-in JSONL transcript recording
+internal/persistence/  session history (jsonl/sqlite), sanitized transcripts, TOML settings
 internal/toolpath/     workspace path resolution and fresh-read gates
 pkg/tool/              public tool interface, schema, context, result types
-pkg/llm/               provider-neutral LLM DTOs and stream interfaces
+pkg/llm/               provider-neutral LLM DTOs, stream interfaces, provider registry (anthropic/openai)
+pkg/agent|skill|memory|command/  sub-agent, skill, memory, and custom-slash-command definitions
 tools/                 built-in tools and registry
-docs/                  current architecture, data flow, handoff, and status notes
+docs/                  architecture and desktop docs (rebuilt from code)
 ```
 
-Scaffolded but not implemented yet: `pkg/command`, `pkg/plugin`, and `prompts/agents` / `prompts/templates`.
+Scaffolded but not implemented yet: `pkg/plugin` and `prompts/agents` / `prompts/templates`.
 
 ## Contributing
 

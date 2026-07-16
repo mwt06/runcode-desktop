@@ -116,6 +116,11 @@ type StartSessionRequest struct {
 	// backend-side (Save/Delete methods); values sent by the frontend are ignored.
 	// API keys are DPAPI-protected at rest like the top-level credentials.
 	CustomModels []CustomModel `json:"customModels,omitempty"`
+	// WebProxy is the proxy the web tools (WebFetch/WebSearch) route through, for
+	// networks where the search endpoint is unreachable directly. Like CustomModels
+	// it is maintained backend-side (SetWebProxy); values sent by the frontend are
+	// ignored, so the start form — which has no such field — cannot blank it.
+	WebProxy string `json:"webProxy,omitempty"`
 }
 
 // SessionInfo is the display state returned when a session starts and by Status.

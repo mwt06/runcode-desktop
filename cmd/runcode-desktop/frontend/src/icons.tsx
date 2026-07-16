@@ -198,6 +198,15 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="m6 9.5 6 6 6-6" />
         </svg>
       )
+    // Sidebar collapse/expand toggle: the conventional panel glyph (frame with a
+    // divided left column), used for both directions since it reads as a toggle.
+    case 'panel-left':
+      return (
+        <svg {...common} {...stroke}>
+          <rect x="3" y="4" width="18" height="16" rx="2.5" />
+          <path d="M9.5 4v16" />
+        </svg>
+      )
     case 'compress':
       return (
         <svg {...common} {...stroke}>
@@ -322,6 +331,42 @@ export function Icon({ name, size = 18, className }: Props) {
         <svg {...common} {...stroke}>
           <path d="M6 4h8l4 4v12a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0V4z" />
           <path d="M14 4v4h4M8.5 13h7M8.5 16.5h7" />
+        </svg>
+      )
+    // Office/PDF file icons share the folded-document outline; a distinct inner
+    // glyph plus fileColor's per-type tint tells them apart (see preview.ts).
+    case 'file-doc':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M6 4h8l4 4v12a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0V4z" />
+          <path d="M14 4v4h4" />
+          <path d="M8 12.5l1.4 5 1.6-3.4 1.6 3.4 1.4-5" />
+        </svg>
+      )
+    case 'file-ppt':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M6 4h8l4 4v12a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0V4z" />
+          <path d="M14 4v4h4" />
+          <rect x="8" y="12.5" width="8" height="5.5" rx="1" />
+          <path d="M8 14.6h8" />
+        </svg>
+      )
+    case 'file-xls':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M6 4h8l4 4v12a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0V4z" />
+          <path d="M14 4v4h4" />
+          <rect x="8" y="12" width="8" height="6" rx="0.8" />
+          <path d="M12 12v6M8 15h8" />
+        </svg>
+      )
+    case 'file-pdf':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M6 4h8l4 4v12a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0V4z" />
+          <path d="M14 4v4h4" />
+          <path d="M8.5 12.5c0 3 .6 4.6 1.6 4.6.7 0 1-.7 1-1.6 0-1.4-1.3-2-3-2 2 .6 4.8.7 5.4-.4" />
         </svg>
       )
     case 'diff':

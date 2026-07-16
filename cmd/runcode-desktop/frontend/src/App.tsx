@@ -11,8 +11,9 @@ import {
   interrupt,
   resolvePermission,
   setPermissionMode,
-  setModel,
+  switchModel,
   sessionModels,
+  listCustomModels,
   setPlanMode,
   setReasoningScenario,
   setThinkingEffort,
@@ -41,7 +42,6 @@ import {
   type AgentList,
   type SessionInfo,
   type SessionSummary,
-  type PassportModel,
   type StartSessionRequest,
   type PermissionRequest,
   type ToolEvent,
@@ -282,22 +282,51 @@ function askPayload(input: unknown): { question: string; options: string[] } {
   return { question: obj.question ?? '', options: Array.isArray(obj.options) ? obj.options : [] }
 }
 
+// ModelChoice unifies a platform (passport) model and a custom direct-connection
+// model for the in-chat picker. key is what SwitchModel takes — a model id for
+// platform, the custom model's display name for custom; modelId is what lands in
+// info.model, used only to mark the current selection.
+type ModelChoice = {
+  kind: 'platform' | 'custom'
+  key: string
+  label: string
+  sub?: string
+  modelId: string
+}
+
 export default function App() {
   const [started, setStarted] = useState(false)
   const [view, setView] = useState<'chat' | 'settings' | 'plugins' | 'permissions' | 'memory'>('chat')
   const [info, setInfo] = useState<SessionInfo | null>(null)
-  // 对话内模型选择器：点底部模型名弹出，模糊检索，最多显示 10 个。
+  // 对话内模型选择器：点底部模型名弹出，模糊检索，最多显示 10 个。平台(通行证)模型
+  // 与自定义直连模型合并展示，都能被搜索和切换；切到自定义模型会换连接(见后端 SwitchModel)。
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
-  const [modelOptions, setModelOptions] = useState<PassportModel[]>([])
+  const [modelOptions, setModelOptions] = useState<ModelChoice[]>([])
   const [modelQuery, setModelQuery] = useState('')
   const openModelPicker = async () => {
     setModelQuery('')
     setModelPickerOpen(true)
-    try { setModelOptions((await sessionModels()) ?? []) } catch { setModelOptions([]) }
+    try {
+      const [platform, custom] = await Promise.all([
+        sessionModels().catch(() => null),
+        listCustomModels().catch(() => null),
+      ])
+      setModelOptions([
+        ...(platform ?? []).map((m): ModelChoice => ({ kind: 'platform', key: m.id, label: m.id, sub: m.ownedBy, modelId: m.id })),
+        ...(custom ?? []).map((c): ModelChoice => ({ kind: 'custom', key: c.name, label: c.name, sub: c.model, modelId: c.model })),
+      ])
+    } catch { setModelOptions([]) }
   }
-  const pickModel = async (id: string) => {
+  const pickModel = async (choice: ModelChoice) => {
     setModelPickerOpen(false)
-    try { await setModel(id); setInfo((prev) => (prev ? { ...prev, model: id } : prev)) } catch { /* 切换失败保持原样 */ }
+    try {
+      // Adopt the full returned status: switching to/from a custom model rebuilds the
+      // session, which rebinds the preview server to a new port — so previewBaseURL
+      // (and sessionId) must be refreshed, not just the model, or the preview iframe
+      // keeps loading the dead port and shows “拒绝连接”.
+      const st = await switchModel(choice.kind, choice.key)
+      setInfo((prev) => (st ? { ...prev, ...st } : prev))
+    } catch { /* 切换失败保持原样 */ }
   }
   const infoRef = useRef(info)
   useEffect(() => {
@@ -441,6 +470,29 @@ export default function App() {
       dragW.current = null
     }
   }
+
+  // Composer toolbar responsiveness. The bar's width depends on the sidebar and
+  // preview pane, not the viewport, so a CSS media query can't see it — and a CSS
+  // container query is unusable here because container-type applies layout
+  // containment, which would trap the menus' `fixed inset-0` click-away overlays
+  // inside the bar. So measure the bar itself and drop labels to icons as it
+  // narrows (tooltips and the active-state colors still convey each button).
+  const toolbarRef = useRef<HTMLDivElement | null>(null)
+  const [toolbarW, setToolbarW] = useState(0)
+  useEffect(() => {
+    const el = toolbarRef.current
+    if (!el) {
+      setToolbarW(0)
+      return
+    }
+    const ro = new ResizeObserver(([e]) => setToolbarW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [started, view])
+  // Thresholds are the bar's natural content width: ~660px with every label, ~440px
+  // once the secondary labels are icons. 0 = not measured yet → stay expanded.
+  const compactBar = toolbarW > 0 && toolbarW < 660
+  const tinyBar = toolbarW > 0 && toolbarW < 450
 
   // Keep the highlighted picker item visible as the selection moves with ↑/↓.
   useEffect(() => {
@@ -1333,9 +1385,14 @@ export default function App() {
               }
             }}
           />
-          <div className="flex items-center justify-between bg-surface border border-line2 border-t-0 rounded-b-[14px] px-3 py-[9px] shadow-card">
-            <div className="flex gap-1.5">
-              <div className="relative">
+          <div
+            ref={toolbarRef}
+            className="flex items-center justify-between gap-2 bg-surface border border-line2 border-t-0 rounded-b-[14px] px-3 py-[9px] shadow-card"
+          >
+            {/* Left group never shrinks — labels collapse to icons instead (see compactBar),
+                so the buttons keep their shape rather than being squeezed. */}
+            <div className="flex items-center gap-1.5 flex-none">
+              <div className="relative flex-none">
                 <button
                   onClick={() => setAddMenu((v) => !v)}
                   title="添加：技能 / 智能体 / 图片"
@@ -1355,22 +1412,29 @@ export default function App() {
                   </>
                 )}
               </div>
-              <GhostBtn onClick={toggleMode} title="点击切换权限模式"><Icon name="shield" size={16} /> {MODE_LABEL[info?.permissionMode ?? ''] ?? '安全模式'}</GhostBtn>
+              {/* The mode label is the last to go: unlike the toggles below, the shield
+                  icon alone carries no hint of which mode is active. */}
+              <GhostBtn className="flex-none whitespace-nowrap" onClick={toggleMode} title={`点击切换权限模式\n当前：${MODE_LABEL[info?.permissionMode ?? ''] ?? '安全模式'}`}>
+                <Icon name="shield" size={16} />
+                {!tinyBar && (MODE_LABEL[info?.permissionMode ?? ''] ?? '安全模式')}
+              </GhostBtn>
               <button
                 onClick={togglePlan}
                 title="计划模式：只调研、产出方案，不做任何修改"
-                className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 transition ${info?.planMode ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
+                className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 flex-none whitespace-nowrap transition ${info?.planMode ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
               >
-                <Icon name="compass" size={16} /> 计划模式
+                <Icon name="compass" size={16} />
+                {!compactBar && '计划模式'}
               </button>
               {SHOW_THINKING_MODEL && (
-              <div className="relative">
+              <div className="relative flex-none">
                 <button
                   onClick={() => setReasonMenu((v) => !v)}
                   title="思考模型：为本轮注入一套思维方法论"
-                  className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 transition ${(info?.reasoningScenario ?? 'off') !== 'off' ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
+                  className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 flex-none whitespace-nowrap transition ${(info?.reasoningScenario ?? 'off') !== 'off' ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
                 >
-                  <Icon name="sparkles" size={16} /> {(info?.reasoningScenario ?? 'off') === 'off' ? '思考模型' : (REASONING_LABEL[info!.reasoningScenario!] ?? info!.reasoningScenario)}
+                  <Icon name="sparkles" size={16} />
+                  {!compactBar && ((info?.reasoningScenario ?? 'off') === 'off' ? '思考模型' : (REASONING_LABEL[info!.reasoningScenario!] ?? info!.reasoningScenario))}
                   <Icon name="chevron-down" size={12} />
                 </button>
                 {reasonMenu && (
@@ -1391,13 +1455,14 @@ export default function App() {
                 )}
               </div>
               )}
-              <div className="relative">
+              <div className="relative flex-none">
                 <button
                   onClick={() => setThinkMenu((v) => !v)}
-                  title="思考强度：让推理模型输出思考过程（reasoning_effort）"
-                  className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 transition ${(info?.thinkingEffort ?? 'off') !== 'off' ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
+                  title={`思考强度：让推理模型输出思考过程（reasoning_effort）\n当前：${(info?.thinkingEffort ?? 'off') === 'off' ? '不启用' : (THINKING_LABEL[info!.thinkingEffort!] ?? info!.thinkingEffort)}`}
+                  className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 flex-none whitespace-nowrap transition ${(info?.thinkingEffort ?? 'off') !== 'off' ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
                 >
-                  <Icon name="sparkles" size={16} /> {(info?.thinkingEffort ?? 'off') === 'off' ? '思考强度' : `思考 · ${THINKING_LABEL[info!.thinkingEffort!] ?? info!.thinkingEffort}`}
+                  <Icon name="sparkles" size={16} />
+                  {!compactBar && ((info?.thinkingEffort ?? 'off') === 'off' ? '思考强度' : `思考 · ${THINKING_LABEL[info!.thinkingEffort!] ?? info!.thinkingEffort}`)}
                   <Icon name="chevron-down" size={12} />
                 </button>
                 {thinkMenu && (
@@ -1418,16 +1483,20 @@ export default function App() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="relative">
+            {/* Right group takes the remaining pressure: the model name truncates rather
+                than pushing the send button out — model ids get long (deepseek-ai/...). */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative min-w-0">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => (modelPickerOpen ? setModelPickerOpen(false) : void openModelPicker())}
-                  className="font-mono text-[12px] text-muted bg-surface2 border border-line px-[11px] py-[5px] rounded-lg inline-flex items-center gap-1.5 hover:border-primary hover:text-ink transition"
-                  title="点击切换模型"
+                  className={`font-mono text-[12px] text-muted bg-surface2 border border-line px-[11px] py-[5px] rounded-lg inline-flex items-center gap-1.5 min-w-0 ${tinyBar ? 'max-w-[110px]' : compactBar ? 'max-w-[150px]' : 'max-w-[240px]'} hover:border-primary hover:text-ink transition disabled:opacity-50 disabled:cursor-default disabled:hover:border-line disabled:hover:text-muted`}
+                  title={busy ? '对话进行中，无法切换模型' : `点击切换模型\n当前：${info?.model ?? ''}`}
                 >
-                  模型 · {info?.model}
-                  <Icon name="chevron-down" size={12} />
+                  {!compactBar && <span className="flex-none">模型 ·</span>}
+                  <span className="truncate min-w-0">{info?.model}</span>
+                  <Icon name="chevron-down" size={12} className="flex-none" />
                 </button>
                 {modelPickerOpen && (
                   <>
@@ -1445,21 +1514,27 @@ export default function App() {
                       <div className="overflow-y-auto py-1">
                         {(() => {
                           const q = modelQuery.trim().toLowerCase()
-                          const matches = modelOptions.filter((m) => !q || m.id.toLowerCase().includes(q) || (m.ownedBy ?? '').toLowerCase().includes(q)).slice(0, 10)
-                          if (modelOptions.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">无可选模型(仅通行证会话可切换)</div>
+                          const matches = modelOptions
+                            .filter((m) => !q || m.label.toLowerCase().includes(q) || (m.sub ?? '').toLowerCase().includes(q) || m.key.toLowerCase().includes(q))
+                            .slice(0, 10)
+                          if (modelOptions.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">无可选模型(登录通行证或在设置中添加自定义模型)</div>
                           if (matches.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">没有匹配的模型</div>
-                          return matches.map((m) => (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => void pickModel(m.id)}
-                              className={`w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 transition ${m.id === info?.model ? 'text-primary' : 'text-ink'}`}
-                            >
-                              <span className="font-mono text-[12.5px] truncate flex-1">{m.id}</span>
-                              {m.ownedBy && <span className="text-[11px] text-faint flex-none">{m.ownedBy}</span>}
-                              {m.id === info?.model && <span className="text-primary text-[13px] flex-none">✓</span>}
-                            </button>
-                          ))
+                          return matches.map((m) => {
+                            const current = m.modelId === info?.model
+                            return (
+                              <button
+                                key={`${m.kind}:${m.key}`}
+                                type="button"
+                                onClick={() => void pickModel(m)}
+                                className={`w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 transition ${current ? 'text-primary' : 'text-ink'}`}
+                              >
+                                <span className="font-mono text-[12.5px] truncate flex-1">{m.label}</span>
+                                {m.kind === 'custom' && <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-primarysoft text-primaryink flex-none">自定义</span>}
+                                {m.sub && m.sub !== m.label && <span className="text-[11px] text-faint flex-none truncate max-w-[110px]">{m.sub}</span>}
+                                {current && <span className="text-primary text-[13px] flex-none">✓</span>}
+                              </button>
+                            )
+                          })
                         })()}
                       </div>
                     </div>
@@ -1651,9 +1726,13 @@ function BotRow({ children }: { children: ReactNode }) {
   return <div className="anim-rise min-w-0">{children}</div>
 }
 
-function GhostBtn({ children, onClick, title }: { children: ReactNode; onClick?: () => void; title?: string }) {
+function GhostBtn({ children, onClick, title, className }: { children: ReactNode; onClick?: () => void; title?: string; className?: string }) {
   return (
-    <button className="border-none bg-transparent text-muted text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 hover:bg-surface2 hover:text-ink" onClick={onClick} title={title}>
+    <button
+      className={`border-none bg-transparent text-muted text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 hover:bg-surface2 hover:text-ink ${className ?? ''}`}
+      onClick={onClick}
+      title={title}
+    >
       {children}
     </button>
   )
@@ -1733,6 +1812,14 @@ function Sidebar({
   onNew: () => void
   onResume: (id: string) => void
 }) {
+  // 折叠成图标栏(而非整块隐藏)：导航/新建/工作区仍可点，只收起文字与最近对话，
+  // 所以折叠后不会没法导航。状态持久化，与 preview.width 的做法一致。
+  const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar.collapsed') === '1')
+  const toggleCollapsed = () =>
+    setCollapsed((v) => {
+      localStorage.setItem('sidebar.collapsed', v ? '0' : '1')
+      return !v
+    })
   const wsName = cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '—'
   const nav = [
     { label: '对话', name: 'chat', view: 'chat' as const },
@@ -1742,56 +1829,82 @@ function Sidebar({
     { label: '设置', name: 'settings', view: 'settings' as const },
   ]
   return (
-    <aside className="w-[268px] flex-none bg-surface border-r border-line2 flex flex-col p-4">
-      <button className="w-full border-none bg-primary text-white font-semibold text-sm py-3 rounded-[11px] cursor-pointer inline-flex items-center justify-center gap-2 shadow-[0_5px_14px_rgba(91,108,240,0.3)] hover:brightness-105 transition" onClick={onNew}>
-        <Icon name="plus" size={16} /> 新建对话
+    <aside
+      className={`${collapsed ? 'w-[64px] px-2.5' : 'w-[268px] px-4'} py-4 flex-none bg-surface border-r border-line2 flex flex-col transition-[width] duration-200 ease-out`}
+    >
+      <button
+        onClick={toggleCollapsed}
+        title={collapsed ? '展开侧栏' : '折叠侧栏'}
+        className={`flex-none flex items-center h-8 mb-2 rounded-[9px] text-muted hover:text-ink hover:bg-surface2 transition ${collapsed ? 'justify-center' : 'justify-end px-2'}`}
+      >
+        <Icon name="panel-left" size={17} />
+      </button>
+      <button
+        className={`w-full border-none bg-primary text-white font-semibold text-sm rounded-[11px] cursor-pointer inline-flex items-center justify-center gap-2 shadow-[0_5px_14px_rgba(91,108,240,0.3)] hover:brightness-105 transition ${collapsed ? 'h-10' : 'py-3'}`}
+        onClick={onNew}
+        title={collapsed ? '新建对话' : undefined}
+      >
+        <Icon name="plus" size={16} />
+        {!collapsed && '新建对话'}
       </button>
       <nav className="mt-[18px] flex flex-col gap-0.5">
         {nav.map((n) => (
           <div
             key={n.label}
             onClick={() => onNav(n.view)}
-            className={`flex items-center gap-[11px] px-[11px] py-[9px] rounded-[9px] text-sm cursor-pointer select-none ${
-              view === n.view ? 'bg-primarysoft text-primaryink font-semibold' : 'text-muted hover:bg-surface2 hover:text-ink'
-            }`}
+            title={collapsed ? n.label : undefined}
+            className={`flex items-center py-[9px] rounded-[9px] text-sm cursor-pointer select-none ${
+              collapsed ? 'justify-center' : 'gap-[11px] px-[11px]'
+            } ${view === n.view ? 'bg-primarysoft text-primaryink font-semibold' : 'text-muted hover:bg-surface2 hover:text-ink'}`}
           >
             <Icon name={n.name} size={18} />
-            {n.label}
+            {!collapsed && n.label}
           </div>
         ))}
       </nav>
-      <div className="mt-[22px] flex-1 overflow-y-auto -mr-1 pr-1">
-        <div className="text-[11.5px] text-faint px-[11px] pb-2 tracking-wide">最近对话</div>
-        {recents.length === 0 ? (
-          <div className="text-faint text-[13px] px-[11px] py-1">暂无对话</div>
-        ) : (
-          recents.map((s) => {
-            const active = s.id === currentId
-            return (
-              <div
-                key={s.id}
-                onClick={() => onResume(s.id)}
-                title={s.title}
-                className={`flex items-center gap-2.5 px-[11px] py-[9px] rounded-[9px] cursor-pointer text-[13.5px] mb-0.5 ${
-                  active ? 'text-ink bg-surface2 shadow-[inset_2px_0_0_var(--color-primary)]' : 'text-muted hover:bg-surface2'
-                }`}
-              >
-                <Icon name="file" size={15} />
-                <span className="flex-1 min-w-0 truncate">{s.title}</span>
-                <span className="text-faint text-[11px] flex-none">{s.when}</span>
-              </div>
-            )
-          })
-        )}
-      </div>
+      {collapsed ? (
+        // 撑开中间，让工作区按钮保持贴底（展开态由最近对话列表的 flex-1 承担）。
+        <div className="flex-1" />
+      ) : (
+        <div className="mt-[22px] flex-1 overflow-y-auto -mr-1 pr-1">
+          <div className="text-[11.5px] text-faint px-[11px] pb-2 tracking-wide">最近对话</div>
+          {recents.length === 0 ? (
+            <div className="text-faint text-[13px] px-[11px] py-1">暂无对话</div>
+          ) : (
+            recents.map((s) => {
+              const active = s.id === currentId
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => onResume(s.id)}
+                  title={s.title}
+                  className={`flex items-center gap-2.5 px-[11px] py-[9px] rounded-[9px] cursor-pointer text-[13.5px] mb-0.5 ${
+                    active ? 'text-ink bg-surface2 shadow-[inset_2px_0_0_var(--color-primary)]' : 'text-muted hover:bg-surface2'
+                  }`}
+                >
+                  <Icon name="file" size={15} />
+                  <span className="flex-1 min-w-0 truncate">{s.title}</span>
+                  <span className="text-faint text-[11px] flex-none">{s.when}</span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
       <button
         onClick={onSwitchWorkspace}
         title={`当前工作区:${cwd || '—'}\n点击切换到其它目录`}
-        className="mt-3 flex-none flex items-center gap-2 px-[11px] py-2.5 rounded-[10px] border border-line2 bg-surface hover:border-primary hover:bg-surface2 text-muted hover:text-ink transition"
+        className={`mt-3 flex-none flex items-center py-2.5 rounded-[10px] border border-line2 bg-surface hover:border-primary hover:bg-surface2 text-muted hover:text-ink transition ${
+          collapsed ? 'justify-center' : 'gap-2 px-[11px]'
+        }`}
       >
         <Icon name="folder" size={16} />
-        <span className="flex-1 min-w-0 truncate text-left font-mono text-[12.5px]">{wsName}</span>
-        <span className="text-faint text-[11px] flex-none">切换</span>
+        {!collapsed && (
+          <>
+            <span className="flex-1 min-w-0 truncate text-left font-mono text-[12.5px]">{wsName}</span>
+            <span className="text-faint text-[11px] flex-none">切换</span>
+          </>
+        )}
       </button>
     </aside>
   )

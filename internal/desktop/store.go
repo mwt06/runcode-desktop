@@ -78,6 +78,7 @@ func saveConfig(req StartSessionRequest) {
 	prev := loadRawConfig()
 	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
 	req.CustomModels = prev.CustomModels
+	req.WebProxy = prev.WebProxy
 	req = protectRequestSecrets(req)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {

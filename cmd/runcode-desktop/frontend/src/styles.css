@@ -107,3 +107,26 @@
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #d7dae4; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: #c4c8d6; background-clip: padding-box; }
+
+/* Office / spreadsheet preview (see preview-panel.tsx). The Office renderers
+   inject their own styles; these only cover the SheetJS table, which ships none,
+   and give the docx/pptx hosts a neutral document backdrop. */
+.xlsx-host table { border-collapse: collapse; font-size: 12.5px; }
+.xlsx-host td, .xlsx-host th {
+  border: 1px solid var(--color-line2);
+  padding: 3px 8px; white-space: nowrap; color: var(--color-ink);
+}
+.xlsx-host tr:first-child td { background: var(--color-surface2); font-weight: 600; }
+.docview-host { display: block; }
+.docview-host .docx-wrapper { background: transparent; padding: 16px 0; }
+
+/* pptx-preview hard-codes background:#000 on its wrapper inline; !important beats the
+   inline style. Center the deck and give each slide a page-like shadow so it reads as
+   a slide on the light backdrop. */
+.pptx-host .pptx-preview-wrapper { background: transparent !important; margin: 0 auto; height: auto !important; }
+.pptx-host .pptx-preview-slide-wrapper {
+  margin: 0 auto;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 16px rgba(30, 35, 60, 0.14);
+}

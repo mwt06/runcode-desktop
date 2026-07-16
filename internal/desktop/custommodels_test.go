@@ -56,3 +56,34 @@ func TestSaveCustomModelValidates(t *testing.T) {
 		t.Fatal("want error for empty model")
 	}
 }
+
+func TestFindCustomModel(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	if _, err := app.SaveCustomModel(CustomModel{Name: "本地 Ollama", Model: "qwen2.5-coder", BaseURL: "http://localhost:11434/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := app.findCustomModel("  本地 Ollama  ") // 名称前后空白应被容错
+	if !ok || got.Model != "qwen2.5-coder" || got.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("findCustomModel = %+v, ok=%v", got, ok)
+	}
+	if _, ok := app.findCustomModel("不存在"); ok {
+		t.Fatal("want not found for unknown name")
+	}
+}
+
+func TestSwitchModelGuards(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	// 空模型名：在取会话前就应报错。
+	if _, err := app.SwitchModel("platform", "   "); err == nil {
+		t.Fatal("want error for empty model name")
+	}
+	// 无会话：任何切换都应返回 errNoSession。
+	if _, err := app.SwitchModel("platform", "glm-4.6"); err != errNoSession {
+		t.Fatalf("SwitchModel without session = %v, want errNoSession", err)
+	}
+	if _, err := app.SwitchModel("custom", "本地 Ollama"); err != errNoSession {
+		t.Fatalf("SwitchModel custom without session = %v, want errNoSession", err)
+	}
+}

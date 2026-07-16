@@ -26,6 +26,18 @@ func (a *App) ListCustomModels() []CustomModel {
 	return out
 }
 
+// findCustomModel 按显示名返回解密后的自定义模型，供对话内模型选择器切换时取
+// 直连参数（baseURL / apiKey / model）。名称是 Save/Delete 的唯一键。
+func (a *App) findCustomModel(name string) (CustomModel, bool) {
+	name = strings.TrimSpace(name)
+	for _, m := range a.ListCustomModels() {
+		if m.Name == name {
+			return m, true
+		}
+	}
+	return CustomModel{}, false
+}
+
 // SaveCustomModel 新增或同名覆盖一个自定义模型，返回最新列表（已解密）。
 func (a *App) SaveCustomModel(m CustomModel) ([]CustomModel, error) {
 	m.Name = strings.TrimSpace(m.Name)

@@ -6,12 +6,28 @@
 package webclient
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
+
+// ProxyEnvVar names a proxy used only by the web tools (WebFetch/WebSearch). It
+// takes precedence over the standard variables so these tools can be sent through
+// a proxy without redirecting the LLM/API traffic HTTPS_PROXY also governs — the
+// common case being a search endpoint that is unreachable without one.
+const ProxyEnvVar = "RUNCODE_WEB_PROXY"
+
+// resolveTimeout bounds the guard's hostname lookup in proxied mode so a slow or
+// blackholed resolver cannot stall a request past the client's own timeout.
+const resolveTimeout = 5 * time.Second
 
 // BrowserUserAgent presents outbound requests as a mainstream desktop browser so
 // sites that reject non-browser clients don't 403 the request outright.
@@ -21,15 +37,36 @@ const BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 // New returns an http.Client that refuses to connect to any non-public address
 // (loopback, private, link-local, unspecified, multicast, CGNAT) on the initial
 // request, every redirect hop, and DNS-rebinding attempts alike, and stops after
-// maxRedirects hops. timeout bounds the whole request. No proxy is configured on
-// purpose: a proxy would hide the real destination IP from the Control hook.
+// maxRedirects hops. timeout bounds the whole request.
+//
+// Direct (the default) and proxied mode enforce that guarantee at different
+// layers, because a proxy fundamentally changes what the client can observe:
+//
+//   - Direct: the guard is the dialer's Control hook, which sees the resolved
+//     destination IP of every connection — including each redirect and reconnect —
+//     so it also defeats DNS rebinding (a host that resolves public on lookup and
+//     private at connect time).
+//   - Proxied: every dial goes to the proxy instead, so the hook can no longer see
+//     the destination, and would reject the proxy itself, which is routinely on
+//     loopback. The guard therefore moves up to the URL layer (see hostGuard),
+//     which is checked before each request and redirect leaves.
+//
+// A proxy is opt-in via ProxyEnvVar or the standard HTTPS_PROXY/HTTP_PROXY
+// (honoring NO_PROXY); with none set, behavior is exactly as before.
 func New(timeout time.Duration, maxRedirects int) *http.Client {
+	proxy, proxied := proxyFunc()
+	// Control only guards addresses this client dials itself. In proxied mode that
+	// is the proxy, not the destination, so the check belongs at the URL layer.
+	var control func(string, string, syscall.RawConn) error
+	if !proxied {
+		control = blockNonPublicAddr
+	}
 	transport := &http.Transport{
-		Proxy: nil,
+		Proxy: proxy,
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
-			Control:   blockNonPublicAddr,
+			Control:   control,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          10,
@@ -37,9 +74,13 @@ func New(timeout time.Duration, maxRedirects int) *http.Client {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: time.Second,
 	}
+	var rt http.RoundTripper = transport
+	if proxied {
+		rt = hostGuard{base: transport}
+	}
 	return &http.Client{
 		Timeout:   timeout,
-		Transport: transport,
+		Transport: rt,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
 				return fmt.Errorf("stopped after %d redirects", maxRedirects)
@@ -50,6 +91,85 @@ func New(timeout time.Duration, maxRedirects int) *http.Client {
 			return nil
 		},
 	}
+}
+
+// proxyFunc resolves the proxy for the web tools and reports whether one is set.
+// The environment is read on every call, unlike http.ProxyFromEnvironment, which
+// caches it process-wide at first use — a host that sets the proxy after startup
+// (the desktop applying a saved setting) would otherwise never take effect.
+func proxyFunc() (func(*http.Request) (*url.URL, error), bool) {
+	if raw := strings.TrimSpace(os.Getenv(ProxyEnvVar)); raw != "" {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			// Falling back to a direct connection would quietly ignore an explicit
+			// instruction to proxy — and, for a user who set it to reach a blocked
+			// endpoint, leak the request straight out. Fail the request instead.
+			return func(*http.Request) (*url.URL, error) {
+				return nil, fmt.Errorf("invalid %s %q: want a URL like http://127.0.0.1:7890", ProxyEnvVar, raw)
+			}, true
+		}
+		return http.ProxyURL(u), true
+	}
+	cfg := httpproxy.FromEnvironment() // HTTPS_PROXY / HTTP_PROXY / NO_PROXY
+	if cfg.HTTPProxy == "" && cfg.HTTPSProxy == "" {
+		return nil, false
+	}
+	f := cfg.ProxyFunc()
+	return func(req *http.Request) (*url.URL, error) { return f(req.URL) }, true
+}
+
+// hostGuard enforces the non-public-address rule at the URL layer, standing in for
+// the dial-time check when a proxy is in front. The http.Client calls RoundTrip
+// once per hop, so this covers the initial request and every redirect.
+type hostGuard struct{ base http.RoundTripper }
+
+func (g hostGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := checkPublicHost(req.Context(), req.URL); err != nil {
+		return nil, err
+	}
+	return g.base.RoundTrip(req)
+}
+
+// checkPublicHost refuses a URL aimed at a non-public address. An IP literal is
+// checked outright; a hostname is resolved and every answer must be public.
+//
+// A lookup failure is deliberately not a rejection. A proxy is normally configured
+// precisely because the local network cannot resolve or reach the target, and the
+// proxy resolves on its own — so treating "cannot resolve" as "refuse" would break
+// the one case proxying exists to serve. The residual gap is a hostname that only
+// resolves to a private address from the proxy's vantage point; the proxy is
+// user-configured and trusted that far, and IP-literal targets — the vector that
+// matters for cloud metadata and intranet endpoints — are still blocked outright.
+func checkPublicHost(ctx context.Context, u *url.URL) error {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("refusing request to %q scheme", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("refusing request with no host: %s", u.Redacted())
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !isPublicIP(ip) {
+			return fmt.Errorf("refusing to connect to non-public address %s", ip)
+		}
+		return nil
+	}
+	// localhost is guaranteed loopback and may not reach the resolver at all.
+	if lower := strings.ToLower(host); lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
+		return fmt.Errorf("refusing to connect to non-public host %q", host)
+	}
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil // unresolvable locally — let the proxy resolve it (see above)
+	}
+	for _, a := range ips {
+		if !isPublicIP(a.IP) {
+			return fmt.Errorf("refusing to connect to non-public address %s (%s)", a.IP, host)
+		}
+	}
+	return nil
 }
 
 // blockNonPublicAddr is a net.Dialer Control hook that refuses connections to any

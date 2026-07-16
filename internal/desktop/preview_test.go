@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,41 @@ func TestReadArtifactRejectsBinary(t *testing.T) {
 	a := appWithWorkspace(t, ws)
 	if _, err := a.ReadArtifact("b.bin"); err == nil {
 		t.Fatal("ReadArtifact returned binary content instead of erroring")
+	}
+}
+
+func TestReadArtifactBytesReturnsBase64(t *testing.T) {
+	ws := t.TempDir()
+	raw := []byte{0x50, 0x4b, 0x03, 0x04, 0x00, 0xff} // zip magic + non-UTF-8 bytes
+	if err := os.WriteFile(filepath.Join(ws, "d.docx"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := appWithWorkspace(t, ws)
+	got, err := a.ReadArtifactBytes("d.docx")
+	if err != nil {
+		t.Fatalf("ReadArtifactBytes: %v", err)
+	}
+	if got != base64.StdEncoding.EncodeToString(raw) {
+		t.Fatalf("ReadArtifactBytes = %q, want base64 of the raw bytes", got)
+	}
+}
+
+func TestReadArtifactBytesRejectsOutsideWorkspace(t *testing.T) {
+	a := appWithWorkspace(t, t.TempDir())
+	if _, err := a.ReadArtifactBytes("../../secret.docx"); err == nil {
+		t.Fatal("ReadArtifactBytes allowed a path outside the workspace")
+	}
+}
+
+func TestReadArtifactBytesRejectsTooLarge(t *testing.T) {
+	ws := t.TempDir()
+	big := make([]byte, maxArtifactBinaryBytes+1)
+	if err := os.WriteFile(filepath.Join(ws, "big.pptx"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := appWithWorkspace(t, ws)
+	if _, err := a.ReadArtifactBytes("big.pptx"); err == nil {
+		t.Fatal("ReadArtifactBytes returned an over-sized file instead of erroring")
 	}
 }
 

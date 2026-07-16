@@ -38,7 +38,7 @@ type them into the start form.
 ## Build
 
 ```sh
-wails build            # produces build/bin/runcode-desktop(.exe)
+wails build            # produces build/bin/XRUN(.exe) — output name set in wails.json
 ```
 
 `wails build` runs `npm install` + `npm run build` (see `wails.json`) to populate
@@ -49,7 +49,8 @@ wails build            # produces build/bin/runcode-desktop(.exe)
 ```
 frontend (React/Vite)
   │  window.go.desktop.App.*   (commands)
-  │  window.runtime.EventsOn   (assistant:delta / tool:event / permission:request / turn:end|error / warning)
+  │  window.runtime.EventsOn   (assistant:delta|thinking / tool:event / permission:request /
+  │                             turn:end|error / warning / session:renamed / harm:autoallow)
   ▼
 cmd/runcode-desktop (main.go)   Wails shell: eventSink + Bind(app) + embed
   ▼

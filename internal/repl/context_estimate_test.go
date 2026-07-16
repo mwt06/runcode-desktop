@@ -24,7 +24,7 @@ func TestEstimateRequestTokensCountsSystemMessagesAndTools(t *testing.T) {
 	req := llm.Request{
 		System: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "你好"}}, // 2
 		Messages: []llm.Message{
-			{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "abcd"}}}, // 1
+			{Role: llm.RoleUser, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "abcd"}}},                                                                    // 1
 			{Role: llm.RoleTool, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeToolResult, Content: []llm.ContentBlock{{Type: llm.ContentBlockTypeText, Text: "世界"}}}}}, // 2 (nested)
 		},
 		Tools: []llm.ToolSpec{{Name: "Read", Description: "reads", InputSchema: map[string]any{"x": 1}}},

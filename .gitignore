@@ -47,3 +47,14 @@ vendor/
 
 # GoReleaser
 .goreleaser-snapshot/
+
+# Superpowers brainstorm/SDD scratch
+/.superpowers/
+
+# Local API debug requests (may contain credentials) and scratch assets
+/core-id.cfg
+/id.cfg
+/idbody.json
+/xiao.svg
+/cmd/runcode-desktop/core.cfg
+/cmd/runcode-desktop/core-tools.cfg

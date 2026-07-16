@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -91,7 +92,29 @@ func (t *Tool) Run(_ context.Context, input json.RawMessage, _ *tool.Context, _ 
 	if sk.Truncated {
 		text += "\n\n[skill instructions truncated]"
 	}
-	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: text}}}, nil
+	return tool.Result{Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: locationHeader(sk) + text}}}, nil
+}
+
+// locationHeader prefixes a loaded skill's instructions with the directory it
+// lives in. A skill is a directory, and its body routinely points at bundled
+// resources by a path relative to that directory ("run scripts/gen.py", "see
+// references/palette.md"). The body alone gives the model no anchor for those
+// paths, leaving it to search the filesystem for files whose location is already
+// known here. Naming the directory once, on load, removes that hunt.
+//
+// The path stays out of the catalog on purpose: the catalog is injected into
+// every prompt, and progressive disclosure keeps it to name + description.
+//
+// Path is always set by the loader; it is empty only for a hand-built Skill, in
+// which case there is no location to disclose.
+func locationHeader(sk Skill) string {
+	if strings.TrimSpace(sk.Path) == "" {
+		return ""
+	}
+	return fmt.Sprintf("Skill: %s\nSkill directory: %s\n"+
+		"Files this skill refers to by a relative path (scripts, references, templates) are in that "+
+		"directory — resolve them against it and read them directly; do not search the workspace for them.\n\n",
+		sk.Name, filepath.Dir(sk.Path))
 }
 
 func errorResult(msg string) tool.Result {

@@ -15,6 +15,7 @@ import {
   passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
   setActiveTenant, activeTenant,
   listCustomModels, saveCustomModel, deleteCustomModel,
+  webProxy, setWebProxy,
   onEvent, Events,
   type SkillInfo, type SkillList,
   type AgentInfo, type AgentList,
@@ -318,11 +319,27 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   const [skillList, setSkillList] = useState<SkillInfo[]>([])
   const [err, setErr] = useState('')
   const [detail, setDetail] = useState<{ k: 'agent'; item: AgentInfo | 'new' } | { k: 'skill'; item: SkillInfo | 'new' } | null>(null)
+  // 导入范围显式选择(不复用上面的「停用范围」——那个只管开关的作用域)，
+  // 与「新建」在详情页里选范围的做法保持一致。
+  const [importMenu, setImportMenu] = useState(false)
 
   const reloadTools = async () => { try { setToolList((await listTools()) ?? []) } catch { /* ignore */ } }
   const reloadAgents = async () => { try { const l = await listAgents(); setAgentList(l?.agents ?? []) } catch { /* ignore */ } }
   const reloadSkills = async () => { try { const l = await listSkills(); setSkillList(l?.skills ?? []) } catch { /* ignore */ } }
   useEffect(() => { void reloadTools(); void reloadAgents(); void reloadSkills() }, [])
+
+  // 导入当前标签页对应的能力：弹原生文件选择器(技能选 SKILL.md，子代理选 .md)，
+  // 校验后写入所选范围。取消选择不报错(后端原样返回当前列表)。
+  const doImport = async (s: 'project' | 'user') => {
+    setImportMenu(false)
+    setErr('')
+    try {
+      if (tab === 'skills') setSkillList((await importSkill(s))?.skills ?? [])
+      else setAgentList((await importAgent(s))?.agents ?? [])
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
 
   // 详情为全屏单页(替代左右分栏)。
   if (detail?.k === 'agent') return <AgentDetail agent={detail.item} onBack={() => setDetail(null)} onChanged={reloadAgents} onUse={onUseAgent} />
@@ -404,6 +421,34 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
             )}
             {tab === 'agents' && <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4 py-2 text-[13px]`} onClick={() => setDetail({ k: 'agent', item: 'new' })}>+ 新建</button>}
             {tab === 'skills' && <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4 py-2 text-[13px]`} onClick={() => setDetail({ k: 'skill', item: 'new' })}>+ 新建</button>}
+            {(tab === 'skills' || tab === 'agents') && (
+              <div className="relative flex-none">
+                <button
+                  type="button"
+                  onClick={() => setImportMenu((v) => !v)}
+                  title={tab === 'skills' ? '从已有的 SKILL.md 导入技能' : '从已有的 .md 导入子代理'}
+                  className={`${BTN} px-4 py-2 text-[13px] inline-flex items-center gap-1.5 whitespace-nowrap`}
+                >
+                  <Icon name="book" size={15} /> 导入
+                  <Icon name="chevron-down" size={12} />
+                </button>
+                {importMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setImportMenu(false)} />
+                    <div className="absolute top-full right-0 mt-1.5 z-20 w-[260px] bg-surface border border-line2 rounded-[11px] shadow-card overflow-hidden py-1">
+                      <div onClick={() => void doImport('project')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
+                        <div className="text-[13px] text-ink">导入到本项目</div>
+                        <div className="text-[11.5px] text-faint mt-0.5">仅当前工作区可用</div>
+                      </div>
+                      <div onClick={() => void doImport('user')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
+                        <div className="text-[13px] text-ink">导入到全局(用户级)</div>
+                        <div className="text-[11.5px] text-faint mt-0.5">所有项目都可用</div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {showControls && (
             <div className="flex items-center gap-3 mt-4 text-[12.5px]">
@@ -441,7 +486,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
             })}
             {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-16">没有匹配的工具</div>}
             {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-16">没有匹配的子代理</div>}
-            {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建一个</div>}
+            {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建，或「导入」一个已有的 SKILL.md</div>}
           </div>
         </div>
       )}
@@ -881,8 +926,14 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   const [cmModel, setCmModel] = useState('')
   const [cmBaseURL, setCmBaseURL] = useState('')
   const [cmApiKey, setCmApiKey] = useState('')
+  // 联网工具(WebSearch/WebFetch)的代理，与模型出口无关。
+  const [proxy, setProxy] = useState('')
+  const [proxyMsg, setProxyMsg] = useState('')
   useEffect(() => {
-    void (async () => { try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ } })()
+    void (async () => {
+      try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
+      try { setProxy((await webProxy()) ?? '') } catch { /* ignore */ }
+    })()
   }, [])
   // 账号：登录态 + 租户切换。
   const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
@@ -1039,6 +1090,38 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
               setCustomModels(list ?? []); setCmName(''); setCmModel(''); setCmBaseURL(''); setCmApiKey('')
             }}>添加自定义模型</button>
           </div>
+        </section>
+
+        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="text-[13px] font-semibold text-ink">联网工具代理</div>
+            <span className="text-[11.5px] text-faint">仅 WebSearch / WebFetch</span>
+          </div>
+          <p className="text-[12px] text-muted -mt-1.5">
+            联网搜索走 DuckDuckGo，直连不通时可在此填代理。<b>只影响联网工具</b>，不改变模型 API 与通行证的出口。留空为直连。
+          </p>
+          <div className="flex gap-2">
+            <input
+              className={`${field} flex-1`}
+              placeholder="如 127.0.0.1:7890（可省略 http://，支持 socks5://）"
+              value={proxy}
+              onChange={(e) => { setProxy(e.target.value); setProxyMsg('') }}
+            />
+            <button type="button" className={`${BTN} px-5 flex-none`} onClick={async () => {
+              setProxyMsg('')
+              try {
+                const norm = await setWebProxy(proxy)
+                setProxy(norm ?? '')
+                setProxyMsg(norm ? `已保存：${norm}（新建会话后生效）` : '已清除，联网工具将直连')
+              } catch (e) {
+                setProxyMsg(String(e))
+              }
+            }}>保存</button>
+          </div>
+          {proxyMsg && <div className="text-[12px] text-muted -mt-1">{proxyMsg}</div>}
+          <p className="text-[11.5px] text-faint -mt-1">
+            出于安全，联网工具始终拒绝访问内网/回环地址(如 127.0.0.1、192.168.*、169.254.169.254)，配了代理也一样。
+          </p>
         </section>
 
         <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">

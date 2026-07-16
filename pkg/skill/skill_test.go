@@ -220,3 +220,40 @@ func TestToolRunTruncatedNote(t *testing.T) {
 		t.Fatalf("truncated body missing note: %q", res.Content[0].Text)
 	}
 }
+
+// A skill's body points at its bundled files by a path relative to the skill's own
+// directory, so loading it must name that directory — otherwise the model has to
+// search the filesystem for files whose location is already known.
+func TestToolRunDisclosesSkillDirectory(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join("srv", "skills", "dataviz")
+	tl := NewTool(NewSet([]Skill{{
+		Name: "dataviz", Description: "charts",
+		Body: "see references/palette.md",
+		Path: filepath.Join(dir, DefinitionFileName),
+	}}))
+	res, err := tl.Run(context.Background(), json.RawMessage(`{"name":"dataviz"}`), nil, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("result = %#v, want success", res)
+	}
+	if !strings.Contains(res.Content[0].Text, dir) {
+		t.Fatalf("result missing skill directory %q: %q", dir, res.Content[0].Text)
+	}
+	if !strings.Contains(res.Content[0].Text, "see references/palette.md") {
+		t.Fatalf("result dropped the body: %q", res.Content[0].Text)
+	}
+}
+
+// Loaded skills always carry a Path; a hand-built one has no location to disclose,
+// and must still return its instructions unchanged.
+func TestToolRunWithoutPathReturnsBareBody(t *testing.T) {
+	t.Parallel()
+	tl := NewTool(NewSet([]Skill{{Name: "deploy", Description: "ship", Body: "do the deploy"}}))
+	res, _ := tl.Run(context.Background(), json.RawMessage(`{"name":"deploy"}`), nil, nil)
+	if res.Content[0].Text != "do the deploy" {
+		t.Fatalf("result = %q, want the bare body", res.Content[0].Text)
+	}
+}

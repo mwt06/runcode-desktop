@@ -6,13 +6,13 @@ describe('clampPreviewWidth', () => {
     expect(clampPreviewWidth(560, 1280)).toBe(560)
     expect(clampPreviewWidth(700, 1280)).toBe(700) // 700 <= floor(1280*0.6)=768
   })
-  it('resets an oversized value to the default, capped to the window', () => {
-    expect(clampPreviewWidth(2000, 1280)).toBe(560) // default 560 <= 768 max
-    expect(clampPreviewWidth(2000, 800)).toBe(480) // default 560 > 480 max → 480
+  it('resets an oversized value to the 1:1 default, capped to the window', () => {
+    expect(clampPreviewWidth(2000, 1280)).toBe(640) // default floor(1280*0.5)=640 <= 768 max
+    expect(clampPreviewWidth(2000, 800)).toBe(400) // default floor(800*0.5)=400 <= 480 max
   })
-  it('resets a too-small or NaN value to the default', () => {
-    expect(clampPreviewWidth(100, 1280)).toBe(560)
-    expect(clampPreviewWidth(NaN, 1280)).toBe(560)
+  it('resets a too-small or NaN value to the 1:1 default', () => {
+    expect(clampPreviewWidth(100, 1280)).toBe(640)
+    expect(clampPreviewWidth(NaN, 1280)).toBe(640)
   })
 })
 
@@ -27,6 +27,17 @@ describe('classifyPreview', () => {
   it('classifies code with a highlight language', () => {
     expect(classifyPreview('main.go')).toEqual({ kind: 'code', lang: 'go' })
     expect(classifyPreview('app.tsx')).toEqual({ kind: 'code', lang: 'tsx' })
+  })
+  it('classifies Office documents and PDF', () => {
+    expect(classifyPreview('report.docx').kind).toBe('docx')
+    expect(classifyPreview('deck.PPTX').kind).toBe('pptx')
+    expect(classifyPreview('data.xlsx').kind).toBe('xlsx')
+    expect(classifyPreview('paper.pdf').kind).toBe('pdf')
+  })
+  it('does not classify the legacy binary Office formats (not OOXML)', () => {
+    expect(classifyPreview('old.doc').kind).toBe('unsupported')
+    expect(classifyPreview('old.ppt').kind).toBe('unsupported')
+    expect(classifyPreview('old.xls').kind).toBe('unsupported')
   })
   it('returns unsupported for unknown/binary', () => {
     expect(classifyPreview('archive.zip').kind).toBe('unsupported')

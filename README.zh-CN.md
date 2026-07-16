@@ -7,13 +7,13 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **状态：v0.1-alpha。** 当前已经有最小 provider-backed `chat` 命令、内存态 ReAct loop、最小 Bubble Tea `tui` 命令、CLI chat 的 safe/interactive 权限、telemetry，以及内置 `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` 工具；但还不是完整 TUI 产品。
+> **状态：alpha。** 一个引擎、三个前端：shell 友好的 `chat` 命令、Bubble Tea `tui`，以及 Wails 桌面应用（**XRUN**，见 [docs/desktop.md](./docs/desktop.md)）。引擎内置 14 个工具，另有 MCP / skills / 子代理 / 记忆 / hooks、safe/interactive 权限（桌面版另有带模型判害门的 judge/flight 模式）、完整会话持久化与恢复、上下文压缩。
 
 ## runcode 是什么？
 
 `runcode` 是一个面向终端的 Go 版 AI 编程伴侣。当前版本刻意保持小范围：通过 `runcode chat` 调用 Anthropic provider，暴露一组受限本地工具，并在文件修改和命令执行前经过内部权限层。
 
-长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。Bubble Tea TUI 当前是最小 MVP；更完整的 TUI 权限/工具界面、更广的多 provider 等系统目前仍是脚手架或后续工作。
+长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。同一个引擎经共享的 `internal/engine` 门面同时驱动 Bubble Tea TUI（仍是 MVP）和完整的桌面应用（`cmd/runcode-desktop`，产品名 XRUN）。
 
 ## 快速开始
 
@@ -147,11 +147,14 @@ model: claude-opus-4-8        # 可选；省略则继承父会话模型
 
 ### Hooks（钩子）
 
-**Hook** 在生命周期事件触发时执行用户配置的命令,让你无需改 runcode 即可加策略、审计或注入上下文。支持三个事件:
+**Hook** 在生命周期事件触发时执行用户配置的命令,让你无需改 runcode 即可加策略、审计或注入上下文。支持八个事件:
 
 - **PreToolUse** —— 工具授权后、运行前触发。非零退出**拦截**该工具,命令输出回灌模型。
 - **PostToolUse** —— 工具运行后触发。输出作为反馈追加到结果(无法撤销已执行的工具)。
 - **UserPromptSubmit** —— 提交 prompt 时触发。非零退出**拒绝**该 prompt;否则输出作为本轮附加上下文注入。
+- **Stop / SubagentStop** —— 主代理完成一轮 / 子代理完成委托任务时触发。
+- **SessionStart / SessionEnd** —— 首轮开始与会话关闭时各触发一次。
+- **PreCompact** —— 上下文压缩前触发。
 
 hook **仅用户级配置生效**——像 MCP server 一样,项目文件绝不能注册 hook(hook 执行任意命令)。命令以 argv **直接执行(无 shell)**,事件 payload 以 JSON 经 **stdin** 传入;输出有界且脱敏。**运行后非零退出**是刻意拦截;**无法运行**(缺二进制、超时)则 fail-open 并告警,broken hook 不会拖垮会话。
 
@@ -168,7 +171,7 @@ event = "UserPromptSubmit"
 command = ["/abs/path/inject-git-status.sh"]
 ```
 
-工具钩子覆盖内置 / MCP / skill 工具调用。`runcode config` 以 `event:matcher` 列出已配置 hook,不打印命令。会话生命周期事件与结构化 JSON 决策暂未实现。
+工具钩子覆盖内置 / MCP / skill 工具调用。`runcode config` 以 `event:matcher` 列出已配置 hook,不打印命令。结构化 JSON 决策与 matcher glob/正则暂未实现。
 
 运行 `runcode config` 可查看生效配置和已加载的配置文件路径（凭证值绝不打印）。
 
@@ -207,18 +210,23 @@ runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sess
 
 | 工具 | 当前效果 |
 |------|----------|
-| `Read` | 读取 workspace 文件，返回行号文本，并记录完整/部分读取 metadata。 |
+| `Read` | 读取 workspace 文件——文本带行号（记录完整/部分读取 metadata），图片（png/jpg/gif/webp）直接返回图像。 |
 | `Write` | 在 workspace 内创建文件，或覆盖已 fresh-read 的文件。 |
 | `Edit` | 在 workspace 内对已 fresh-read 文件做 exact string replacement。 |
+| `Delete` | 删除 workspace 文件/目录——默认进系统回收站（可恢复），`permanent=true` 不可逆删除。 |
 | `Glob` | 用 slash glob pattern 和 `**` 查找 workspace 文件；可与兄弟 safe 工具调用并发执行。 |
-| `Grep` | 用 Go regexp 搜索 workspace 文本文件；可与兄弟 safe 工具调用并发执行。 |
-| `Bash` | 权限审批后，在 workspace 内执行单行非交互 Bash 命令。 |
+| `Grep` | 正则搜索 workspace 文件；content/files/count 输出模式、context 行、multiline；并发安全。 |
+| `Bash` | 权限审批后执行非交互命令（Windows 用 cmd，其余 bash）；支持多行命令与 `run_in_background` 后台执行。 |
+| `BashOutput` / `KillShell` | 读取后台 shell 的新增输出 / 终止后台 shell。 |
 | `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
-| `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；网络操作，需审批（按 host 显示）。 |
+| `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；SSRF 加固；网络操作，需审批（按 host 显示）。 |
+| `WebSearch` | 网页搜索（DuckDuckGo 无 JS 页面），返回标题/URL/摘要。 |
+| `Analyze` | 为激活的思考协议记录结构化分析步骤（仅在 turn 内思考门激活时出现）。 |
+| `AskUser` | 向用户提问并停止本轮等待回复。 |
 | `Task` | 把一项独立任务委托给指定子代理（自有会话、受限工具、可选模型）并返回其报告；属编排,免审批,因为每个子工具调用都被单独鉴权（见 [Sub-agents](#sub-agents子代理)）。 |
 | `Remember` | 把一条长期事实保存到 runcode 的持久记忆（默认项目级,或 user scope）,供未来会话回忆;写固定路径的 runcode 元数据,免审批（见 [Memory](#memory记忆)）。 |
 
-配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）,`Task` 工具则委托给子代理（见 [Sub-agents](#sub-agents子代理)）。WebSearch 和插件工具尚未实现。
+配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）。插件工具尚未实现。
 
 ## 权限与安全
 
@@ -259,29 +267,35 @@ Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把
 
 更多说明：
 
-- [docs/architecture.md](./docs/architecture.md)：当前已实现架构。
-- [docs/data-flow-and-prompt.md](./docs/data-flow-and-prompt.md)：请求、工具、prompt 数据流。
-- [docs/implementation-status.md](./docs/implementation-status.md)：当前缺口和最小化实现边界。
+- [docs/architecture.md](./docs/architecture.md)：当前已实现架构、子系统边界与数据流。
+- [docs/desktop.md](./docs/desktop.md)：桌面应用（XRUN）架构与构建。
 
 ## 项目布局
 
 ```text
-cmd/runcode/           Cobra CLI：version、chat 和最小 tui
-internal/ui/           Bubble Tea TUI MVP：底部状态区、viewport、输入框、Markdown 渲染、工具进度/文件摘要、slash commands
-internal/repl/         ReAct session、executor、tool result conversion、telemetry
-internal/permissions/  action/resource/risk、policy、approval、command classification
-internal/mcp/          Model Context Protocol 客户端：JSON-RPC、stdio + HTTP 传输、工具适配、manager
+cmd/runcode/           Cobra CLI：version、chat、tui、config、permissions、sessions、transcript
+cmd/runcode-desktop/   嵌套 Go module：Wails 桌面外壳 + React 前端（XRUN）
+internal/engine/       传输无关引擎门面，三个前端共用
+internal/repl/         ReAct session、executor、流式收集、harm judge、reasoning
+internal/desktop/      桌面核心（会话管理、事件、异步审批器；不依赖 Wails）
+internal/ui/           Bubble Tea TUI：状态区、viewport、输入框、Markdown、工具卡片、slash 命令注册表
+internal/permissions/  action/resource/risk、policy、approval、命令分类、harm gate
+internal/mcp/          Model Context Protocol 客户端：JSON-RPC、stdio + HTTP、tools/resources/prompts/roots/sampling
+internal/subagent/     Task 工具与子代理 Launcher
+internal/hooks/        用户配置的生命周期钩子（8 个事件）
 internal/prompt/       系统提示组装器和 cache boundary
+internal/compaction/   token 预算触发的语义历史压缩
 internal/telemetry/    event model、JSONL、async、memory recorder
-internal/persistence/  可选 JSONL transcript 记录
+internal/persistence/  会话历史（jsonl/sqlite）、脱敏 transcript、TOML settings
 internal/toolpath/     workspace path 解析和 fresh-read gate
 pkg/tool/              public tool interface、schema、context、result types
-pkg/llm/               provider-neutral LLM DTO 和 stream interface
+pkg/llm/               provider-neutral LLM DTO、stream interface、provider 注册表（anthropic/openai）
+pkg/agent|skill|memory|command/  子代理、技能、记忆、自定义 slash 命令定义
 tools/                 内置工具和 registry
-docs/                  当前架构、数据流、handoff、状态说明
+docs/                  架构与桌面文档（从代码重建）
 ```
 
-仍是脚手架或未实现：`pkg/command`、`pkg/plugin`、`prompts/agents` / `prompts/templates`。
+仍是脚手架或未实现：`pkg/plugin`、`prompts/agents` / `prompts/templates`。
 
 ## 贡献
 

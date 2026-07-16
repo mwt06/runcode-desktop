@@ -230,7 +230,7 @@ type readSetWriterTool struct {
 	key  string
 }
 
-func (t readSetWriterTool) Name() string            { return t.name }
+func (t readSetWriterTool) Name() string             { return t.name }
 func (t readSetWriterTool) Description() string      { return "records a read" }
 func (t readSetWriterTool) InputSchema() tool.Schema { return tool.Schema{} }
 func (t readSetWriterTool) IsConcurrencySafe() bool  { return true }

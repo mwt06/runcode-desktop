@@ -172,7 +172,7 @@ func TestExecutorBoundsAndSanitizesOutput(t *testing.T) {
 
 	var b strings.Builder
 	b.WriteString("be\x07ll\n") // control char must be stripped
-	const extraLines = 120 // exceed the per-event cap so truncation is exercised
+	const extraLines = 120      // exceed the per-event cap so truncation is exercised
 	for i := 0; i < extraLines; i++ {
 		fmt.Fprintf(&b, "line%d\n", i)
 	}

@@ -98,7 +98,7 @@ func TestMapResourceContents(t *testing.T) {
 	// "AAECAw==" is base64 for the bytes {0,1,2,3}.
 	got := mapResourceContents(ReadResourceResult{Contents: []ResourceContents{
 		{Text: "hello"},
-		{MimeType: "image/png", Blob: "AAECAw=="},               // image → inlined
+		{MimeType: "image/png", Blob: "AAECAw=="},                // image → inlined
 		{MimeType: "application/octet-stream", Blob: "AAECAw=="}, // non-image → placeholder
 	}})
 	if len(got.Content) != 3 || got.Content[0].Text != "hello" {

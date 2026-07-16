@@ -75,13 +75,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Persistent permission grants: interactive approval now offers "allow for project" alongside allow once / allow for session. Project grants are written to `<workspace>/.runcode/permissions.json` (0600, gitignored) and honored across processes, keyed by the same per-mutation-target / per-command-classification grain. The file also carries a denylist that is checked before prompting — a denied action is rejected without asking, and a deny always wins over an allow. A corrupt permissions file fails fast rather than silently dropping denylist rules. Available in both the TUI modal (`[p] allow project`) and the CLI prompt (`[p]roject`).
 - Rich tool output in the TUI: tool progress cards now show a bounded, sanitized output excerpt — Bash stdout/stderr (with exit/duration envelope), Grep match lines, and a Read preview — expandable with `ctrl+o`. Output is display-only and never recorded to telemetry or transcripts.
 - Full unified line diff for `Edit` and `Write`, computed by a new bounded `internal/diff` package and rendered with added/removed/context styling in the tool card; binary or oversized files fall back to a summary line.
-- Current implementation status document at `docs/implementation-status.md`.
 
 ### Changed
 
-- Documentation now reflects the current minimal chat/session/tool/permission implementation instead of the original placeholder-only scaffold.
-- `docs/data-flow-and-prompt.md` now describes the actual CLI -> Session -> provider -> tool -> permission flow.
-- `docs/architecture.md` tracks the current implemented architecture, including `Bash` MVP and command permission classification.
+- Documentation rebuilt from code: `docs/architecture.md` describes the implemented architecture and data flow, and `docs/desktop.md` covers the desktop (XRUN) app. The stale status/handoff/data-flow/plan documents (`docs/implementation-status.md`, `docs/session-handoff.md`, `docs/data-flow-and-prompt.md`, `docs/desktop-plan.md`) were removed.
 
 ### Fixed
 

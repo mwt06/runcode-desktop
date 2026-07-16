@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -89,6 +90,9 @@ func New(sink EventSink) *App {
 		sink.Emit(EventPassportChanged, PassportStatus{})
 	})
 	a.tokens.loadPersisted()
+	// Publish the saved web-tool proxy before any session builds its tools, so the
+	// setting is live from launch rather than only after it is re-saved.
+	applyWebProxy(loadRawConfig().WebProxy)
 	return a
 }
 
@@ -351,6 +355,91 @@ func (a *App) SetModel(model string) error {
 		return errNoSession
 	}
 	return session.SetModel(strings.TrimSpace(model))
+}
+
+// SwitchModel changes the model for the running session, spanning both platform
+// (passport) and custom direct-connection models so the in-chat picker can offer
+// either. A platform model that stays on the current bridge connection is swapped
+// in place (cheap, no history reload). Any switch that changes the connection —
+// picking a custom model, or returning to a platform model from a custom-model
+// session — rebuilds the session against the new endpoint and resumes the current
+// conversation so history is preserved. Kind is "custom" for a custom model (name
+// is its display name) or "platform"/"" for a passport model (name is its id).
+//
+// A connection-changing switch is refused mid-turn, since the rebuild would
+// discard the running turn; the picker is disabled while a turn is in flight, so
+// this only guards against races.
+func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
+	kind = strings.TrimSpace(kind)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return SessionInfo{}, errors.New("模型为空")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.session == nil {
+		return SessionInfo{}, errNoSession
+	}
+	pc := passportConfig()
+	onBridge := a.config.Provider == "openai" && strings.HasPrefix(a.config.BaseURL, pc.BridgeBaseURL)
+
+	if kind == "custom" {
+		cm, ok := a.findCustomModel(name)
+		if !ok {
+			return SessionInfo{}, fmt.Errorf("自定义模型不存在: %s", name)
+		}
+		if a.inFlight {
+			return SessionInfo{}, errBusy
+		}
+		cfg := a.config
+		cfg.Provider = "openai"
+		cfg.BaseURL = cm.BaseURL
+		cfg.APIKey = cm.APIKey
+		cfg.AuthToken = ""
+		// Custom models are direct connections, not the passport bridge — drop the
+		// token wiring so no login credential leaks to a third-party endpoint.
+		cfg.TokenSource = nil
+		cfg.OnUnauthorized = nil
+		cfg.Model = cm.Model
+		return a.rebuildResumingLocked(cfg)
+	}
+
+	// Platform (passport) model. Staying on the current bridge connection is just a
+	// model-id swap; no rebuild, no history reload.
+	if onBridge {
+		if err := a.session.SetModel(name); err != nil {
+			return SessionInfo{}, err
+		}
+		a.config.Model = name
+		return a.statusLocked(), nil
+	}
+	// Coming from a custom-model session: rebuild as a passport/bridge session,
+	// re-wiring the token source (inlined from applyPassport, which re-locks a.mu).
+	if !a.tokens.LoggedIn() {
+		return SessionInfo{}, errors.New("未登录通行证，无法切换到平台模型")
+	}
+	if a.inFlight {
+		return SessionInfo{}, errBusy
+	}
+	cfg := a.config
+	cfg.Provider = "openai"
+	cfg.BaseURL = pc.BridgeBaseURL + tenantPathPrefix(a.passportTenant) + "/v1"
+	cfg.APIKey = ""
+	cfg.AuthToken = ""
+	cfg.TokenSource = a.tokens.Token
+	cfg.OnUnauthorized = a.tokens.ForceRefresh
+	cfg.Model = name
+	return a.rebuildResumingLocked(cfg)
+}
+
+// rebuildResumingLocked rebuilds the session from cfg while resuming the current
+// conversation, so a connection swap (model/tenant/endpoint change) keeps history.
+// The caller must hold a.mu and have set cfg's provider/endpoint/model fields.
+func (a *App) rebuildResumingLocked(cfg engine.Config) (SessionInfo, error) {
+	cfg.Resume = a.session.SessionID()
+	cfg.Continue = false
+	cfg.SessionID = ""
+	return a.buildAndSetLocked(cfg)
 }
 
 // Compact summarizes the oldest turns now and reports the message counts.

@@ -340,6 +340,12 @@ export const resolvePermission = (id: string, decision: string) =>
   app().ResolvePermission(id, decision)
 export const setPermissionMode = (mode: string) => app().SetPermissionMode(mode)
 export const setModel = (model: string) => app().SetModel(model)
+// switchModel spans platform (passport) and custom direct-connection models: a
+// same-connection platform swap is in place, any connection change rebuilds the
+// session while preserving conversation history. kind is 'custom' (name = the
+// custom model's display name) or 'platform' (name = the model id).
+export const switchModel = (kind: 'platform' | 'custom', name: string) =>
+  app().SwitchModel(kind, name) as Promise<SessionInfo>
 export const setPlanMode = (on: boolean) => app().SetPlanMode(on) as Promise<SessionInfo>
 export const setReasoningScenario = (s: string) => app().SetReasoningScenario(s) as Promise<SessionInfo>
 export const setThinkingEffort = (e: string) => app().SetThinkingEffort(e) as Promise<SessionInfo>
@@ -364,6 +370,16 @@ export const saveProjectContext = (content: string) => app().SaveProjectContext(
 export const readMemory = () => app().ReadMemory() as Promise<MemoryInfo>
 export const listFiles = () => app().ListFiles() as Promise<string[] | null>
 export const readArtifact = (relPath: string) => app().ReadArtifact(relPath) as Promise<string>
+// readArtifactBytes returns a workspace file's raw bytes for renderers that need the
+// binary (Office docs). It goes through the bridge (base64) rather than the loopback
+// server to sidestep cross-origin fetch restrictions; see the Go ReadArtifactBytes.
+export const readArtifactBytes = async (relPath: string): Promise<ArrayBuffer> => {
+  const b64 = (await app().ReadArtifactBytes(relPath)) as string
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes.buffer
+}
 export const openExternal = (relPath: string) => app().OpenExternal(relPath) as Promise<void>
 export const revealInFolder = (relPath: string) => app().RevealInFolder(relPath) as Promise<void>
 export const resolveArtifactPath = (relPath: string) => app().ResolveArtifactPath(relPath) as Promise<string>
@@ -401,6 +417,9 @@ export const setActiveTenant = (tenantId: string) => app().SetActiveTenant(tenan
 export const activeTenant = () => app().ActiveTenant() as Promise<string>
 export const passportModels = (tenantId: string) => app().PassportModels(tenantId) as Promise<PassportModel[] | null>
 export const sessionModels = () => app().SessionModels() as Promise<PassportModel[] | null>
+// 联网工具(WebFetch/WebSearch)的代理。返回规范化后的地址(空 = 直连)。
+export const webProxy = () => app().WebProxy() as Promise<string>
+export const setWebProxy = (v: string) => app().SetWebProxy(v) as Promise<string>
 export const listCustomModels = () => app().ListCustomModels() as Promise<CustomModel[] | null>
 export const saveCustomModel = (m: CustomModel) => app().SaveCustomModel(m) as Promise<CustomModel[] | null>
 export const deleteCustomModel = (name: string) => app().DeleteCustomModel(name) as Promise<CustomModel[] | null>

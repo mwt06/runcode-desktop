@@ -18,6 +18,7 @@ declare global {
           ResolvePermission(id: string, decision: string): Promise<void>
           SetPermissionMode(mode: string): Promise<void>
           SetModel(model: string): Promise<void>
+          SwitchModel(kind: string, name: string): Promise<unknown>
           SetPlanMode(on: boolean): Promise<unknown>
           SetReasoningScenario(scenario: string): Promise<unknown>
           SetThinkingEffort(effort: string): Promise<unknown>
@@ -38,6 +39,7 @@ declare global {
           SetSkillEnabled(name: string, scope: string, enabled: boolean): Promise<void>
           ListFiles(): Promise<unknown>
           ReadArtifact(relPath: string): Promise<string>
+          ReadArtifactBytes(relPath: string): Promise<string>
           OpenExternal(relPath: string): Promise<void>
           RevealInFolder(relPath: string): Promise<void>
           ResolveArtifactPath(relPath: string): Promise<string>
@@ -58,6 +60,8 @@ declare global {
           ActiveTenant(): Promise<string>
           PassportModels(tenantId: string): Promise<unknown>
           SessionModels(): Promise<unknown>
+          WebProxy(): Promise<string>
+          SetWebProxy(v: string): Promise<unknown>
           ListCustomModels(): Promise<unknown>
           SaveCustomModel(m: unknown): Promise<unknown>
           DeleteCustomModel(name: string): Promise<unknown>
