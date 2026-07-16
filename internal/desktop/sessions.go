@@ -16,27 +16,6 @@ import (
 	"github.com/wt68/runcode/engine/tools"
 )
 
-// ToolInfo is a tool's name and description for the @-mention picker.
-type ToolInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	// Source classifies where the tool comes from: "mcp" for a Model Context
-	// Protocol server tool, "builtin" for everything else (core tools, Skill, Task).
-	Source string `json:"source"`
-	// Server is the MCP server name when Source == "mcp".
-	Server string `json:"server,omitempty"`
-	// ConcurrencySafe reports whether the tool can run in parallel with siblings.
-	ConcurrencySafe bool `json:"concurrencySafe"`
-	// Toggleable is true for tools the user may turn off (built-in work tools and
-	// MCP tools); false for infrastructure tools (Skill/Task/Remember/preview).
-	Toggleable bool `json:"toggleable"`
-	// DisabledUser / DisabledProject report whether the tool is turned off at that
-	// scope. Effective-enabled = neither is true. Disabling takes effect on the
-	// next new session.
-	DisabledUser    bool `json:"disabledUser"`
-	DisabledProject bool `json:"disabledProject"`
-}
-
 // ListTools returns the full catalog of built-in tools (always, so a disabled one
 // still shows and can be re-enabled) plus the active session's MCP and infra
 // tools, each annotated with source, concurrency-safety, and per-scope disabled
@@ -96,47 +75,6 @@ func unionSets(a, b map[string]bool) map[string]bool {
 		out[k] = true
 	}
 	return out
-}
-
-// SessionSummary describes a saved session for the sidebar's recent list.
-type SessionSummary struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	When  string `json:"when"`
-	Turns int    `json:"turns"`
-}
-
-// ResumedBlock is one rendered item of a reopened conversation. Its kinds mirror
-// the live chat view's blocks so the frontend can repaint a session as it first
-// appeared — user/assistant bubbles plus tool execution cards — rather than a
-// flattened text-only transcript.
-type ResumedBlock struct {
-	Kind string       `json:"kind"` // "user" | "assistant" | "tool"
-	Text string       `json:"text,omitempty"`
-	Tool *ResumedTool `json:"tool,omitempty"`
-}
-
-// ResumedTool is a reconstructed tool step. The persisted history stores only the
-// LLM messages, so live-only UI details (colored diffs, file-change chips) are not
-// recoverable; the tool name, target path, and result text are.
-type ResumedTool struct {
-	ToolName  string `json:"toolName"`
-	ToolUseID string `json:"toolUseId"`
-	Path      string `json:"path,omitempty"`
-	Input     string `json:"input,omitempty"` // the tool call's raw arguments JSON
-	IsError   bool   `json:"isError"`
-	Output    string `json:"output,omitempty"`
-}
-
-// ResumedSession carries a reopened session's status plus its prior conversation
-// as rendered blocks so the frontend can repaint it.
-type ResumedSession struct {
-	Info   SessionInfo    `json:"info"`
-	Blocks []ResumedBlock `json:"blocks"`
-	// ContextTokens is an estimate of the reopened history's context occupancy, so
-	// the usage bar shows a sensible value immediately instead of 0 (no turn has run
-	// yet to report an exact count). The first turn replaces it with the real value.
-	ContextTokens int `json:"contextTokens"`
 }
 
 // ListSessions returns the workspace's saved sessions, newest first, for the
