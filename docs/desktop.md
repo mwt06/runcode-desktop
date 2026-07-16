@@ -19,7 +19,7 @@ internal/desktop/               根模块：传输无关的桌面核心（不依
   context.go / files.go / store.go 项目指令与记忆读写、# 文件选择器、desktop.json 持久化
   harm.go                       harm judge 接线与 auto-allow 审计事件
 
-internal/engine/                共享引擎门面（CLI/TUI/桌面三前端共用，见 docs/architecture.md）
+engine/（嵌套 module）         共享引擎门面（CLI/TUI/桌面三前端共用，见 docs/architecture.md）
 ```
 
 ## internal/desktop：传输无关核心

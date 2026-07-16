@@ -9,51 +9,64 @@
 │ shell 友好 CLI    │   │ Bubble Tea TUI  │   │ internal/desktop + 前端   │
 └────────┬─────────┘   └───────┬─────────┘   └───────────┬──────────────┘
          └─────────────────────┴─────────────────────────┘
-                    internal/engine —— 传输无关引擎门面
+                engine（嵌套 module）—— 传输无关引擎门面
                     Config / Build / Session / discovery
                               │
-                    internal/repl.Session —— ReAct 循环
+                engine/internal/repl.Session —— ReAct 循环
         ┌──────────┬──────────┼──────────────┬──────────────┐
-     tools/   permissions   prompt        pkg/llm      persistence
-   内置+动态工具  四模式+harm  静/动态缓存边界  anthropic/openai  sessions/transcript/settings
+  engine/tools  permissions  prompt      engine/llm    sessions/transcript
+   内置+动态工具  四模式+harm  静/动态缓存边界  anthropic/openai   jsonl/sqlite 持久化
 ```
 
 三个前端都经 `engine.Build(cfg, engine.Options{...})` 拿到 `*engine.Session`，注入各自的流式回调、工具事件通道与审批器；引擎内部不含任何 UI 逻辑。
 
+## 模块边界（依赖方向铁律）
+
+仓库含三个 Go module，依赖方向：**外壳 → 根模块 → engine**，反向即设计错误（CI 审计强制）：
+
+- **`engine/`**（`github.com/wt68/runcode/engine`）：传输无关会话引擎，三端共用的公共引用。公开包＝协议+服务面；`engine/internal/` 收 ReAct 循环等内核，对模块外（含同仓兄弟模块）不可见。engine 永不依赖根模块、永不引入远程基础设施依赖——端口在引擎、实现在外壳（依赖倒置）。
+- **根模块**：CLI/TUI、桌面核心（`internal/desktop`）、`tools/preview`。
+- **`cmd/runcode-desktop/`**（嵌套 module）：Wails/CGO 重依赖隔离层。
+
+`go.work` 供本地联动；CI/发布一律 `GOWORK=off`，go.mod replace 链是权威。
+
 ## 仓库布局
 
 ```text
-cmd/runcode/            Cobra CLI：version、chat、tui、config、permissions、sessions、transcript
-cmd/runcode-desktop/    嵌套 Go module：Wails 桌面外壳 + React 前端（见 docs/desktop.md）
-internal/engine/        引擎门面：Config、Build、Session、skills/agents/memory 发现
-internal/repl/          ReAct Session、executor、流式收集、harm judge、reasoning
-internal/permissions/   动作/资源/风险模型、policy、审批、命令分类、harm gate、持久化规则
-internal/prompt/        系统提示装配器与静/动态缓存边界（sections/）
-internal/desktop/       桌面版传输无关核心（根模块内，不依赖 Wails）
-internal/ui/            Bubble Tea TUI：视图、slash 命令注册表、会话选择器、审批桥
-internal/mcp/           MCP 客户端：JSON-RPC、stdio + Streamable HTTP、tools/resources/prompts/roots/sampling
-internal/subagent/      Task 工具与子代理 Launcher、内置代理、事件桥
-internal/hooks/         8 个生命周期事件的用户钩子（argv 直执、JSON stdin）
-internal/compaction/    token 预算触发的语义历史压缩
-internal/cost/          内置模型定价表（最长前缀匹配）
-internal/persistence/   sessions（jsonl/sqlite 全量历史）、transcript（脱敏审计）、settings（TOML）
-internal/telemetry/     事件模型、JSONL/async/memory recorder、关联 ID
-internal/toolpath/      workspace 路径解析、symlink 安全包含检查、读后写门
-internal/projectctx/    RUNCODE.md / CLAUDE.md 项目上下文加载（向上查找，64 KiB 上限）
-internal/diff/          Edit/Write 工具卡的有界统一 diff
-internal/webclient/     SSRF 加固的 HTTP 客户端（WebFetch/WebSearch 共用）
-pkg/tool/               公开工具 SDK：Tool 接口、Schema、Context、Result、Event、Registry
-pkg/llm/                provider 中立 DTO、Stream、provider 注册表（init() 注册）
-pkg/agent/              子代理定义：frontmatter 解析、目录发现、catalog
-pkg/skill/              技能：渐进式披露 catalog + Skill 工具
-pkg/memory/             跨会话记忆：两 scope 存储 + Remember 工具
-pkg/command/            自定义 slash 命令（*.md 发现）
-tools/                  内置工具实现与注册表
+cmd/runcode/             Cobra CLI：version、chat、tui、config、permissions、sessions、transcript
+cmd/runcode-desktop/     嵌套 Go module：Wails 桌面外壳 + React 前端（见 docs/desktop.md）
+internal/desktop/        桌面版传输无关核心（根模块内，不依赖 Wails）
+internal/ui/             Bubble Tea TUI：视图、slash 命令注册表、会话选择器、审批桥
+pkg/command/             自定义 slash 命令（*.md 发现）
+tools/preview/           桌面产物预览工具（经 ExtraTools 注入，仅桌面用）
+
+engine/                  引擎门面（模块根包）：Config、Build、Session、skills/agents/memory 发现
+engine/turn/             turn 协议类型：Result、ToolDescriptor、EditRecorder/EditHandle
+engine/llm/              provider 中立 DTO、Stream、provider 注册表（含 providers/anthropic、openai）
+engine/tool/             公开工具 SDK：Tool 接口、Schema、Context、Result、Event、Registry
+engine/tools/            内置工具实现与注册表（bash/read/write/edit/glob/grep/webfetch/...）
+engine/permissions/      动作/资源/风险模型、policy、审批、命令分类、harm gate、持久化规则
+engine/mcp/              MCP 客户端：JSON-RPC、stdio + Streamable HTTP、tools/resources/prompts/roots/sampling
+engine/hooks/            8 个生命周期事件的用户钩子（argv 直执、JSON stdin）
+engine/sessions/         会话全量历史（jsonl/sqlite Backend + SessionMeta + backendtest 契约套件）
+engine/transcript/       脱敏审计转录（jsonl/sqlite）
+engine/settings/         用户级 TOML 设置（~/.runcode 约定）
+engine/agent/            子代理定义：frontmatter 解析、目录发现、catalog
+engine/skill/            技能：渐进式披露 catalog + Skill 工具
+engine/memory/           跨会话记忆：两 scope 存储 + Remember 工具
+engine/telemetry/        事件模型、JSONL/async/memory recorder、关联 ID
+engine/toolpath/         workspace 路径解析、symlink 安全包含检查、读后写门
+engine/projectctx/       RUNCODE.md / CLAUDE.md 项目上下文加载（向上查找，64 KiB 上限）
+engine/cost/             内置模型定价表（最长前缀匹配）
+engine/diff/             Edit/Write 工具卡的有界统一 diff
+engine/webclient/        SSRF 加固的 HTTP 客户端（WebFetch/WebSearch 共用）
+engine/internal/repl/    ReAct Session、executor、流式收集、harm judge、reasoning（模块内私有）
+engine/internal/prompt/  系统提示装配器与静/动态缓存边界（sections/）
+engine/internal/subagent/ Task 工具与子代理 Launcher、内置代理、事件桥
+engine/internal/compaction/ token 预算触发的语义历史压缩
 ```
 
-仍为 `.gitkeep` 空壳（无实现）：`internal/app`、`internal/coordinator`、`internal/session`、`internal/persistence/claudemd`、`internal/persistence/migrate`、`internal/persistence/sqlite`（实际 SQLite 代码在 `persistence/sessions/sqlite.go` 与 `persistence/transcript/sqlite.go`）、`pkg/plugin`。
-
-## 引擎门面（internal/engine）
+## 引擎门面（engine 模块根包）
 
 - **`Config`**（`config.go`）：一次会话的全部已解析配置——provider/model、凭证、CWD、权限模式、telemetry/transcript、会话 id 与 resume、历史/上下文预算、重试、单价、MCP servers、hooks、thinking、系统提示覆盖/追加，以及 `HarmJudgeModel`/`HarmJudgeVotes`。
 - **`Options`**（`engine.go`）：纯数据/接口注入边界——`StreamDelta`、`StreamThinking`、`ToolEvents chan<- tool.Event`、`Permissions`（整个服务注入）或 `Approver`（仅审批器）、`Warn`、`TelemetryWriter`。零值 Options 得到丢弃警告的非交互 safe 会话。
@@ -62,7 +75,7 @@ tools/                  内置工具实现与注册表
 - **发现助手**（`discovery.go`）：`LoadSkills`、`LoadAgents`（合并内置，优先级 user > project > builtin）、`MemoryStore`、`NewPermissionService`、`NewAllowStore`、`MCPServersFromConfig`。
 - **harm judge 模型解析**（`build.go`）：显式 `HarmJudgeModel` 优先；anthropic（或未指定 provider）时默认独立的 `claude-haiku-4-5-20251001`，否则复用主模型——默认让安全门与主模型**去相关**。
 
-## ReAct 核心（internal/repl）
+## ReAct 核心（engine/internal/repl）
 
 `Session.runTurn`（`session.go`）单 turn 流程：
 
@@ -83,7 +96,7 @@ UserPromptSubmit 钩子（可拦截/注入上下文）
 - **流式**：文本 delta 走 `StreamDelta`、思考走 `StreamThinking`，工具调用参数在生成过程中实时流入 UI 卡片（Write/Edit 正文"打字机"式）。
 - **工具并发**：连续的并发安全工具批量并行（errgroup），其余串行；用户"拒绝并停止"时为剩余 tool_use 填充跳过占位，保证消息结构完整。
 - **运行时开关**：`SetModel`/`SetPlanMode`/`SetReasoningScenario`/`SetThinkingEffort`/`SetSkillsCatalog`/`SetAgentsCatalog` 均加锁，turn goroutine 与 UI 线程不竞态。
-- **压缩**：`--max-context-tokens` 设置后，input tokens 达预算 80% 触发 `internal/compaction`——最旧 turn 经 LLM 增量总结为一条摘要消息，只动内存工作集，磁盘历史保持完整。
+- **压缩**：`--max-context-tokens` 设置后，input tokens 达预算 80% 触发 `engine/internal/compaction`——最旧 turn 经 LLM 增量总结为一条摘要消息，只动内存工作集，磁盘历史保持完整。
 - **executor**（`executor.go`）：每次工具调用统一走 `AuthorizeTool` → 决策 telemetry → 拒绝时返回带**可操作指引**的 `is_error` 结果（如读后写恢复提示）→ PreToolUse 钩子 → 带 panic 恢复地运行工具 → PostToolUse 钩子 → 发出带脱敏输出/文件引用的完成/失败事件。judge/flight 放行会设置 `MetadataTrustedWrites` 让 Write/Edit 跳过自身读门；`AskUser` 置 `StopTurn`；工具 panic 转为 `is_error` 结果而非崩溃。
 
 ### Harm judge（模型判害门）
@@ -97,7 +110,7 @@ UserPromptSubmit 钩子（可拦截/注入上下文）
 
 目前**只有桌面版接线了 harm judge**（`internal/desktop/harm.go`）；CLI/TUI 不注入 HarmJudge，也不暴露 judge/flight 模式。
 
-## 权限系统（internal/permissions）
+## 权限系统（engine/permissions）
 
 管线：`resolver.go` 把工具输入解析为 `Action{Operation, Risk, Resources, Metadata}`（Bash 先经 `command.go` 保守分类出 category/capabilities/risk reasons）→ `policy.go` `DefaultPolicy.Decide` 给出 allow/ask/deny → authorizer 把 ask 变成最终决定。
 
@@ -120,7 +133,7 @@ judge 模式的三道防线：
 
 ## 工具系统
 
-`pkg/tool` 定义公开 SDK（`Tool` 接口、`Schema`、`Context`+ReadSet、`Result`、流式 `Event`、重名即 panic 的 `Registry`）。`tools/registry.go` `Builtins()`/`BuiltinsWithShells()` 注册 **14 个内置工具**：
+`engine/tool` 定义公开 SDK（`Tool` 接口、`Schema`、`Context`+ReadSet、`Result`、流式 `Event`、重名即 panic 的 `Registry`）。`engine/tools/registry.go` `Builtins()`/`BuiltinsWithShells()` 注册 **14 个内置工具**：
 
 | 工具 | 行为 |
 |------|------|
@@ -141,7 +154,7 @@ judge 模式的三道防线：
 
 `engine.Build` 时动态追加：**MCP 工具**（`mcp__<server>__<tool>` + 按能力出现的 resources/prompts 工具）、**`Skill`**、**`Task`**、**`Remember`**。Bash/BashOutput/KillShell 共享一个 `bash.Manager`，后台 shell 可读可杀、会话关闭时统一清理。
 
-## 提示词系统（internal/prompt）
+## 提示词系统（engine/internal/prompt）
 
 `assembler.go` 把系统提示构建为一张 section 表，以 `DynamicBoundary` 分隔缓存边界：静态段跨 turn 不变（provider 支持时携带 ephemeral cache 提示），动态段每 turn 重算。
 
@@ -150,7 +163,7 @@ judge 模式的三道防线：
 
 reasoning 体系也在此：`ReasoningClassifier`（把任务归入 troubleshooting/proposal/architecture/project_management/incident_response/general 六场景）与 `ReasoningGuidance`（每场景一个命名思考模型 + 10 步清单），由 `repl.ReasoningOptions`（关闭/自动分类/手动指定）与 turn 内 Analyze 工具门驱动。
 
-## Provider 层（pkg/llm）
+## Provider 层（engine/llm）
 
 中立 DTO（`Request`/`Message`/`ContentBlock`/`Stream`/`ToolSpec`/`ThinkingConfig` off·low·medium·high）+ `registry.go` 工厂注册表（provider 经 `init()` 副作用导入注册，`engine/build.go` 触发）。
 
@@ -171,13 +184,13 @@ reasoning 体系也在此：`ReasoningClassifier`（把任务归入 troubleshoot
 
 ## 扩展系统
 
-- **MCP**（`internal/mcp`）：从零实现的 JSON-RPC 2.0 客户端，stdio 与 Streamable HTTP 两种传输；tools/resources/prompts/roots/sampling 全原语。容错启动（单 server 失败只告警）；sampling 默认关、显式开启且 safe 模式恒拒。server 仅用户级配置，`${VAR}` 展开。
-- **Skills**（`pkg/skill`）：`SKILL.md` 目录约定发现（用户级 + 项目级，user 遮蔽同名 project）；只有 catalog 进提示，正文经 `Skill` 工具按需披露（免审批）。
-- **Sub-agents**（`pkg/agent` + `internal/subagent`）：`Task` 工具委托受限子 `repl.Session`（自有 persona/可选 model/受限工具集/共享父权限服务），恰好一层不嵌套；一 turn 多个 `Task` 并发 fan-out（默认上限 8，interactive 下串行）。内置代理：`general-purpose`、`code-reviewer`、`code-explorer`、`planner`（只读）、`debugger`；优先级 user > project > builtin。
-- **Hooks**（`internal/hooks`）：8 个事件——`PreToolUse`、`PostToolUse`、`UserPromptSubmit`、`Stop`、`SubagentStop`、`SessionStart`、`SessionEnd`、`PreCompact`。argv 直接执行（无 shell），JSON payload 经 stdin，非零退出=拦截/反馈，运行失败 fail-open 告警。仅用户级配置。
+- **MCP**（`engine/mcp`）：从零实现的 JSON-RPC 2.0 客户端，stdio 与 Streamable HTTP 两种传输；tools/resources/prompts/roots/sampling 全原语。容错启动（单 server 失败只告警）；sampling 默认关、显式开启且 safe 模式恒拒。server 仅用户级配置，`${VAR}` 展开。
+- **Skills**（`engine/skill`）：`SKILL.md` 目录约定发现（用户级 + 项目级，user 遮蔽同名 project）；只有 catalog 进提示，正文经 `Skill` 工具按需披露（免审批）。
+- **Sub-agents**（`engine/agent` + `engine/internal/subagent`）：`Task` 工具委托受限子 `repl.Session`（自有 persona/可选 model/受限工具集/共享父权限服务），恰好一层不嵌套；一 turn 多个 `Task` 并发 fan-out（默认上限 8，interactive 下串行）。内置代理：`general-purpose`、`code-reviewer`、`code-explorer`、`planner`（只读）、`debugger`；优先级 user > project > builtin。
+- **Hooks**（`engine/hooks`）：8 个事件——`PreToolUse`、`PostToolUse`、`UserPromptSubmit`、`Stop`、`SubagentStop`、`SessionStart`、`SessionEnd`、`PreCompact`。argv 直接执行（无 shell），JSON payload 经 stdin，非零退出=拦截/反馈，运行失败 fail-open 告警。仅用户级配置。
 - **自定义 slash 命令**（`pkg/command`）：用户/项目 `commands/` 目录下的 `*.md`，合入 TUI 命令菜单。
-- **记忆**（`pkg/memory`）：`Remember` 工具写固定路径两 scope 文件，`manage` 分类免审批；子代理只读。
-- **成本**（`internal/cost`）：内置定价表按 model 名最长前缀匹配，显式单价恒胜、未知 model 不计价；供 `/cost` 与 `runcode config`。
+- **记忆**（`engine/memory`）：`Remember` 工具写固定路径两 scope 文件，`manage` 分类免审批；子代理只读。
+- **成本**（`engine/cost`）：内置定价表按 model 名最长前缀匹配，显式单价恒胜、未知 model 不计价；供 `/cost` 与 `runcode config`。
 
 ## CLI 参考（cmd/runcode）
 
