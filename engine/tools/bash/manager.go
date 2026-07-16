@@ -28,11 +28,23 @@ type Manager struct {
 	shells map[string]*backgroundShell
 	seq    int
 	closed bool
+	// global is an optional cross-session budget checked after the per-session
+	// cap; nil means per-session limit only. Every acquired slot is released on
+	// the shell's exit path (the Wait goroutine), which Kill and Close both
+	// funnel through, and on every Start failure path.
+	global *Budget
 }
 
-// NewManager returns an empty manager.
+// NewManager returns an empty manager with no cross-session budget.
 func NewManager() *Manager {
-	return &Manager{shells: make(map[string]*backgroundShell)}
+	return NewManagerWithBudget(nil)
+}
+
+// NewManagerWithBudget returns an empty manager whose background shells also
+// count against the given cross-session Budget. A nil budget behaves exactly
+// like NewManager (per-session limit only).
+func NewManagerWithBudget(global *Budget) *Manager {
+	return &Manager{shells: make(map[string]*backgroundShell), global: global}
 }
 
 type backgroundShell struct {
@@ -60,9 +72,10 @@ type ShellStatus struct {
 }
 
 // Start launches command as a background shell rooted at workspace and returns
-// its id. The shell outlives the calling tool invocation (it is tied to a
-// background context), so it keeps running until it exits or is killed.
-func (m *Manager) Start(command, workspace string) (string, error) {
+// its id. env is extra host-injected child environment (see childEnv); nil
+// inherits only. The shell outlives the calling tool invocation (it is tied to
+// a background context), so it keeps running until it exits or is killed.
+func (m *Manager) Start(command, workspace string, env map[string]string) (string, error) {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -76,15 +89,22 @@ func (m *Manager) Start(command, workspace string) (string, error) {
 	id := fmt.Sprintf("bash_%d", m.seq)
 	m.mu.Unlock()
 
+	// The per-session cap passed; now claim a cross-session slot. Fail fast so
+	// the model can kill a shell (in any session) and retry.
+	if !m.global.TryAcquire() {
+		return "", fmt.Errorf("too many background shells across sessions (global max %d); kill one first", m.global.Max())
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	shell, args, cleanup, err := commandInvocation(command)
 	if err != nil {
 		cancel()
+		m.global.Release()
 		return "", fmt.Errorf("prepare background command: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, shell, args...)
 	cmd.Dir = workspace
-	cmd.Env = childEnv()
+	cmd.Env = childEnv(env)
 	hideConsoleWindow(cmd)
 	buf := &shellBuffer{limit: maxBackgroundOutputBytes}
 	cmd.Stdout = buf
@@ -102,6 +122,7 @@ func (m *Manager) Start(command, workspace string) (string, error) {
 	if err := cmd.Start(); err != nil {
 		cancel()
 		cleanup()
+		m.global.Release()
 		return "", fmt.Errorf("start background bash: %w", err)
 	}
 
@@ -126,6 +147,10 @@ func (m *Manager) Start(command, workspace string) (string, error) {
 		if sh.cleanup != nil {
 			sh.cleanup()
 		}
+		// Return the cross-session slot on every exit path — natural exit, Kill,
+		// and Close all end here via cmd.Wait. Released before done is closed so
+		// a caller that observed the shell's end can immediately start another.
+		m.global.Release()
 		close(sh.done)
 	}()
 	return id, nil

@@ -32,10 +32,21 @@ import (
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/tools"
 	"github.com/wt68/runcode/engine/tools/bash"
+	"github.com/wt68/runcode/engine/webclient"
 )
 
 // safeMode is the non-interactive permission mode name.
 const safeMode = "safe"
+
+// webProxyClientTimeout and webProxyClientMaxRedirects parameterize the shared
+// HTTP client built when Config.WebProxy is set. They mirror the web tools' own
+// defaults: both use 5 redirects; the timeout is webfetch's 30s, the larger of
+// the two (websearch's is 20s), so the shared client never cuts a tool off
+// earlier than its historical limit.
+const (
+	webProxyClientTimeout      = 30 * time.Second
+	webProxyClientMaxRedirects = 5
+)
 
 // Build assembles a runnable session from cfg and opts. On success the returned
 // Session owns every subsystem in Resources and must be closed by the caller. On
@@ -50,41 +61,52 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	}
 	recorder := newTelemetryRecorder(cfg.Telemetry, opts.TelemetryWriter)
 
-	backend, err := sessions.OpenBackend(cfg.CWD, cfg.SessionBackend)
-	if err != nil {
-		closeRecorders(context.Background(), recorder)
-		return nil, err
+	// An injected backend (Options.Backend) is host-owned: it is used verbatim
+	// and must never be closed here — neither on a failed Build nor by
+	// Session.Close. ownedBackend is what the failure paths below may close; it
+	// stays nil for an injected backend so closeRecorders skips it.
+	backend := opts.Backend
+	ownsBackend := backend == nil
+	var ownedBackend sessions.Backend
+	if ownsBackend {
+		var err error
+		backend, err = sessions.OpenBackend(cfg.CWD, cfg.SessionBackend)
+		if err != nil {
+			closeRecorders(context.Background(), recorder)
+			return nil, err
+		}
+		ownedBackend = backend
 	}
 	// Build has no caller-supplied context (a facade-level change reserved for a
 	// later stage); backend calls during assembly use Background explicitly.
 	sessionID, err := ResolveSessionID(context.Background(), cfg, backend)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, backend)
+		closeRecorders(context.Background(), recorder, ownedBackend)
 		return nil, err
 	}
 	trecorder, err := TranscriptRecorderForID(cfg, sessionID)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, backend)
+		closeRecorders(context.Background(), recorder, ownedBackend)
 		return nil, err
 	}
 	store, err := OpenSessionStore(context.Background(), cfg, backend, sessionID)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, backend)
+		closeRecorders(context.Background(), recorder, trecorder, ownedBackend)
 		return nil, err
 	}
 	var initialHistory []llm.Message
 	if cfg.Resume != "" || cfg.Continue {
 		initialHistory, err = backend.LoadHistory(context.Background(), sessionID)
 		if err != nil {
-			closeRecorders(context.Background(), recorder, trecorder, store, backend)
+			closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend)
 			return nil, err
 		}
 	}
-	res := resources{Telemetry: recorder, Transcript: trecorder, Sessions: store, Backend: backend, SessionID: sessionID}
+	res := resources{Telemetry: recorder, Transcript: trecorder, Sessions: store, Backend: backend, ownsBackend: ownsBackend, SessionID: sessionID}
 
 	provider, err := BuildProvider(cfg)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend)
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend)
 		return nil, err
 	}
 
@@ -109,7 +131,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager)
 		return nil, err
 	}
 
@@ -117,15 +139,26 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	if permissionService == nil {
 		permissionService, err = NewPermissionService(cfg.PermissionMode, cfg.CWD, opts.Approver)
 		if err != nil {
-			closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager)
+			closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager)
 			return nil, err
 		}
 	}
 	hookRunner := newHookRunner(cfg.Hooks, warn)
 
-	shellManager := bash.NewManager()
+	// Background shells count against the host's cross-session budget when one is
+	// injected (nil = per-session limit only, the historical behavior).
+	shellManager := bash.NewManagerWithBudget(opts.ShellBudget)
 	res.Shells = shellManager
-	sessionTools := append(tools.BuiltinsWithShells(shellManager), mcpManager.Tools()...)
+	toolCfg := tools.Config{ShellEnv: cfg.ToolEnv}
+	if strings.TrimSpace(cfg.WebProxy) != "" {
+		// One proxied client is shared by WebFetch and WebSearch. Their own
+		// defaults differ only in timeout (30s vs 20s); the shared client uses the
+		// larger so neither tool gets stricter than its historical bound. With no
+		// WebProxy the client stays nil and each tool keeps its exact default —
+		// including the proxy env fallback.
+		toolCfg.WebClient = webclient.NewWithProxy(webProxyClientTimeout, webProxyClientMaxRedirects, cfg.WebProxy)
+	}
+	sessionTools := append(tools.BuiltinsWithConfig(shellManager, toolCfg), mcpManager.Tools()...)
 	// Drop tools the user turned off (built-in work tools + MCP tools). Applied
 	// before the infra tools (Skill/Task/Remember/extras) are appended, so those
 	// are never accidentally removed and sub-agents inherit the same filtered set.
@@ -144,10 +177,13 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	// Memory: persistent notes saved across sessions, loaded once at startup and
 	// injected into the prompt (sub-agents read it too). The Remember tool, added
 	// below after the sub-agent snapshot, lets the main session append to it.
+	// Sessions over the same memory files share one process-wide Store (see
+	// memory.Shared) so concurrent appends serialize on a single lock and the
+	// read-dedup-write cycle cannot race.
 	memStore := MemoryStore(cfg.CWD, userConfigDir())
 	memLoaded, err := memStore.Load()
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager, shellManager)
 		return nil, err
 	}
 
@@ -188,6 +224,9 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		Permissions:   permissionService,
 		Telemetry:     recorder,
 		Hooks:         hookRunner,
+		// The engine-level SubagentLimiter and the internal subagent.Limiter are
+		// the same interface shape, so the host's limiter passes straight through.
+		GlobalLimiter: opts.SubagentLimiter,
 	})
 	// Captured so the desktop can hot-swap the agent set mid-session via ReloadAgents
 	// (after the user creates/edits a sub-agent), mirroring the Skill tool.
@@ -212,6 +251,10 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		ToolContext: &tool.Context{
 			WorkingDirectory: cfg.CWD,
 			ReadSet:          map[string]tool.ReadFile{},
+			// Host-injected child-process environment; tools that spawn processes
+			// (Bash) merge it over the inherited env. Sub-agents inherit it via
+			// childToolContext. nil means inherit-only, the historical behavior.
+			Env: cfg.ToolEnv,
 		},
 		ToolEvents:         opts.ToolEvents,
 		Telemetry:          recorder,
@@ -231,7 +274,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		Reasoning:          reasoningOptions(cfg.ReasoningScenario),
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager, shellManager)
 		return nil, err
 	}
 	return &Session{repl: session, resources: res, perms: permissionService, cfg: cfg, skillTool: skillTool, agentTool: agentTool}, nil

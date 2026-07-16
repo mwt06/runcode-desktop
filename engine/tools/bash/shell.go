@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -116,10 +117,54 @@ func writeCmdScript(command string) (string, error) {
 // childEnv is the environment for spawned commands. It forces UTF-8 output from
 // Python so non-ASCII prints (e.g. Chinese) are not garbled by a legacy console
 // code page; PYTHONUTF8 covers 3.7+ and PYTHONIOENCODING is the older fallback.
-func childEnv() []string {
+//
+// extra is merged last with override semantics: a variable set there replaces
+// any inherited (or fixed-append) variable of the same name, matched
+// case-insensitively because Windows environment names are case-insensitive —
+// an "http_proxy" override must displace an inherited "HTTP_PROXY" rather than
+// duplicate it. extra is the host's explicit, trusted injection (per-session
+// HOME, proxies, credentials), so unlike the inherited environment it is NOT
+// passed through secenv.Sanitize. nil/empty extra reproduces the historical
+// inherit-only environment exactly.
+func childEnv(extra map[string]string) []string {
 	// Scrub credential-looking variables (API keys, tokens) so a permitted or
 	// injected command can't read the agent's secrets and exfiltrate them.
-	return append(secenv.Sanitize(os.Environ()), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	env := append(secenv.Sanitize(os.Environ()), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	if len(extra) == 0 {
+		return env
+	}
+	merged := make([]string, 0, len(env)+len(extra))
+	for _, entry := range env {
+		name := entry
+		if i := strings.IndexByte(entry, '='); i >= 0 {
+			name = entry[:i]
+		}
+		if hasKeyFold(extra, name) {
+			continue // shadowed by an explicit override below
+		}
+		merged = append(merged, entry)
+	}
+	// Append overrides in sorted key order so the result is deterministic.
+	names := make([]string, 0, len(extra))
+	for k := range extra {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		merged = append(merged, k+"="+extra[k])
+	}
+	return merged
+}
+
+// hasKeyFold reports whether m contains name under case-insensitive comparison,
+// matching Windows' case-insensitive environment variable names.
+func hasKeyFold(m map[string]string, name string) bool {
+	for k := range m {
+		if strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func encodePowerShell(command string) string {

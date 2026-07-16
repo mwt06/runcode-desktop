@@ -1,9 +1,11 @@
 package tools_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/wt68/runcode/engine/tools"
+	"github.com/wt68/runcode/engine/tools/bash"
 )
 
 func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
@@ -48,6 +50,29 @@ func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {
 		}
 		if got := builtin.IsConcurrencySafe(); got != want {
 			t.Fatalf("%s concurrency safe = %t, want %t", builtin.Name(), got, want)
+		}
+	}
+}
+
+// A zero Config must reproduce the historical tool set exactly — same tools,
+// same order — and a populated Config must not change the roster either (it
+// only swaps construction inputs).
+func TestBuiltinsWithConfigMatchesBuiltinsRoster(t *testing.T) {
+	t.Parallel()
+
+	want := tools.Builtins()
+	for name, cfg := range map[string]tools.Config{
+		"zero":      {},
+		"populated": {WebClient: &http.Client{}, ShellEnv: map[string]string{"HOME": "/srv/s1"}},
+	} {
+		got := tools.BuiltinsWithConfig(bash.NewManager(), cfg)
+		if len(got) != len(want) {
+			t.Fatalf("%s config: %d tools, want %d", name, len(got), len(want))
+		}
+		for i := range want {
+			if got[i].Name() != want[i].Name() {
+				t.Fatalf("%s config: tool[%d] = %q, want %q", name, i, got[i].Name(), want[i].Name())
+			}
 		}
 	}
 }

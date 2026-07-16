@@ -54,7 +54,34 @@ const BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 // A proxy is opt-in via ProxyEnvVar or the standard HTTPS_PROXY/HTTP_PROXY
 // (honoring NO_PROXY); with none set, behavior is exactly as before.
 func New(timeout time.Duration, maxRedirects int) *http.Client {
-	proxy, proxied := proxyFunc()
+	return newClient(timeout, maxRedirects, proxyFromEnv)
+}
+
+// NewWithProxy is New with an explicitly injected proxy URL instead of the
+// process environment, so concurrent sessions in one process can each use their
+// own proxy (or none) without racing on os.Setenv.
+//
+// An empty proxyURL behaves exactly like New — including the
+// RUNCODE_WEB_PROXY/HTTPS_PROXY environment fallback, which is the backward-
+// compatible path for hosts that still configure the proxy via env. A non-empty
+// proxyURL selects proxied mode outright (URL-layer hostGuard SSRF protection,
+// identical to an env-configured proxy) and never reads the environment.
+func NewWithProxy(timeout time.Duration, maxRedirects int, proxyURL string) *http.Client {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		return New(timeout, maxRedirects)
+	}
+	return newClient(timeout, maxRedirects, func() (func(*http.Request) (*url.URL, error), bool) {
+		return explicitProxy(proxyURL, "web proxy"), true
+	})
+}
+
+// newClient builds the guarded client shared by New and NewWithProxy.
+// resolveProxy supplies the proxy selection (and whether one is in effect);
+// everything else — the dual-layer SSRF guard, timeouts, redirect policy — is
+// identical in both construction paths.
+func newClient(timeout time.Duration, maxRedirects int, resolveProxy func() (func(*http.Request) (*url.URL, error), bool)) *http.Client {
+	proxy, proxied := resolveProxy()
 	// Control only guards addresses this client dials itself. In proxied mode that
 	// is the proxy, not the destination, so the check belongs at the URL layer.
 	var control func(string, string, syscall.RawConn) error
@@ -93,22 +120,14 @@ func New(timeout time.Duration, maxRedirects int) *http.Client {
 	}
 }
 
-// proxyFunc resolves the proxy for the web tools and reports whether one is set.
-// The environment is read on every call, unlike http.ProxyFromEnvironment, which
-// caches it process-wide at first use — a host that sets the proxy after startup
-// (the desktop applying a saved setting) would otherwise never take effect.
-func proxyFunc() (func(*http.Request) (*url.URL, error), bool) {
+// proxyFromEnv resolves the proxy for the web tools from the environment and
+// reports whether one is set. The environment is read on every call, unlike
+// http.ProxyFromEnvironment, which caches it process-wide at first use — a host
+// that sets the proxy after startup (the desktop applying a saved setting) would
+// otherwise never take effect.
+func proxyFromEnv() (func(*http.Request) (*url.URL, error), bool) {
 	if raw := strings.TrimSpace(os.Getenv(ProxyEnvVar)); raw != "" {
-		u, err := url.Parse(raw)
-		if err != nil || u.Host == "" {
-			// Falling back to a direct connection would quietly ignore an explicit
-			// instruction to proxy — and, for a user who set it to reach a blocked
-			// endpoint, leak the request straight out. Fail the request instead.
-			return func(*http.Request) (*url.URL, error) {
-				return nil, fmt.Errorf("invalid %s %q: want a URL like http://127.0.0.1:7890", ProxyEnvVar, raw)
-			}, true
-		}
-		return http.ProxyURL(u), true
+		return explicitProxy(raw, ProxyEnvVar), true
 	}
 	cfg := httpproxy.FromEnvironment() // HTTPS_PROXY / HTTP_PROXY / NO_PROXY
 	if cfg.HTTPProxy == "" && cfg.HTTPSProxy == "" {
@@ -116,6 +135,22 @@ func proxyFunc() (func(*http.Request) (*url.URL, error), bool) {
 	}
 	f := cfg.ProxyFunc()
 	return func(req *http.Request) (*url.URL, error) { return f(req.URL) }, true
+}
+
+// explicitProxy turns a user-supplied proxy URL into a proxy func. A malformed
+// URL yields a func that fails every request: falling back to a direct
+// connection would quietly ignore an explicit instruction to proxy — and, for a
+// user who set it to reach a blocked endpoint, leak the request straight out.
+// source names where the URL came from (the env var or an injected setting) so
+// the error points at the right knob.
+func explicitProxy(raw, source string) func(*http.Request) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return func(*http.Request) (*url.URL, error) {
+			return nil, fmt.Errorf("invalid %s %q: want a URL like http://127.0.0.1:7890", source, raw)
+		}
+	}
+	return http.ProxyURL(u)
 }
 
 // hostGuard enforces the non-public-address rule at the URL layer, standing in for

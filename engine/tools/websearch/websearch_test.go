@@ -35,6 +35,41 @@ func run(t *testing.T, srvURL string, in input, events chan<- tool.Event) (tool.
 	return Tool{client: &http.Client{}, endpoint: srvURL}.Run(context.Background(), raw, nil, events)
 }
 
+// stubTransport intercepts every request in-process, recording the target URL
+// and answering with canned DDG HTML, so NewWithClient tests need no network.
+type stubTransport struct{ gotURL string }
+
+func (s *stubTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	s.gotURL = req.URL.String()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/html"}},
+		Body:       io.NopCloser(strings.NewReader(ddgHTML)),
+		Request:    req,
+	}, nil
+}
+
+// NewWithClient must use the injected client (the stub transport answers, no
+// network involved) while keeping the production DDG endpoint.
+func TestNewWithClientUsesInjectedClient(t *testing.T) {
+	t.Parallel()
+	stub := &stubTransport{}
+	raw, err := json.Marshal(input{Query: "golang"})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	res, err := NewWithClient(&http.Client{Transport: stub}).Run(context.Background(), raw, nil, nil)
+	if err != nil {
+		t.Fatalf("search with injected client: %v", err)
+	}
+	if stub.gotURL != ddgEndpoint {
+		t.Fatalf("injected client hit %q, want the default endpoint %q", stub.gotURL, ddgEndpoint)
+	}
+	if text := res.Content[0].Text; !strings.Contains(text, "The Go Programming Language") {
+		t.Fatalf("results not parsed from injected client's response: %q", text)
+	}
+}
+
 func TestWebSearchParsesResults(t *testing.T) {
 	t.Parallel()
 	var gotQuery string

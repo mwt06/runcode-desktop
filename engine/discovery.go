@@ -136,10 +136,12 @@ func reportAgentProblems(warn io.Writer, problems []agent.Problem) {
 	}
 }
 
-// MemoryStore builds the two-scope memory store: user memory at
+// MemoryStore returns the two-scope memory store: user memory at
 // <userConfigDir>/runcode/memory.md and project memory at
 // <workspace>/.runcode/memory.md. A scope whose root is unavailable gets an empty
-// path, which disables it.
+// path, which disables it. The store is process-shared per path pair (see
+// memory.Shared), so every session over the same memory files serializes its
+// appends on one lock.
 func MemoryStore(cwd, userConfigDir string) *memory.Store {
 	var userPath, projectPath string
 	if userConfigDir != "" {
@@ -148,5 +150,5 @@ func MemoryStore(cwd, userConfigDir string) *memory.Store {
 	if cwd != "" {
 		projectPath = filepath.Join(cwd, ProjectRuncodeDir, MemoryFileName)
 	}
-	return memory.NewStore(memory.Options{UserPath: userPath, ProjectPath: projectPath})
+	return memory.Shared(memory.Options{UserPath: userPath, ProjectPath: projectPath})
 }

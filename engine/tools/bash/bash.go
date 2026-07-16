@@ -31,9 +31,14 @@ type input struct {
 }
 
 // Tool runs bash commands. It holds a Manager so run_in_background launches are
-// tracked and later readable via BashOutput / killable via KillShell.
+// tracked and later readable via BashOutput / killable via KillShell, and an
+// optional construction-time base environment merged into every child process.
 type Tool struct {
 	mgr *Manager
+	// baseEnv is host-injected child-process environment (see childEnv). The
+	// per-call tool.Context.Env is overlaid on top of it, so a session-level
+	// override wins over a construction-time one; nil adds nothing.
+	baseEnv map[string]string
 }
 
 // New returns a Bash tool with its own background-shell manager. Callers that
@@ -45,6 +50,14 @@ func New() tool.Tool {
 // NewWithManager returns a Bash tool sharing the given background-shell manager.
 func NewWithManager(mgr *Manager) tool.Tool {
 	return Tool{mgr: mgr}
+}
+
+// NewWithConfig returns a Bash tool sharing the given background-shell manager
+// whose child processes additionally receive baseEnv (override-merged into the
+// inherited environment, see childEnv). A nil baseEnv behaves exactly like
+// NewWithManager.
+func NewWithConfig(mgr *Manager, baseEnv map[string]string) tool.Tool {
+	return Tool{mgr: mgr, baseEnv: baseEnv}
 }
 
 func (Tool) Name() string {
@@ -102,8 +115,9 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, 
 	if err != nil {
 		return tool.Result{}, err
 	}
+	env := t.effectiveEnv(tctx)
 	if in.RunInBackground {
-		return t.runBackground(command, workspace)
+		return t.runBackground(command, workspace, env)
 	}
 	timeout := normalizeTimeout(in.TimeoutMS)
 	started := time.Now()
@@ -117,7 +131,7 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, 
 	defer cleanup()
 	cmd := exec.CommandContext(commandCtx, shell, args...)
 	cmd.Dir = workspace
-	cmd.Env = childEnv()
+	cmd.Env = childEnv(env)
 	hideConsoleWindow(cmd)
 	var stdout, stderr limitedBuffer
 	stdout.limit = maxOutputBytes
@@ -163,12 +177,38 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, 
 	}, nil
 }
 
+// effectiveEnv combines the tool's construction-time base environment with the
+// per-call tool.Context.Env (which wins on a key conflict). Both are
+// host-supplied; in the common engine wiring they carry the same map, so the
+// overlay is idempotent. It returns nil when neither source has entries,
+// preserving the historical inherit-only child environment.
+func (t Tool) effectiveEnv(tctx *tool.Context) map[string]string {
+	var ctxEnv map[string]string
+	if tctx != nil {
+		ctxEnv = tctx.Env
+	}
+	if len(t.baseEnv) == 0 {
+		return ctxEnv
+	}
+	if len(ctxEnv) == 0 {
+		return t.baseEnv
+	}
+	merged := make(map[string]string, len(t.baseEnv)+len(ctxEnv))
+	for k, v := range t.baseEnv {
+		merged[k] = v
+	}
+	for k, v := range ctxEnv {
+		merged[k] = v
+	}
+	return merged
+}
+
 // runBackground starts the command detached and returns its shell id immediately.
-func (t Tool) runBackground(command, workspace string) (tool.Result, error) {
+func (t Tool) runBackground(command, workspace string, env map[string]string) (tool.Result, error) {
 	if t.mgr == nil {
 		return tool.Result{}, errors.New("background shells are not available")
 	}
-	id, err := t.mgr.Start(command, workspace)
+	id, err := t.mgr.Start(command, workspace, env)
 	if err != nil {
 		return tool.Result{IsError: true, Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: err.Error()}}}, nil
 	}

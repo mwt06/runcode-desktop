@@ -24,7 +24,7 @@ func TestManagerStartReadsOutputAndExits(t *testing.T) {
 	mgr := NewManager()
 	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
 
-	id, err := mgr.Start("echo hello-bg", t.TempDir())
+	id, err := mgr.Start("echo hello-bg", t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestManagerOutputIsIncremental(t *testing.T) {
 	mgr := NewManager()
 	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
 
-	id, err := mgr.Start("echo one", t.TempDir())
+	id, err := mgr.Start("echo one", t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestManagerKill(t *testing.T) {
 	mgr := NewManager()
 	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
 
-	id, err := mgr.Start("sleep 30", t.TempDir())
+	id, err := mgr.Start("sleep 30", t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -99,13 +99,13 @@ func TestManagerUnknownShell(t *testing.T) {
 func TestManagerCloseStopsShells(t *testing.T) {
 	t.Parallel()
 	mgr := NewManager()
-	if _, err := mgr.Start("sleep 30", t.TempDir()); err != nil {
+	if _, err := mgr.Start("sleep 30", t.TempDir(), nil); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	if err := mgr.Close(context.Background()); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if _, err := mgr.Start("echo x", t.TempDir()); err == nil {
+	if _, err := mgr.Start("echo x", t.TempDir(), nil); err == nil {
 		t.Fatal("Start after Close should error")
 	}
 }

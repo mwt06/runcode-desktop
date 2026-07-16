@@ -42,6 +42,16 @@ const DefaultMaxIterations = 200
 // until a slot frees up.
 const DefaultMaxConcurrent = 8
 
+// Limiter is an optional cross-session concurrency budget composed on top of
+// the per-launcher semaphore, so a host running many sessions can cap the
+// process-wide number of live sub-agents. Acquire blocks until a slot frees or
+// ctx ends (returning ctx's error); every successful Acquire must be paired
+// with exactly one Release. Implementations must be goroutine-safe.
+type Limiter interface {
+	Acquire(ctx context.Context) error
+	Release()
+}
+
 // Launcher builds and runs sub-agent child sessions. It is constructed once at
 // session wiring time with everything a child needs that cannot be derived from a
 // per-call tool.Context: the provider, the delegatable tool set, the shared
@@ -63,6 +73,9 @@ type Launcher struct {
 	maxIterations int
 	// sem bounds concurrent Launch calls. A nil sem means unbounded.
 	sem chan struct{}
+	// global is the optional cross-session limiter acquired after sem; nil means
+	// per-launcher limit only.
+	global Limiter
 }
 
 // Options configures a Launcher.
@@ -93,6 +106,10 @@ type Options struct {
 	// MaxConcurrent caps how many sub-agents run at once (DefaultMaxConcurrent when
 	// <= 0). Set it negative to disable the cap entirely.
 	MaxConcurrent int
+	// GlobalLimiter, when set, additionally caps sub-agent concurrency across
+	// every launcher sharing it (a host-wide budget on top of MaxConcurrent).
+	// nil = per-launcher limit only.
+	GlobalLimiter Limiter
 }
 
 // NewLauncher constructs a Launcher from Options.
@@ -137,6 +154,7 @@ func NewLauncher(opts Options) *Launcher {
 		parentHooks:   parentHooks,
 		maxIterations: maxIter,
 		sem:           sem,
+		global:        opts.GlobalLimiter,
 	}
 }
 
@@ -177,10 +195,23 @@ func (l *Launcher) Launch(ctx context.Context, def agent.Agent, taskPrompt strin
 	// Bound concurrent sub-agents: a fan-out turn may issue many Task calls, but
 	// only MaxConcurrent child sessions run at once. A cancelled context here is
 	// returned so the parent treats it as unrecoverable (like a cancelled run).
+	//
+	// Acquisition order is fixed — per-launcher sem first, then the global
+	// limiter — and release is the exact reverse (defers run LIFO). This cannot
+	// deadlock: both are pure counting semaphores with no other locks, every
+	// holder eventually terminates (the child session is bounded by ctx and its
+	// iteration cap) and releases, and because every launcher acquires in the
+	// same total order there is no cycle of waiters.
 	if err := l.acquire(ctx); err != nil {
 		return "", err
 	}
 	defer l.release()
+	if l.global != nil {
+		if err := l.global.Acquire(ctx); err != nil {
+			return "", err
+		}
+		defer l.global.Release()
+	}
 
 	childTools := l.toolsFor(def)
 

@@ -193,6 +193,47 @@ func TestWebFetchBlocksNonPublicAddress(t *testing.T) {
 	}
 }
 
+// NewWithClient must actually use the injected client: a permissive client can
+// reach the loopback httptest server that the guarded default refuses.
+func TestNewWithClientUsesInjectedClient(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		io.WriteString(w, "served to injected client")
+	}))
+	defer srv.Close()
+
+	raw, err := json.Marshal(input{URL: srv.URL})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	res, err := NewWithClient(&http.Client{}).Run(context.Background(), raw, nil, nil)
+	if err != nil {
+		t.Fatalf("fetch with injected client: %v", err)
+	}
+	if res.Content[0].Text != "served to injected client" {
+		t.Fatalf("text = %q", res.Content[0].Text)
+	}
+}
+
+// A nil injection falls back to the guarded default, which refuses loopback —
+// the nil path must be indistinguishable from New().
+func TestNewWithClientNilKeepsGuardedDefault(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "secret internal service")
+	}))
+	defer srv.Close()
+
+	raw, err := json.Marshal(input{URL: srv.URL})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	if _, err := NewWithClient(nil).Run(context.Background(), raw, nil, nil); err == nil {
+		t.Fatal("NewWithClient(nil) reached a loopback address; the SSRF-guarded default was not applied")
+	}
+}
+
 func TestWebFetchMetadata(t *testing.T) {
 	t.Parallel()
 	tl := Tool{}

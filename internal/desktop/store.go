@@ -84,7 +84,25 @@ func saveConfig(req StartSessionRequest) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o600)
+	// Atomic replace (temp + rename): a crash mid-write must never leave a torn
+	// config holding half of the encrypted credentials or the MRU list.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".desktop.json.*")
+	if err != nil {
+		return
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename succeeds
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		return
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return
+	}
+	_ = os.Rename(tmpName, path)
 }
 
 // protectRequestSecrets replaces the plaintext credential fields with their

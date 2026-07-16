@@ -57,9 +57,21 @@ type Config struct {
 	// table), or "" (unpriced).
 	PriceSource string
 	// TokenSource supplies a per-request bearer token (OAuth). Overrides APIKey/AuthToken when set.
+	//
+	// Contract: TokenSource must be goroutine-safe — multiple concurrent sessions
+	// may share one user-level source and call it from their own request paths at
+	// once. It must never return ("", nil): a caller cannot send an empty bearer
+	// token, so "no token available" is an error, not an empty success. Refresh
+	// deduplication (single-flight, so N concurrent 401s trigger one refresh) is
+	// the implementation's responsibility, not the engine's.
 	TokenSource func() (string, error)
 	// OnUnauthorized, when set, is invoked once on a 401 to force a token refresh
 	// (an expired OAuth access token) before retrying with a fresh token.
+	//
+	// Contract: like TokenSource it must be goroutine-safe (concurrent sessions
+	// sharing one auth source can each hit a 401 at the same time), and the
+	// implementation owns refresh dedup — concurrent invocations must coalesce
+	// into a single upstream refresh rather than stampede the token endpoint.
 	OnUnauthorized func()
 	MCPServers     []mcp.ServerConfig
 	// AllowMCPSampling opts in to serving MCP servers' sampling requests. Even
@@ -84,4 +96,13 @@ type Config struct {
 	DisabledTools  []string
 	DisabledAgents []string
 	DisabledSkills []string
+	// WebProxy is the outbound proxy for the WebFetch/WebSearch tools
+	// ("" = direct, honoring the RUNCODE_WEB_PROXY/HTTPS_PROXY env fallback).
+	// Injected per session so concurrent sessions can use different proxies.
+	WebProxy string
+	// ToolEnv is merged into every tool child process's environment (overriding
+	// inherited variables of the same name). Server hosts use it for per-session
+	// isolation (HOME, proxies, credentials); empty means inherit-only, the
+	// historical behavior.
+	ToolEnv map[string]string
 }

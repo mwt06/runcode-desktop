@@ -37,7 +37,18 @@ type Tool struct {
 	client *http.Client
 }
 
-func New() tool.Tool { return Tool{client: webclient.New(requestTimeout, maxRedirects)} }
+func New() tool.Tool { return NewWithClient(nil) }
+
+// NewWithClient returns a WebFetch tool using the injected HTTP client, so a
+// host can route a session's web traffic through its own (e.g. per-session
+// proxied) client. A nil client falls back to the package default — the
+// SSRF-guarded webclient with the historical timeout and redirect cap.
+func NewWithClient(c *http.Client) tool.Tool {
+	if c == nil {
+		c = webclient.New(requestTimeout, maxRedirects)
+	}
+	return Tool{client: c}
+}
 
 func (Tool) Name() string { return "WebFetch" }
 

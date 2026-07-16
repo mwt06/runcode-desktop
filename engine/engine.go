@@ -60,6 +60,31 @@ type Options struct {
 	// capture Write/Edit pre/post content for undo/review. The desktop supplies its
 	// editStore; the CLI leaves it nil.
 	EditRecorder turn.EditRecorder
+	// Backend, when set, replaces the backend Build would open from Config; the
+	// caller owns its lifecycle (Session.Close must not close an injected
+	// backend). Hosts use it to share one backend across sessions of a workspace.
+	Backend sessions.Backend
+	// SubagentLimiter, when set, caps sub-agent concurrency across sessions on
+	// top of the per-session limit. nil = per-session limit only. The same
+	// limiter instance is shared by every session it should govern.
+	SubagentLimiter SubagentLimiter
+	// ShellBudget, when set, caps background shells across sessions on top of
+	// the per-session limit. nil = per-session limit only. The same budget
+	// instance is shared by every session it should govern.
+	ShellBudget *bash.Budget
+}
+
+// SubagentLimiter is a cross-session concurrency budget for sub-agents,
+// composed on top of each session's own limit. Acquire blocks until a slot
+// frees or ctx ends (returning ctx's error); every successful Acquire is paired
+// with exactly one Release. Implementations must be goroutine-safe.
+//
+// It mirrors the engine-internal subagent.Limiter shape (which Options cannot
+// name directly — the package is internal), so any value satisfying one
+// satisfies the other.
+type SubagentLimiter interface {
+	Acquire(ctx context.Context) error
+	Release()
 }
 
 func (o Options) warnWriter() io.Writer {
@@ -77,9 +102,14 @@ type resources struct {
 	Transcript transcript.Recorder
 	Sessions   sessions.Store
 	Backend    sessions.Backend
-	MCP        *mcp.Manager
-	Shells     *bash.Manager
-	SessionID  string
+	// ownsBackend records whether Build opened Backend itself (true) or received
+	// it injected via Options.Backend (false, in which case Close must leave it
+	// open — the host shares it across sessions and owns its lifecycle). The
+	// session Store is closed either way; it is per-session.
+	ownsBackend bool
+	MCP         *mcp.Manager
+	Shells      *bash.Manager
+	SessionID   string
 }
 
 // Session is the transport-agnostic host wrapping a repl.Session and its owned
@@ -227,16 +257,22 @@ func (s *Session) Status() Status {
 	}
 }
 
-// Close fires the SessionEnd hook and shuts down every owned subsystem.
+// Close fires the SessionEnd hook and shuts down every owned subsystem. An
+// injected backend (Options.Backend) is not owned and stays open for the host;
+// the per-session Store is closed regardless.
 func (s *Session) Close(ctx context.Context) error {
 	if s.repl != nil {
 		s.repl.FireSessionEnd(ctx, "exit")
+	}
+	var backend sessions.Backend
+	if s.resources.ownsBackend {
+		backend = s.resources.Backend
 	}
 	return closeRecorders(ctx,
 		s.resources.Telemetry,
 		s.resources.Transcript,
 		s.resources.Sessions,
-		s.resources.Backend,
+		backend,
 		s.resources.MCP,
 		s.resources.Shells,
 	)
