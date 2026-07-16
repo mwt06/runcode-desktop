@@ -13,7 +13,7 @@ import (
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/mcp"
 	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/engine/tools"
 )
 
 // ToolInfo is a tool's name and description for the @-mention picker.

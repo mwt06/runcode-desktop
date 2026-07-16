@@ -9,7 +9,7 @@ import (
 
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/engine/tools"
 )
 
 func toolResultText(block llm.ContentBlock) string {

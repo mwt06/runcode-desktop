@@ -9,9 +9,9 @@ import (
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/tools/webfetch"
+	"github.com/wt68/runcode/engine/tools/write"
 	"github.com/wt68/runcode/internal/prompt"
-	"github.com/wt68/runcode/tools/webfetch"
-	"github.com/wt68/runcode/tools/write"
 )
 
 // When the user denies an interactive approval, the turn must stop and return

@@ -2,18 +2,18 @@ package tools
 
 import (
 	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/tools/analyze"
+	"github.com/wt68/runcode/engine/tools/askuser"
 	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/tools/analyze"
-	"github.com/wt68/runcode/tools/askuser"
-	"github.com/wt68/runcode/tools/delete"
-	"github.com/wt68/runcode/tools/edit"
-	"github.com/wt68/runcode/tools/glob"
-	"github.com/wt68/runcode/tools/grep"
-	"github.com/wt68/runcode/tools/read"
-	"github.com/wt68/runcode/tools/todo"
-	"github.com/wt68/runcode/tools/webfetch"
-	"github.com/wt68/runcode/tools/websearch"
-	"github.com/wt68/runcode/tools/write"
+	"github.com/wt68/runcode/engine/tools/delete"
+	"github.com/wt68/runcode/engine/tools/edit"
+	"github.com/wt68/runcode/engine/tools/glob"
+	"github.com/wt68/runcode/engine/tools/grep"
+	"github.com/wt68/runcode/engine/tools/read"
+	"github.com/wt68/runcode/engine/tools/todo"
+	"github.com/wt68/runcode/engine/tools/webfetch"
+	"github.com/wt68/runcode/engine/tools/websearch"
+	"github.com/wt68/runcode/engine/tools/write"
 )
 
 // Builtins returns the in-tree tools with a self-contained background-shell

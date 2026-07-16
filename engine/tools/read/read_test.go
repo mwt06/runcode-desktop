@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools/read"
+	"github.com/wt68/runcode/engine/tools/read"
 )
 
 func TestReadToolReadsLineNumberedContent(t *testing.T) {

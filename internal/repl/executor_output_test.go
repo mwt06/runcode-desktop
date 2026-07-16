@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/engine/tools"
 )
 
 func lastEvent(t *testing.T, events []tool.Event) tool.Event {

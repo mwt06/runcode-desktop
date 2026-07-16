@@ -12,9 +12,9 @@ import (
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/telemetry"
 	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/tools"
 	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/internal/prompt"
-	"github.com/wt68/runcode/tools"
 )
 
 func TestNewSessionRequiresProvider(t *testing.T) {

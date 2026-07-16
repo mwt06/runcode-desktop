@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools/delete"
+	"github.com/wt68/runcode/engine/tools/delete"
 )
 
 func TestDeletePermanentRemovesFile(t *testing.T) {

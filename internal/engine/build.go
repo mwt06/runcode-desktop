@@ -30,8 +30,8 @@ import (
 	"github.com/wt68/runcode/engine/memory"
 	"github.com/wt68/runcode/engine/skill"
 	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/tools"
 	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/tools"
 )
 
 // safeMode is the non-interactive permission mode name.

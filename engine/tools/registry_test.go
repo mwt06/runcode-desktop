@@ -3,7 +3,7 @@ package tools_test
 import (
 	"testing"
 
-	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/engine/tools"
 )
 
 func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/engine/tools"
 )
 
 func TestToolSpecs(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/toolpath"
-	"github.com/wt68/runcode/tools/edit"
+	"github.com/wt68/runcode/engine/tools/edit"
 )
 
 func TestEditToolReplacesUniqueString(t *testing.T) {

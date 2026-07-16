@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools/grep"
+	"github.com/wt68/runcode/engine/tools/grep"
 )
 
 func TestGrepToolMatchesRegexpInDirectory(t *testing.T) {

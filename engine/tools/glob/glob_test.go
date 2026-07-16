@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools/glob"
+	"github.com/wt68/runcode/engine/tools/glob"
 )
 
 func TestGlobToolMatchesRecursiveSlashPattern(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/telemetry"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/tools"
+	"github.com/wt68/runcode/engine/tools"
 )
 
 func TestExecutorRunsReadTool(t *testing.T) {
