@@ -1,7 +1,7 @@
 package tools
 
 import (
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/tools/analyze"
 	"github.com/wt68/runcode/tools/askuser"
 	"github.com/wt68/runcode/tools/bash"

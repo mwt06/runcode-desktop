@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // ToolName is the model-facing name of the delegation tool.

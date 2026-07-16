@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // BashOutputTool reads output produced by a background shell since the last read.

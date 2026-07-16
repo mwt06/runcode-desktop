@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 type Recorder interface {

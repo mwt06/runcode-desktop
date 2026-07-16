@@ -5,6 +5,10 @@ import (
 	"io"
 	"os"
 
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/skill"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
@@ -12,10 +16,6 @@ import (
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/subagent"
 	"github.com/wt68/runcode/internal/telemetry"
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/skill"
-	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools/bash"
 )
 

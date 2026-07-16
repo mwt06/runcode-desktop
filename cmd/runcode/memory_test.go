@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/memory"
+	"github.com/wt68/runcode/engine/memory"
 )
 
 func TestMemorySummaryCountsProject(t *testing.T) {

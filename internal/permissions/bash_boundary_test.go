@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // Shell read commands are bounded to the workspace, like Read/Glob/Grep: reading a

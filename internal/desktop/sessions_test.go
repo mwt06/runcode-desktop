@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 func TestToResumedBlocksReconstructsToolSteps(t *testing.T) {

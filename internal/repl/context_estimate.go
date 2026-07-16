@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"unicode"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 // EstimateContextTokens roughly approximates how many input tokens the next turn

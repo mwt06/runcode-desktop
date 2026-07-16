@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/pkg/llm"
 )
 
 // defaultSamplingMaxTokens bounds a sampling completion when the server requests

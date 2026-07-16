@@ -7,10 +7,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/permissions"
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 // seqProvider replays one scripted stream per Stream call and records every

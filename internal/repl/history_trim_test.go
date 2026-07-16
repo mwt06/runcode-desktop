@@ -3,7 +3,7 @@ package repl
 import (
 	"testing"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 func trimUserMsg(text string) llm.Message {

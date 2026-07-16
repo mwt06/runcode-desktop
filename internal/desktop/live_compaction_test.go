@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 // preserveDesktopConfig snapshots the real desktop.json and restores it after the

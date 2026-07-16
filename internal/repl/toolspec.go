@@ -1,8 +1,8 @@
 package repl
 
 import (
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 func ToolSpecs(tools []tool.Tool) []llm.ToolSpec {

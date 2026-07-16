@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools/preview"
 )
 

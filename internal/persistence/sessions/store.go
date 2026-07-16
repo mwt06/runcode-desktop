@@ -7,7 +7,7 @@ package sessions
 import (
 	"context"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 // Store appends complete conversation messages for a session. Implementations

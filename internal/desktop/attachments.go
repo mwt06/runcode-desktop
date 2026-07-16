@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 // maxImageBytes bounds a single attached image so a huge file cannot blow up the

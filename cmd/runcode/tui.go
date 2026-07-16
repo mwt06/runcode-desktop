@@ -9,12 +9,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/ui"
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 type tuiRunner interface {

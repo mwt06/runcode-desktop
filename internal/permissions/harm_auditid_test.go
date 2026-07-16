@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // The harm-gate audit event must carry the tool_use_id of the call it decided, so

@@ -9,9 +9,9 @@
 package desktop
 
 import (
+	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/repl"
-	"github.com/wt68/runcode/pkg/llm"
 )
 
 // Event names emitted to the frontend. They are stable strings the UI subscribes
@@ -69,9 +69,9 @@ type EventSink interface {
 // the environment (ANTHROPIC_MODEL/API key/etc.), mirroring the CLI's resolution
 // for the values the desktop does not yet surface in a settings form.
 type StartSessionRequest struct {
-	CWD       string `json:"cwd"`
-	Provider  string `json:"provider"`
-	Model     string `json:"model"`
+	CWD      string `json:"cwd"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 	// TenantID is the selected AI.Core tenant for a passport session (multi-tenant
 	// users pick one; single-tenant is auto-selected). Empty falls back to the
 	// token's own tenant. Only meaningful when Provider == "passport".

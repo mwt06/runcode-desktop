@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/pkg/skill"
+	"github.com/wt68/runcode/engine/skill"
 )
 
 // SkillInfo is one project skill for the UI's skill manager.

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wt68/runcode/internal/webclient"
+	"github.com/wt68/runcode/engine/webclient"
 )
 
 // WebProxy 返回联网工具(WebFetch/WebSearch)使用的代理地址(空 = 直连)。

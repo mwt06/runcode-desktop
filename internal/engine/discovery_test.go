@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/memory"
+	"github.com/wt68/runcode/engine/skill"
 	"github.com/wt68/runcode/internal/subagent"
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/memory"
-	"github.com/wt68/runcode/pkg/skill"
 )
 
 func TestSkillRootsOrderAndPaths(t *testing.T) {

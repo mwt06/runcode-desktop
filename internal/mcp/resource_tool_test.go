@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // resourceTestClient builds a client whose fake server answers resources/list

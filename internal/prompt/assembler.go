@@ -3,14 +3,14 @@ package prompt
 import (
 	"fmt"
 
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/prompt/sections"
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 type AssemblerOpts struct {
-	CWD               string
-	Date              string
+	CWD  string
+	Date string
 	// Model is the underlying model id; when set, an identity section names it so
 	// the model answers "what are you" truthfully instead of hallucinating a vendor.
 	Model             string

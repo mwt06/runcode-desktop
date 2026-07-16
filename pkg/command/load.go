@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/internal/toolpath"
+	"github.com/wt68/runcode/engine/toolpath"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 func userMsg(text string) llm.Message {

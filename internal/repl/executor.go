@@ -12,11 +12,11 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/toolpath"
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/telemetry"
-	"github.com/wt68/runcode/internal/toolpath"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 var (

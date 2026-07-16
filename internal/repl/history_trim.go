@@ -1,6 +1,6 @@
 package repl
 
-import "github.com/wt68/runcode/pkg/llm"
+import "github.com/wt68/runcode/engine/llm"
 
 // trimMessagesForHistoryBudget bounds the conversation history sent to the
 // provider (and committed back to memory) by a message-count budget while

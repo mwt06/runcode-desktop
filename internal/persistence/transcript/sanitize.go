@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 type TurnInput struct {

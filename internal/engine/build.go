@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/internal/mcp"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/persistence/sessions"
@@ -19,17 +21,15 @@ import (
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/subagent"
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/llm"
 	// Provider packages are imported for their init() side effect: each registers
 	// its factory with llm.Build. BuildProvider then selects by name without a
 	// hardcoded switch over concrete provider types.
+	_ "github.com/wt68/runcode/engine/llm/providers/anthropic"
+	_ "github.com/wt68/runcode/engine/llm/providers/openai"
+	"github.com/wt68/runcode/engine/memory"
+	"github.com/wt68/runcode/engine/skill"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/hooks"
-	_ "github.com/wt68/runcode/pkg/llm/providers/anthropic"
-	_ "github.com/wt68/runcode/pkg/llm/providers/openai"
-	"github.com/wt68/runcode/pkg/memory"
-	"github.com/wt68/runcode/pkg/skill"
-	"github.com/wt68/runcode/pkg/tool"
 	"github.com/wt68/runcode/tools"
 	"github.com/wt68/runcode/tools/bash"
 )

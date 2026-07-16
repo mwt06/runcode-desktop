@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wt68/runcode/internal/diff"
-	"github.com/wt68/runcode/internal/toolpath"
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/diff"
+	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/toolpath"
 )
 
 type input struct {

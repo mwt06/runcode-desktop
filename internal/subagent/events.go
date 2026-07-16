@@ -1,6 +1,6 @@
 package subagent
 
-import "github.com/wt68/runcode/pkg/tool"
+import "github.com/wt68/runcode/engine/tool"
 
 // eventBridgeBuffer bounds the channel the child session writes tool events to.
 const eventBridgeBuffer = 32

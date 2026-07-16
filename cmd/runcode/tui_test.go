@@ -9,8 +9,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/ui"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 type fakeTuiRunner struct {

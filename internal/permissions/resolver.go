@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/wt68/runcode/internal/toolpath"
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/toolpath"
 )
 
 type Resolver interface {

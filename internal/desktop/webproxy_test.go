@@ -4,11 +4,11 @@ import "testing"
 
 func TestNormalizeProxy(t *testing.T) {
 	ok := map[string]string{
-		"":                       "",
-		"  ":                     "",
-		"127.0.0.1:7890":         "http://127.0.0.1:7890", // 省略协议按 http
-		"http://127.0.0.1:7890":  "http://127.0.0.1:7890",
-		"https://p.example:8443": "https://p.example:8443",
+		"":                        "",
+		"  ":                      "",
+		"127.0.0.1:7890":          "http://127.0.0.1:7890", // 省略协议按 http
+		"http://127.0.0.1:7890":   "http://127.0.0.1:7890",
+		"https://p.example:8443":  "https://p.example:8443",
 		"socks5://127.0.0.1:1080": "socks5://127.0.0.1:1080",
 	}
 	for in, want := range ok {

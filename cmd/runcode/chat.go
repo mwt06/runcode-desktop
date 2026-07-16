@@ -11,12 +11,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/internal/cost"
 	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/persistence/sessions"
 	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/persistence/transcript"
-	"github.com/wt68/runcode/pkg/llm"
 )
 
 // anthropicProvider is the default provider name and the one that strictly

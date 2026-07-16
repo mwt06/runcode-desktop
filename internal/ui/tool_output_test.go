@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 func TestRenderToolOutputLines(t *testing.T) {

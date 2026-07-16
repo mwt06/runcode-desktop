@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/wt68/runcode/internal/toolpath"
+	"github.com/wt68/runcode/engine/toolpath"
 )
 
 type JSONLRecorder struct {

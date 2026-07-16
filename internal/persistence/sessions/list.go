@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 // previewRunes bounds how much of a user prompt is kept for a list preview.

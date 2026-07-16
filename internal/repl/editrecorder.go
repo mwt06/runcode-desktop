@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/internal/toolpath"
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/toolpath"
 )
 
 // EditRecorder captures the pre/post content of a Write/Edit mutation so a host

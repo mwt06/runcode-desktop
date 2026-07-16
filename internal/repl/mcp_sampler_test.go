@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/pkg/llm"
 )
 
 func TestMCPSampler(t *testing.T) {

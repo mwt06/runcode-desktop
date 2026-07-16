@@ -18,14 +18,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/hooks"
 	"github.com/wt68/runcode/internal/permissions"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/telemetry"
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/llm"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 // DefaultMaxIterations is the sub-agent ReAct budget used when the caller does not

@@ -3,7 +3,7 @@ package telemetry
 import (
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 type EventName string

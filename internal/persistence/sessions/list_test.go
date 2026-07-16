@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/pkg/llm"
+	"github.com/wt68/runcode/engine/llm"
 )
 
 func writeSession(t *testing.T, workspace, id string, history []llm.Message, modTime time.Time) {

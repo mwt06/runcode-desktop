@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // ListPromptsToolName and GetPromptToolName are the model-facing names of the

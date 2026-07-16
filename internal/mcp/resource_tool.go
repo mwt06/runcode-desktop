@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
 )
 
 // ListResourcesToolName and ReadResourceToolName are the model-facing names of

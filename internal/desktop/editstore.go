@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/internal/diff"
+	"github.com/wt68/runcode/engine/diff"
+	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/repl"
-	"github.com/wt68/runcode/pkg/tool"
 )
 
 // maxEditSnapshotBytes bounds a single pre/post snapshot. Larger files are skipped

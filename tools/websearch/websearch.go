@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/wt68/runcode/internal/webclient"
-	"github.com/wt68/runcode/pkg/tool"
+	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/webclient"
 )
 
 const (

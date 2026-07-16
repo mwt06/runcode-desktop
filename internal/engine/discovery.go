@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/memory"
+	"github.com/wt68/runcode/engine/skill"
 	"github.com/wt68/runcode/internal/persistence/settings"
 	"github.com/wt68/runcode/internal/subagent"
-	"github.com/wt68/runcode/pkg/agent"
-	"github.com/wt68/runcode/pkg/memory"
-	"github.com/wt68/runcode/pkg/skill"
 	"github.com/wt68/runcode/tools/bash"
 )
 

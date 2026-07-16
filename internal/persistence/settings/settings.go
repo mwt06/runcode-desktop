@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 
 	toml "github.com/pelletier/go-toml/v2"
-	"github.com/wt68/runcode/internal/toolpath"
+	"github.com/wt68/runcode/engine/toolpath"
 )
 
 // utf8BOM is the byte-order mark some Windows editors prepend; TOML files should

@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/toolpath"
 	"github.com/wt68/runcode/internal/persistence/transcript"
-	"github.com/wt68/runcode/internal/toolpath"
-	"github.com/wt68/runcode/pkg/llm"
 )
 
 const sessionsDirName = "sessions"
