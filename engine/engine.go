@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/internal/repl"
+	"github.com/wt68/runcode/engine/internal/subagent"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/mcp"
 	"github.com/wt68/runcode/engine/permissions"
@@ -15,8 +17,7 @@ import (
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/tools/bash"
 	"github.com/wt68/runcode/engine/transcript"
-	"github.com/wt68/runcode/internal/repl"
-	"github.com/wt68/runcode/internal/subagent"
+	"github.com/wt68/runcode/engine/turn"
 )
 
 // Options carry the per-frontend wiring that cannot live in Config because it is
@@ -58,7 +59,7 @@ type Options struct {
 	// EditRecorder, when set, is threaded to the session's executor so the host can
 	// capture Write/Edit pre/post content for undo/review. The desktop supplies its
 	// editStore; the CLI leaves it nil.
-	EditRecorder repl.EditRecorder
+	EditRecorder turn.EditRecorder
 }
 
 func (o Options) warnWriter() io.Writer {
@@ -68,9 +69,10 @@ func (o Options) warnWriter() io.Writer {
 	return o.Warn
 }
 
-// Resources bundles the closable subsystems a session owns, so the host can shut
-// them down in one place.
-type Resources struct {
+// resources bundles the closable subsystems a session owns, so the host can
+// shut them down in one place. It is deliberately unexported: consumers manage
+// lifecycle only through Session.Close.
+type resources struct {
 	Telemetry  telemetry.Recorder
 	Transcript transcript.Recorder
 	Sessions   sessions.Store
@@ -87,7 +89,7 @@ type Resources struct {
 // reimplement.
 type Session struct {
 	repl      *repl.Session
-	resources Resources
+	resources resources
 	perms     *permissions.Service
 	cfg       Config
 	skillTool *skill.Tool
@@ -124,14 +126,14 @@ func (s *Session) ReloadAgents() {
 	s.repl.SetAgentsCatalog(agent.Catalog(set))
 }
 
-// RunTurn runs one user turn and returns the raw repl result; callers map it to
-// their view model.
-func (s *Session) RunTurn(ctx context.Context, userText string) (repl.TurnResult, error) {
+// RunTurn runs one user turn and returns the neutral turn result; callers map
+// it to their view model.
+func (s *Session) RunTurn(ctx context.Context, userText string) (turn.Result, error) {
 	return s.repl.RunTurn(ctx, userText)
 }
 
 // RunTurnWithImages runs one user turn whose message carries image attachments.
-func (s *Session) RunTurnWithImages(ctx context.Context, userText string, images []llm.ImageSource) (repl.TurnResult, error) {
+func (s *Session) RunTurnWithImages(ctx context.Context, userText string, images []llm.ImageSource) (turn.Result, error) {
 	return s.repl.RunTurnWithImages(ctx, userText, images)
 }
 
@@ -190,12 +192,16 @@ func (s *Session) SetThinkingEffort(effort string) error { return s.repl.SetThin
 // Model reports the model the session currently sends requests with.
 func (s *Session) Model() string { return s.repl.Model() }
 
-// Repl exposes the underlying session for frontends that need direct access
-// (e.g. History snapshots). The host owns its lifecycle.
-func (s *Session) Repl() *repl.Session { return s.repl }
+// History snapshots the session's in-memory conversation history, e.g. to
+// rebuild a resumed conversation's rendering.
+func (s *Session) History() []llm.Message { return s.repl.History() }
+
+// EstimateContextTokens estimates the current history's context occupancy, so
+// a UI can show a usage figure before the first turn reports an exact count.
+func (s *Session) EstimateContextTokens() int { return s.repl.EstimateContextTokens() }
 
 // ToolList returns the session's tools as name/description pairs, for UI listing.
-func (s *Session) ToolList() []repl.ToolDescriptor { return s.repl.ToolList() }
+func (s *Session) ToolList() []turn.ToolDescriptor { return s.repl.ToolList() }
 
 // Permissions exposes the permission service (e.g. for status display).
 func (s *Session) Permissions() *permissions.Service { return s.perms }

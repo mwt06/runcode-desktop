@@ -12,15 +12,15 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/internal/prompt"
+	"github.com/wt68/runcode/engine/internal/repl"
+	"github.com/wt68/runcode/engine/internal/subagent"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/mcp"
 	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/projectctx"
 	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/transcript"
-	"github.com/wt68/runcode/internal/prompt"
-	"github.com/wt68/runcode/internal/repl"
-	"github.com/wt68/runcode/internal/subagent"
 	// Provider packages are imported for their init() side effect: each registers
 	// its factory with llm.Build. BuildProvider then selects by name without a
 	// hardcoded switch over concrete provider types.
@@ -80,7 +80,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 			return nil, err
 		}
 	}
-	resources := Resources{Telemetry: recorder, Transcript: trecorder, Sessions: store, Backend: backend, SessionID: sessionID}
+	res := resources{Telemetry: recorder, Transcript: trecorder, Sessions: store, Backend: backend, SessionID: sessionID}
 
 	provider, err := BuildProvider(cfg)
 	if err != nil {
@@ -105,7 +105,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		Sampler: sampler,
 	})
 	reportMCPStartupErrors(warn, mcpErrs)
-	resources.MCP = mcpManager
+	res.MCP = mcpManager
 
 	projectContext, err := loadProjectContext(cfg.CWD)
 	if err != nil {
@@ -124,7 +124,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	hookRunner := newHookRunner(cfg.Hooks, warn)
 
 	shellManager := bash.NewManager()
-	resources.Shells = shellManager
+	res.Shells = shellManager
 	sessionTools := append(tools.BuiltinsWithShells(shellManager), mcpManager.Tools()...)
 	// Drop tools the user turned off (built-in work tools + MCP tools). Applied
 	// before the infra tools (Skill/Task/Remember/extras) are appended, so those
@@ -234,7 +234,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		closeRecorders(context.Background(), recorder, trecorder, store, backend, mcpManager, shellManager)
 		return nil, err
 	}
-	return &Session{repl: session, resources: resources, perms: permissionService, cfg: cfg, skillTool: skillTool, agentTool: agentTool}, nil
+	return &Session{repl: session, resources: res, perms: permissionService, cfg: cfg, skillTool: skillTool, agentTool: agentTool}, nil
 }
 
 // filterDisabledTools removes tools whose name is in the disabled set, so a

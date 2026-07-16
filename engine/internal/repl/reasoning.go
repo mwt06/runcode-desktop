@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/wt68/runcode/engine/turn"
 )
 
 const defaultReasoningMaxTokens = 128
@@ -16,7 +18,9 @@ const reasoningAnalysisMaxTokens = 4096
 
 var ErrInvalidReasoningClassification = errors.New("invalid reasoning classification")
 
-type ReasoningScenario string
+// ReasoningScenario aliases the public turn protocol type; the scenario
+// vocabulary and its prompt guidance stay engine-internal.
+type ReasoningScenario = turn.ReasoningScenario
 
 const (
 	ReasoningScenarioTroubleshooting ReasoningScenario = "troubleshooting"
@@ -38,10 +42,8 @@ type ReasoningOptions struct {
 	MaxTokens       int
 }
 
-type ReasoningClassification struct {
-	Scenario   ReasoningScenario
-	Confidence string
-}
+// ReasoningClassification aliases the public turn protocol type.
+type ReasoningClassification = turn.ReasoningClassification
 
 type reasoningClassificationPayload struct {
 	Scenario   string `json:"scenario"`

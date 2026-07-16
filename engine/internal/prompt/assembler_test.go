@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wt68/runcode/engine/internal/prompt/sections"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/tools"
-	"github.com/wt68/runcode/internal/prompt/sections"
 )
 
 func TestBuildSystemPromptReturnsTextBlocks(t *testing.T) {

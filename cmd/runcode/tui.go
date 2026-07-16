@@ -9,11 +9,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/engine"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/engine"
 	"github.com/wt68/runcode/internal/ui"
 )
 

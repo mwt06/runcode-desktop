@@ -11,9 +11,9 @@ import (
 
 	"github.com/wt68/runcode/engine/agent"
 	"github.com/wt68/runcode/engine/hooks"
+	"github.com/wt68/runcode/engine/internal/prompt"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/prompt"
 )
 
 func TestLauncherReturnsFinalText(t *testing.T) {

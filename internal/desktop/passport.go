@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/internal/engine"
+	"github.com/wt68/runcode/engine"
 )
 
 // Passport（通行证）登录：系统浏览器 + authorization_code + PKCE。

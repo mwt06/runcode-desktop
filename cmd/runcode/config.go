@@ -5,11 +5,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wt68/runcode/engine"
 	"github.com/wt68/runcode/engine/agent"
 	"github.com/wt68/runcode/engine/hooks"
 	"github.com/wt68/runcode/engine/mcp"
 	"github.com/wt68/runcode/engine/skill"
-	"github.com/wt68/runcode/internal/engine"
 )
 
 func configCmd() *cobra.Command {

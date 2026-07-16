@@ -13,7 +13,7 @@ import (
 	"github.com/wt68/runcode/engine/diff"
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/transcript"
-	"github.com/wt68/runcode/internal/repl"
+	"github.com/wt68/runcode/engine/turn"
 )
 
 // maxEditSnapshotBytes bounds a single pre/post snapshot. Larger files are skipped
@@ -97,10 +97,10 @@ func (s *editStore) BeginTurn() {
 	s.mu.Unlock()
 }
 
-// BeginEdit implements repl.EditRecorder. It reads the pre-edit content now (before
+// BeginEdit implements turn.EditRecorder. It reads the pre-edit content now (before
 // the tool overwrites) and returns a handle to finish on success. Returns nil to
 // skip (no dir, oversized, or unreadable).
-func (s *editStore) BeginEdit(relPath, toolUseID string) repl.EditHandle {
+func (s *editStore) BeginEdit(relPath, toolUseID string) turn.EditHandle {
 	s.mu.Lock()
 	dir, ws := s.dir, s.workspaceLocked()
 	s.mu.Unlock()

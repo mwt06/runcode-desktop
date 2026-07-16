@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/internal/engine"
+	"github.com/wt68/runcode/engine"
 )
 
 // projectRuncodeDir is the workspace-local runcode data directory. It aliases the

@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/internal/subagent"
 	"github.com/wt68/runcode/engine/memory"
 	"github.com/wt68/runcode/engine/skill"
-	"github.com/wt68/runcode/internal/subagent"
 )
 
 func TestSkillRootsOrderAndPaths(t *testing.T) {

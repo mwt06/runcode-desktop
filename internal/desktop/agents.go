@@ -7,15 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/internal/engine"
-	"github.com/wt68/runcode/internal/subagent"
+	"github.com/wt68/runcode/engine"
 )
 
 // isBuiltinAgentName reports whether name is one of the compiled-in agents, which
 // are read-only: they can be shadowed by a same-named user/project agent but
 // never edited or deleted in place.
 func isBuiltinAgentName(name string) bool {
-	for _, ag := range subagent.BuiltinAgents() {
+	for _, ag := range engine.BuiltinAgents() {
 		if ag.Name == name {
 			return true
 		}

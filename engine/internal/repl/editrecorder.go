@@ -7,24 +7,15 @@ import (
 
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/toolpath"
+	"github.com/wt68/runcode/engine/turn"
 )
 
-// EditRecorder captures the pre/post content of a Write/Edit mutation so a host
-// (the desktop) can offer undo/review. The core does no file IO itself: the
-// executor only brackets the tool call and hands the recorder the mutation's
-// workspace-relative path and tool-use id. CLI leaves it nil (no capture).
-type EditRecorder interface {
-	// BeginEdit is called just before a Write/Edit runs. It returns a handle whose
-	// Commit is called iff the tool succeeds, or nil to skip recording this edit.
-	BeginEdit(relPath, toolUseID string) EditHandle
-}
+// EditRecorder / EditHandle alias the public turn protocol ports (see
+// turn.EditRecorder for the capture contract).
+type EditRecorder = turn.EditRecorder
 
-// EditHandle finishes one capture. Commit reads the post-edit state and returns the
-// opaque payload to attach to the tool event's Data (nil to attach nothing). The
-// core treats the payload as opaque; the desktop defines its shape (EditRecord).
-type EditHandle interface {
-	Commit() (data any, err error)
-}
+// EditHandle aliases the public turn protocol type.
+type EditHandle = turn.EditHandle
 
 // isEditTool reports whether name is a file-mutating tool this layer snapshots.
 func isEditTool(name string) bool { return name == "Write" || name == "Edit" }

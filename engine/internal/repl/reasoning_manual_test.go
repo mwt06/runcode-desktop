@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/internal/prompt"
+	"github.com/wt68/runcode/engine/internal/prompt"
 )
 
 // Manual reasoning (Enabled without AutoClassify) applies the chosen scenario's

@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 
 	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/internal/subagent"
 	"github.com/wt68/runcode/engine/memory"
 	"github.com/wt68/runcode/engine/settings"
 	"github.com/wt68/runcode/engine/skill"
 	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/internal/subagent"
 )
 
 const (
@@ -102,6 +102,13 @@ func agentRoots(cwd, userConfigDir string) []agent.Root {
 		})
 	}
 	return roots
+}
+
+// BuiltinAgents returns the engine's built-in sub-agent definitions, so a host
+// can list them (e.g. the desktop's agents page) without reaching into the
+// engine's internals.
+func BuiltinAgents() []agent.Agent {
+	return subagent.BuiltinAgents()
 }
 
 // LoadAgents discovers sub-agents from the convention directories and merges them

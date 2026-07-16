@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/internal/prompt"
+	"github.com/wt68/runcode/engine/internal/prompt"
 )
 
 func TestGenerateTitleSummarizesRequest(t *testing.T) {

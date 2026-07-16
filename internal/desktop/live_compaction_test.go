@@ -158,7 +158,7 @@ func TestLiveDesktopAutoCompaction(t *testing.T) {
 
 	// Auto-compaction: the working history should now begin with / contain a summary
 	// message condensing the earliest turns.
-	history := app.session.Repl().History()
+	history := app.session.History()
 	if !hasSummaryMessage(history) {
 		t.Fatalf("expected a compaction summary in history after %d turns, found none (len=%d)", turns, len(history))
 	}

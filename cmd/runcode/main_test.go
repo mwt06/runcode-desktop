@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/internal/engine"
+	"github.com/wt68/runcode/engine"
 )
 
 func TestVersionCommandOutput(t *testing.T) {

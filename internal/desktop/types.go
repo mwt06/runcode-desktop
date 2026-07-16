@@ -11,7 +11,7 @@ package desktop
 import (
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/internal/repl"
+	"github.com/wt68/runcode/engine/turn"
 )
 
 // Event names emitted to the frontend. They are stable strings the UI subscribes
@@ -210,7 +210,7 @@ type PermissionRequest struct {
 
 // turnEndFromResult maps a repl turn result to the flat TurnEnd payload. durMs is
 // the turn's measured wall-clock time.
-func turnEndFromResult(r repl.TurnResult, durMs int) TurnEnd {
+func turnEndFromResult(r turn.Result, durMs int) TurnEnd {
 	in, out := 0, 0
 	for _, u := range r.Usages {
 		if u != nil {

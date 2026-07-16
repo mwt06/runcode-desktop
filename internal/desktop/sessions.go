@@ -189,8 +189,8 @@ func (a *App) ResumeSession(id string) (ResumedSession, error) {
 	}
 	return ResumedSession{
 		Info:          info,
-		Blocks:        toResumedBlocks(a.session.Repl().History()),
-		ContextTokens: a.session.Repl().EstimateContextTokens(),
+		Blocks:        toResumedBlocks(a.session.History()),
+		ContextTokens: a.session.EstimateContextTokens(),
 	}, nil
 }
 

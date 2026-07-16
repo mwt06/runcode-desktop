@@ -17,15 +17,16 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/wt68/runcode/engine/hooks"
+	"github.com/wt68/runcode/engine/internal/compaction"
+	"github.com/wt68/runcode/engine/internal/prompt"
+	"github.com/wt68/runcode/engine/internal/prompt/sections"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/telemetry"
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/transcript"
-	"github.com/wt68/runcode/internal/compaction"
-	"github.com/wt68/runcode/internal/prompt"
-	"github.com/wt68/runcode/internal/prompt/sections"
+	"github.com/wt68/runcode/engine/turn"
 )
 
 const DefaultMaxIterations = 8
@@ -185,27 +186,9 @@ type Session struct {
 	sessionStartContext string
 }
 
-type TurnResult struct {
-	FirstRequest            llm.Request
-	FinalAssistant          llm.Message
-	LastToolMessage         *llm.Message
-	ToolResults             []llm.ContentBlock
-	FinalStopReason         llm.StopReason
-	FinalUsage              *llm.Usage
-	Requests                []llm.Request
-	AssistantMessages       []llm.Message
-	ToolMessages            []llm.Message
-	Usages                  []*llm.Usage
-	Iterations              int
-	ReasoningClassification *ReasoningClassification
-	ClassificationRequest   *llm.Request
-	ClassificationUsage     *llm.Usage
-	// Stopped is true when the turn ended because the user denied a tool and asked
-	// to stop, rather than the model finishing on its own. The conversation is
-	// left well-formed (every tool_use is answered) so the next user message
-	// continues normally.
-	Stopped bool
-}
+// TurnResult is the package-local name for the public turn.Result protocol
+// type; the alias keeps the ReAct internals decoupled from the public path.
+type TurnResult = turn.Result
 
 func NewSession(opts SessionOptions) (*Session, error) {
 	if opts.Provider == nil {
@@ -559,13 +542,8 @@ func (s *Session) FireSessionEnd(ctx context.Context, reason string) {
 	})
 }
 
-// ToolDescriptor is a tool's name and description, for UI listing (e.g. an
-// @-mention picker).
-type ToolDescriptor struct {
-	Name            string
-	Description     string
-	ConcurrencySafe bool
-}
+// ToolDescriptor aliases the public turn.ToolDescriptor protocol type.
+type ToolDescriptor = turn.ToolDescriptor
 
 // ToolList returns the session's tools as name/description pairs, in their
 // curated order.
