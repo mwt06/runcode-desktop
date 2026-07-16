@@ -13,6 +13,7 @@ import (
 	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/pkg/protocol"
 	"github.com/wt68/runcode/tools/preview"
 )
 
@@ -45,8 +46,11 @@ type Dialoger interface {
 }
 
 type App struct {
-	sink   EventSink
-	dialog Dialoger
+	sink EventSink
+	// envSink is the same sink as a concrete envelope wrapper, kept so session
+	// rebinds can reset the envelope's session id and sequence counter.
+	envSink *envelopeSink
+	dialog  Dialoger
 
 	mu         sync.Mutex
 	session    *engine.Session
@@ -79,15 +83,18 @@ type App struct {
 	passportTenant string
 }
 
-// New returns an App that emits events to sink.
+// New returns an App that emits events to sink. Every event is wrapped in a
+// protocol.Envelope (session id, per-session seq, timestamp) before it reaches
+// the shell's sink.
 func New(sink EventSink) *App {
-	a := &App{sink: sink, edits: newEditStore()}
+	env := newEnvelopeSink(sink)
+	a := &App{sink: env, envSink: env, edits: newEditStore()}
 	pc := passportConfig()
 	a.tokens = newTokenManager(pc.tokenURL(), pc.ClientID, passportHTTP(), func() {
 		a.mu.Lock()
 		a.passportUser = nil
 		a.mu.Unlock()
-		sink.Emit(EventPassportChanged, PassportStatus{})
+		a.sink.Emit(EventPassportChanged, PassportStatus{})
 	})
 	a.tokens.loadPersisted()
 	// Publish the saved web-tool proxy before any session builds its tools, so the
@@ -175,6 +182,7 @@ func (a *App) buildAndSetLocked(cfg engine.Config) (SessionInfo, error) {
 	a.toolEvents = toolEvents
 	a.pumpCancel = pumpCancel
 	a.config = cfg
+	a.envSink.SetSession(session.SessionID())
 	a.edits.BeginSession(cfg.CWD, session.SessionID())
 
 	// Restart the workspace preview server for this session (non-fatal on error).
@@ -578,6 +586,17 @@ func (a *App) closeLocked(ctx context.Context) {
 	}
 	a.toolEvents = nil
 	a.inFlight = false
+	// Detach the envelope from the closed session; process-level events (e.g.
+	// passport:changed) keep flowing with an empty sessionId.
+	a.envSink.SetSession("")
+}
+
+// GetProtocolInfo reports the wire-protocol version this host implements, so a
+// frontend built against a different protocol can detect the mismatch instead
+// of failing on a missing field. Same-package builds (Wails) never skew; the
+// command exists so one frontend protocol layer works across transports.
+func (a *App) GetProtocolInfo() protocol.Info {
+	return protocol.Info{ProtocolVersion: protocol.Version}
 }
 
 func (a *App) pumpToolEvents(ctx context.Context, ch <-chan tool.Event) {
@@ -589,7 +608,7 @@ func (a *App) pumpToolEvents(ctx context.Context, ch <-chan tool.Event) {
 			if !ok {
 				return
 			}
-			a.sink.Emit(EventToolEvent, ev)
+			a.sink.Emit(EventToolEvent, toolEventDTO(ev))
 		}
 	}
 }

@@ -8,9 +8,10 @@ import "github.com/wt68/runcode/pkg/protocol"
 // the rest of this package, its tests, and the Wails bindings stay unchanged.
 // See the protocol package for each identifier's documentation.
 //
-// Not aliased (they embed engine types, which protocol must not import):
-// PermissionRequest (permissions.ApprovalSummary) and EditDiff
-// (tool.OutputLine); the tool:event payload is engine tool.Event itself.
+// The three payloads that embed engine types cross the wire as protocol DTOs
+// via the explicit conversions in protocol_convert.go: PermissionRequest
+// (ApprovalSummary), EditDiff (OutputLine), and the tool:event payload
+// (ToolEvent).
 
 // Event names emitted to the frontend.
 const (
@@ -74,8 +75,12 @@ type (
 	// Custom direct-connection models (was custommodels.go).
 	CustomModel = protocol.CustomModel
 
+	// Interactive approval (was types.go); the summary crosses as a wire DTO.
+	PermissionRequest = protocol.PermissionRequest
+
 	// Edit undo/review (was editstore.go).
 	EditRecord = protocol.EditRecord
+	EditDiff   = protocol.EditDiff
 
 	// Project context & memory (was context.go).
 	ProjectContextInfo = protocol.ProjectContextInfo

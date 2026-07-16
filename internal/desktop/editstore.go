@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/wt68/runcode/engine/diff"
-	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/engine/turn"
 )
@@ -24,14 +23,6 @@ const maxEditSnapshotBytes = 4 << 20
 // step's DefaultOptions so a real edit (hundreds of lines) renders in full; past
 // MaxInput it falls back to the "large file diff omitted" info line.
 var reviewDiffOptions = diff.Options{Context: 3, MaxLines: 4000, MaxInput: 20000}
-
-// EditDiff is the red/green review of one edit: the turn baseline vs the turn's
-// latest content for that file.
-type EditDiff struct {
-	RelPath string            `json:"relPath"`
-	Created bool              `json:"created"`
-	Lines   []tool.OutputLine `json:"lines"`
-}
 
 // baselineMeta is the per-snapshot metadata (one baseline = one turn's first edit
 // of a file), recovered from the index on reopen.
@@ -212,7 +203,7 @@ func (s *editStore) Diff(snapshotID string) (EditDiff, error) {
 	if err != nil {
 		return EditDiff{}, err
 	}
-	return EditDiff{RelPath: m.relPath, Created: m.created, Lines: diff.Unified(string(base), string(after), reviewDiffOptions)}, nil
+	return EditDiff{RelPath: m.relPath, Created: m.created, Lines: outputLinesDTO(diff.Unified(string(base), string(after), reviewDiffOptions))}, nil
 }
 
 // List returns every recorded edit (with the current reverted flag), for resume.

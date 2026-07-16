@@ -39,26 +39,26 @@ export interface StartSessionRequest {
 }
 
 export interface ApprovalSummary {
-  ToolName: string
-  Operation: string
-  Risk: string
-  ResourceTypes: string[] | null
-  ResourceScope: string
-  ResourceCount: number
-  MutationKind: string
-  CommandCategory: string
-  CommandSummary: string
-  NetworkHost: string
-  MCPServer: string
-  MCPTool: string
-  PolicyRule: string
+  toolName?: string
+  operation?: string
+  risk?: string
+  resourceTypes?: string[] | null
+  resourceScope?: string
+  resourceCount?: number
+  mutationKind?: string
+  commandCategory?: string
+  commandSummary?: string
+  networkHost?: string
+  mcpServer?: string
+  mcpTool?: string
+  policyRule?: string
 }
 
 export interface PermissionRequest {
   id: string
   summary: ApprovalSummary
-  targets: string[] | null
-  command: string
+  targets?: string[] | null
+  command?: string
   // Set when the model harm gate flagged this action as potentially harmful.
   harmReason?: string
   // Set when this is an MCP sampling approval (a server asking to use the model);
@@ -424,8 +424,26 @@ export const listCustomModels = () => app().ListCustomModels() as Promise<Custom
 export const saveCustomModel = (m: CustomModel) => app().SaveCustomModel(m) as Promise<CustomModel[] | null>
 export const deleteCustomModel = (name: string) => app().DeleteCustomModel(name) as Promise<CustomModel[] | null>
 
+// Envelope wraps every event on the wire: the event name, the owning session,
+// a per-session monotonic sequence number (gap detection on reconnecting
+// transports), and the emission timestamp.
+export interface Envelope<T> {
+  event: string
+  sessionId?: string
+  seq: number
+  ts: string
+  payload: T
+}
+
+// onEvent subscribes to an event and delivers its unwrapped payload — what
+// nearly every consumer wants. Use onEnvelope for the seq/session metadata.
 export function onEvent<T>(name: string, cb: (data: T) => void): () => void {
-  return window.runtime.EventsOn(name, (data) => cb(data as T))
+  return window.runtime.EventsOn(name, (env) => cb((env as Envelope<T>).payload))
+}
+
+// onEnvelope subscribes to an event with its full envelope.
+export function onEnvelope<T>(name: string, cb: (env: Envelope<T>) => void): () => void {
+  return window.runtime.EventsOn(name, (env) => cb(env as Envelope<T>))
 }
 
 export const Events = {

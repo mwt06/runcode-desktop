@@ -10,7 +10,6 @@ package desktop
 
 import (
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/turn"
 )
 
@@ -19,24 +18,6 @@ import (
 // recording fake.
 type EventSink interface {
 	Emit(event string, data any)
-}
-
-// PermissionRequest is sent when a tool needs interactive authorization. The
-// frontend renders it and calls ResolvePermission with the request ID and a
-// decision string ("allow-once" / "allow-session" / "allow-project" / "deny").
-type PermissionRequest struct {
-	ID      string                      `json:"id"`
-	Summary permissions.ApprovalSummary `json:"summary"`
-	Targets []string                    `json:"targets"`
-	// Command is the raw command for a Bash action, shown so the user sees exactly
-	// what will run. In-process UI only (never recorded to telemetry).
-	Command string `json:"command"`
-	// HarmReason is the model harm judge's explanation, set when this action was
-	// escalated to approval because it was flagged as potentially harmful.
-	HarmReason string `json:"harmReason"`
-	// SamplingServer, when set, marks this as an MCP sampling approval (a server
-	// asking to use the model) and names the server, so the UI can explain it.
-	SamplingServer string `json:"samplingServer"`
 }
 
 // turnEndFromResult maps a repl turn result to the flat TurnEnd payload. durMs is

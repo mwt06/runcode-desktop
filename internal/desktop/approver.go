@@ -52,7 +52,7 @@ func (a *Approver) Prompt(ctx context.Context, req permissions.ApprovalRequest) 
 
 	a.sink.Emit(EventPermissionRequest, PermissionRequest{
 		ID:             id,
-		Summary:        req.Summary,
+		Summary:        approvalSummaryDTO(req.Summary),
 		Targets:        a.relativeTargets(req.Targets),
 		Command:        req.Command,
 		HarmReason:     req.HarmReason,

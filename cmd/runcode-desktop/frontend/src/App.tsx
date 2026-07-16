@@ -2763,10 +2763,10 @@ function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { req: Pe
             )}
             <table className="w-full border-collapse text-[13px]">
               <tbody>
-                <tr><td className={`${td} text-muted w-16`}>工具</td><td className={td}>{s.ToolName}</td></tr>
-                <tr><td className={`${td} text-muted`}>操作</td><td className={td}>{s.Operation} · 风险 {s.Risk}{s.CommandCategory ? ` · ${s.CommandCategory}` : ''}</td></tr>
-                {s.NetworkHost && <tr><td className={`${td} text-muted`}>主机</td><td className={td}>{s.NetworkHost}</td></tr>}
-                {s.MCPServer && <tr><td className={`${td} text-muted`}>MCP</td><td className={td}>{s.MCPServer}/{s.MCPTool}</td></tr>}
+                <tr><td className={`${td} text-muted w-16`}>工具</td><td className={td}>{s.toolName}</td></tr>
+                <tr><td className={`${td} text-muted`}>操作</td><td className={td}>{s.operation} · 风险 {s.risk}{s.commandCategory ? ` · ${s.commandCategory}` : ''}</td></tr>
+                {s.networkHost && <tr><td className={`${td} text-muted`}>主机</td><td className={td}>{s.networkHost}</td></tr>}
+                {s.mcpServer && <tr><td className={`${td} text-muted`}>MCP</td><td className={td}>{s.mcpServer}/{s.mcpTool}</td></tr>}
                 {req.targets && req.targets.length > 0 && (
                   <tr><td className={`${td} text-muted`}>目标</td><td className={td}>{req.targets.map((t) => <code key={t} className="bg-inset px-1.5 py-0.5 rounded mr-1.5 mb-1.5 inline-block">{t}</code>)}</td></tr>
                 )}

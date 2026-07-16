@@ -11,3 +11,11 @@ type EditRecord struct {
 	Created    bool   `json:"created"`
 	Reverted   bool   `json:"reverted,omitempty"`
 }
+
+// EditDiff is the red/green review of one edit: the turn baseline vs the
+// turn's latest content for that file, as renderable diff lines.
+type EditDiff struct {
+	RelPath string       `json:"relPath"`
+	Created bool         `json:"created"`
+	Lines   []OutputLine `json:"lines"`
+}
