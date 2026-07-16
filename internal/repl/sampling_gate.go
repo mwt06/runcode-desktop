@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 // SamplingGate gates MCP sampling requests (a server asking to use the model)

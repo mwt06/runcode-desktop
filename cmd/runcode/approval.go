@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 const maxApprovalAttempts = 3

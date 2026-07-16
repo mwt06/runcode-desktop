@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wt68/runcode/engine/cost"
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/internal/cost"
+	"github.com/wt68/runcode/engine/mcp"
+	"github.com/wt68/runcode/engine/sessions"
+	"github.com/wt68/runcode/engine/settings"
 	"github.com/wt68/runcode/internal/engine"
-	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/internal/persistence/sessions"
-	"github.com/wt68/runcode/internal/persistence/settings"
 )
 
 // buildConfig resolves a StartSessionRequest into an engine.Config. Fields the

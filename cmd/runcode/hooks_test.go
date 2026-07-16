@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/wt68/runcode/internal/hooks"
-	"github.com/wt68/runcode/internal/persistence/settings"
+	"github.com/wt68/runcode/engine/hooks"
+	"github.com/wt68/runcode/engine/settings"
 )
 
 func TestHooksFromConfig(t *testing.T) {

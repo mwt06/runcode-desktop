@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 func sizedApprovalModel(t *testing.T) Model {

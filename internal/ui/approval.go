@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 const approvalOptionCount = 4

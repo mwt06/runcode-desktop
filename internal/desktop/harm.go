@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 // emitHarmAutoAllow forwards a harm-gate audit event to the frontend, so the user

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"github.com/wt68/runcode/internal/secenv"
+	"github.com/wt68/runcode/engine/internal/secenv"
 )
 
 // shellKind reports which shell the Bash tool runs commands in.

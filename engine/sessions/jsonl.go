@@ -16,7 +16,7 @@ import (
 
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/toolpath"
-	"github.com/wt68/runcode/internal/persistence/transcript"
+	"github.com/wt68/runcode/engine/transcript"
 )
 
 const sessionsDirName = "sessions"

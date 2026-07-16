@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wt68/runcode/engine/mcp"
+	"github.com/wt68/runcode/engine/settings"
 	"github.com/wt68/runcode/internal/engine"
-	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/internal/persistence/settings"
 )
 
 // MCPServerInfo is one configured MCP server plus its live connection state, for

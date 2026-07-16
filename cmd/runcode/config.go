@@ -6,10 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/engine/agent"
+	"github.com/wt68/runcode/engine/hooks"
+	"github.com/wt68/runcode/engine/mcp"
 	"github.com/wt68/runcode/engine/skill"
 	"github.com/wt68/runcode/internal/engine"
-	"github.com/wt68/runcode/internal/hooks"
-	"github.com/wt68/runcode/internal/mcp"
 )
 
 func configCmd() *cobra.Command {

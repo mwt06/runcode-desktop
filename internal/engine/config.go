@@ -11,9 +11,9 @@
 package engine
 
 import (
+	"github.com/wt68/runcode/engine/hooks"
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/internal/hooks"
-	"github.com/wt68/runcode/internal/mcp"
+	"github.com/wt68/runcode/engine/mcp"
 )
 
 // Config is the fully resolved configuration for a session. Frontends resolve it

@@ -1,6 +1,6 @@
 package telemetry
 
-import "github.com/wt68/runcode/internal/id"
+import "github.com/wt68/runcode/engine/internal/id"
 
 func NewTraceID() string {
 	return newID("trace")

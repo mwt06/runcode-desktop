@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/internal/persistence/sessions"
-	"github.com/wt68/runcode/internal/persistence/settings"
+	"github.com/wt68/runcode/engine/sessions"
+	"github.com/wt68/runcode/engine/settings"
 )
 
 // Rune caps for `sessions show`, so a single huge message (or tool dump) cannot

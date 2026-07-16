@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/wt68/runcode/engine/projectctx"
 	"github.com/wt68/runcode/internal/engine"
-	"github.com/wt68/runcode/internal/projectctx"
 )
 
 // maxDocBytes bounds how much of a project-instructions file we read into the

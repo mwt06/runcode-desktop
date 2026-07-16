@@ -3,7 +3,7 @@ package desktop
 import (
 	"testing"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 // A harm-gate audit event must reach the frontend as an EventHarmAutoAllow with a

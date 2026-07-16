@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/internal/engine"
-	"github.com/wt68/runcode/internal/persistence/sessions"
 )
 
 func TestResumeContinueAndPersistParsing(t *testing.T) {

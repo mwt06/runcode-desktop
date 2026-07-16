@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/internal/persistence/sessions"
+	"github.com/wt68/runcode/engine/sessions"
 )
 
 func seedSession(t *testing.T, workspace, id string, history []llm.Message) {

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/permissions"
 )
 
 type Role string

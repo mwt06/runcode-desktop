@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/internal/persistence/settings"
+	"github.com/wt68/runcode/engine/mcp"
+	"github.com/wt68/runcode/engine/settings"
 )
 
 // MCPServersFromConfig converts the user-level MCP config into connectable server

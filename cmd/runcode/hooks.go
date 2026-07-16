@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/internal/hooks"
-	"github.com/wt68/runcode/internal/persistence/settings"
+	"github.com/wt68/runcode/engine/hooks"
+	"github.com/wt68/runcode/engine/settings"
 )
 
 // (newHookRunner moved to internal/engine, which assembles the session.)

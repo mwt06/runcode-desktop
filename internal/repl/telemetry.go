@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/internal/telemetry"
+	"github.com/wt68/runcode/engine/telemetry"
 )
 
 type turnObserver struct {

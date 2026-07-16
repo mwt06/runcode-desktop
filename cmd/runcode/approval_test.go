@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 func TestApprovalPrompterAllowsYes(t *testing.T) {

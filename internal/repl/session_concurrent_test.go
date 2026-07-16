@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/permissions"
 )
 
 func TestSessionRunTurnExecutesConcurrencySafeToolsInParallel(t *testing.T) {

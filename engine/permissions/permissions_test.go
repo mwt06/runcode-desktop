@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wt68/runcode/engine/telemetry"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/telemetry"
 )
 
 func TestDefaultServiceAllowsWorkspaceRead(t *testing.T) {

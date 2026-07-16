@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 // Approver bridges blocking permission prompts — invoked on the turn goroutine,

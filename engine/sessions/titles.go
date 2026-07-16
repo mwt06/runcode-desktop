@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/internal/persistence/transcript"
+	"github.com/wt68/runcode/engine/transcript"
 )
 
 // titleFileExt is the suffix of a session's sidecar title file, stored alongside

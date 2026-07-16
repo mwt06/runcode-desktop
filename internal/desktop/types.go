@@ -10,7 +10,7 @@ package desktop
 
 import (
 	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 	"github.com/wt68/runcode/internal/repl"
 )
 

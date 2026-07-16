@@ -12,7 +12,7 @@ import (
 
 	"github.com/wt68/runcode/engine/diff"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/persistence/transcript"
+	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/internal/repl"
 )
 

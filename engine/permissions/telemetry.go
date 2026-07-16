@@ -3,7 +3,7 @@ package permissions
 import (
 	"context"
 
-	"github.com/wt68/runcode/internal/telemetry"
+	"github.com/wt68/runcode/engine/telemetry"
 )
 
 func RecordDecision(ctx context.Context, recorder telemetry.Recorder, req TelemetryRequest) {

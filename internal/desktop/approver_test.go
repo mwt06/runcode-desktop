@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 // recordingSink captures emitted events for assertions.

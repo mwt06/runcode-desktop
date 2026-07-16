@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/internal/persistence/transcript"
+	"github.com/wt68/runcode/engine/transcript"
 )
 
 func runTranscriptCmd(t *testing.T, args ...string) string {

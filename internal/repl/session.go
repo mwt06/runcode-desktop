@@ -16,16 +16,16 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/wt68/runcode/engine/hooks"
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/permissions"
+	"github.com/wt68/runcode/engine/sessions"
+	"github.com/wt68/runcode/engine/telemetry"
 	"github.com/wt68/runcode/engine/tool"
+	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/internal/compaction"
-	"github.com/wt68/runcode/internal/hooks"
-	"github.com/wt68/runcode/internal/permissions"
-	"github.com/wt68/runcode/internal/persistence/sessions"
-	"github.com/wt68/runcode/internal/persistence/transcript"
 	"github.com/wt68/runcode/internal/prompt"
 	"github.com/wt68/runcode/internal/prompt/sections"
-	"github.com/wt68/runcode/internal/telemetry"
 )
 
 const DefaultMaxIterations = 8

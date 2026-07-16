@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/internal/permissions"
+	"github.com/wt68/runcode/engine/permissions"
 )
 
 // describeAction must feed the harm judge the deterministic classifier facts as

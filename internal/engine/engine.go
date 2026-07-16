@@ -7,16 +7,16 @@ import (
 
 	"github.com/wt68/runcode/engine/agent"
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/mcp"
+	"github.com/wt68/runcode/engine/permissions"
+	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/skill"
+	"github.com/wt68/runcode/engine/telemetry"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/internal/mcp"
-	"github.com/wt68/runcode/internal/permissions"
-	"github.com/wt68/runcode/internal/persistence/sessions"
-	"github.com/wt68/runcode/internal/persistence/transcript"
+	"github.com/wt68/runcode/engine/tools/bash"
+	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/internal/repl"
 	"github.com/wt68/runcode/internal/subagent"
-	"github.com/wt68/runcode/internal/telemetry"
-	"github.com/wt68/runcode/tools/bash"
 )
 
 // Options carry the per-frontend wiring that cannot live in Config because it is
