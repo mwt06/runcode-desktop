@@ -223,7 +223,7 @@ cfg.MCPServers = []mcp.ServerConfig{
 
 **3. 裁掉内置工具**——`cfg.DisabledTools = []string{"WebSearch", "Delete"}`（按 Name 过滤，子代理继承同一过滤集）。
 
-服务端沙盒执行（工具不在引擎进程里跑，转发到工具网关）是已登记的 `Options.ToolRuntime` 端口，本轮未实现——现阶段服务端加工具用上面三条 + `Config.ToolEnv`/`WebProxy` 做进程内隔离。
+服务端沙盒执行（工具不在引擎进程里跑，转发到工具网关）走 `Options.ToolRuntime` 端口（已实现，网关 runtime 由服务端提供）——未注入时服务端加工具用上面三条 + `Config.ToolEnv`/`WebProxy` 做进程内隔离。
 
 ### 同一工具，两端不同实现？
 
@@ -233,7 +233,7 @@ cfg.MCPServers = []mcp.ServerConfig{
 |---|---|---|
 | 实现相同、**环境不同**（代理/env/凭证） | 构造期注入：`Config.WebProxy`/`ToolEnv`、`tools.Config{WebClient, ShellEnv}`——一份代码，每会话注入不同值 | 已落地 |
 | **单个工具**换实现 | ① `DisabledTools` 裁内置 + `ExtraTools` 注同名替代（先裁后加，无重名冲突；**注意**：ExtraTools 在子代理快照之后，子代理只会失去该工具、拿不到替代品）；② 做成 MCP server 按环境配置 `MCPServers`——子代理也能用，且"每端不同"退化为配置差异 | 已落地 |
-| **整套工具执行位置**不同（本地直调 vs 沙盒/网关） | `Options.ToolRuntime` 端口：`tool.Tool` 是执行位置无关契约（权限/harm/read-set/事件关卡在 executor 围绕 Run 实施，不随位置变），网关客户端把远程工具包装成 tool.Tool——MCP 管理器即同形先例 | 已登记未实现 |
+| **整套工具执行位置**不同（本地直调 vs 沙盒/网关） | `Options.ToolRuntime` 端口：`tool.Tool` 是执行位置无关契约（权限/harm/read-set/事件关卡在 executor 围绕 Run 实施，不随位置变），网关客户端把远程工具包装成 tool.Tool——MCP 管理器即同形先例 | 端口已实现（网关 runtime 由服务端提供） |
 
 服务端最终选哪条取决于拓扑（[docs/engine-api.md](../docs/engine-api.md) §5）：**沙盒即会话**（每会话引擎跑在自己的沙盒里）则工具保持本地直调，前两行就够；**中心引擎 + 工具网关**才需要实现 ToolRuntime，并连带抽象 projectctx/skills 等工作区触点（清单见 engine-api.md §4）。没定拓扑前，用注入 + MCP 覆盖需求，不要提前实现网关。
 

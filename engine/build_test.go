@@ -33,10 +33,13 @@ func (buildTestProvider) Stream(context.Context, llm.Request) (llm.Stream, error
 }
 
 // fakeBackend records usage so a test can assert an injected backend is
-// consulted by Build but never closed by the session.
+// consulted by Build but never closed by the session. It retains every Store
+// it opened so tests can also assert per-session stores were closed (e.g. on
+// a failed Build's cleanup path).
 type fakeBackend struct {
 	mu           sync.Mutex
 	openedStores []string
+	stores       []*fakeStore
 	closed       bool
 }
 
@@ -49,7 +52,9 @@ func (b *fakeBackend) OpenStore(_ context.Context, id string) (sessions.Store, e
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.openedStores = append(b.openedStores, id)
-	return &fakeStore{backend: b}, nil
+	st := &fakeStore{backend: b}
+	b.stores = append(b.stores, st)
+	return st, nil
 }
 
 func (b *fakeBackend) LoadHistory(context.Context, string) ([]llm.Message, error) { return nil, nil }
@@ -75,6 +80,22 @@ func (b *fakeBackend) wasClosed() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.closed
+}
+
+// allStoresClosed reports whether every Store the backend handed out has been
+// closed (false when none were opened at all, so a test cannot vacuously pass).
+func (b *fakeBackend) allStoresClosed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.stores) == 0 {
+		return false
+	}
+	for _, st := range b.stores {
+		if !st.closed {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *fakeStore) Append(context.Context, []llm.Message) error { return nil }

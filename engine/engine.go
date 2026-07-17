@@ -72,6 +72,16 @@ type Options struct {
 	// the per-session limit. nil = per-session limit only. The same budget
 	// instance is shared by every session it should govern.
 	ShellBudget *bash.Budget
+	// ToolRuntime, when set, assembles the session's built-in toolset in place of
+	// the in-process local runtime (nil = local, the historical behavior). A
+	// server host injects a gateway runtime whose toolsets mix local tools with
+	// sandbox-forwarded ones — tool.Tool is the execution-location-independent
+	// contract, so the permission gate, harm judge, read-set and event stream
+	// around Run apply unchanged. Ownership is two-level, mirroring Backend: the
+	// runtime is caller-owned and never closed by the engine (one runtime may
+	// serve many sessions); each Toolset it provisions is session-owned and is
+	// closed by Session.Close.
+	ToolRuntime ToolRuntime
 }
 
 // SubagentLimiter is a cross-session concurrency budget for sub-agents,
@@ -108,8 +118,11 @@ type resources struct {
 	// session Store is closed either way; it is per-session.
 	ownsBackend bool
 	MCP         *mcp.Manager
-	Shells      *bash.Manager
-	SessionID   string
+	// Toolset is the session's provisioned built-in toolset (ToolRuntime port).
+	// It is session-owned and closed on Session.Close no matter which runtime —
+	// local or injected — provisioned it; the runtime itself is never closed.
+	Toolset   Toolset
+	SessionID string
 }
 
 // Session is the transport-agnostic host wrapping a repl.Session and its owned
@@ -274,7 +287,7 @@ func (s *Session) Close(ctx context.Context) error {
 		s.resources.Sessions,
 		backend,
 		s.resources.MCP,
-		s.resources.Shells,
+		s.resources.Toolset,
 	)
 }
 

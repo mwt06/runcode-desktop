@@ -18,7 +18,7 @@
 | `Config.TokenSource`/`OnUnauthorized` | 外壳令牌管理器 | 多用户令牌服务（须 goroutine-safe、刷新单飞） |
 | `Options.Permissions`/`Approver` | safe 模式 | 外壳的异步审批桥 |
 | `Options.EditRecorder`（turn.EditRecorder） | nil（不捕获） | 宿主编辑捕获 |
-| `Options.ToolRuntime`（**登记中，未实现**） | 进程内内置工具 | 工具网关沙盒客户端 |
+| `Options.ToolRuntime`（**已实现**：Provision/Toolset 两级所有权——runtime 进程级、调用方持有；Toolset 会话级、随 Session.Close 关闭） | 进程内内置工具（nil = localRuntime） | 工具网关沙盒客户端 |
 
 多会话宿主层 `engine/host`（根模块）在这些端口之上提供会话表/信封/配额/审批路由/后端池；词汇稳定并被第二个宿主检验后可升格为 engine 公开包。
 

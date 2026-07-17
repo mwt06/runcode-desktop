@@ -30,23 +30,10 @@ import (
 	"github.com/wt68/runcode/engine/memory"
 	"github.com/wt68/runcode/engine/skill"
 	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools"
-	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/engine/webclient"
 )
 
 // safeMode is the non-interactive permission mode name.
 const safeMode = "safe"
-
-// webProxyClientTimeout and webProxyClientMaxRedirects parameterize the shared
-// HTTP client built when Config.WebProxy is set. They mirror the web tools' own
-// defaults: both use 5 redirects; the timeout is webfetch's 30s, the larger of
-// the two (websearch's is 20s), so the shared client never cuts a tool off
-// earlier than its historical limit.
-const (
-	webProxyClientTimeout      = 30 * time.Second
-	webProxyClientMaxRedirects = 5
-)
 
 // Build assembles a runnable session from cfg and opts. On success the returned
 // Session owns every subsystem in Resources and must be closed by the caller. On
@@ -145,20 +132,27 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	}
 	hookRunner := newHookRunner(cfg.Hooks, warn)
 
-	// Background shells count against the host's cross-session budget when one is
-	// injected (nil = per-session limit only, the historical behavior).
-	shellManager := bash.NewManagerWithBudget(opts.ShellBudget)
-	res.Shells = shellManager
-	toolCfg := tools.Config{ShellEnv: cfg.ToolEnv}
-	if strings.TrimSpace(cfg.WebProxy) != "" {
-		// One proxied client is shared by WebFetch and WebSearch. Their own
-		// defaults differ only in timeout (30s vs 20s); the shared client uses the
-		// larger so neither tool gets stricter than its historical bound. With no
-		// WebProxy the client stays nil and each tool keeps its exact default —
-		// including the proxy env fallback.
-		toolCfg.WebClient = webclient.NewWithProxy(webProxyClientTimeout, webProxyClientMaxRedirects, cfg.WebProxy)
+	// Built-in tool assembly goes through the ToolRuntime port: nil falls back to
+	// the in-process local runtime (the historical behavior). The runtime itself
+	// is caller-owned and never closed here; the Toolset it provisions is
+	// session-owned — Session.Close closes it, and the failure paths below close
+	// it alongside the other partially opened resources.
+	toolRuntime := opts.ToolRuntime
+	if toolRuntime == nil {
+		toolRuntime = localRuntime{}
 	}
-	sessionTools := append(tools.BuiltinsWithConfig(shellManager, toolCfg), mcpManager.Tools()...)
+	toolset, err := toolRuntime.Provision(context.Background(), ToolsetSpec{
+		CWD:         cfg.CWD,
+		ToolEnv:     cfg.ToolEnv,
+		WebProxy:    cfg.WebProxy,
+		ShellBudget: opts.ShellBudget,
+	})
+	if err != nil {
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager)
+		return nil, err
+	}
+	res.Toolset = toolset
+	sessionTools := append(toolset.Tools(), mcpManager.Tools()...)
 	// Drop tools the user turned off (built-in work tools + MCP tools). Applied
 	// before the infra tools (Skill/Task/Remember/extras) are appended, so those
 	// are never accidentally removed and sub-agents inherit the same filtered set.
@@ -183,7 +177,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 	memStore := MemoryStore(cfg.CWD, userConfigDir())
 	memLoaded, err := memStore.Load()
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager, shellManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager, toolset)
 		return nil, err
 	}
 
@@ -274,7 +268,7 @@ func Build(cfg Config, opts Options) (*Session, error) {
 		Reasoning:          reasoningOptions(cfg.ReasoningScenario),
 	})
 	if err != nil {
-		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager, shellManager)
+		closeRecorders(context.Background(), recorder, trecorder, store, ownedBackend, mcpManager, toolset)
 		return nil, err
 	}
 	return &Session{repl: session, resources: res, perms: permissionService, cfg: cfg, skillTool: skillTool, agentTool: agentTool}, nil
