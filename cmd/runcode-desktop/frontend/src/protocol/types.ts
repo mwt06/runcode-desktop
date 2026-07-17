@@ -17,6 +17,7 @@ export const Events = {
   ToolEvent: 'tool:event',
   TurnEnd: 'turn:end',
   TurnError: 'turn:error',
+  TurnQueued: 'turn:queued',
   Warning: 'warning',
 } as const;
 
@@ -444,6 +445,10 @@ export interface TurnEnd {
 // Mirrors protocol.TurnError. TurnError reports a failed or interrupted turn.
 export interface TurnError {
   error: string;
+}
+
+// Mirrors protocol.TurnQueued. TurnQueued announces that a submitted turn is waiting for a concurrency slot.
+export interface TurnQueued {
 }
 
 // Mirrors protocol.Warning. Warning is a non-fatal diagnostic surfaced to the UI.

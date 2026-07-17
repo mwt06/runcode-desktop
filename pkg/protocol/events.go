@@ -12,6 +12,11 @@ const (
 	EventToolEvent = "tool:event"
 	// EventPermissionRequest carries a PermissionRequest awaiting the user's choice.
 	EventPermissionRequest = "permission:request"
+	// EventTurnQueued carries a TurnQueued when a submitted turn cannot start
+	// immediately because the host's concurrent-turn limit is reached; the turn
+	// starts automatically when a slot frees (or fails as turn:error if it is
+	// interrupted while waiting).
+	EventTurnQueued = "turn:queued"
 	// EventTurnEnd carries a TurnEnd when a turn completes successfully.
 	EventTurnEnd = "turn:end"
 	// EventTurnError carries a TurnError when a turn fails or is interrupted.

@@ -27,6 +27,7 @@ var eventPayloads = map[string]string{
 	"EventSessionRenamed":    "SessionRenamed",
 	"EventToolEvent":         "ToolEvent",
 	"EventTurnEnd":           "TurnEnd",
+	"EventTurnQueued":        "TurnQueued",
 	"EventTurnError":         "TurnError",
 	"EventWarning":           "Warning",
 }

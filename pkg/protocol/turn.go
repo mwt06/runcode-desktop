@@ -15,6 +15,11 @@ type TurnError struct {
 	Error string `json:"error"`
 }
 
+// TurnQueued announces that a submitted turn is waiting for a concurrency
+// slot. It is intentionally empty today; a queue position or estimated wait
+// can be added later as optional fields without breaking clients.
+type TurnQueued struct{}
+
 // TurnEnd summarizes a completed turn.
 type TurnEnd struct {
 	Text            string `json:"text"`

@@ -3,7 +3,7 @@
 // Mirrors the Go wire protocol (pkg/protocol) and the desktop.App command
 // surface (internal/desktop). Regenerate with: go generate ./pkg/protocol
 
-import type { AssistantDelta, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, SessionRenamed, ToolEvent, TurnEnd, TurnError, Warning } from './types';
+import type { AssistantDelta, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, SessionRenamed, ToolEvent, TurnEnd, TurnError, TurnQueued, Warning } from './types';
 
 // EventMap maps every wire event name to its payload type.
 export interface EventMap {
@@ -16,6 +16,7 @@ export interface EventMap {
   'tool:event': ToolEvent;
   'turn:end': TurnEnd;
   'turn:error': TurnError;
+  'turn:queued': TurnQueued;
   'warning': Warning;
 }
 
