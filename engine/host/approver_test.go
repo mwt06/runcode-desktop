@@ -9,7 +9,7 @@ import (
 
 	"github.com/wt68/runcode/engine"
 	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 type promptResult struct {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 // TestLiveDesktopEmitsThinking drives a full turn through the real App (engine +

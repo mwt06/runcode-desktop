@@ -1,10 +1,10 @@
 # runcode 双端协议规范
 
-本文档与 `pkg/protocol`（wire 类型的单一事实源）配套，定义**传输无关的协议语义**：回合状态机、事件信封、错误模型、版本化与兼容规则，以及同一协议在两种传输（Wails 进程内绑定 / 未来 HTTP+WebSocket）上的映射。改协议 = 改 `pkg/protocol` + `go generate`（protogen 生成前端 `src/protocol/*.ts`，CI 三道门禁防漂移）。
+本文档与 `engine/protocol`（wire 类型的单一事实源）配套，定义**传输无关的协议语义**：回合状态机、事件信封、错误模型、版本化与兼容规则，以及同一协议在两种传输（Wails 进程内绑定 / 未来 HTTP+WebSocket）上的映射。改协议 = 改 `engine/protocol` + `go generate`（protogen 生成前端 `src/protocol/*.ts`，CI 三道门禁防漂移）。
 
 ## 1. 协议模型
 
-- **命令面**：请求/响应，同步语义。命令形状的单一事实源是 `internal/desktop.App` 的导出方法签名（wire 类型全部来自 `pkg/protocol`）；每条命令在 `protocol.CommandKinds` 登记幂等类别：
+- **命令面**：请求/响应，同步语义。命令形状的单一事实源是 `internal/desktop.App` 的导出方法签名（wire 类型全部来自 `engine/protocol`）；每条命令在 `protocol.CommandKinds` 登记幂等类别：
   - `query`——只读幂等（List*/Read*/Get*/Status/...）；
   - `idempotent-set`——重复同参调用收敛（Set*/Resolve*/Save*/Delete*/...）；
   - `trigger`——非幂等（SendMessage/StartSession/Compact/Import*/...），跨网络传输重试需客户端去重（未来 WS 信封的 client request id 承担，不进 DTO）。
@@ -39,7 +39,7 @@ SendMessage 被接受（返回 nil）
 
 ## 4. 内部类型防腐
 
-引擎内部类型（`engine/tool.Event`、`engine/permissions.ApprovalSummary`、...）**永不直接上 wire**。`internal/desktop/protocol_convert.go` 是唯一转换关卡：引擎侧演化不会隐式改变 wire；要扩展 wire 必须显式改 `pkg/protocol` + 转换函数。`pkg/protocol` 的 import 仅限 stdlib（结构性强制，protogen/CI 校验）。
+引擎内部类型（`engine/tool.Event`、`engine/permissions.ApprovalSummary`、...）**永不直接上 wire**。`internal/desktop/protocol_convert.go` 是唯一转换关卡：引擎侧演化不会隐式改变 wire；要扩展 wire 必须显式改 `engine/protocol` + 转换函数。`engine/protocol` 的 import 仅限 stdlib（结构性强制，protogen/CI 校验）。
 
 ## 5. 错误模型
 

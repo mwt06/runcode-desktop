@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine"
+	"github.com/wt68/runcode/engine/protocol"
 	"github.com/wt68/runcode/engine/turn"
-	"github.com/wt68/runcode/pkg/protocol"
 )
 
 // Test group 1a: table stress — 8 goroutines mixing Create/SendMessage/

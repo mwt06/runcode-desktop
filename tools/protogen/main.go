@@ -1,14 +1,14 @@
 // Command protogen generates the desktop frontend's TypeScript protocol layer
 // from the Go single sources of truth:
 //
-//   - pkg/protocol → types.ts (interfaces for every wire struct, plus the
+//   - engine/protocol → types.ts (interfaces for every wire struct, plus the
 //     constant groups as const objects and literal-union types)
-//   - pkg/protocol's Event* constants → events.ts (the EventMap and typed
+//   - engine/protocol's Event* constants → events.ts (the EventMap and typed
 //     subscription helpers over the Wails runtime event bus)
 //   - internal/desktop's App exported methods → commands.ts (typed wrappers
 //     for the Wails bindings, annotated with each command's CommandKind)
 //
-// It is wired to `go generate ./pkg/protocol`. With --check it compares the
+// It is wired to `go generate ./engine/protocol`. With --check it compares the
 // would-be output against the files on disk and exits non-zero on drift (the
 // CI gate); the default mode writes the files.
 //
@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	protocolPkgPath = "github.com/wt68/runcode/pkg/protocol"
+	protocolPkgPath = "github.com/wt68/runcode/engine/protocol"
 	desktopPkgPath  = "github.com/wt68/runcode/internal/desktop"
 )
 
@@ -76,8 +76,11 @@ func run(check bool) error {
 	if protoPkg == nil || deskPkg == nil {
 		return fmt.Errorf("load result is missing %s or %s", protocolPkgPath, desktopPkgPath)
 	}
-	if protoPkg.Module == nil || protoPkg.Module.Dir == "" {
-		return fmt.Errorf("no module information for %s (protogen must run inside the runcode module)", protocolPkgPath)
+	// The output anchors on the desktop package's module (the repo root, where
+	// the frontend lives) — NOT the protocol package's module, which is the
+	// nested engine module since the protocol's promotion.
+	if deskPkg.Module == nil || deskPkg.Module.Dir == "" {
+		return fmt.Errorf("no module information for %s (protogen must run inside the runcode repo)", desktopPkgPath)
 	}
 
 	m, err := extract(protoPkg, deskPkg)
@@ -90,7 +93,7 @@ func run(check bool) error {
 		"events.ts":   emitEvents(m),
 		"commands.ts": emitCommands(m),
 	}
-	outDir := filepath.Join(protoPkg.Module.Dir, outRelDir)
+	outDir := filepath.Join(deskPkg.Module.Dir, outRelDir)
 
 	if check {
 		var stale []string
@@ -101,7 +104,7 @@ func run(check bool) error {
 			}
 		}
 		if len(stale) > 0 {
-			return fmt.Errorf("generated files are out of date (run `go generate ./pkg/protocol`):\n  %s",
+			return fmt.Errorf("generated files are out of date (run `go generate ./engine/protocol`):\n  %s",
 				strings.Join(stale, "\n  "))
 		}
 		return nil

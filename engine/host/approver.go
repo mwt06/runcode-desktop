@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 // AsyncApprover bridges blocking permission prompts — invoked on a turn

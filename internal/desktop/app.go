@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine"
+	"github.com/wt68/runcode/engine/host"
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/permissions"
+	"github.com/wt68/runcode/engine/protocol"
 	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/turn"
-	"github.com/wt68/runcode/internal/host"
-	"github.com/wt68/runcode/pkg/protocol"
 	"github.com/wt68/runcode/tools/preview"
 )
 

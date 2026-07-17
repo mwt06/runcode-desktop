@@ -11,12 +11,12 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 // eventPayloads is the explicit event→payload table: each protocol Event*
 // constant mapped to the protocol type name of its payload. Adding an event
-// constant to pkg/protocol without adding it here fails generation, so the
+// constant to engine/protocol without adding it here fails generation, so the
 // EventMap can never silently miss an event (and vice versa for stale rows).
 var eventPayloads = map[string]string{
 	"EventAssistantDelta":    "AssistantDelta",
@@ -335,7 +335,7 @@ func extractEvents(scope *types.Scope, eventConsts []string, structNames map[str
 	sort.Strings(stale)
 	if len(missing) > 0 || len(stale) > 0 {
 		var b strings.Builder
-		b.WriteString("event table (eventPayloads in tools/protogen) is out of sync with pkg/protocol's Event* constants:")
+		b.WriteString("event table (eventPayloads in tools/protogen) is out of sync with engine/protocol's Event* constants:")
 		if len(missing) > 0 {
 			fmt.Fprintf(&b, "\n  missing table rows for: %s", strings.Join(missing, ", "))
 		}

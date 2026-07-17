@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 // Process-level envelopes carry an empty sessionId and a monotonic seq

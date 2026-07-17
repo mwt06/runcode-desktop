@@ -9,11 +9,11 @@ import (
 
 	"github.com/wt68/runcode/engine"
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/protocol"
 	"github.com/wt68/runcode/engine/sessions"
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/tools/bash"
 	"github.com/wt68/runcode/engine/turn"
-	"github.com/wt68/runcode/pkg/protocol"
 )
 
 // toolEventBuffer bounds each session's tool-event channel so a burst of tool

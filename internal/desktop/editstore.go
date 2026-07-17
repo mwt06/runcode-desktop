@@ -11,9 +11,9 @@ import (
 	"sync"
 
 	"github.com/wt68/runcode/engine/diff"
+	"github.com/wt68/runcode/engine/host"
 	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/engine/turn"
-	"github.com/wt68/runcode/internal/host"
 )
 
 // maxEditSnapshotBytes bounds a single pre/post snapshot. Larger files are skipped

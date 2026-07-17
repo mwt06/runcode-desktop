@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/internal/host"
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/host"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 // wireError must pass host command errors (*protocol.Error) through untouched,

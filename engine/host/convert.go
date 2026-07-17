@@ -5,9 +5,9 @@ import (
 
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/permissions"
+	"github.com/wt68/runcode/engine/protocol"
 	"github.com/wt68/runcode/engine/tool"
 	"github.com/wt68/runcode/engine/turn"
-	"github.com/wt68/runcode/pkg/protocol"
 )
 
 // This file is the host's single crossing point between the engine's internal

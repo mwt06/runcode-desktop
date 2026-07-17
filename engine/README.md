@@ -91,7 +91,7 @@ go func() {
 
 - 所有回调在**跑 `RunTurn` 的那个 goroutine** 上同步执行——宿主自己 marshal 回 UI 线程。
 - `ToolEvents` 是**非阻塞发送**：通道满则丢事件、绝不阻塞执行器。给足缓冲并及时消费。
-- 事件类型：`started/progress/output/completed/failed/agent_delta/agent_usage`（子代理事件经 `ParentToolUseID` 归属到 Task 卡片）。**注意**：`tool.Event` 是引擎内部类型，直接外发给自己进程内的 UI 没问题；要跨 wire 给前端/远端，必须转成 `pkg/protocol.ToolEvent`（转换器在 `internal/host.ToolEventDTO`，规则见 protocol.md §4）。
+- 事件类型：`started/progress/output/completed/failed/agent_delta/agent_usage`（子代理事件经 `ParentToolUseID` 归属到 Task 卡片）。**注意**：`tool.Event` 是引擎内部类型，直接外发给自己进程内的 UI 没问题；要跨 wire 给前端/远端，必须转成 `engine/protocol.ToolEvent`（转换器在 `engine/host.ToolEventDTO`，规则见 protocol.md §4）。
 
 ## 交互审批（interactive / judge 模式）
 
@@ -119,7 +119,7 @@ sess, _ := engine.Build(cfg /* PermissionMode: "interactive" */, engine.Options{
 })
 ```
 
-- **异步 UI 必须保证**：每个 Prompt 最终被 Resolve/拒绝/ctx 取消三者之一解除，绝不悬挂 goroutine。现成的异步审批经纪在 `internal/host.AsyncApprover`（pending 表 + 事件往返），别自己重写。
+- **异步 UI 必须保证**：每个 Prompt 最终被 Resolve/拒绝/ctx 取消三者之一解除，绝不悬挂 goroutine。现成的异步审批经纪在 `engine/host.AsyncApprover`（pending 表 + 事件往返），别自己重写。
 - 复杂宿主可整个注入 `Options.Permissions`（自建 `permissions.NewService`，接 HarmJudge/熔断/审计），此时 `Approver` 字段被忽略。
 
 ## 会话列表、恢复与运行态持久化
@@ -139,7 +139,7 @@ tokens := sess.EstimateContextTokens() // 恢复态的上下文占用估算
 ```
 
 - 每个 turn 提交即落盘（`Store.Append` 是原子提交单元）；`Close` 同步收尾——**节点 A Close → 节点 B Resume 读到完整历史**，无需额外 flush 协议。
-- 运行时开关想随会话持久化（计划模式恢复后不失效），用 `backend.SaveMeta/LoadMeta`，或直接用 `internal/host` 的 setter（已接好）。
+- 运行时开关想随会话持久化（计划模式恢复后不失效），用 `backend.SaveMeta/LoadMeta`，或直接用 `engine/host` 的 setter（已接好）。
 - 自定义存储（Redis 热层/DB 归档）：实现 `sessions.Backend` 接口，经 `Options.Backend` 注入（此时你拥有它的生命周期，`Session.Close` 不会关它）；**验收标准 = 通过 `sessions/backendtest.Run`**。
 
 ## 常用 Session 方法
@@ -156,9 +156,9 @@ tokens := sess.EstimateContextTokens() // 恢复态的上下文占用估算
 
 ## 并发语义（必读）
 
-- **一个 Session 同时只跑一个 turn**：并发 `RunTurn` 返回错误（拒绝而非排队）。宿主自己串行化提交，或用 `internal/host` 的排队配额。
+- **一个 Session 同时只跑一个 turn**：并发 `RunTurn` 返回错误（拒绝而非排队）。宿主自己串行化提交，或用 `engine/host` 的排队配额。
 - 中断在途 turn：取消传给 `RunTurn` 的 ctx。用户「拒绝并停止」则由 Approver 返回 deny 触发（`result.Stopped=true`，消息结构保持良构）。
-- **多会话**：一个进程可并发持有任意多个 Session（下层已按会话隔离）。同仓宿主直接用 `internal/host.Manager`——会话表、每会话事件信封（sessionId/seq/ts）、审批路由、同 workspace 后端句柄池、全局配额（`MaxConcurrentTurns`/`MaxGlobalSubagents`/`MaxGlobalBackgroundShells`）、空闲回收，全部现成。
+- **多会话**：一个进程可并发持有任意多个 Session（下层已按会话隔离）。同仓宿主直接用 `engine/host.Manager`——会话表、每会话事件信封（sessionId/seq/ts）、审批路由、同 workspace 后端句柄池、全局配额（`MaxConcurrentTurns`/`MaxGlobalSubagents`/`MaxGlobalBackgroundShells`）、空闲回收，全部现成。
 - 跨会话配额也可不经 host 直接注入：`Options.SubagentLimiter`、`Options.ShellBudget`（`bash.NewBudget`）。
 
 ## 换提示词
@@ -252,6 +252,6 @@ opts.Backend = redisHotTier                       // 每会话/共享的远程�
 
 ```
 go -C engine test -race ./...        # 引擎自测
-go test -race ./你的宿主包            # 宿主侧（host 的 fake 模式可参考 internal/host/fakes_test.go）
+go test -race ./你的宿主包            # 宿主侧（host 的 fake 模式可参考 engine/host/fakes_test.go）
 make audit                            # 依赖方向审计（engine 不得依赖你的模块）
 ```

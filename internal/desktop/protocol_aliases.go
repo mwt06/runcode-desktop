@@ -1,9 +1,9 @@
 package desktop
 
-import "github.com/wt68/runcode/pkg/protocol"
+import "github.com/wt68/runcode/engine/protocol"
 
 // The desktop wire types — the request/response/event payloads serialized to
-// the frontend — live in pkg/protocol, the single source of truth for the
+// the frontend — live in engine/protocol, the single source of truth for the
 // two-end protocol. This file re-exports them under their original names so
 // the rest of this package, its tests, and the Wails bindings stay unchanged.
 // See the protocol package for each identifier's documentation.
@@ -27,7 +27,7 @@ const (
 	EventPassportChanged   = protocol.EventPassportChanged
 )
 
-// Wire payload types, aliased from pkg/protocol.
+// Wire payload types, aliased from engine/protocol.
 type (
 	// Session lifecycle (was types.go / sessions.go).
 	StartSessionRequest = protocol.StartSessionRequest

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 func TestCustomModelsCRUDRoundTrip(t *testing.T) {

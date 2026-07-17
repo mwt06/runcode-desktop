@@ -9,8 +9,8 @@ import (
 
 	"github.com/wt68/runcode/engine"
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/engine/protocol"
 	"github.com/wt68/runcode/engine/turn"
-	"github.com/wt68/runcode/pkg/protocol"
 )
 
 // fakeSink records every envelope; safe for concurrent use.

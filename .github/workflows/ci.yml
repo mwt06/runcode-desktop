@@ -139,15 +139,15 @@ jobs:
           cache: npm
           cache-dependency-path: cmd/runcode-desktop/frontend/package-lock.json
 
-      # pkg/protocol must stay stdlib-only: the structural guarantee that
+      # engine/protocol must stay stdlib-only: the structural guarantee that
       # engine-internal types cannot leak onto the wire.
       # A dot in an import path means an external module domain; stdlib paths
       # never contain one.
       - name: Protocol package is stdlib-only
         run: |
-          bad=$(go list -f '{{join .Imports "\n"}}' ./pkg/protocol | grep '\.' || true)
+          bad=$(go -C engine list -f '{{join .Imports "\n"}}' ./protocol | grep '\.' || true)
           if [ -n "$bad" ]; then
-            echo "pkg/protocol imports non-stdlib packages:" >&2
+            echo "engine/protocol imports non-stdlib packages:" >&2
             echo "$bad" >&2
             exit 1
           fi

@@ -20,7 +20,7 @@
 | `Options.EditRecorder`（turn.EditRecorder） | nil（不捕获） | 宿主编辑捕获 |
 | `Options.ToolRuntime`（**登记中，未实现**） | 进程内内置工具 | 工具网关沙盒客户端 |
 
-多会话宿主层 `internal/host`（根模块）在这些端口之上提供会话表/信封/配额/审批路由/后端池；词汇稳定并被第二个宿主检验后可升格为 engine 公开包。
+多会话宿主层 `engine/host`（根模块）在这些端口之上提供会话表/信封/配额/审批路由/后端池；词汇稳定并被第二个宿主检验后可升格为 engine 公开包。
 
 ## 2. Config/Options 兼容规则（PR 评审依据）
 
@@ -65,7 +65,7 @@
 
 ## 5. 服务端外壳预留设计（不实施）
 
-- 形态：同仓嵌套 module `cmd/runcode-server`，复刻 desktop 外壳模式——require engine + import `internal/host`（Go internal 前缀规则允许同仓兄弟模块）+ `pkg/protocol`。
+- 形态：同仓嵌套 module `cmd/runcode-server`，复刻 desktop 外壳模式——require engine + import `engine/host`（Go internal 前缀规则允许同仓兄弟模块）+ `engine/protocol`。
 - 接线：`host.Sink` 实现为 WebSocket/SSE 发射器（信封原样推送，单连接多路复用）；命令面 = `POST /api/v1/rpc/{Command}` 或 WS RPC，会话寻址进 URL/RPC 信封（见 docs/protocol.md §7）；审批经 WS 往返 `ResolvePermission`。
 - 会话状态：注入 Redis 热层 Backend + DB 归档装饰器（契约在 sessions.Backend 文档；`backendtest.Run` 是验收标准）；跨节点互斥由路由层保证，引擎不做分布式锁——如需租约，以类型断言探测的可选接口扩展（`Lease(id, owner, ttl)`），不进主接口。
 - 事件重放明确不做：信封 seq 只用于缺口检测，重连走 Status+ResumeSession 对账。

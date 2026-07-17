@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wt68/runcode/pkg/protocol"
+	"github.com/wt68/runcode/engine/protocol"
 )
 
 // envelopeSink wraps the shell-provided EventSink so the desktop's
