@@ -32,10 +32,10 @@ func (a *App) SaveCustomModel(m CustomModel) ([]CustomModel, error) {
 	m.Name = strings.TrimSpace(m.Name)
 	m.Model = strings.TrimSpace(m.Model)
 	if m.Name == "" {
-		return nil, errors.New("模型名称不能为空")
+		return nil, wireError(errors.New("模型名称不能为空"))
 	}
 	if m.Model == "" {
-		return nil, errors.New("模型 ID 不能为空")
+		return nil, wireError(errors.New("模型 ID 不能为空"))
 	}
 	cfg := loadRawConfig()
 	next := make([]CustomModel, 0, len(cfg.CustomModels)+1)

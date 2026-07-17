@@ -13,6 +13,7 @@ import (
 	"github.com/wt68/runcode/engine/diff"
 	"github.com/wt68/runcode/engine/transcript"
 	"github.com/wt68/runcode/engine/turn"
+	"github.com/wt68/runcode/internal/host"
 )
 
 // maxEditSnapshotBytes bounds a single pre/post snapshot. Larger files are skipped
@@ -33,8 +34,9 @@ type baselineMeta struct {
 }
 
 // editStore captures Write/Edit pre/post content into <ws>/.runcode/edits/<sess>/
-// and serves undo/review. One instance per App, rebound per session via
-// BeginSession. All state is guarded by mu.
+// and serves undo/review. One instance per session (created in
+// configureSession, bound via BeginSession, promoted to App.edits when the
+// session's Create succeeds). All state is guarded by mu.
 type editStore struct {
 	mu       sync.Mutex
 	ws       string            // workspace root; "" until BeginSession
@@ -203,7 +205,7 @@ func (s *editStore) Diff(snapshotID string) (EditDiff, error) {
 	if err != nil {
 		return EditDiff{}, err
 	}
-	return EditDiff{RelPath: m.relPath, Created: m.created, Lines: outputLinesDTO(diff.Unified(string(base), string(after), reviewDiffOptions))}, nil
+	return EditDiff{RelPath: m.relPath, Created: m.created, Lines: host.OutputLinesDTO(diff.Unified(string(base), string(after), reviewDiffOptions))}, nil
 }
 
 // List returns every recorded edit (with the current reverted flag), for resume.
@@ -362,15 +364,30 @@ func readCapped(path string) (content []byte, existed bool, ok bool) {
 	return data, true, true
 }
 
+// editStore returns the current edit store. Never nil: before the first
+// session it is an unbound store that records nothing and knows no edits, and
+// after a close it keeps serving the closed session's records until a new
+// session replaces it.
+func (a *App) editStore() *editStore {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.edits
+}
+
 // RevertEdit restores the file for snapshotID to its turn baseline (Wails binding).
-func (a *App) RevertEdit(snapshotID string) error { return a.edits.Revert(snapshotID) }
+func (a *App) RevertEdit(snapshotID string) error {
+	return wireError(a.editStore().Revert(snapshotID))
+}
 
 // ReviewEdit returns the baseline-vs-latest red/green diff for snapshotID (Wails binding).
-func (a *App) ReviewEdit(snapshotID string) (EditDiff, error) { return a.edits.Diff(snapshotID) }
+func (a *App) ReviewEdit(snapshotID string) (EditDiff, error) {
+	d, err := a.editStore().Diff(snapshotID)
+	return d, wireError(err)
+}
 
 // ListEdits returns every recorded edit for the active session, so a resumed
 // session can re-render its "已编辑" cards (Wails binding).
-func (a *App) ListEdits() []EditRecord { return a.edits.List() }
+func (a *App) ListEdits() []EditRecord { return a.editStore().List() }
 
 // resolveForWrite resolves a workspace-relative path to an absolute path for
 // writing/deleting, tolerating a not-yet-existing target: it rejects lexical

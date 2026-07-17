@@ -184,15 +184,15 @@ func (a *App) refreshDisabledInConfig() {
 
 // SetToolEnabled 在 scope("user"/"project")开关一个工具。下次新建会话生效。
 func (a *App) SetToolEnabled(name, scope string, enabled bool) error {
-	return a.setDisabled(scope, "tool", enabled, name)
+	return wireError(a.setDisabled(scope, "tool", enabled, name))
 }
 
 // SetAgentEnabled 在 scope("user"/"project")开关一个子代理。下次新建会话生效。
 func (a *App) SetAgentEnabled(name, scope string, enabled bool) error {
-	return a.setDisabled(scope, "agent", enabled, name)
+	return wireError(a.setDisabled(scope, "agent", enabled, name))
 }
 
 // SetSkillEnabled 在 scope("user"/"project")开关一个技能。下次新建会话生效。
 func (a *App) SetSkillEnabled(name, scope string, enabled bool) error {
-	return a.setDisabled(scope, "skill", enabled, name)
+	return wireError(a.setDisabled(scope, "skill", enabled, name))
 }

@@ -11,24 +11,25 @@ import (
 func (a *App) OpenExternal(relPath string) error {
 	full, err := a.resolveArtifact(relPath)
 	if err != nil {
-		return err
+		return wireError(err)
 	}
-	return openCommand(full).Start()
+	return wireError(openCommand(full).Start())
 }
 
 // RevealInFolder shows the workspace file in the OS file manager.
 func (a *App) RevealInFolder(relPath string) error {
 	full, err := a.resolveArtifact(relPath)
 	if err != nil {
-		return err
+		return wireError(err)
 	}
-	return revealCommand(full).Start()
+	return wireError(revealCommand(full).Start())
 }
 
 // ResolveArtifactPath returns the absolute path of a workspace file, for the
 // UI's "copy path" action.
 func (a *App) ResolveArtifactPath(relPath string) (string, error) {
-	return a.resolveArtifact(relPath)
+	full, err := a.resolveArtifact(relPath)
+	return full, wireError(err)
 }
 
 func (a *App) resolveArtifact(relPath string) (string, error) {

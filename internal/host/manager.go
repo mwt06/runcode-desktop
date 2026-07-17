@@ -79,6 +79,7 @@ type Manager struct {
 	limits    Limits
 	now       func() time.Time
 	configure func(SessionContext, *engine.Config, *engine.Options)
+	onTurnEnd func(SessionContext, turn.Result)
 
 	pool *backendPool
 	// turnSem gates concurrent turns (nil = unlimited). subLimiter and
@@ -118,6 +119,7 @@ func NewManager(opts Options) *Manager {
 		limits:      opts.Limits,
 		now:         now,
 		configure:   opts.Configure,
+		onTurnEnd:   opts.OnTurnEnd,
 		pool:        newBackendPool(),
 		sessions:    make(map[string]*hostSession),
 		janitorStop: make(chan struct{}),
@@ -476,6 +478,11 @@ func (m *Manager) runTurn(hs *hostSession, sess Session, turnCtx context.Context
 		return
 	}
 	hs.emit(protocol.EventTurnEnd, turnEndFromResult(result, durMs))
+	// The hook runs after the envelope so a shell reacting to it observes a
+	// consistent order (clients saw turn:end first). See Options.OnTurnEnd.
+	if m.onTurnEnd != nil {
+		m.onTurnEnd(SessionContext{ID: hs.id, Approver: hs.approver, Emit: hs.emit}, result)
+	}
 }
 
 func (m *Manager) finishTurn(hs *hostSession) {

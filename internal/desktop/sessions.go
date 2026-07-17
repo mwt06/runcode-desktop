@@ -21,8 +21,8 @@ import (
 // tools, each annotated with source, concurrency-safety, and per-scope disabled
 // state. Built-in work tools and MCP tools are toggleable; infra tools are not.
 func (a *App) ListTools() []ToolInfo {
+	session, _ := a.engineSession() // nil without a live session; static catalog still lists
 	a.mu.Lock()
-	session := a.session
 	ws := a.workspace
 	a.mu.Unlock()
 
@@ -88,12 +88,12 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 	}
 	backend, err := sessions.OpenBackend(ws, sessions.BackendJSONL)
 	if err != nil {
-		return nil, err
+		return nil, wireError(err)
 	}
 	defer backend.Close(context.Background())
 	infos, err := backend.List(context.Background())
 	if err != nil {
-		return nil, err
+		return nil, wireError(err)
 	}
 	out := make([]SessionSummary, 0, len(infos))
 	for _, info := range infos {
@@ -112,23 +112,30 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 // ResumeSession reopens a saved session by id (reusing the active session's
 // provider/model/credentials) and returns its prior conversation for display.
 func (a *App) ResumeSession(id string) (ResumedSession, error) {
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.config.Model == "" || a.workspace == "" {
-		return ResumedSession{}, errNoSession
-	}
 	cfg := a.config
+	ws := a.workspace
+	a.mu.Unlock()
+	if cfg.Model == "" || ws == "" {
+		return ResumedSession{}, wireError(errNoSession)
+	}
 	cfg.Resume = strings.TrimSpace(id)
 	cfg.Continue = false
 	cfg.SessionID = ""
-	info, err := a.buildAndSetLocked(cfg)
+	info, err := a.openSessionHeld(cfg)
 	if err != nil {
-		return ResumedSession{}, err
+		return ResumedSession{}, wireError(err)
+	}
+	session, err := a.currentSession()
+	if err != nil {
+		return ResumedSession{}, wireError(err)
 	}
 	return ResumedSession{
 		Info:          info,
-		Blocks:        toResumedBlocks(a.session.History()),
-		ContextTokens: a.session.EstimateContextTokens(),
+		Blocks:        toResumedBlocks(session.History()),
+		ContextTokens: session.EstimateContextTokens(),
 	}, nil
 }
 
@@ -139,9 +146,10 @@ func (a *App) PickWorkspaceFolder() (string, error) {
 	dialog := a.dialog
 	a.mu.Unlock()
 	if dialog == nil {
-		return "", errors.New("当前环境不支持目录选择")
+		return "", wireError(errors.New("当前环境不支持目录选择"))
 	}
-	return dialog.PickFolder("选择工作区目录")
+	dir, err := dialog.PickFolder("选择工作区目录")
+	return dir, wireError(err)
 }
 
 // SwitchWorkspace closes the current session and opens a fresh one in dir,
@@ -150,29 +158,35 @@ func (a *App) PickWorkspaceFolder() (string, error) {
 func (a *App) SwitchWorkspace(dir string) (SessionInfo, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
-		return SessionInfo{}, errors.New("未选择目录")
+		return SessionInfo{}, wireError(errors.New("未选择目录"))
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return SessionInfo{}, fmt.Errorf("解析目录: %w", err)
+		return SessionInfo{}, wireError(fmt.Errorf("解析目录: %w", err))
 	}
 	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-		return SessionInfo{}, fmt.Errorf("目录不存在: %s", abs)
+		return SessionInfo{}, wireError(fmt.Errorf("目录不存在: %s", abs))
 	}
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.config.Model == "" {
-		return SessionInfo{}, errNoSession
-	}
 	cfg := a.config
+	a.mu.Unlock()
+	if cfg.Model == "" {
+		return SessionInfo{}, wireError(errNoSession)
+	}
 	cfg.CWD = abs
 	cfg.Resume = ""
 	cfg.Continue = false
 	cfg.SessionID = ""
+	// Record the workspace before the build so session listing tracks the new
+	// directory even when the open fails (pre-host behavior).
+	a.mu.Lock()
 	a.workspace = abs
-	info, err := a.buildAndSetLocked(cfg)
+	a.mu.Unlock()
+	info, err := a.openSessionHeld(cfg)
 	if err != nil {
-		return SessionInfo{}, err
+		return SessionInfo{}, wireError(err)
 	}
 	// Persist the new workspace so the next launch prefills/reopens it.
 	req := a.LoadConfig()
@@ -184,16 +198,23 @@ func (a *App) SwitchWorkspace(dir string) (SessionInfo, error) {
 // NewSession opens a fresh session in the same workspace (a new id, empty
 // history), reusing the active session's provider/model/credentials.
 func (a *App) NewSession() (SessionInfo, error) {
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.config.Model == "" || a.workspace == "" {
-		return SessionInfo{}, errNoSession
-	}
 	cfg := a.config
+	ws := a.workspace
+	a.mu.Unlock()
+	if cfg.Model == "" || ws == "" {
+		return SessionInfo{}, wireError(errNoSession)
+	}
 	cfg.Resume = ""
 	cfg.Continue = false
 	cfg.SessionID = ""
-	return a.buildAndSetLocked(cfg)
+	info, err := a.openSessionHeld(cfg)
+	if err != nil {
+		return SessionInfo{}, wireError(err)
+	}
+	return info, nil
 }
 
 // toResumedBlocks reconstructs a conversation's rendered blocks from its message

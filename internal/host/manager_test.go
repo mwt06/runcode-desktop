@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine"
+	"github.com/wt68/runcode/engine/turn"
 	"github.com/wt68/runcode/pkg/protocol"
 )
 
@@ -303,8 +304,91 @@ func TestEnvelopeTimestampUsesInjectedClock(t *testing.T) {
 	}
 }
 
+// OnTurnEnd fires once per completed turn, after the turn:end envelope is
+// already at the sink, with the session's context wired (id + live emitter);
+// a failed turn (turn:error) never triggers it.
+func TestOnTurnEndHook(t *testing.T) {
+	ws := t.TempDir()
+	b := newFakeBuilder()
+	sink := &fakeSink{}
+
+	type hookCall struct {
+		id             string
+		iterations     int
+		turnEndsBefore int // turn:end envelopes already emitted when the hook ran
+	}
+	var mu sync.Mutex
+	var calls []hookCall
+	m := newTestManager(t, Options{
+		Build: b.build,
+		Sink:  sink,
+		OnTurnEnd: func(sctx SessionContext, r turn.Result) {
+			mu.Lock()
+			calls = append(calls, hookCall{
+				id:             sctx.ID,
+				iterations:     r.Iterations,
+				turnEndsBefore: sink.count(protocol.EventTurnEnd, sctx.ID),
+			})
+			mu.Unlock()
+			// The session context must be live: an emit from the hook continues
+			// the session's envelope sequence.
+			sctx.Emit(protocol.EventWarning, protocol.Warning{Message: "post-turn"})
+		},
+	})
+
+	if _, _, err := m.Create(context.Background(), engine.Config{CWD: ws, SessionID: "hook-1"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.SendMessage("hook-1", "go"); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	waitFor(t, 5*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(calls) == 1
+	}, "hook called for the completed turn")
+	mu.Lock()
+	call := calls[0]
+	mu.Unlock()
+	if call.id != "hook-1" {
+		t.Fatalf("hook session id = %q, want hook-1", call.id)
+	}
+	if call.iterations != 1 {
+		t.Fatalf("hook result iterations = %d, want the fake's 1", call.iterations)
+	}
+	if call.turnEndsBefore != 1 {
+		t.Fatalf("hook ran before the turn:end envelope reached the sink (saw %d)", call.turnEndsBefore)
+	}
+	// The hook's emit landed on the session with the next sequence number.
+	envs := sink.bySession("hook-1")
+	last := envs[len(envs)-1]
+	if last.Event != protocol.EventWarning || last.Seq != uint64(len(envs)) {
+		t.Fatalf("hook emit = %s seq %d, want warning with seq %d", last.Event, last.Seq, len(envs))
+	}
+
+	// A failing turn emits turn:error and must not fire the hook.
+	b.mu.Lock()
+	b.newSession = func(string) *fakeSession { return &fakeSession{turnErr: errors.New("boom")} }
+	b.mu.Unlock()
+	if _, _, err := m.Create(context.Background(), engine.Config{CWD: ws, SessionID: "hook-2"}); err != nil {
+		t.Fatalf("Create hook-2: %v", err)
+	}
+	if err := m.SendMessage("hook-2", "go"); err != nil {
+		t.Fatalf("SendMessage hook-2: %v", err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return sink.count(protocol.EventTurnError, "hook-2") == 1 }, "failing turn errored")
+	mu.Lock()
+	n := len(calls)
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("hook calls after a failed turn = %d, want still 1", n)
+	}
+}
+
 // A queued turn interrupted while waiting for a slot reports turn:error and
-// releases nothing it never acquired.
+// releases nothing it never acquired. Which of the two sessions wins the single
+// slot is a scheduling race (the turn goroutines contend for the semaphore),
+// so the test finds the queued one instead of assuming submission order.
 func TestInterruptCancelsQueuedTurn(t *testing.T) {
 	ws := t.TempDir()
 	gate := make(chan struct{})
@@ -313,7 +397,8 @@ func TestInterruptCancelsQueuedTurn(t *testing.T) {
 	sink := &fakeSink{}
 	m := newTestManager(t, Options{Build: b.build, Sink: sink, Limits: Limits{MaxConcurrentTurns: 1}})
 
-	for _, id := range []string{"iq-1", "iq-2"} {
+	ids := []string{"iq-1", "iq-2"}
+	for _, id := range ids {
 		if _, _, err := m.Create(context.Background(), engine.Config{CWD: ws, SessionID: id}); err != nil {
 			t.Fatalf("Create %s: %v", id, err)
 		}
@@ -321,13 +406,23 @@ func TestInterruptCancelsQueuedTurn(t *testing.T) {
 			t.Fatalf("SendMessage %s: %v", id, err)
 		}
 	}
-	waitFor(t, 5*time.Second, func() bool { return sink.count(protocol.EventTurnQueued, "iq-2") == 1 }, "second turn queued")
+	queued, running := "", ""
+	waitFor(t, 5*time.Second, func() bool {
+		for _, id := range ids {
+			if sink.count(protocol.EventTurnQueued, id) == 1 {
+				queued = id
+			} else {
+				running = id
+			}
+		}
+		return queued != ""
+	}, "one turn queued behind the single slot")
 
-	if err := m.Interrupt("iq-2"); err != nil {
+	if err := m.Interrupt(queued); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
-	waitFor(t, 5*time.Second, func() bool { return sink.count(protocol.EventTurnError, "iq-2") == 1 }, "queued turn errored on interrupt")
+	waitFor(t, 5*time.Second, func() bool { return sink.count(protocol.EventTurnError, queued) == 1 }, "queued turn errored on interrupt")
 
 	close(gate)
-	waitFor(t, 5*time.Second, func() bool { return sink.count(protocol.EventTurnEnd, "iq-1") == 1 }, "first turn finished")
+	waitFor(t, 5*time.Second, func() bool { return sink.count(protocol.EventTurnEnd, running) == 1 }, "running turn finished")
 }

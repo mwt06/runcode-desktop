@@ -88,25 +88,25 @@ func (a *App) ListSkills() SkillList {
 func (a *App) SaveSkill(req SkillSaveRequest) (SkillList, error) {
 	root, err := a.skillRoot(req.Scope)
 	if err != nil {
-		return SkillList{}, err
+		return SkillList{}, wireError(err)
 	}
 	name := strings.TrimSpace(req.Name)
 	if !validSkillName(name) {
-		return SkillList{}, errors.New("技能名只能包含字母、数字、- 或 _，且不超过 64 个字符")
+		return SkillList{}, wireError(errors.New("技能名只能包含字母、数字、- 或 _，且不超过 64 个字符"))
 	}
 	description := strings.TrimSpace(collapseLine(req.Description))
 	if description == "" {
-		return SkillList{}, errors.New("技能描述不能为空")
+		return SkillList{}, wireError(errors.New("技能描述不能为空"))
 	}
 	body := strings.TrimRight(req.Body, "\n")
 
 	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return SkillList{}, fmt.Errorf("create skill dir: %w", err)
+		return SkillList{}, wireError(fmt.Errorf("create skill dir: %w", err))
 	}
 	content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n", name, description, body)
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o600); err != nil {
-		return SkillList{}, fmt.Errorf("write SKILL.md: %w", err)
+		return SkillList{}, wireError(fmt.Errorf("write SKILL.md: %w", err))
 	}
 	// On rename, drop the old directory.
 	if old := strings.TrimSpace(req.OriginalName); old != "" && old != name && validSkillName(old) {
@@ -120,14 +120,14 @@ func (a *App) SaveSkill(req SkillSaveRequest) (SkillList, error) {
 func (a *App) DeleteSkill(name, scope string) (SkillList, error) {
 	root, err := a.skillRoot(scope)
 	if err != nil {
-		return SkillList{}, err
+		return SkillList{}, wireError(err)
 	}
 	name = strings.TrimSpace(name)
 	if !validSkillName(name) {
-		return SkillList{}, errors.New("无效的技能名")
+		return SkillList{}, wireError(errors.New("无效的技能名"))
 	}
 	if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
-		return SkillList{}, fmt.Errorf("delete skill: %w", err)
+		return SkillList{}, wireError(fmt.Errorf("delete skill: %w", err))
 	}
 	a.reloadSessionSkills()
 	return a.ListSkills(), nil
@@ -139,32 +139,32 @@ func (a *App) DeleteSkill(name, scope string) (SkillList, error) {
 func (a *App) ImportSkill(scope string) (SkillList, error) {
 	root, err := a.skillRoot(scope)
 	if err != nil {
-		return SkillList{}, err
+		return SkillList{}, wireError(err)
 	}
 	if a.dialog == nil {
-		return SkillList{}, errors.New("当前环境不支持文件选择")
+		return SkillList{}, wireError(errors.New("当前环境不支持文件选择"))
 	}
 	path, err := a.dialog.PickFile("选择要导入的 SKILL.md")
 	if err != nil {
-		return SkillList{}, err
+		return SkillList{}, wireError(err)
 	}
 	if strings.TrimSpace(path) == "" {
 		return a.ListSkills(), nil // cancelled
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return SkillList{}, fmt.Errorf("读取所选文件失败: %w", err)
+		return SkillList{}, wireError(fmt.Errorf("读取所选文件失败: %w", err))
 	}
 	name := frontmatterName(string(data))
 	if !validSkillName(name) {
-		return SkillList{}, errors.New("所选文件不是有效的 SKILL.md(frontmatter 缺少合法的 name)")
+		return SkillList{}, wireError(errors.New("所选文件不是有效的 SKILL.md(frontmatter 缺少合法的 name)"))
 	}
 	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return SkillList{}, fmt.Errorf("创建技能目录失败: %w", err)
+		return SkillList{}, wireError(fmt.Errorf("创建技能目录失败: %w", err))
 	}
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), data, 0o600); err != nil {
-		return SkillList{}, fmt.Errorf("写入 SKILL.md 失败: %w", err)
+		return SkillList{}, wireError(fmt.Errorf("写入 SKILL.md 失败: %w", err))
 	}
 	a.reloadSessionSkills()
 	return a.ListSkills(), nil
@@ -191,10 +191,7 @@ func frontmatterName(content string) string {
 // reloadSessionSkills makes skill edits take effect in the running session, so a
 // newly created/edited skill is usable immediately without a new conversation.
 func (a *App) reloadSessionSkills() {
-	a.mu.Lock()
-	session := a.session
-	a.mu.Unlock()
-	if session != nil {
+	if session, err := a.engineSession(); err == nil {
 		session.ReloadSkills()
 	}
 }

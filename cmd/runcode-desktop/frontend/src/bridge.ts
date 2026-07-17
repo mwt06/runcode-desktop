@@ -164,6 +164,22 @@ export const readArtifactBytes = async (relPath: string): Promise<ArrayBuffer> =
   return bytes.buffer
 }
 
+// errText renders a command rejection for display. Hosts serialize command
+// failures as protocol.Error JSON (docs/protocol.md §5): parse it and show the
+// human message; anything unparsable (plain string, runtime error) is shown
+// as-is — the tolerant-client rule, so a host that has not adopted structured
+// errors for some path never breaks the UI.
+export function errText(e: unknown): string {
+  const s = e instanceof Error ? e.message : String(e)
+  try {
+    const o = JSON.parse(s) as { message?: unknown }
+    if (o && typeof o === 'object' && typeof o.message === 'string' && o.message !== '') return o.message
+  } catch {
+    /* not a structured error */
+  }
+  return s
+}
+
 // copyText writes to the clipboard via the Wails runtime, falling back to the
 // browser clipboard API.
 export async function copyText(text: string): Promise<void> {

@@ -23,6 +23,7 @@ import {
   type ToolInfo, type ProjectContextInfo, type MemoryInfo,
   type SessionInfo, type StartSessionRequest,
   type PassportStatus, type PassportModel, type PassportTenant, type CustomModel,
+  errText,
 } from './bridge'
 
 // 内置工具/子代理的中文显示映射。仅用于界面展示——发送给模型的工具定义、
@@ -205,12 +206,12 @@ function AgentDetail({ agent, onBack, onChanged, onUse }: {
     try {
       await saveAgent({ originalName: ag?.name ?? '', name: name.trim(), description, tools, model, prompt, scope })
       onChanged(); onBack()
-    } catch (e) { setError(String(e)) } finally { setBusy(false) }
+    } catch (e) { setError(errText(e)) } finally { setBusy(false) }
   }
   async function remove() {
     if (!ag) return
     setBusy(true); setError('')
-    try { await deleteAgent(ag.name, ag.source); onChanged(); onBack() } catch (e) { setError(String(e)) } finally { setBusy(false) }
+    try { await deleteAgent(ag.name, ag.source); onChanged(); onBack() } catch (e) { setError(errText(e)) } finally { setBusy(false) }
   }
 
   return (
@@ -271,12 +272,12 @@ function SkillDetail({ skill, onBack, onChanged, onUse }: {
   const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
   async function save() {
     setBusy(true); setError('')
-    try { await saveSkill({ originalName: sk?.name ?? '', name: name.trim(), description, body, scope }); onChanged(); onBack() } catch (e) { setError(String(e)) } finally { setBusy(false) }
+    try { await saveSkill({ originalName: sk?.name ?? '', name: name.trim(), description, body, scope }); onChanged(); onBack() } catch (e) { setError(errText(e)) } finally { setBusy(false) }
   }
   async function remove() {
     if (!sk) return
     setBusy(true); setError('')
-    try { await deleteSkill(sk.name, sk.source); onChanged(); onBack() } catch (e) { setError(String(e)) } finally { setBusy(false) }
+    try { await deleteSkill(sk.name, sk.source); onChanged(); onBack() } catch (e) { setError(errText(e)) } finally { setBusy(false) }
   }
   return (
     <div className="flex-1 overflow-y-auto px-10 py-7">
@@ -337,7 +338,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
       if (tab === 'skills') setSkillList((await importSkill(s))?.skills ?? [])
       else setAgentList((await importAgent(s))?.agents ?? [])
     } catch (e) {
-      setErr(String(e))
+      setErr(errText(e))
     }
   }
 
@@ -349,7 +350,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   const otherOffLabel = (du: boolean, dp: boolean) => (scope === 'project' ? (du ? '全局已停用' : '') : dp ? '本项目已停用' : '')
   const toggle = (setFn: (n: string, s: string, e: boolean) => Promise<void>, reload: () => Promise<void>) => async (name: string, next: boolean) => {
     setErr('')
-    try { await setFn(name, scope, next); await reload() } catch (e) { setErr(String(e)) }
+    try { await setFn(name, scope, next); await reload() } catch (e) { setErr(errText(e)) }
   }
   const toggleTool = toggle(setToolEnabled, reloadTools)
   const toggleAgent = toggle(setAgentEnabled, reloadAgents)
@@ -510,7 +511,7 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
   function refresh() {
     listSkills()
       .then((l) => setList(l ?? { skills: [], problems: [] }))
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(errText(e)))
   }
   useEffect(() => {
     refresh()
@@ -543,7 +544,7 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
       setSel(name.trim())
       setOriginalName(name.trim())
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -556,7 +557,7 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
       setList(l)
       setSel(null)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -570,7 +571,7 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
       setList(l)
       if (originalName === sk.name) setSel(null)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -582,7 +583,7 @@ export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
       const l = await importSkill('project')
       setList(l)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -702,7 +703,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
   function refresh() {
     listAgents()
       .then((l) => setList(l ?? { agents: [], problems: [] }))
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(errText(e)))
   }
   useEffect(() => {
     refresh()
@@ -713,7 +714,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
       await applyScopeChange(setAgentEnabled, ag.name, ag.disabledUser, ag.disabledProject, next)
       refresh()
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     }
   }
 
@@ -752,7 +753,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
       setSel(name.trim())
       setOriginalName(name.trim())
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -765,7 +766,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
       setList(l)
       setSel(null)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -778,7 +779,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
       setList(l)
       if (originalName === ag.name) setSel(null)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -790,7 +791,7 @@ export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
       const l = await importAgent('project')
       setList(l)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setBusy(false)
     }
@@ -957,11 +958,11 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   }, [])
   const doAcctLogin = async () => {
     setLoggingIn(true); setAcctMsg('')
-    try { await passportLogin(); await refreshAccount() } catch (e) { setAcctMsg(String(e)) } finally { setLoggingIn(false) }
+    try { await passportLogin(); await refreshAccount() } catch (e) { setAcctMsg(errText(e)) } finally { setLoggingIn(false) }
   }
   const onSwitchTenant = async (tid: string) => {
     setTenantId(tid); setAcctMsg('')
-    try { await setActiveTenant(tid) } catch (e) { setAcctMsg(String(e)) }
+    try { await setActiveTenant(tid) } catch (e) { setAcctMsg(errText(e)) }
   }
   const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
   const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
@@ -1000,7 +1001,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
       setSaved(true)
       setTimeout(() => setSaved(false), 2200)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setSaving(false)
     }
@@ -1121,7 +1122,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
                 setProxy(norm ?? '')
                 setProxyMsg(norm ? `已保存：${norm}（新建会话后生效）` : '已清除，联网工具将直连')
               } catch (e) {
-                setProxyMsg(String(e))
+                setProxyMsg(errText(e))
               }
             }}>保存</button>
           </div>
@@ -1422,7 +1423,7 @@ export function MCPPage() {
     try {
       setServers((await listMCPServers()) ?? [])
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setLoading(false)
     }
@@ -1452,7 +1453,7 @@ export function MCPPage() {
       setDraft(null)
       await refresh()
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setSaving(false)
     }
@@ -1463,7 +1464,7 @@ export function MCPPage() {
       await deleteMCPServer(name)
       await refresh()
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     }
   }
   async function toggle(s: MCPServerInfo) {
@@ -1472,7 +1473,7 @@ export function MCPPage() {
       await setMCPServerEnabled(s.name, !s.enabled)
       await refresh()
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     }
   }
 
@@ -1591,7 +1592,7 @@ export function ToolsPage() {
       await applyScopeChange(setToolEnabled, t.name, t.disabledUser, t.disabledProject, next)
       await reload()
     } catch (e) {
-      setToggleError(String(e))
+      setToggleError(errText(e))
     }
   }
 
@@ -1680,7 +1681,7 @@ export function MemoryPage() {
         setContent(c?.content ?? '')
         setMem({ user: m?.user ?? [], project: m?.project ?? [] })
       } catch (e) {
-        setError(String(e))
+        setError(errText(e))
       } finally {
         setLoading(false)
       }
@@ -1696,7 +1697,7 @@ export function MemoryPage() {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
-      setError(String(e))
+      setError(errText(e))
     } finally {
       setSaving(false)
     }
@@ -1812,7 +1813,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       setPassportError('')
     } catch (e) {
       setPlatformModels([])
-      setPassportError(`获取平台模型失败：${String(e)}`)
+      setPassportError(`获取平台模型失败：${errText(e)}`)
     }
   }
 
@@ -1846,7 +1847,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           setTenantId(tid)
         } catch (e) {
           setTenants([])
-          setPassportError(`获取租户列表失败：${String(e)}`)
+          setPassportError(`获取租户列表失败：${errText(e)}`)
           tid = ''
         }
         if (tid) await doLoadModels(tid)
@@ -1877,7 +1878,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       await passportLogin()
       await refreshPassport()
     } catch (e) {
-      setPassportError(String(e))
+      setPassportError(errText(e))
     } finally { setLoggingIn(false) }
   }
 

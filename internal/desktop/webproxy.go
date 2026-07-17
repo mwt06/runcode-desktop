@@ -3,10 +3,7 @@ package desktop
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
-
-	"github.com/wt68/runcode/engine/webclient"
 )
 
 // WebProxy 返回联网工具(WebFetch/WebSearch)使用的代理地址(空 = 直连)。
@@ -18,25 +15,15 @@ func (a *App) WebProxy() string { return loadRawConfig().WebProxy }
 func (a *App) SetWebProxy(v string) (string, error) {
 	norm, err := normalizeProxy(v)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
+	// 只持久化，不再发布进程环境变量：建会话时 buildConfig/openSessionHeld 把
+	// 持久化值注入 engine.Config.WebProxy（按会话隔离）；正在运行的会话保持原
+	// 代理，下个新建/恢复的会话采用新值。
 	raw := loadRawConfig()
 	raw.WebProxy = norm
 	saveRawConfig(raw)
-	applyWebProxy(norm)
 	return norm, nil
-}
-
-// applyWebProxy 把设置发布给联网工具。工具在构造 HTTP 客户端时从环境变量读取
-// (webclient.ProxyEnvVar)，用环境变量当传递通道是为了不必给每个工具构造函数
-// (tools.Builtins → websearch.New)都加一个配置参数。用的是 runcode 专属变量而非
-// HTTPS_PROXY，所以这里的设置不会顺带改变模型 API 的出口。
-func applyWebProxy(v string) {
-	if strings.TrimSpace(v) == "" {
-		_ = os.Unsetenv(webclient.ProxyEnvVar)
-		return
-	}
-	_ = os.Setenv(webclient.ProxyEnvVar, v)
 }
 
 // normalizeProxy 校验并规范化用户填的代理地址。允许省略协议(Clash/v2ray 这类

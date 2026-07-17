@@ -90,7 +90,7 @@ func (a *App) PassportLogin() (PassportStatus, error) {
 	a.mu.Lock()
 	if a.loginCancel != nil {
 		a.mu.Unlock()
-		return PassportStatus{}, errors.New("已有登录流程进行中，请先完成或取消")
+		return PassportStatus{}, wireError(errors.New("已有登录流程进行中，请先完成或取消"))
 	}
 	a.mu.Unlock()
 	// 注意：此处与后续 loginCancel 赋值间存在 TOCTOU 窗口（UI 双击时无害）
@@ -99,17 +99,17 @@ func (a *App) PassportLogin() (PassportStatus, error) {
 
 	cs, err := startCallbackServer()
 	if err != nil {
-		return PassportStatus{}, err
+		return PassportStatus{}, wireError(err)
 	}
 	defer cs.Close()
 
 	verifier, challenge, err := genPKCE()
 	if err != nil {
-		return PassportStatus{}, err
+		return PassportStatus{}, wireError(err)
 	}
 	state, err := genState(cs.Port)
 	if err != nil {
-		return PassportStatus{}, err
+		return PassportStatus{}, wireError(err)
 	}
 	cs.ExpectState(state)
 
@@ -126,26 +126,26 @@ func (a *App) PassportLogin() (PassportStatus, error) {
 
 	authURL := buildAuthorizeURL(cfg.Authority, cfg.ClientID, cfg.RedirectURI, cfg.Scopes, state, challenge)
 	if err := openBrowser(authURL); err != nil {
-		return PassportStatus{}, fmt.Errorf("无法打开系统浏览器: %w", err)
+		return PassportStatus{}, wireError(fmt.Errorf("无法打开系统浏览器: %w", err))
 	}
 
 	var code string
 	select {
 	case r := <-cs.Result:
 		if r.Err != nil {
-			return PassportStatus{}, r.Err
+			return PassportStatus{}, wireError(r.Err)
 		}
 		code = r.Code
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.Canceled) {
-			return PassportStatus{}, errors.New("登录已取消")
+			return PassportStatus{}, wireError(errors.New("登录已取消"))
 		}
-		return PassportStatus{}, errors.New("登录超时，请重试")
+		return PassportStatus{}, wireError(errors.New("登录超时，请重试"))
 	}
 
 	ts, err := exchangeCode(ctx, passportHTTP(), cfg.tokenURL(), cfg.ClientID, code, verifier, cfg.RedirectURI)
 	if err != nil {
-		return PassportStatus{}, err
+		return PassportStatus{}, wireError(err)
 	}
 	a.tokens.Set(ts)
 
@@ -185,11 +185,11 @@ func (a *App) PassportLogout() {
 func (a *App) PassportTenants() ([]PassportTenant, error) {
 	body, err := a.bridgeGet("/api/tenants")
 	if err != nil {
-		return nil, err
+		return nil, wireError(err)
 	}
 	var tenants []PassportTenant
 	if err := json.Unmarshal(body, &tenants); err != nil {
-		return nil, fmt.Errorf("解析租户列表失败: %w", err)
+		return nil, wireError(fmt.Errorf("解析租户列表失败: %w", err))
 	}
 	return tenants, nil
 }
@@ -234,7 +234,7 @@ func (a *App) SessionModels() ([]PassportModel, error) {
 func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 	body, err := a.bridgeGet(tenantPathPrefix(tenantID) + "/v1/models")
 	if err != nil {
-		return nil, err
+		return nil, wireError(err)
 	}
 	var payload struct {
 		Data []struct {
@@ -243,7 +243,7 @@ func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("解析模型列表失败: %w", err)
+		return nil, wireError(fmt.Errorf("解析模型列表失败: %w", err))
 	}
 	models := make([]PassportModel, 0, len(payload.Data))
 	for _, m := range payload.Data {
@@ -256,7 +256,7 @@ func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 func (a *App) fetchMe() (PassportStatus, error) {
 	body, err := a.bridgeGet("/api/me")
 	if err != nil {
-		return PassportStatus{}, err
+		return PassportStatus{}, wireError(err)
 	}
 	var me struct {
 		UserID   string `json:"userId"`
@@ -267,7 +267,7 @@ func (a *App) fetchMe() (PassportStatus, error) {
 		TenantID string `json:"tenantId"`
 	}
 	if err := json.Unmarshal(body, &me); err != nil {
-		return PassportStatus{}, err
+		return PassportStatus{}, wireError(err)
 	}
 	return PassportStatus{LoggedIn: true, UserID: me.UserID, UserName: me.UserName,
 		Name: me.Name, Nickname: me.Nickname, Avatar: me.Avatar, TenantID: me.TenantID}, nil
@@ -277,24 +277,24 @@ func (a *App) fetchMe() (PassportStatus, error) {
 func (a *App) bridgeGet(path string) ([]byte, error) {
 	tok, err := a.tokens.Token()
 	if err != nil {
-		return nil, err
+		return nil, wireError(err)
 	}
 	cfg := passportConfig()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BridgeBaseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return nil, wireError(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := passportHTTP().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("访问中间服务失败: %w", err)
+		return nil, wireError(fmt.Errorf("访问中间服务失败: %w", err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("中间服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, wireError(fmt.Errorf("中间服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
 	}
 	return body, nil
 }

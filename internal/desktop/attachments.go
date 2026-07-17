@@ -1,13 +1,11 @@
 package desktop
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/wt68/runcode/engine/llm"
 )
@@ -25,63 +23,36 @@ func (a *App) PickImageAttachment() (string, error) {
 	dialog := a.dialog
 	a.mu.Unlock()
 	if dialog == nil {
-		return "", errors.New("当前环境不支持文件选择")
+		return "", wireError(errors.New("当前环境不支持文件选择"))
 	}
-	return dialog.PickImage("选择图片附件")
+	path, err := dialog.PickImage("选择图片附件")
+	return path, wireError(err)
 }
 
 // SendMessageWithImages runs one user turn whose message carries the images at the
 // given paths. It mirrors SendMessage (async, single in-flight turn) but reads the
-// images and delegates to RunTurnWithImages. With no paths it falls back to a plain
-// text turn.
+// images up front and submits via the manager's image-turn entry point. With no
+// paths it falls back to a plain text turn.
 func (a *App) SendMessageWithImages(text string, paths []string) error {
 	if len(paths) == 0 {
 		return a.SendMessage(text)
 	}
 	a.mu.Lock()
-	if a.session == nil {
-		a.mu.Unlock()
-		return errNoSession
-	}
-	if a.inFlight {
-		a.mu.Unlock()
-		return errBusy
-	}
-	session := a.session
-	turnCtx, cancel := context.WithCancel(context.Background())
-	a.turnCancel = cancel
-	a.inFlight = true
-	a.edits.BeginTurn()
+	id := a.currentID
 	a.mu.Unlock()
-
-	go func() {
-		images, err := loadImages(paths)
-		if err != nil {
-			a.mu.Lock()
-			a.inFlight = false
-			a.turnCancel = nil
-			a.mu.Unlock()
-			cancel()
-			a.sink.Emit(EventTurnError, TurnError{Error: err.Error()})
-			return
-		}
-		started := time.Now()
-		result, err := session.RunTurnWithImages(turnCtx, text, images)
-		a.mu.Lock()
-		a.inFlight = false
-		if a.turnCancel != nil {
-			a.turnCancel = nil
-		}
-		a.mu.Unlock()
-		cancel()
-		if err != nil {
-			a.sink.Emit(EventTurnError, TurnError{Error: err.Error()})
-			return
-		}
-		a.sink.Emit(EventTurnEnd, turnEndFromResult(result, int(time.Since(started).Milliseconds())))
-		a.refreshTitle(session, text)
-	}()
-	return nil
+	if id == "" {
+		return wireError(errNoSession)
+	}
+	// The reads are small (each file is capped at maxImageBytes) so loading
+	// synchronously here keeps the command's error surface unchanged: image
+	// problems become a turn:error event (which the frontend renders as a
+	// failed turn), not a command rejection — the pre-host contract.
+	images, err := loadImages(paths)
+	if err != nil {
+		a.emitSessionEvent(EventTurnError, TurnError{Error: err.Error()})
+		return nil
+	}
+	return wireError(a.sendUserTurn(text, images, true))
 }
 
 // loadImages reads each path into a neutral llm.ImageSource, inferring the media

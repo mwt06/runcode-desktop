@@ -7,30 +7,30 @@ import (
 	"github.com/wt68/runcode/pkg/protocol"
 )
 
-// Envelopes must carry a per-session monotonic seq starting at 1, reset when
-// the sink is rebound to a new session, with the session id attached.
-func TestEnvelopeSinkSequencesPerSession(t *testing.T) {
+// Process-level envelopes carry an empty sessionId and a monotonic seq
+// starting at 1 — the desktop's own seq space, disjoint from the host's
+// per-session spaces. (The pre-host per-session rebind/reset behavior moved to
+// internal/host's emitter and is covered by its tests.)
+func TestEnvelopeSinkProcessScope(t *testing.T) {
 	rec := &recordingSink{}
 	env := newEnvelopeSink(rec)
 
 	env.Emit("warning", Warning{Message: "pre-session"})
-	env.SetSession("sess_a")
-	env.Emit(EventAssistantDelta, AssistantDelta{Text: "x"})
-	env.Emit(EventTurnEnd, TurnEnd{})
-	env.SetSession("sess_b")
-	env.Emit(EventAssistantDelta, AssistantDelta{Text: "y"})
+	env.Emit(EventPassportChanged, PassportStatus{})
 
-	if len(rec.events) != 4 {
-		t.Fatalf("got %d events, want 4", len(rec.events))
+	if len(rec.events) != 2 {
+		t.Fatalf("got %d events, want 2", len(rec.events))
 	}
-	want := []struct {
-		session string
-		seq     uint64
-	}{{"", 1}, {"sess_a", 1}, {"sess_a", 2}, {"sess_b", 1}}
-	for i, w := range want {
-		e := rec.events[i].data.(protocol.Envelope)
-		if e.SessionID != w.session || e.Seq != w.seq {
-			t.Errorf("event %d: sessionId=%q seq=%d, want %q/%d", i, e.SessionID, e.Seq, w.session, w.seq)
+	for i, ev := range rec.events {
+		e, ok := ev.data.(protocol.Envelope)
+		if !ok {
+			t.Fatalf("event %d: data type = %T, want protocol.Envelope", i, ev.data)
+		}
+		if e.SessionID != "" {
+			t.Errorf("event %d: sessionId = %q, want empty (process scope)", i, e.SessionID)
+		}
+		if e.Seq != uint64(i+1) {
+			t.Errorf("event %d: seq = %d, want %d", i, e.Seq, i+1)
 		}
 		if e.TS == "" || e.Event == "" {
 			t.Errorf("event %d: missing ts or event name: %+v", i, e)
@@ -43,7 +43,6 @@ func TestEnvelopeSinkSequencesPerSession(t *testing.T) {
 func TestEnvelopeSinkConcurrentSeqGapless(t *testing.T) {
 	rec := &recordingSink{}
 	env := newEnvelopeSink(rec)
-	env.SetSession("sess_conc")
 
 	const emitters = 8
 	const perEmitter = 50
@@ -53,7 +52,7 @@ func TestEnvelopeSinkConcurrentSeqGapless(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < perEmitter; j++ {
-				env.Emit(EventAssistantDelta, AssistantDelta{Text: "d"})
+				env.Emit(EventPassportChanged, PassportStatus{})
 			}
 		}()
 	}

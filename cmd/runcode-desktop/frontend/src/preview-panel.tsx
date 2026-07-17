@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Markdown } from './markdown'
-import { readArtifact, readArtifactBytes, openExternal, resolveArtifactPath, copyText, reviewEdit, type EditDiff } from './bridge'
+import { readArtifact, readArtifactBytes, openExternal, resolveArtifactPath, copyText, reviewEdit, errText, type EditDiff } from './bridge'
 import { Icon } from './icons'
 import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, fileColor, filterFiles, buildFileTree, type FileNode } from './preview'
 import { type PreviewTab, tabKey } from './preview-tabs'
@@ -62,7 +62,7 @@ function ImperativeDocView({ relPath, reloadKey, load, busyHint }: {
         if (!cancelled) setState('ready')
       } catch (e) {
         if (!cancelled) {
-          setErr(String(e))
+          setErr(errText(e))
           setState('error')
         }
       }
@@ -105,7 +105,7 @@ function XlsxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }
         const out = wb.SheetNames.map((name) => ({ name, html: XLSX.utils.sheet_to_html(wb.Sheets[name]) }))
         if (!cancelled) setSheets(out.length ? out : [{ name: 'Sheet1', html: '<em>空表</em>' }])
       } catch (e) {
-        if (!cancelled) setErr(String(e))
+        if (!cancelled) setErr(errText(e))
       }
     })()
     return () => { cancelled = true }
@@ -177,7 +177,7 @@ function PptxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }
         setState('ready')
       } catch (e) {
         if (!cancelled) {
-          setErr(String(e))
+          setErr(errText(e))
           setState('error')
         }
       }
@@ -263,7 +263,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
     setErr('')
     readArtifact(relPath)
       .then((t) => { if (!ignore) setText(t) })
-      .catch((e) => { if (!ignore) setErr(String(e)) })
+      .catch((e) => { if (!ignore) setErr(errText(e)) })
     return () => { ignore = true }
   }, [relPath, kind, bust, textual])
 
@@ -324,7 +324,7 @@ function DiffPanel({ snapshotId, relPath, onClose }: { snapshotId: string; relPa
     setErr('')
     reviewEdit(snapshotId)
       .then((d) => { if (!ignore) setDiff(d) })
-      .catch((e) => { if (!ignore) setErr(String(e)) })
+      .catch((e) => { if (!ignore) setErr(errText(e)) })
     return () => { ignore = true }
   }, [snapshotId])
   return (

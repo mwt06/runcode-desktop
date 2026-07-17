@@ -8,12 +8,21 @@ import (
 	"github.com/wt68/runcode/engine/permissions"
 )
 
-// emitHarmAutoAllow forwards a harm-gate audit event to the frontend, so the user
-// can review what judge ("smart") mode auto-allowed (or when its breaker tripped)
-// without a prompt. It runs on the authorization goroutine, which may be parallel;
-// the sink is concurrency-safe.
-func (a *App) emitHarmAutoAllow(e permissions.HarmAuditEvent) {
-	a.sink.Emit(EventHarmAutoAllow, HarmAutoAllow{
+// harmAuditFunc builds the harm-gate audit sink configureSession installs: it
+// forwards each audit event to the session's envelope emitter as an
+// EventHarmAutoAllow, so the user can review what judge ("smart") mode
+// auto-allowed (or when its breaker tripped) without a prompt. The audit runs
+// on the authorization goroutine, which may be parallel; the emitter is
+// concurrency-safe.
+func harmAuditFunc(emit func(event string, payload any)) func(permissions.HarmAuditEvent) {
+	return func(e permissions.HarmAuditEvent) {
+		emit(EventHarmAutoAllow, harmAutoAllowDTO(e))
+	}
+}
+
+// harmAutoAllowDTO maps a harm-gate audit event to its sanitized wire payload.
+func harmAutoAllowDTO(e permissions.HarmAuditEvent) HarmAutoAllow {
+	return HarmAutoAllow{
 		Tool:      e.ToolName,
 		ToolUseID: e.ToolUseID,
 		Operation: string(e.Operation),
@@ -21,7 +30,7 @@ func (a *App) emitHarmAutoAllow(e permissions.HarmAuditEvent) {
 		Reason:    e.Reason,
 		Outcome:   string(e.Outcome),
 		Count:     e.AutoAllowCount,
-	})
+	}
 }
 
 // modelHarmJudge implements permissions.HarmJudge by asking the active session's
@@ -35,10 +44,8 @@ type modelHarmJudge struct {
 // A missing session or model error is returned as an error so the authorizer
 // fails safe (falls through to prompting the user).
 func (j modelHarmJudge) Assess(ctx context.Context, action permissions.Action) (permissions.HarmVerdict, error) {
-	j.app.mu.Lock()
-	session := j.app.session
-	j.app.mu.Unlock()
-	if session == nil {
+	session, err := j.app.engineSession()
+	if err != nil {
 		return permissions.HarmVerdict{}, errNoSession
 	}
 	facts, untrusted := describeAction(action)

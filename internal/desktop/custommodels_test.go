@@ -1,6 +1,11 @@
 package desktop
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/wt68/runcode/pkg/protocol"
+)
 
 func TestCustomModelsCRUDRoundTrip(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir()) // 隔离 desktop.json（Windows: os.UserConfigDir 读 APPDATA）
@@ -79,11 +84,16 @@ func TestSwitchModelGuards(t *testing.T) {
 	if _, err := app.SwitchModel("platform", "   "); err == nil {
 		t.Fatal("want error for empty model name")
 	}
-	// 无会话：任何切换都应返回 errNoSession。
-	if _, err := app.SwitchModel("platform", "glm-4.6"); err != errNoSession {
-		t.Fatalf("SwitchModel without session = %v, want errNoSession", err)
+	// 无会话：任何切换都应返回 no_session 结构化错误（wireError 包装 errNoSession）。
+	wantNoSession := func(err error, what string) {
+		t.Helper()
+		var pe *protocol.Error
+		if !errors.As(err, &pe) || pe.Code != protocol.ErrCodeNoSession {
+			t.Fatalf("%s = %v, want protocol error with code %q", what, err, protocol.ErrCodeNoSession)
+		}
 	}
-	if _, err := app.SwitchModel("custom", "本地 Ollama"); err != errNoSession {
-		t.Fatalf("SwitchModel custom without session = %v, want errNoSession", err)
-	}
+	_, err := app.SwitchModel("platform", "glm-4.6")
+	wantNoSession(err, "SwitchModel without session")
+	_, err = app.SwitchModel("custom", "本地 Ollama")
+	wantNoSession(err, "SwitchModel custom without session")
 }

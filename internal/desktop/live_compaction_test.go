@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/engine/llm"
+	"github.com/wt68/runcode/pkg/protocol"
 )
 
 // preserveDesktopConfig snapshots the real desktop.json and restores it after the
@@ -61,20 +62,26 @@ func TestReopenCarriesConfiguredContextBudget(t *testing.T) {
 
 // waitForTurns blocks until the sink has recorded at least n EventTurnEnd events
 // (or an EventTurnError), returning the collected TurnEnd payloads in order.
+// Session events arrive envelope-wrapped (the host's emitter), so the payload
+// sits inside the protocol.Envelope.
 func waitForTurns(t *testing.T, sink *recordingSink, n int, deadline time.Time) []TurnEnd {
 	t.Helper()
 	for {
 		var ends []TurnEnd
 		sink.mu.Lock()
 		for _, ev := range sink.events {
+			env, ok := ev.data.(protocol.Envelope)
+			if !ok {
+				continue
+			}
 			switch ev.name {
 			case EventTurnEnd:
-				if te, ok := ev.data.(TurnEnd); ok {
+				if te, ok := env.Payload.(TurnEnd); ok {
 					ends = append(ends, te)
 				}
 			case EventTurnError:
 				sink.mu.Unlock()
-				t.Fatalf("turn errored: %+v", ev.data)
+				t.Fatalf("turn errored: %+v", env.Payload)
 			}
 		}
 		sink.mu.Unlock()
@@ -158,7 +165,11 @@ func TestLiveDesktopAutoCompaction(t *testing.T) {
 
 	// Auto-compaction: the working history should now begin with / contain a summary
 	// message condensing the earliest turns.
-	history := app.session.History()
+	session, err := app.engineSession()
+	if err != nil {
+		t.Fatalf("engineSession: %v", err)
+	}
+	history := session.History()
 	if !hasSummaryMessage(history) {
 		t.Fatalf("expected a compaction summary in history after %d turns, found none (len=%d)", turns, len(history))
 	}

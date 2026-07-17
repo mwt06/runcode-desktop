@@ -48,6 +48,7 @@ import {
   type ToolEvent,
   type PlanSnapshot,
   type PlanItem,
+  errText,
 } from './bridge'
 import {
   finalizeStreaming,
@@ -407,7 +408,7 @@ export default function App() {
       setRevertedEdits((s) => new Set(s).add(snapshotId))
       listFiles().then((f) => setFiles(f ?? [])).catch(() => {})
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: '撤销失败：' + String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'warning', id: nextID(), text: '撤销失败：' + errText(e) }])
     }
   }
   const resolveWsFile = useMemo(() => {
@@ -856,7 +857,7 @@ export default function App() {
       setInfo(i)
       setStarted(true)
     } catch (e) {
-      setStartError(String(e))
+      setStartError(errText(e))
     } finally {
       setStarting(false)
     }
@@ -871,7 +872,7 @@ export default function App() {
       else await sendMessage(text)
     } catch (e) {
       setBusy(false)
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
   async function handleSend() {
@@ -888,7 +889,7 @@ export default function App() {
       const i = await setPlanMode(!info.planMode)
       if (i?.model) setInfo(i)
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
   async function chooseReasoning(scenario: string) {
@@ -898,7 +899,7 @@ export default function App() {
       const i = await setReasoningScenario(scenario)
       if (i?.model) setInfo(i)
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
   async function chooseThinking(effort: string) {
@@ -908,7 +909,7 @@ export default function App() {
       const i = await setThinkingEffort(effort)
       if (i?.model) setInfo(i)
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
   // doCompact forces a summary-compaction of the in-memory history now. The on-disk
@@ -924,7 +925,7 @@ export default function App() {
           : '暂无可压缩内容（最近对话已很精简）'
       setBlocks((prev) => [...prev, { kind: 'notice', id: nextID(), text: msg }])
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     } finally {
       setCompacting(false)
     }
@@ -940,7 +941,7 @@ export default function App() {
       if (i?.model) setInfo(i)
       else setInfo((prev) => (prev ? { ...prev, permissionMode: mode, planMode: false } : prev))
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
       return
     }
     await send('计划已确认，请按上述方案开始执行。')
@@ -988,7 +989,7 @@ export default function App() {
       await setPermissionMode(mode)
       setInfo({ ...info, permissionMode: mode })
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
   // clearPlan resets the progress pill when the conversation context is replaced
@@ -1009,7 +1010,7 @@ export default function App() {
       setElapsed(0)
       refreshRecents()
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
   // Pick a different folder and open a fresh session there (a new workspace).
@@ -1029,7 +1030,7 @@ export default function App() {
       refreshRecents()
     } catch (e) {
       setView('chat')
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
 
@@ -1087,7 +1088,7 @@ export default function App() {
       setElapsed(0)
       refreshRecents()
     } catch (e) {
-      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: String(e) }])
+      setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
 

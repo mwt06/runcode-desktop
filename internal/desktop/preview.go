@@ -28,21 +28,21 @@ func (a *App) ReadArtifact(relPath string) (string, error) {
 	a.mu.Unlock()
 	resolved, err := resolveWithinWorkspace(ws, relPath)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
 	if info.Size() > maxArtifactBytes {
-		return "", errors.New("file too large to preview")
+		return "", wireError(errors.New("file too large to preview"))
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
 	if !utf8.Valid(data) {
-		return "", errors.New("file is not text")
+		return "", wireError(errors.New("file is not text"))
 	}
 	return string(data), nil
 }
@@ -64,21 +64,21 @@ func (a *App) ReadArtifactBytes(relPath string) (string, error) {
 	a.mu.Unlock()
 	resolved, err := resolveWithinWorkspace(ws, relPath)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
 	if info.IsDir() {
-		return "", errors.New("path is a directory")
+		return "", wireError(errors.New("path is a directory"))
 	}
 	if info.Size() > maxArtifactBinaryBytes {
-		return "", fmt.Errorf("file too large to preview (%d MiB max)", maxArtifactBinaryBytes>>20)
+		return "", wireError(fmt.Errorf("file too large to preview (%d MiB max)", maxArtifactBinaryBytes>>20))
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		return "", err
+		return "", wireError(err)
 	}
 	return base64.StdEncoding.EncodeToString(data), nil
 }

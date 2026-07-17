@@ -23,7 +23,7 @@ func (a *App) ReadProjectContext() (ProjectContextInfo, error) {
 	}
 	res, err := projectctx.Load(projectctx.LoadOptions{CWD: ws, MaxBytes: maxDocBytes})
 	if err != nil {
-		return ProjectContextInfo{}, err
+		return ProjectContextInfo{}, wireError(err)
 	}
 	if res.Path == "" {
 		return ProjectContextInfo{Path: filepath.Join(ws, "CLAUDE.md"), Name: "CLAUDE.md"}, nil
@@ -40,9 +40,9 @@ func (a *App) SaveProjectContext(content string) error {
 		return err
 	}
 	if info.Path == "" {
-		return errors.New("没有活动工作区")
+		return wireError(errors.New("没有活动工作区"))
 	}
-	return os.WriteFile(info.Path, []byte(content), 0o644)
+	return wireError(os.WriteFile(info.Path, []byte(content), 0o644))
 }
 
 // ReadMemory returns the agent's persistent memory (user + project scopes) for
@@ -51,7 +51,7 @@ func (a *App) ReadMemory() (MemoryInfo, error) {
 	dir, _ := os.UserConfigDir()
 	loaded, err := engine.MemoryStore(a.workspaceDir(), dir).Load()
 	if err != nil {
-		return MemoryInfo{}, err
+		return MemoryInfo{}, wireError(err)
 	}
 	// Return non-nil slices so the JSON is [] rather than null — the frontend renders
 	// a list from these directly.

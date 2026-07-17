@@ -102,6 +102,14 @@ type Options struct {
 	// permissions.Service wired to sctx.Approver, ...). It runs outside every
 	// host lock and must not retain cfg/opts past its return.
 	Configure func(sctx SessionContext, cfg *engine.Config, opts *engine.Options)
+	// OnTurnEnd, when set, is called synchronously on the turn goroutine right
+	// after the turn:end envelope has been emitted, with the session's context
+	// and the raw turn result. It fires only for completed turns (turn:error
+	// does not trigger it). The turn slot is already released when it runs, so
+	// a new turn may start concurrently; shells chain post-turn work here
+	// (e.g. title generation). It must not block for long — anything slow
+	// belongs on a goroutine the callback spawns itself.
+	OnTurnEnd func(sctx SessionContext, r turn.Result)
 }
 
 // SessionContext hands the shell the per-session wiring it may need inside

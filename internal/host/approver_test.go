@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -167,5 +168,127 @@ func TestApprovalRoutingIsolation(t *testing.T) {
 	}
 	if got := sink.count(protocol.EventPermissionRequest, "appr-2"); got != 2 {
 		t.Fatalf("appr-2 permission requests = %d, want 2", got)
+	}
+}
+
+// --- AsyncApprover unit tests (migrated from internal/desktop's Approver when
+// the desktop was rebased onto this package) --------------------------------
+
+// discardEmit is an emit sink for approver unit tests that don't assert events.
+func discardEmit(string, any) {}
+
+// A cancelled prompt context denies the action and unblocks the goroutine.
+func TestApproverContextCancelDenies(t *testing.T) {
+	t.Parallel()
+	a := NewAsyncApprover(discardEmit, "")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan permissions.ApprovalResponse, 1)
+	go func() {
+		resp, _ := a.Prompt(ctx, permissions.ApprovalRequest{})
+		done <- resp
+	}()
+	// Give the goroutine time to register before cancelling.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case resp := <-done:
+		if resp.Effect != permissions.EffectDeny {
+			t.Fatalf("response = %+v, want deny on cancel", resp)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt did not return after cancel")
+	}
+}
+
+// DenyAll unblocks every pending prompt with a deny (bulk teardown must never
+// leak a blocked executor goroutine).
+func TestApproverDenyAllUnblocksPending(t *testing.T) {
+	t.Parallel()
+	a := NewAsyncApprover(discardEmit, "")
+
+	const n = 5
+	done := make(chan permissions.ApprovalResponse, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			resp, _ := a.Prompt(context.Background(), permissions.ApprovalRequest{})
+			done <- resp
+		}()
+	}
+	// Wait until all are registered as pending.
+	deadline := time.After(2 * time.Second)
+	for a.Pending() != n {
+		select {
+		case <-deadline:
+			t.Fatalf("only %d of %d prompts registered", a.Pending(), n)
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	a.DenyAll()
+	for i := 0; i < n; i++ {
+		select {
+		case resp := <-done:
+			if resp.Effect != permissions.EffectDeny {
+				t.Fatalf("response = %+v, want deny", resp)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("a pending prompt was not unblocked by DenyAll")
+		}
+	}
+}
+
+// Resolving an unknown (or already-resolved) request id is an error.
+func TestApproverResolveUnknownID(t *testing.T) {
+	t.Parallel()
+	a := NewAsyncApprover(discardEmit, "")
+	if err := a.Resolve("perm-999", "allow-once"); err == nil {
+		t.Fatal("want error resolving an unknown request id")
+	}
+}
+
+// decisionToResponse maps every allow variant to its scope and everything else
+// (including gibberish) to deny, so an unexpected value can never widen access.
+func TestDecisionToResponse(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		effect permissions.Effect
+		scope  permissions.ApprovalScope
+	}{
+		"allow-once":    {permissions.EffectAllow, permissions.ApprovalScopeOnce},
+		"allow-session": {permissions.EffectAllow, permissions.ApprovalScopeSession},
+		"allow-project": {permissions.EffectAllow, permissions.ApprovalScopeProject},
+		"deny":          {permissions.EffectDeny, ""},
+		"gibberish":     {permissions.EffectDeny, ""},
+	}
+	for decision, want := range cases {
+		resp := decisionToResponse(decision)
+		if resp.Effect != want.effect || resp.Scope != want.scope {
+			t.Errorf("decision %q -> %+v, want effect=%s scope=%s", decision, resp, want.effect, want.scope)
+		}
+	}
+}
+
+// relativeTargets keeps only workspace-contained paths (deduplicated) so a
+// prompt never leaks an out-of-workspace path label.
+func TestRelativeTargetsDropsEscapes(t *testing.T) {
+	t.Parallel()
+	mustAbs := func(p string) string {
+		t.Helper()
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			t.Fatalf("abs %q: %v", p, err)
+		}
+		return abs
+	}
+	ws := mustAbs("work")
+	a := NewAsyncApprover(discardEmit, ws)
+	inside := mustAbs("work/sub/file.go")
+	outside := mustAbs("other/secret.txt")
+
+	got := a.relativeTargets([]string{inside, outside, inside})
+	if len(got) != 1 || got[0] != "sub/file.go" {
+		t.Fatalf("targets = %v, want only the in-workspace path once", got)
 	}
 }

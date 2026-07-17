@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/wt68/runcode/pkg/protocol"
 )
 
 // TestLiveDesktopEmitsThinking drives a full turn through the real App (engine +
@@ -66,7 +68,11 @@ func TestLiveDesktopEmitsThinking(t *testing.T) {
 	var thinkingChars, deltaChars int
 	sink.mu.Lock()
 	for _, ev := range sink.events {
-		if d, ok := ev.data.(AssistantDelta); ok {
+		env, ok := ev.data.(protocol.Envelope)
+		if !ok {
+			continue
+		}
+		if d, ok := env.Payload.(AssistantDelta); ok {
 			switch ev.name {
 			case EventAssistantThinking:
 				thinkingChars += len(d.Text)

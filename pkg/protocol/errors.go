@@ -1,5 +1,7 @@
 package protocol
 
+import "encoding/json"
+
 // Error codes. Clients switch on Code; Message is human-readable and may be
 // localized by the host.
 const (
@@ -31,5 +33,16 @@ type Error struct {
 	Details map[string]string `json:"details,omitempty"`
 }
 
-// Error implements the error interface.
-func (e Error) Error() string { return e.Message }
+// Error implements the error interface. It deliberately returns the JSON
+// serialization of the whole value, not just Message: string-only transports
+// (Wails serializes a rejected command's error via Error()) then still deliver
+// the structured {code, message} to the client, which parses the JSON and — per
+// the contract above — wraps anything unparseable as an ErrCodeInternal Error.
+// Code that needs the bare human-readable text must read .Message, never Error().
+func (e Error) Error() string {
+	b, err := json.Marshal(e)
+	if err != nil {
+		return e.Message
+	}
+	return string(b)
+}

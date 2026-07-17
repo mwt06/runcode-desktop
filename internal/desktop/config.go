@@ -99,6 +99,11 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 	cfg.MCPServers, cfg.AllowMCPSampling = loadDesktopMCP(abs)
 	// Tools / sub-agents / skills the user turned off (user-global ∪ this workspace).
 	cfg.DisabledTools, cfg.DisabledAgents, cfg.DisabledSkills = effectiveDisabled(abs)
+	// The web-tool proxy is a backend-owned setting (SetWebProxy persists it to
+	// desktop.json); inject it per session instead of publishing a process-wide
+	// environment variable, so concurrent sessions can differ and nothing
+	// leaks into the model/passport clients.
+	cfg.WebProxy = loadRawConfig().WebProxy
 	return cfg, nil
 }
 
