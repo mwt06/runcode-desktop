@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/wt68/runcode/engine/llm"
 	"github.com/wt68/runcode/engine/sessions"
@@ -157,6 +158,12 @@ func testListDescribeLatest(t *testing.T, open Factory) {
 	first := openStore(t, b, "sess_first")
 	mustAppend(t, first, userMsg("hello from first"), assistantMsg("reply"))
 	first.Close(ctx)
+
+	// Recency ordering is what this check asserts, so the two sessions must
+	// carry distinguishable timestamps. File-backed implementations order by
+	// mtime, whose granularity can swallow back-to-back writes (observed on
+	// NTFS); give the clock a real tick between them.
+	time.Sleep(20 * time.Millisecond)
 
 	second := openStore(t, b, "sess_second")
 	mustAppend(t, second, userMsg("hello from second"), assistantMsg("reply"))
