@@ -161,6 +161,70 @@ tokens := sess.EstimateContextTokens() // 恢复态的上下文占用估算
 - **多会话**：一个进程可并发持有任意多个 Session（下层已按会话隔离）。同仓宿主直接用 `internal/host.Manager`——会话表、每会话事件信封（sessionId/seq/ts）、审批路由、同 workspace 后端句柄池、全局配额（`MaxConcurrentTurns`/`MaxGlobalSubagents`/`MaxGlobalBackgroundShells`）、空闲回收，全部现成。
 - 跨会话配额也可不经 host 直接注入：`Options.SubagentLimiter`、`Options.ShellBudget`（`bash.NewBudget`）。
 
+## 换提示词
+
+系统提示由引擎装配（身份段 + 功能段：工具/技能/子代理目录 + 行为段 + 项目上下文 + 记忆），两个注入点粒度不同：
+
+```go
+cfg.SystemPrompt = "你是 XX 公司的代码助手，……"
+// 只替换「身份段」（框架的自我介绍与基调）；工具/技能/子代理目录与行为约定
+// 仍会跟在后面——工具调用照常工作。这是换人设的正确姿势。
+
+cfg.SystemPromptAppend = "回答一律使用中文。禁止修改 deploy/ 目录。"
+// 追加为最后一个静态段——最常见的「加几条规矩」场景，与默认人设叠加。
+```
+
+- 想按会话/按租户换：服务端每次 `Build` 传不同的 Config 即可（Config 是每会话的）。
+- 项目级上下文走工作区文件：`<CWD>/RUNCODE.md` 或 `CLAUDE.md`（向上查找，64 KiB 上限）自动注入——服务端给每会话准备好 workspace 即完成注入。
+- **子代理**的提示词是数据不是代码：`<CWD>/.runcode/agents/<name>.md`（frontmatter：name/description/tools/model + 正文即提示词），用户级放 `os.UserConfigDir()/runcode/agents/`；`sess.ReloadAgents()` 热生效。技能同理（`.runcode/skills/`，`ReloadSkills()`）。
+
+## 加工具
+
+三条路径，按场景选：
+
+**1. 进程内自定义工具**——实现 `tool.Tool`，经 `Options.ExtraTools` 注入（追加在子代理快照**之后**，子代理拿不到它；桌面的 open_preview 就是这么加的）：
+
+```go
+type deployTool struct{}
+
+func (deployTool) Name() string        { return "Deploy" }
+func (deployTool) Description() string { return "把当前工作区部署到预发环境。仅在用户明确要求部署时调用。" }
+func (deployTool) InputSchema() tool.Schema {
+	return tool.Schema{Type: "object", Properties: map[string]tool.Schema{
+		"env": {Type: "string", Description: "目标环境：staging | prod"},
+	}, Required: []string{"env"}}
+}
+func (deployTool) IsConcurrencySafe() bool { return false } // 有副作用 → 串行
+func (deployTool) Run(ctx context.Context, input json.RawMessage, tctx *tool.Context, out chan<- tool.Event) (tool.Result, error) {
+	var in struct{ Env string `json:"env"` }
+	_ = json.Unmarshal(input, &in)
+	// tctx.WorkingDirectory 是本会话工作区；out 可流式发进度（非必需）
+	if err := deploy(ctx, tctx.WorkingDirectory, in.Env); err != nil {
+		return tool.Result{IsError: true, Content: []tool.ResultContent{{Type: "text", Text: err.Error()}}}, nil
+	}
+	return tool.Result{Content: []tool.ResultContent{{Type: "text", Text: "已部署到 " + in.Env}}}, nil
+}
+
+sess, _ := engine.Build(cfg, engine.Options{ExtraTools: []tool.Tool{deployTool{}}})
+```
+
+注意：自定义工具走权限管线（按 Name/操作分类授权），`Run` 返回的 `error` 表示基建故障，业务失败用 `Result{IsError: true}` 让模型自行纠正。
+
+**2. MCP 服务器**——外部工具进程/服务，配置即接入，工具自动并入会话（子代理也能用）：
+
+```go
+cfg.MCPServers = []mcp.ServerConfig{
+	{Name: "search", Transport: mcp.TransportStdio, Command: "npx", Args: []string{"-y", "@your/mcp-search"}},
+	{Name: "kb", Transport: mcp.TransportHTTP, URL: "https://kb.internal/mcp", Headers: map[string]string{"Authorization": "Bearer …"}},
+}
+```
+
+连接失败容忍（警告并跳过，见 `Options.Warn`）；`sess.MCPStatus()` 查健康。
+
+**3. 裁掉内置工具**——`cfg.DisabledTools = []string{"WebSearch", "Delete"}`（按 Name 过滤，子代理继承同一过滤集）。
+
+服务端沙盒执行（工具不在引擎进程里跑，转发到工具网关）是已登记的 `Options.ToolRuntime` 端口，本轮未实现——现阶段服务端加工具用上面三条 + `Config.ToolEnv`/`WebProxy` 做进程内隔离。
+
 ## 每会话隔离（多用户/服务端场景）
 
 ```go
