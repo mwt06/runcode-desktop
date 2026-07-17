@@ -16,14 +16,18 @@ SERVER="${SERVER:-http://127.0.0.1:8787}"
 AUTH=()
 [ -n "${TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
 
+# 本机代理（Clash/v2ray 的 ALL_PROXY/HTTP_PROXY）会把 loopback 请求送进代理
+# 而得到 503——对目标服务器一律直连。
+CURL=(curl --noproxy '*')
+
 say() { printf '\n== %s ==\n' "$*"; }
 
 say "GetProtocolInfo (GET，query 命令允许 GET)"
-curl -fsS "${AUTH[@]}" "$SERVER/api/v1/rpc/GetProtocolInfo"
+"${CURL[@]}" -fsS "${AUTH[@]}" "$SERVER/api/v1/rpc/GetProtocolInfo"
 echo
 
 say "StartSession"
-resp=$(curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
+resp=$("${CURL[@]}" -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
   -d '{"workspace":"smoke"}' "$SERVER/api/v1/rpc/StartSession")
 echo "$resp"
 sid=$(printf '%s' "$resp" | sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p')
@@ -32,14 +36,14 @@ echo "sessionId=$sid"
 
 say "Subscribe SSE (background curl -N)"
 events=$(mktemp)
-curl -NsS "${AUTH[@]}" "$SERVER/api/v1/sessions/$sid/events" >"$events" &
+"${CURL[@]}" -NsS "${AUTH[@]}" "$SERVER/api/v1/sessions/$sid/events" >"$events" &
 sse_pid=$!
 cleanup() { kill "$sse_pid" 2>/dev/null || true; rm -f "$events"; }
 trap cleanup EXIT
 sleep 1
 
 say "SendMessage (202：结果走 SSE)"
-curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
+"${CURL[@]}" -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
   -d "{\"sessionId\":\"$sid\",\"text\":\"用一句话介绍你自己\"}" \
   "$SERVER/api/v1/rpc/SendMessage"
 echo
@@ -54,7 +58,7 @@ done
 cat "$events"
 
 say "CloseSession"
-curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
+"${CURL[@]}" -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
   -d "{\"sessionId\":\"$sid\"}" "$SERVER/api/v1/rpc/CloseSession"
 echo
 
