@@ -1,6 +1,6 @@
 # engine 模块公开 API 与稳定性契约
 
-`github.com/wt68/runcode/engine` 是三端（CLI/TUI、桌面、未来服务端）共用的会话引擎。本文档定义其公开面、兼容规则、会话状态的可序列化边界，以及服务端外壳的预留设计。配套阅读：[docs/architecture.md](./architecture.md)（模块边界）、[docs/protocol.md](./protocol.md)（双端 wire 协议）。
+`github.com/wt68/runcode/engine` 是三端（CLI/TUI、桌面、未来服务端）共用的会话引擎。本文档定义其公开面、兼容规则、会话状态的可序列化边界，以及服务端外壳的预留设计。配套阅读：[engine/README.md](../engine/README.md)（**使用指南**：从 Build 到 RunTurn 的消费者视角）、[docs/architecture.md](./architecture.md)（模块边界）、[docs/protocol.md](./protocol.md)（双端 wire 协议）。
 
 ## 1. 公开面（协议 + 服务面）
 
