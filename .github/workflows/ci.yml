@@ -66,6 +66,11 @@ jobs:
       - name: Test (engine module)
         run: go -C engine test -race ./...
 
+      # The server skeleton's own test suite includes the dependency audit
+      # proving it only imports the engine module's public surface.
+      - name: Test (server skeleton)
+        run: go -C cmd/runcode-server test -race ./...
+
   build:
     name: Snapshot build
     runs-on: ubuntu-latest
@@ -83,6 +88,9 @@ jobs:
 
       - name: Build (engine module)
         run: go -C engine build ./...
+
+      - name: Build (server skeleton)
+        run: go -C cmd/runcode-server build ./...
 
       - name: Build
         run: go build ./cmd/runcode

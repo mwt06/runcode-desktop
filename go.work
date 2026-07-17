@@ -3,5 +3,6 @@ go 1.26
 use (
 	.
 	./cmd/runcode-desktop
+	./cmd/runcode-server
 	./engine
 )
