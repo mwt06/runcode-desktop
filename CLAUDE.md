@@ -9,25 +9,27 @@
 
 ## 构建与打包
 
-仓库含**三个 Go module**（依赖方向：外壳 → 根模块 → engine，反向即错误）：
+引擎已独立成仓：**`gitlab.ouc-online.com.cn/aibase/agentloop`**，以同级 checkout `../agentloop` 存在，经各 go.mod 的 `replace` 指向。改引擎（ReAct 循环、工具、权限、provider、持久化等）去 agentloop 仓库；本仓库只改外壳。
 
-1. **`engine/`（嵌套 module，`github.com/wt68/runcode/engine`）**——传输无关的会话引擎，是三端（CLI/TUI、桌面、未来服务端）共用的公共引用。公开包＝协议+服务面（llm/tool/turn/permissions/mcp/sessions/tools/...）；`engine/internal/` 收 ReAct 循环等内核，对模块外（含同仓兄弟模块）不可见。**engine 永不依赖根模块，也永不引入 Redis/网关等远程基础设施依赖**（端口在引擎、实现在外壳）。
-2. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`pkg/command`）+ 桌面核心（`internal/desktop`）+ `tools/preview`。
-3. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
+本仓库含**三个 Go module**（依赖方向：外壳 → agentloop，反向不存在）：
 
-`go.work` 已提交供本地三模块联动；**CI/发布链路一律 `GOWORK=off`**，go.mod 的 replace 链是权威（根与 desktop 各自 replace 指向 `./engine`，replace 不跨模块传递）。
+1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`pkg/command`）+ 桌面核心（`internal/desktop`）+ `tools/preview`、`tools/protogen`。
+2. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
+3. **服务端骨架（`cmd/runcode-server`，嵌套 module）**——独立仓库服务端的可跑参考实现。
+
+`go.work` 已提交（use：`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`）供本地联动；**CI/发布链路一律 `GOWORK=off`**，go.mod 的 replace 链是权威（三个 go.mod 各自 replace 指向 `../agentloop`；CI 目前尚未解决内网 agentloop 的拉取，见 `.github/workflows/ci.yml` 顶部 TODO）。
 
 ### 常用命令（根目录执行）
 
-- 全量编译：`go build ./... ; go -C engine build ./... ; go -C cmd/runcode-desktop build ./...`（或 `make build`）。
-- 测试（CI 用 `-race`，三平台）：`go test -race ./... ; go -C engine test -race ./...`（或 `make test`）。
-- Lint：根与 engine 分别 `golangci-lint run`（或 `make lint`；配置共用根 `.golangci.yml`，启用 gosec/errcheck/gocritic）。
-- **依赖方向审计**（必须空输出，CI 强制）：`go -C engine list -deps ./... | grep 'wt68/runcode' | grep -v 'wt68/runcode/engine'`（或 `make audit`）。
+- 全量编译：`go build ./... ; go -C cmd/runcode-server build ./... ; go -C cmd/runcode-desktop build ./...`（或 `make build`）。
+- 测试（CI 用 `-race`，三平台）：`go test -race ./... ; go -C cmd/runcode-server test -race ./...`（或 `make test`）。
+- Lint：`golangci-lint run`（或 `make lint`；配置根 `.golangci.yml`，启用 gosec/errcheck/gocritic）。
+- 协议 TS 再生成（引擎 protocol 变更后）：`go run ./tools/protogen`；CI 用 `--check` 防漂移。
 - 出 CLI 二进制：`go build -o runcode.exe ./cmd/runcode`。
 
 ### 桌面版（Wails，`cmd/runcode-desktop`）
 
-- 桌面是**嵌套 Go module**（`cmd/runcode-desktop/go.mod`），用 `replace github.com/wt68/runcode => ../..` 指回核心，把 Wails/CGO/WebView 重依赖隔离在核心之外；核心的 `go build ./...` 与 CI 不会拉 Wails。模块路径仍在 `github.com/wt68/runcode/...` 下，故可复用核心的 `internal/` 包。
+- 桌面是**嵌套 Go module**（`cmd/runcode-desktop/go.mod`），用 `replace github.com/wt68/runcode => ../..` 指回核心、`replace ...agentloop => ../../../agentloop` 指向引擎，把 Wails/CGO/WebView 重依赖隔离在核心之外；核心的 `go build ./...` 与 CI 不会拉 Wails。模块路径仍在 `github.com/wt68/runcode/...` 下，故可复用核心的 `internal/` 包。
 - **正式打包**（产出可发布 exe，需已装 `wails` CLI，本机验证 v2.12.0；会跑 `npm install` + `npm run build` 重建前端）：
   ```bash
   cd cmd/runcode-desktop && wails build
