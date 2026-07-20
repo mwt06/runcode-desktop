@@ -1,24 +1,30 @@
 # runcode（奔跑的代码）
 
-> 一个用 Go 实现的开源终端 AI 编程伴侣。
+> 一个用 Go 实现的开源 AI 编程伴侣。
 > English: see [README.md](./README.md)。
 
 [![CI](https://github.com/wt68/runcode/actions/workflows/ci.yml/badge.svg)](https://github.com/wt68/runcode/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **状态：alpha。** 一个引擎、三个前端：shell 友好的 `chat` 命令、Bubble Tea `tui`，以及 Wails 桌面应用（**XRUN**，见 [docs/desktop.md](./docs/desktop.md)）。引擎内置 14 个工具，另有 MCP / skills / 子代理 / 记忆 / hooks、safe/interactive 权限（桌面版另有带模型判害门的 judge/flight 模式）、完整会话持久化与恢复、上下文压缩。
+> **状态：alpha。** 本仓库是同一引擎的**外壳**集合：shell 友好的 `chat` CLI、Bubble Tea `tui`、Wails 桌面应用（**XRUN**，见 [docs/desktop.md](./docs/desktop.md)），以及服务端骨架（`cmd/runcode-server`）。引擎本体——ReAct 循环、14 个内置工具、MCP / skills / 子代理 / 记忆 / hooks、带模型判害门的权限模式、会话持久化与上下文压缩——在独立仓库：**`gitlab.ouc-online.com.cn/aibase/agentloop`**。
 
 ## runcode 是什么？
 
-`runcode` 是一个面向终端的 Go 版 AI 编程伴侣。当前版本刻意保持小范围：通过 `runcode chat` 调用 Anthropic provider，暴露一组受限本地工具，并在文件修改和命令执行前经过内部权限层。
+`runcode` 是一个 Go 版 AI 编程伴侣。本仓库只含面向用户的前端；传输无关的会话引擎是外部 `agentloop` module，经各 `go.mod` 的 `replace` 指向同级 checkout。长期方向参考 Anthropic Claude Code 的核心思想，但全部代码为原创 Go 实现。
 
-长期方向参考 Anthropic Claude Code 的核心思想，但本仓库是原创 Go 实现。同一个引擎经共享的 `internal/engine` 门面同时驱动 Bubble Tea TUI（仍是 MVP）和完整的桌面应用（`cmd/runcode-desktop`，产品名 XRUN）。
+- **CLI**（`runcode chat`）：流式输出到 stdout，shell 友好。
+- **TUI**（`runcode tui`）：Bubble Tea 界面——流式 Markdown、工具卡片、权限弹窗、slash 命令。
+- **桌面**（**XRUN**，`cmd/runcode-desktop`）：完整的 Wails + React 应用，带 judge/flight 权限模式、子代理卡片、产物预览。
+- **服务端骨架**（`cmd/runcode-server`）：只依赖引擎公开面的可跑 HTTP/SSE 参考实现——独立服务端仓库的模板。
 
 ## 快速开始
 
+引擎仓库必须与本仓库**同级**（各 `go.mod` 有 `replace … => ../agentloop`）：
+
 ```bash
 git clone https://github.com/wt68/runcode.git
+git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # 同级 checkout，目录名与位置固定
 cd runcode
 go build ./cmd/runcode
 ./runcode version
@@ -30,281 +36,80 @@ go build ./cmd/runcode
 ## 当前 CLI
 
 ```bash
-ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_MODEL=claude-sonnet-5 \
 ANTHROPIC_API_KEY=... \
-./runcode chat "summarize this repository"
+./runcode chat "总结这个仓库"
 
-ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_MODEL=claude-sonnet-5 \
 ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` 会把 assistant text delta 实时写到 stdout。`runcode tui` 会启动一个最小 Bubble Tea 界面，包含 Claude Code 风格底部状态区、累计上下文 token 与思考模式指示、可滚动对话 viewport、上下分隔线包裹的多行输入（Enter 发送；`alt+enter`/`ctrl+j` 换行；↑/↓ 翻阅已提交输入的历史，或在多行草稿内移动光标）、assistant 流式 Markdown 渲染、带安全文件摘要的树状工具进度卡片，以及 slash 命令（`/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`），输入 `/` 会弹出可过滤的命令菜单。使用 `--permission-mode interactive` 时，TUI 会弹出权限审批弹窗，提供「允许一次 / 本会话允许 / 拒绝」三个选项；选择「本会话允许」后，本会话内等价操作不再重复询问。工具卡片会展示脱敏的输出摘要（Bash stdout/stderr、Grep 匹配行、Read 预览）以及 Edit/Write 的完整行级 diff，可用 `ctrl+o` 展开。
+七个子命令：`version`、`chat`（`--loop` 多轮）、`tui`（`--pick` 打开会话选择器）、`config`（打印生效配置与来源，凭证脱敏）、`permissions`、`sessions`（`list`/`show`）、`transcript`（`list`/`search`）。
 
-常用参数和环境变量：
+主要 flag 与环境变量（`chat`/`tui` 共用）：
 
-- `--provider` / `RUNCODE_PROVIDER`：`anthropic` 或 `openai`（后者同时支持各类 OpenAI 兼容端点，如 vLLM/Ollama/llama.cpp/网关；`--base-url` 指向提供 `/chat/completions` 的 API 根路径，本地无鉴权端点可不填凭证）。
-- `--model` / `ANTHROPIC_MODEL`：必须通过 flag 或环境变量提供。
-- `--api-key` / `ANTHROPIC_API_KEY`，或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`。
-- `--base-url` / `ANTHROPIC_BASE_URL`。
-- `--max-retries` / `RUNCODE_MAX_RETRIES`：provider 瞬时失败重试次数（0 = 默认，负数 = 禁用）。
-- `--input-price` / `--output-price`（`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`）：每百万 token 单价，用于 TUI `/cost` 估算。未设置时按 model 名从内置定价表查找（Claude 4.x 家族与常见 OpenAI 模型）；显式单价始终优先，未知 model（如自托管端点）保持不计价。内置单价为近似值——需精确账单请显式设置。
-- `--cwd` / `RUNCODE_CWD`：工具工作目录。
-- `--loop`：在 stdin 多轮输入中复用同一个内存 session；可用 `/clear` 清空该内存 history。
-- `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`：限制每轮发送给 provider 的内存 history 消息数（`0` 表示不限制，为默认值）。裁剪会完整保留当前 turn，绝不拆散 `tool_use`/`tool_result` 配对，也不影响 transcript 文件。
-- `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`。
-- `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`。
-- `--transcript off|jsonl|sqlite` / `RUNCODE_TRANSCRIPT`：可选记录脱敏 transcript——`jsonl` 按会话写文件到 `<workspace>/.runcode/transcripts/`，`sqlite` 写入可检索的 `<workspace>/.runcode/transcripts.db`（用 `runcode transcript list` / `search <query>` 浏览）。
-- `--session-id` / `RUNCODE_SESSION_ID`：开启 transcript 时指定 transcript 文件名。
+- `--provider` / `RUNCODE_PROVIDER`：`anthropic` 或 `openai`（后者兼容 vLLM/Ollama/llama.cpp/网关等 OpenAI 风格端点；`--base-url` 指向提供 `/chat/completions` 的 API 根）。
+- `--model` / `ANTHROPIC_MODEL`；`--api-key` / `ANTHROPIC_API_KEY` 或 `--auth-token` / `ANTHROPIC_AUTH_TOKEN`；`--base-url` / `ANTHROPIC_BASE_URL`。
+- `--cwd` / `RUNCODE_CWD`：工具的工作区。
+- `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`（桌面版另有 `judge`/`flight`）。
+- `--thinking off|low|medium|high` / `RUNCODE_THINKING`。
+- `--resume <id>` / `--continue` / `--no-session`；`--session-backend jsonl|sqlite` / `RUNCODE_SESSION_BACKEND`。
+- `--transcript off|jsonl|sqlite` / `RUNCODE_TRANSCRIPT`；`--telemetry off|jsonl` / `RUNCODE_TELEMETRY`。
+- `--max-history-messages`、`--max-context-tokens`（压缩预算）、`--max-retries`、`--input-price` / `--output-price`（供 `/cost`）、`--allow-mcp-sampling`。
+- `--system-prompt` / `--append-system-prompt`。
 
-### 配置文件
+TUI slash 命令：`/help`、`/clear`、`/compact`、`/status`、`/mode`、`/model`、`/cost`、`/exit`，另合并用户/项目 `commands/` 目录发现的自定义 `*.md` 命令。
 
-runcode 还支持 TOML 配置文件，优先级为 **flag > 环境变量 > 项目配置 > 用户配置 > 默认**：
+## 功能（引擎）
 
-- 项目级：`runcode.toml`，从工作目录向上逐级查找。
-- 用户级：`config.toml`，位于 `os.UserConfigDir()/runcode/`（Windows=`%AppData%\runcode\config.toml`，Linux=`~/.config/runcode/config.toml`，macOS=`~/Library/Application Support/runcode/config.toml`）。
+以下行为由 [agentloop](https://gitlab.ouc-online.com.cn/aibase/agentloop) 引擎提供、经每个外壳呈现；细节见彼侧 README 与 docs。
 
-支持的字段：`provider`、`model`、`base_url`、`max_tokens`、`permission_mode`、`telemetry`、`transcript`、`max_history_messages`，以及 **仅用户级文件生效** 的 `api_key` / `auth_token` 和 `[mcp.servers.*]`（见下）。项目级文件中的凭证会被忽略，避免误提交。
+- **工具**：14 个内置（Read/Write/Edit/Delete/Glob/Grep/Bash+后台 shell/TodoWrite/WebFetch/WebSearch/Analyze/AskUser），另动态追加 MCP 工具、`Skill`、`Task`（子代理）与 `Remember`（记忆）。
+- **权限**：每次工具调用先分类再授权；CLI/TUI 提供 `safe`（非交互拒绝）与 `interactive`（逐项询问），桌面版另有 `judge`（模型判害门自动放行，带确定性下限、预算熔断与审计事件）与 `flight`。授权持久化在 `<workspace>/.runcode/permissions.json`，由 `runcode permissions` 管理。
+- **MCP**：stdio 与 Streamable HTTP 两种传输，仅在**用户级** `config.toml` 配置（`[mcp.servers.<name>]`，支持 `${VAR}` 展开）；工具以 `mcp__<server>__<tool>` 呈现；支持 resources/prompts/roots，sampling 显式开启。
+- **Skills / 子代理 / 记忆 / hooks**：`SKILL.md` 目录约定 + 渐进式披露；`*.md` 代理定义经 `Task` 委托（恰一层、可并发 fan-out）；`Remember` 两 scope 持久记忆；8 个生命周期 hook 事件（仅用户级配置，argv 直执、JSON 走 stdin）。
+- **会话**：按工作区持久化全量历史（`jsonl` 或纯 Go `sqlite` 后端），resume/continue、自动标题、token 预算上下文压缩；另有脱敏可检索 transcript（FTS5）作为独立的可选记录。
+- **Provider**：Anthropic（官方 SDK）与 OpenAI 兼容 HTTP/SSE,支持 thinking 预算、图片输入、提示词缓存边界、连接期重试。
+- **配置**：TOML 文件,优先级 flag > env > 项目 `runcode.toml` > 用户 `config.toml` > 默认；凭证、MCP servers、hooks **只认**用户级文件。
 
-### MCP 服务器（Model Context Protocol）
-
-runcode 可以连接 MCP 服务器并把它们的工具暴露给模型。服务器在 **用户级** `config.toml` 的 `[mcp.servers.<name>]` 下配置——**仅用户级生效**，项目文件绝不能仅凭存在就让 runcode 启动子进程或访问端点。每个服务器通过 **stdio**（本地子进程）或 **Streamable HTTP**（远程端点）连接。字符串值支持 `${VAR}` 展开，让密钥留在环境变量而不是文件里。
-
-```toml
-# stdio：作为子进程启动的本地服务器（默认传输）
-[mcp.servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/expose"]
-env = { SOME_TOKEN = "${SOME_TOKEN}" }   # ${VAR} 从环境变量展开
-# enabled = false                         # 省略或设 true 即启用
-
-# http：通过 Streamable HTTP 的远程服务器
-[mcp.servers.docs]
-transport = "http"
-url = "https://example.com/mcp"
-headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
-```
-
-服务器的工具以 `mcp__<server>__<tool>` 暴露给模型。它们被归类为 **external** 权限操作：每次调用都需审批（safe 模式拒绝），「本会话/项目允许」按 server+tool 记忆。连接失败的服务器会作为 warning 报告并跳过，绝不中断会话。服务器名只能用字母、数字、`-`、`_`，且不含 `__`。
-
-若连接的服务器声明了 **resources** 能力,会额外暴露两个内置工具:`ListMcpResources`(列出各 server 的资源——uri、name、description,可按 server 过滤)与 `ReadMcpResource`(按 server + uri 读取资源内容)。文本直通,二进制内容以占位提示。同理,声明 **prompts** 的 server 会获得 `ListMcpPrompts` 与 `GetMcpPrompt`(按 server + name 渲染提示模板,参数为字符串映射)。与 server 工具调用一样,这四个都是 external 操作需审批;读取/获取按 server + uri/name 记忆 grant。这些工具仅在对应能力被 server 声明时出现。
-
-runcode 还提供 **roots**:向 server 声明工作区,并以工作区的 `file://` 根回应 `roots/list`(也回应 `ping`),让文件系统类 server 能得知 runcode 操作的目录。
-
-**Sampling**(server 反过来请求 runcode 用模型生成)**默认关闭**——它会消耗你的模型额度替 server 生成。用 `--allow-mcp-sampling`(或 `RUNCODE_ALLOW_MCP_SAMPLING`,或用户配置 `[mcp]` 下的 `allow_sampling`)开启;即便开启,safe 模式也一律拒绝。开启后,runcode 用配置的 provider/model 处理 `sampling/createMessage`,**只发送 server 提供的消息与 system 提示(绝不带你的对话)**、不声明 tools、`maxTokens` 有上限。开启即视为预授权,暂无每请求弹窗。MCP 资源模板与订阅暂未实现。
-
-### Skills（技能）
-
-**skill** 是一个可复用工作流：一个目录,内含 `SKILL.md`,其 frontmatter 声明 `name` 与 `description`,正文是详细指令。skills 从两个约定目录发现——`<userConfigDir>/runcode/skills/`（用户级）与 `<workspace>/.runcode/skills/`（项目级）——同名时用户级 skill 覆盖项目级。无需任何配置,放一个目录进去即可。
-
-```text
-~/.config/runcode/skills/code-review/SKILL.md   # Windows 上为 %AppData%\runcode\skills\...
-```
-
-```markdown
----
-name: code-review
-description: Review the current diff for correctness and clarity
----
-
-1. 用 `git diff` 读取改动。
-2. 逐项检查 ...
-```
-
-为节省上下文,只把一段紧凑的 **catalog**（每个 skill 的名字与描述,项目级标注 `[project]`）注入 system prompt。模型在需要时调用内置 **`Skill`** 工具并传入名字来按需加载该 skill 的完整指令——未用到的 skill 不占上下文。`Skill` 工具只返回内存中的文本（不启动任何进程、不碰文件）,因此免审批运行。格式错误或超大的 skill 会被跳过并告警,而非中断会话。项目级 skill 生效(便于团队在仓库内共享工作流),但其文本会进入 prompt,故标注 `[project]`。`runcode config` 会列出已加载的 skill 名字（项目级带标注）,不打印任何正文。
-
-### Sub-agents（子代理）
-
-**子代理**是主代理可以委托一项独立任务的专注助手。它以自己的 system prompt、受限工具集、可选的自有模型运行一个完整的 ReAct 循环,最后返回一份报告。子代理定义为 `*.md` 文件,放在两个约定目录——`<userConfigDir>/runcode/agents/`（用户级）与 `<workspace>/.runcode/agents/`（项目级）。内置的 `general-purpose` 代理始终可用,优先级为 用户 > 项目 > 内置,因此你自己的同名定义会覆盖它。
-
-```text
-~/.config/runcode/agents/reviewer.md   # Windows 上为 %AppData%\runcode\agents\...
-```
-
-```markdown
----
-name: reviewer
-description: Reviews a diff for correctness bugs and reports concrete findings
-tools: Read, Grep, Glob       # 可选；省略或用 "*" 表示继承全部工具
-model: claude-opus-4-8        # 可选；省略则继承父会话模型
----
-
-你是一名严谨的代码评审者。深入分析 diff,用 file:line 引用报告具体、可操作的问题。
-```
-
-主代理通过调用内置 **`Task`** 工具来委托,传入 `subagent_type`（代理名字）、简短的 `description` 和完整自洽的 `prompt`。只把一段紧凑的 **catalog**（每个代理的名字与描述,项目级标注 `[project]`）注入 prompt。每次委托运行一个临时子会话：它共用父会话的权限服务（因此 safe/interactive 规则与 PreToolUse hook 仍逐一门控每个子工具调用）、拥有全新的 read-set,且**不会**拿到 `Task` 工具本身——所以委托恰好一层深（不嵌套）。子会话不写入 transcript 或可恢复的 session 日志。格式错误的定义会被跳过并告警。`runcode config` 会列出可用的子代理（用户/项目级带标注）。可直接复制的示例定义见 [`examples/agents/`](examples/agents/)。在一条回复里发出多个 `Task` 调用会 fan-out 并发执行（受并发上限约束；interactive 权限模式下自动串行,以保证审批弹窗连贯）。跨 provider 子代理尚未实现。
-
-### Memory（记忆）
-
-记忆是 runcode 自己的随手笔记——区别于项目上下文（仓库内人写的 `RUNCODE.md` / `CLAUDE.md`）。当模型了解到一个长期有用的事实（用户偏好、项目约定、易踩的坑）时,它调用内置 **`Remember`** 工具保存;保存的记忆会在之后每次会话开始时注入 system prompt。
-
-记忆分两个 scope,各是一个 Markdown 文件,每条记忆一行 bullet:
-
-- **项目级**（`Remember` 默认）:`<workspace>/.runcode/memory.md`——本仓库特定的事实。它位于 git-ignored 的 `.runcode/` 下,所以是本地笔记而非提交进仓库的文件。
-- **用户级**:`<userConfigDir>/runcode/memory.md`——跨所有项目的偏好（`Remember` 传 `scope: "user"`）。
-
-`Remember` 只写这些固定的 runcode 自有文件（从不接受路径）,因此被归类为无副作用的 management 操作,safe 模式下也能用。等价的事实会去重,子代理只读记忆不可写,`runcode config` 报告每个 scope 保存了多少条记忆而不打印内容。记忆在启动时一次性加载,所以会话中途保存的事实从下次会话起生效。
-
-### Hooks（钩子）
-
-**Hook** 在生命周期事件触发时执行用户配置的命令,让你无需改 runcode 即可加策略、审计或注入上下文。支持八个事件:
-
-- **PreToolUse** —— 工具授权后、运行前触发。非零退出**拦截**该工具,命令输出回灌模型。
-- **PostToolUse** —— 工具运行后触发。输出作为反馈追加到结果(无法撤销已执行的工具)。
-- **UserPromptSubmit** —— 提交 prompt 时触发。非零退出**拒绝**该 prompt;否则输出作为本轮附加上下文注入。
-- **Stop / SubagentStop** —— 主代理完成一轮 / 子代理完成委托任务时触发。
-- **SessionStart / SessionEnd** —— 首轮开始与会话关闭时各触发一次。
-- **PreCompact** —— 上下文压缩前触发。
-
-hook **仅用户级配置生效**——像 MCP server 一样,项目文件绝不能注册 hook(hook 执行任意命令)。命令以 argv **直接执行(无 shell)**,事件 payload 以 JSON 经 **stdin** 传入;输出有界且脱敏。**运行后非零退出**是刻意拦截;**无法运行**(缺二进制、超时)则 fail-open 并告警,broken hook 不会拖垮会话。
-
-```toml
-# 用户 config.toml
-[[hooks]]
-event = "PreToolUse"
-matcher = "Bash"            # 工具名,或 "*" 全匹配
-command = ["python3", "/abs/path/audit.py"]
-timeout_ms = 5000
-
-[[hooks]]
-event = "UserPromptSubmit"
-command = ["/abs/path/inject-git-status.sh"]
-```
-
-工具钩子覆盖内置 / MCP / skill 工具调用。`runcode config` 以 `event:matcher` 列出已配置 hook,不打印命令。结构化 JSON 决策与 matcher glob/正则暂未实现。
-
-运行 `runcode config` 可查看生效配置和已加载的配置文件路径（凭证值绝不打印）。
-
-```toml
-# runcode.toml
-model = "claude-opus-4-8"
-base_url = "https://api.anthropic.com"
-permission_mode = "interactive"
-```
-
-### 会话恢复与上下文压缩
-
-runcode 默认把每个会话的完整对话保存到 `<workspace>/.runcode/sessions/<id>.jsonl`，可跨进程接着上次继续：
-
-- `--resume <id>`：恢复指定会话并继续。
-- `--continue`：恢复本 workspace 最近一次会话。
-- `--no-session` / `RUNCODE_SESSION_PERSIST=off`：关闭历史持久化。
-
-记不住 id？`runcode sessions list` 按最近顺序列出已存会话（含预览），`runcode sessions show <id|编号>` 打印某次会话，`runcode tui --pick` 在启动时打开交互式选择器。
-
-用 `--session-backend` / `RUNCODE_SESSION_BACKEND` / `session_backend` 选择历史存储后端：`jsonl`（默认，逐会话一个 `.jsonl` 文件）或 `sqlite`（单个带索引的 `<workspace>/.runcode/sessions.db`，纯 Go 驱动，无需 CGo）。`runcode sessions` 命令与选择器都会读取所配置的后端（`runcode sessions --backend sqlite ...`）。
-
-设置 `--max-context-tokens`（或配置文件 `max_context_tokens`）可限制上下文：当某轮的 input tokens 接近预算时，runcode 会把最旧的若干 turn 总结成一条消息，保留最近 turn 原文。压缩只作用于内存工作集——磁盘历史保持完整。`/clear` 只清内存上下文，磁盘会话日志仍是完整的 append-only 记录。
-
-会话日志是无损的，可能包含文件内容与命令输出；它以 `0600` 写在 workspace 内，并被 `.gitignore` 忽略。
-
-当前限制：
-
-- TUI 仍是 MVP：已有权限审批弹窗、rich tool output（输出摘要 + Edit/Write 行级 diff），以及可随内容增高的多行输入和已提交输入的历史翻阅，但还没有文件树、transcript 浏览器或语法高亮。
-- 没有 transcript-backed session 恢复；JSONL transcript 是 append-only 且默认关闭。
-- slash 命令已是可扩展注册表（内置 `/help`、`/clear`、`/status`、`/mode`、`/model`、`/compact`、`/cost`、`/exit`；`/mode safe|interactive` 运行时切权限模式、`/model <name>` 运行时切模型）。已支持 MCP 工具（stdio + Streamable HTTP，tools 原语，见 [MCP 服务器](#mcp-服务器model-context-protocol)）与 skills（经 `Skill` 工具渐进式披露，见 [Skills](#skills技能)）和 MCP resources/prompts（`ListMcpResources`/`ReadMcpResource`、`ListMcpPrompts`/`GetMcpPrompt`）、roots 及可选 sampling。已支持生命周期 hooks（PreToolUse/PostToolUse/UserPromptSubmit,见 [Hooks](#hooks钩子)）,也已支持 sub-agents（经 `Task` 工具委托,见 [Sub-agents](#sub-agents子代理)）,以及跨会话持久记忆（`Remember` 工具,见 [Memory](#memory记忆)）。
-
-## 已实现工具
-
-内置工具由 `tools.Builtins()` 注册，同时暴露给模型 tool spec 和 prompt 工具摘要：
-
-| 工具 | 当前效果 |
-|------|----------|
-| `Read` | 读取 workspace 文件——文本带行号（记录完整/部分读取 metadata），图片（png/jpg/gif/webp）直接返回图像。 |
-| `Write` | 在 workspace 内创建文件，或覆盖已 fresh-read 的文件。 |
-| `Edit` | 在 workspace 内对已 fresh-read 文件做 exact string replacement。 |
-| `Delete` | 删除 workspace 文件/目录——默认进系统回收站（可恢复），`permanent=true` 不可逆删除。 |
-| `Glob` | 用 slash glob pattern 和 `**` 查找 workspace 文件；可与兄弟 safe 工具调用并发执行。 |
-| `Grep` | 正则搜索 workspace 文件；content/files/count 输出模式、context 行、multiline；并发安全。 |
-| `Bash` | 权限审批后执行非交互命令（Windows 用 cmd，其余 bash）；支持多行命令与 `run_in_background` 后台执行。 |
-| `BashOutput` / `KillShell` | 读取后台 shell 的新增输出 / 终止后台 shell。 |
-| `TodoWrite` | 记录当前任务清单（每项含 content/status/activeForm）；无副作用，免审批。 |
-| `WebFetch` | 抓取 http(s) URL 并返回文本（HTML 转纯文本）；SSRF 加固；网络操作，需审批（按 host 显示）。 |
-| `WebSearch` | 网页搜索（DuckDuckGo 无 JS 页面），返回标题/URL/摘要。 |
-| `Analyze` | 为激活的思考协议记录结构化分析步骤（仅在 turn 内思考门激活时出现）。 |
-| `AskUser` | 向用户提问并停止本轮等待回复。 |
-| `Task` | 把一项独立任务委托给指定子代理（自有会话、受限工具、可选模型）并返回其报告；属编排,免审批,因为每个子工具调用都被单独鉴权（见 [Sub-agents](#sub-agents子代理)）。 |
-| `Remember` | 把一条长期事实保存到 runcode 的持久记忆（默认项目级,或 user scope）,供未来会话回忆;写固定路径的 runcode 元数据,免审批（见 [Memory](#memory记忆)）。 |
-
-配置后,MCP 服务器工具也会以 `mcp__<server>__<tool>` 动态暴露（见 [MCP 服务器](#mcp-服务器model-context-protocol)）,`Skill` 工具也会按需加载可复用工作流（见 [Skills](#skills技能)）。插件工具尚未实现。
-
-## 权限与安全
-
-Executor 在运行每个工具前都会调用 `internal/permissions`：
-
-- workspace 内 `Read`/`Glob`/`Grep` 默认允许。
-- `Write`/`Edit` 需要审批，并且覆盖/编辑前要求 fresh-read。
-- `Bash` 执行前会分类命令；unknown、privileged、destructive、outside-write、complex shell-control 命令在审批前直接拒绝。
-- `WebFetch`（network）与 MCP 服务器工具（external）始终需要审批；「本会话/项目允许」分别按 host、按 server+tool 记忆。
-- `safe` 模式是非交互模式，所有需要审批的动作最终都会拒绝。
-- `interactive` 模式只对权限层已判定为可审批的动作在 stderr 询问一次。审批提供 allow once / allow for session / allow for project；选「allow for project」会持久化到 `<workspace>/.runcode/permissions.json`（0600，已 gitignore），跨进程生效。该文件还承载一个 denylist，在询问前检查（deny 始终优先于 allow）；文件损坏时快速报错，而非静默丢弃 deny 规则。
-
-`runcode permissions` 用来管理该文件，无需手改 JSON：`permissions list` 给持久化的 allow/deny 规则编号，`permissions remove <n>` 按编号删除任意一条（包括 TUI 写入的 mutation/command 规则），`permissions clear [--allow|--deny]` 清空。`permissions deny <host>` / `permissions allow <host>` 按 host 增删网络规则（默认工具 `WebFetch`）——这是唯一可手输且能精确匹配的规则类型；deny 始终优先,因此 host 在 denylist 上时 allow 会被拒绝,需先删除该 deny。
-
-Telemetry 只记录 operation、risk、resource scope、permission effect、command classification 等受控 metadata；不记录 raw path、raw command、tool input、tool output、文件内容、凭证或 URL。
-
-Transcript 默认关闭。使用 `--transcript jsonl` 开启后，runcode 会把 append-only turn record 写到 `<workspace>/.runcode/transcripts/<session-id>.jsonl`；记录包含用户文本、最终 assistant 文本、受限工具摘要和 Bash command 字符串，但不记录 system prompt、凭证、普通工具 raw input 或完整工具输出。
-
-`--transcript sqlite` 则把同样的脱敏记录写入单个带索引的 `<workspace>/.runcode/transcripts.db`。无需开聊天即可浏览检索：`runcode transcript list` 汇总已记录会话，`runcode transcript search <query>` 倒序返回匹配轮次。检索基于 FTS5 trigram 索引，覆盖用户文本、助手文本与工具文本——对大体量 transcript 也快、支持子串与中文，并且会索引每轮的工具调用（工具名 + Bash 命令），因此 `search "git push"` 能按所跑命令找到对应轮次。`--tool` 只匹配工具命令，`--session` 限定会话，`--limit` 截断；不足 3 个字符的查询回退 LIKE 扫描。读命令不会创建空库——若无库会提示如何开启记录。
-
-## 架构一览
+## 架构一瞥
 
 ```text
 用户输入
-  -> cmd/runcode chat OR cmd/runcode tui
-  -> shared chat config/session factory
-  -> Anthropic provider
-  -> internal/repl.Session
-  -> prompt.BuildSystemPrompt + tools.Builtins tool specs
-  -> model stream
-  -> tool_use
-  -> internal/repl.Executor
-  -> internal/permissions.Service
-  -> Tool.Run
-  -> tool_result
-  -> chat stdout OR TUI StreamDelta event
+  -> cmd/runcode chat | tui            (本仓库)
+  -> XRUN 桌面 / 服务端骨架             (本仓库)
+       -> engine.Build(cfg, Options{...}) -> Session   (agentloop,外部 module)
+            系统提示 + tool specs -> 模型流 -> tool_use
+            -> executor -> 权限层 -> Tool.Run -> tool_result
+       -> 流式文本 / 工具事件 / 审批请求回到外壳
 ```
 
-更多说明：
+- [docs/architecture.md](./docs/architecture.md) —— 本仓库外壳、模块边界、协议代码生成。
+- [docs/desktop.md](./docs/desktop.md) —— 桌面应用(XRUN)架构与构建。
+- agentloop 的 `README.md` 与 `docs/` —— 引擎内部(ReAct 循环、权限、工具、provider、持久化)。
 
-- [docs/architecture.md](./docs/architecture.md)：当前已实现架构、子系统边界与数据流。
-- [docs/desktop.md](./docs/desktop.md)：桌面应用（XRUN）架构与构建。
-
-## 项目布局
+## 仓库布局
 
 ```text
-cmd/runcode/           Cobra CLI：version、chat、tui、config、permissions、sessions、transcript
-cmd/runcode-desktop/   嵌套 Go module：Wails 桌面外壳 + React 前端（XRUN）
-internal/engine/       传输无关引擎门面，三个前端共用
-internal/repl/         ReAct session、executor、流式收集、harm judge、reasoning
-internal/desktop/      桌面核心（会话管理、事件、异步审批器；不依赖 Wails）
-internal/ui/           Bubble Tea TUI：状态区、viewport、输入框、Markdown、工具卡片、slash 命令注册表
-internal/permissions/  action/resource/risk、policy、approval、命令分类、harm gate
-internal/mcp/          Model Context Protocol 客户端：JSON-RPC、stdio + HTTP、tools/resources/prompts/roots/sampling
-internal/subagent/     Task 工具与子代理 Launcher
-internal/hooks/        用户配置的生命周期钩子（8 个事件）
-internal/prompt/       系统提示组装器和 cache boundary
-internal/compaction/   token 预算触发的语义历史压缩
-internal/telemetry/    event model、JSONL、async、memory recorder
-internal/persistence/  会话历史（jsonl/sqlite）、脱敏 transcript、TOML settings
-internal/toolpath/     workspace path 解析和 fresh-read gate
-pkg/tool/              public tool interface、schema、context、result types
-pkg/llm/               provider-neutral LLM DTO、stream interface、provider 注册表（anthropic/openai）
-pkg/agent|skill|memory|command/  子代理、技能、记忆、自定义 slash 命令定义
-tools/                 内置工具和 registry
-docs/                  架构与桌面文档（从代码重建）
+cmd/runcode/             Cobra CLI:version、chat、tui、config、permissions、sessions、transcript
+cmd/runcode-desktop/     嵌套 Go module:Wails 桌面外壳 + React 前端(XRUN)
+cmd/runcode-server/      嵌套 Go module:服务端骨架(HTTP/SSE,只依赖引擎公开面)
+internal/desktop/        桌面核心(host.Manager 适配层、事件、审批器;不依赖 Wails)
+internal/ui/             Bubble Tea TUI:视图、slash 命令注册表、会话选择器、审批桥
+pkg/command/             自定义 slash 命令(*.md 发现)
+tools/preview/           桌面产物预览工具(经 ExtraTools 注入)
+tools/protogen/          协议 TS 代码生成器(读 agentloop/protocol,写前端 src/protocol/)
 ```
 
-仍是脚手架或未实现：`pkg/plugin`、`prompts/agents` / `prompts/templates`。
+## 参与贡献
 
-## 贡献
-
-项目处于 **alpha** 阶段。`pkg/` SDK **在 v1.0 前不稳定**。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+项目处于 **alpha**。引擎侧贡献(工具、provider、权限模型)去 agentloop 仓库;本仓库接收外壳侧工作(CLI/TUI/桌面/服务端)。见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 许可证
 
-Apache-2.0 — 见 [LICENSE](./LICENSE)。
+Apache-2.0 —— 见 [LICENSE](./LICENSE)。
 
 ## 致谢
 
-架构概念参考自 Anthropic Claude Code CLI。此仓库中的 Go 代码均为原创实现。
+架构理念受 Anthropic Claude Code CLI 启发。本仓库所有 Go 代码均为原创实现。

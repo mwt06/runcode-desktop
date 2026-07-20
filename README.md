@@ -1,24 +1,30 @@
 # runcode
 
-> An open-source AI coding companion CLI in Go.
+> An open-source AI coding companion in Go.
 > 中文名：**奔跑的代码** — see [README.zh-CN.md](./README.zh-CN.md).
 
 [![CI](https://github.com/wt68/runcode/actions/workflows/ci.yml/badge.svg)](https://github.com/wt68/runcode/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/wt68/runcode.svg)](https://pkg.go.dev/github.com/wt68/runcode)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-> **Status: alpha.** One engine, three frontends: a shell-friendly `chat` command, a Bubble Tea `tui`, and a Wails desktop app (**XRUN**, see [docs/desktop.md](./docs/desktop.md)). The engine ships 14 built-in tools plus MCP / skills / sub-agents / memory / hooks, safe/interactive permissions (the desktop adds judge/flight modes with a model-based harm gate), full session persistence with resume, and context compaction.
+> **Status: alpha.** This repository holds the **shells** over one shared engine: a shell-friendly `chat` CLI, a Bubble Tea `tui`, a Wails desktop app (**XRUN**, see [docs/desktop.md](./docs/desktop.md)), and a server skeleton (`cmd/runcode-server`). The engine itself — ReAct loop, 14 built-in tools, MCP / skills / sub-agents / memory / hooks, permission modes with a model-based harm gate, session persistence and compaction — lives in its own repository: **`gitlab.ouc-online.com.cn/aibase/agentloop`**.
 
 ## What is runcode?
 
-`runcode` is a Go implementation of an AI coding companion for the terminal. The current build is intentionally small: it runs a shell-friendly `runcode chat` command backed by Anthropic, exposes a bounded set of local tools, and gates file mutations and command execution through an internal permission layer.
+`runcode` is a Go implementation of an AI coding companion. This repository contains the user-facing frontends; the transport-agnostic session engine is the external `agentloop` module, consumed through each `go.mod`'s `replace` pointing at a sibling checkout. The long-term direction is inspired by Anthropic's Claude Code, but all code is an original Go implementation.
 
-The long-term direction is inspired by Anthropic's Claude Code, but this repository is an original Go implementation. The same engine also powers a Bubble Tea TUI (still an MVP) and a full desktop app (`cmd/runcode-desktop`, product name XRUN) through the shared `internal/engine` facade.
+- **CLI** (`runcode chat`): streams assistant output to stdout, shell-friendly.
+- **TUI** (`runcode tui`): Bubble Tea interface with streaming Markdown, tool cards, permission modals, slash commands.
+- **Desktop** (**XRUN**, `cmd/runcode-desktop`): full Wails + React app with judge/flight permission modes, sub-agent cards, artifact preview.
+- **Server skeleton** (`cmd/runcode-server`): a runnable HTTP/SSE reference that consumes only the engine's public surface — the template for a standalone server repo.
 
 ## Quick start
 
+The engine repo must sit **next to** this one (each `go.mod` has `replace … => ../agentloop`):
+
 ```bash
 git clone https://github.com/wt68/runcode.git
+git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # sibling checkout, fixed name & location
 cd runcode
 go build ./cmd/runcode
 ./runcode version
@@ -30,277 +36,75 @@ go build ./cmd/runcode
 ## Current CLI
 
 ```bash
-ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_MODEL=claude-sonnet-5 \
 ANTHROPIC_API_KEY=... \
 ./runcode chat "summarize this repository"
 
-ANTHROPIC_MODEL=claude-sonnet-4-6 \
+ANTHROPIC_MODEL=claude-sonnet-5 \
 ANTHROPIC_API_KEY=... \
 ./runcode tui
 ```
 
-`runcode chat` streams assistant text deltas to stdout as they arrive. `runcode tui` starts a minimal Bubble Tea interface with a Claude Code-style bottom status area, cumulative context token and thinking-mode indicators, scrollable conversation viewport, a multi-line input with top and bottom dividers (Enter sends; `alt+enter`/`ctrl+j` insert a newline; ↑/↓ recall submitted-input history or move the cursor inside a multi-line draft), streaming assistant Markdown rendering, minimal tree-style tool progress cards with safe file summaries, and slash commands (`/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`) with a type-to-filter menu that opens when you type `/`. With `--permission-mode interactive` the TUI shows a permission modal offering allow once / allow for session / deny; "allow for session" stops re-prompting equivalent actions for the rest of the session. Tool cards show a bounded, sanitized output excerpt (Bash stdout/stderr, Grep matches, Read preview) and a full line diff for Edit/Write, expandable with `ctrl+o`.
+Seven subcommands: `version`, `chat` (`--loop` for multi-turn), `tui` (`--pick` opens a session picker), `config` (effective config with sources, credentials redacted), `permissions`, `sessions` (`list`/`show`), `transcript` (`list`/`search`).
 
-Useful flags and environment variables:
+Useful flags and environment variables (shared by `chat`/`tui`):
 
-- `--provider` / `RUNCODE_PROVIDER`: `anthropic` or `openai` (the latter also drives OpenAI-compatible endpoints such as vLLM/Ollama/llama.cpp/gateways; point `--base-url` at the API root serving `/chat/completions`, and the bearer credential is optional for unauthenticated local endpoints).
-- `--model` / `ANTHROPIC_MODEL`: required unless provided by environment.
-- `--api-key` / `ANTHROPIC_API_KEY`, or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`.
-- `--base-url` / `ANTHROPIC_BASE_URL`.
-- `--max-retries` / `RUNCODE_MAX_RETRIES`: provider transient-failure retries (0 = default, negative = disabled).
-- `--input-price` / `--output-price` (`RUNCODE_INPUT_PRICE` / `RUNCODE_OUTPUT_PRICE`): token prices per million, for the TUI `/cost` estimate. When unset, the price is looked up from a built-in table by model name (Claude 4.x family and common OpenAI models); an explicit price always wins, and an unknown model (e.g. a self-hosted endpoint) stays unpriced. Built-in prices are approximate — set explicit prices for billing-grade accuracy.
+- `--provider` / `RUNCODE_PROVIDER`: `anthropic` or `openai` (the latter also drives OpenAI-compatible endpoints such as vLLM/Ollama/llama.cpp/gateways; point `--base-url` at the API root serving `/chat/completions`).
+- `--model` / `ANTHROPIC_MODEL`; `--api-key` / `ANTHROPIC_API_KEY` or `--auth-token` / `ANTHROPIC_AUTH_TOKEN`; `--base-url` / `ANTHROPIC_BASE_URL`.
 - `--cwd` / `RUNCODE_CWD`: workspace for tools.
-- `--loop`: keep one in-memory session alive across stdin prompts; use `/clear` to reset that in-memory history.
-- `--max-history-messages` / `RUNCODE_MAX_HISTORY_MESSAGES`: bound how many in-memory history messages are sent to the provider each turn (`0` = unlimited, the default). Trimming keeps the current turn intact, never splits `tool_use`/`tool_result` pairs, and does not touch transcript files.
-- `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE`.
-- `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`.
-- `--transcript off|jsonl|sqlite` / `RUNCODE_TRANSCRIPT`: optionally record sanitized transcripts — `jsonl` writes per-session files under `<workspace>/.runcode/transcripts/`, `sqlite` writes a searchable `<workspace>/.runcode/transcripts.db` (browse with `runcode transcript list` / `search <query>`).
-- `--session-id` / `RUNCODE_SESSION_ID`: choose the transcript file name when transcript recording is enabled.
+- `--permission-mode safe|interactive` / `RUNCODE_PERMISSION_MODE` (the desktop additionally offers `judge`/`flight`).
+- `--thinking off|low|medium|high` / `RUNCODE_THINKING`.
+- `--resume <id>` / `--continue` / `--no-session`; `--session-backend jsonl|sqlite` / `RUNCODE_SESSION_BACKEND`.
+- `--transcript off|jsonl|sqlite` / `RUNCODE_TRANSCRIPT`; `--telemetry off|jsonl` / `RUNCODE_TELEMETRY`.
+- `--max-history-messages`, `--max-context-tokens` (context compaction budget), `--max-retries`, `--input-price` / `--output-price` (for `/cost`), `--allow-mcp-sampling`.
+- `--system-prompt` / `--append-system-prompt`.
 
-### Configuration files
+TUI slash commands: `/help`, `/clear`, `/compact`, `/status`, `/mode`, `/model`, `/cost`, `/exit`, plus custom `*.md` commands discovered from user/project `commands/` directories.
 
-runcode also reads TOML config files, with precedence **flag > env > project file > user file > default**:
+## Features (engine)
 
-- Project: `runcode.toml`, discovered by walking up from the working directory.
-- User: `config.toml` under `os.UserConfigDir()/runcode/` (`%AppData%\runcode\config.toml` on Windows, `~/.config/runcode/config.toml` on Linux, `~/Library/Application Support/runcode/config.toml` on macOS).
+These behaviors ship in the [agentloop](https://gitlab.ouc-online.com.cn/aibase/agentloop) engine and surface through every shell; details live in that repo's README and docs.
 
-Supported keys: `provider`, `model`, `base_url`, `max_tokens`, `permission_mode`, `telemetry`, `transcript`, `max_history_messages`, and — **user file only** — `api_key` / `auth_token` and `[mcp.servers.*]` (see below). Credentials in a project file are ignored so they are never committed by accident.
-
-### MCP servers (Model Context Protocol)
-
-runcode can connect to MCP servers and expose their tools to the model. Servers are configured under `[mcp.servers.<name>]` in the **user-level** `config.toml` only — a project file can never make runcode launch a subprocess or reach an endpoint just by being opened. Each server is reached over **stdio** (a local subprocess) or **Streamable HTTP** (a remote endpoint). String values support `${VAR}` expansion so secrets stay in environment variables rather than the file.
-
-```toml
-# stdio: a local server launched as a subprocess (default transport)
-[mcp.servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/expose"]
-env = { SOME_TOKEN = "${SOME_TOKEN}" }   # ${VAR} expanded from the environment
-# enabled = false                         # omit or set true to enable
-
-# http: a remote server over Streamable HTTP
-[mcp.servers.docs]
-transport = "http"
-url = "https://example.com/mcp"
-headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
-```
-
-A server's tools appear to the model as `mcp__<server>__<tool>`. They are classified as an **external** permission operation: every call requires approval (so safe mode denies them), and "allow for session/project" remembers a grant per server+tool. A server that fails to connect is reported as a warning and skipped — it never aborts the session. Server names must use letters, digits, `-`, or `_` and contain no `__`.
-
-If a connected server advertises the **resources** capability, two built-in tools are exposed: `ListMcpResources` (list each server's resources — uri, name, description — optionally filtered to one server) and `ReadMcpResource` (read a resource's contents by server + uri). Inline text passes through; binary contents are noted as a placeholder. Likewise, a server advertising **prompts** gets `ListMcpPrompts` and `GetMcpPrompt` (render a prompt template by server + name with a string-argument map). Like server tool calls, all four are external operations requiring approval; a read/get grant is remembered per server + uri/name. These tools appear only when a connected server supports the matching capability.
-
-runcode also exposes **roots**: it advertises the workspace to servers and answers `roots/list` with the workspace as a `file://` root (and answers `ping`), so a server such as a filesystem server can learn the directory runcode operates in.
-
-**Sampling** (a server requesting a model completion from runcode) is **off by default** — it spends your model on the server's behalf. Enable it with `--allow-mcp-sampling` (or `RUNCODE_ALLOW_MCP_SAMPLING`, or `allow_sampling` under `[mcp]` in the user config); even then, safe mode always refuses. When enabled, runcode serves `sampling/createMessage` with its configured provider/model, sending only the server-supplied messages and system prompt (never your conversation), declaring no tools, and bounding `maxTokens`. Enabling is the pre-authorization; there is no per-request prompt yet. MCP resource templates and subscriptions are not implemented yet.
-
-### Skills
-
-A **skill** is a reusable workflow: a directory holding a `SKILL.md` whose frontmatter declares a `name` and `description` and whose body is detailed instructions. Skills are discovered from two convention directories — `<userConfigDir>/runcode/skills/` (user-level) and `<workspace>/.runcode/skills/` (project-level) — with a user skill shadowing a project skill of the same name. No configuration is needed; just drop a directory in.
-
-```text
-~/.config/runcode/skills/code-review/SKILL.md   # or %AppData%\runcode\skills\... on Windows
-```
-
-```markdown
----
-name: code-review
-description: Review the current diff for correctness and clarity
----
-
-1. Read the diff with `git diff`.
-2. Check each change for ...
-```
-
-To keep context cheap, only a compact **catalog** (each skill's name and description, with a `[project]` tag for workspace skills) is injected into the system prompt. The model loads a skill's full instructions on demand by calling the built-in **`Skill`** tool with its name — so unused skills cost no context. The `Skill` tool only returns in-memory text (it launches nothing and touches no files), so it runs without approval. A malformed or oversized skill is skipped with a warning rather than breaking the session. Project skills are honored so teams can share workflows in-repo, but their text enters the prompt, so they are attributed as `[project]`. `runcode config` lists the loaded skill names (project ones tagged) without printing any body.
-
-### Sub-agents
-
-A **sub-agent** is a focused assistant the main agent can delegate a self-contained task to. It runs its own ReAct loop with its own system prompt, a restricted tool set, and optionally its own model, then returns a single report. Sub-agents are defined as `*.md` files in two convention directories — `<userConfigDir>/runcode/agents/` (user-level) and `<workspace>/.runcode/agents/` (project-level). A built-in `general-purpose` agent is always available, and the precedence is user > project > builtin, so your own definition shadows a same-named one.
-
-```text
-~/.config/runcode/agents/reviewer.md   # or %AppData%\runcode\agents\... on Windows
-```
-
-```markdown
----
-name: reviewer
-description: Reviews a diff for correctness bugs and reports concrete findings
-tools: Read, Grep, Glob       # optional; omit or use "*" to inherit every tool
-model: claude-opus-4-8        # optional; inherits the parent model otherwise
----
-
-You are a meticulous code reviewer. Investigate the diff and report concrete,
-actionable issues with file:line references.
-```
-
-The main agent delegates by calling the built-in **`Task`** tool with a `subagent_type` (the agent's name), a short `description`, and a complete, standalone `prompt`. Only a compact **catalog** (each agent's name and description, `[project]`-tagged for workspace agents) is injected into the prompt. Each delegation runs an ephemeral child session: it shares the parent's permission service (so safe/interactive rules and PreToolUse hooks still gate every child tool call), gets a fresh read-set, and is **not** given the `Task` tool itself — so delegation is exactly one level deep (no nesting). Child sessions are not persisted to transcripts or the resumable session log. A malformed definition is skipped with a warning. `runcode config` lists the available sub-agents (user/project ones tagged). Ready-to-copy example definitions live in [`examples/agents/`](examples/agents/). Issuing several `Task` calls in one response fans them out to run concurrently, bounded by a concurrency cap; under interactive permission mode they run serially so approval prompts stay coherent. Cross-provider sub-agents are not implemented yet.
-
-### Memory
-
-Memory is runcode's own running notebook — distinct from project context (a human-authored `RUNCODE.md` / `CLAUDE.md` checked into the repo). When the model learns a durable fact (a user preference, a project convention, a recurring gotcha), it calls the built-in **`Remember`** tool to save it; saved memories are injected into the system prompt at the start of every later session.
-
-Memory has two scopes, each a Markdown file of one-line bullet entries:
-
-- **Project** (the `Remember` default): `<workspace>/.runcode/memory.md` — facts specific to this repo. It lives under `.runcode/`, which is git-ignored, so it stays a local notebook rather than a committed file.
-- **User**: `<userConfigDir>/runcode/memory.md` — preferences that apply across all projects (`Remember` with `scope: "user"`).
-
-`Remember` only ever writes these fixed runcode-owned files (it never takes a path), so it is classified as side-effect-free management and works even in safe mode. Equivalent facts are de-duplicated, sub-agents read memory but cannot write it, and `runcode config` reports how many memories are saved per scope without printing their text. Memory is loaded once at startup, so a fact saved mid-session is recalled from the next session on.
-
-### Hooks
-
-**Hooks** run a user-configured command at a lifecycle event, so you can enforce policy, audit, or inject context without changing runcode. Eight events are supported:
-
-- **PreToolUse** — fires after a tool call is authorized, before it runs. A non-zero exit **blocks** the tool; the command's output is returned to the model.
-- **PostToolUse** — fires after a tool runs. Its output is appended to the result as feedback (it cannot un-run the tool).
-- **UserPromptSubmit** — fires when you submit a prompt. A non-zero exit **rejects** the prompt; otherwise the output is injected as additional context for the turn.
-- **Stop / SubagentStop** — fire when the main agent finishes a turn / when a delegated sub-agent finishes.
-- **SessionStart / SessionEnd** — fire once at the first turn and at session close.
-- **PreCompact** — fires before context compaction runs.
-
-Hooks are configured in the **user-level** config only — like MCP servers, a project file can never register one, since hooks run arbitrary commands. The command runs directly (no shell) with the event payload as JSON on stdin; output is bounded and sanitized. A hook that runs and exits non-zero is a deliberate block; one that *fails to run* (missing binary, timeout) fails open with a warning so a broken hook never bricks the session.
-
-```toml
-# user config.toml
-[[hooks]]
-event = "PreToolUse"
-matcher = "Bash"            # tool name, or "*" for all
-command = ["python3", "/abs/path/audit.py"]
-timeout_ms = 5000
-
-[[hooks]]
-event = "UserPromptSubmit"
-command = ["/abs/path/inject-git-status.sh"]
-```
-
-Tool hooks cover builtin, MCP, and skill tool calls. `runcode config` lists the configured hooks as `event:matcher` without printing their commands. Structured-JSON hook decisions and matcher globs/regex are not implemented yet.
-
-Run `runcode config` to print the effective configuration and which files were loaded (credential values are never printed).
-
-```toml
-# runcode.toml
-model = "claude-opus-4-8"
-base_url = "https://api.anthropic.com"
-permission_mode = "interactive"
-```
-
-### Session resume & compaction
-
-runcode saves each session's full conversation to `<workspace>/.runcode/sessions/<id>.jsonl` by default, so you can continue where you left off:
-
-- `--resume <id>`: restore a saved session and continue it.
-- `--continue`: resume the most recent session in this workspace.
-- `--no-session` / `RUNCODE_SESSION_PERSIST=off`: disable history persistence.
-
-Don't remember the id? `runcode sessions list` shows saved sessions (newest first, with a preview), `runcode sessions show <id|number>` prints one, and `runcode tui --pick` opens an interactive picker at startup.
-
-Choose where history is stored with `--session-backend` / `RUNCODE_SESSION_BACKEND` / `session_backend`: `jsonl` (default, one `.jsonl` file per session) or `sqlite` (a single indexed `<workspace>/.runcode/sessions.db`, pure-Go driver — no CGo). The `runcode sessions` command and the picker read whichever backend is configured (`runcode sessions --backend sqlite ...`).
-
-Set `--max-context-tokens` (or `max_context_tokens` in config) to cap context: when a turn's input tokens approach the budget, runcode summarizes the oldest turns into one message and keeps recent turns verbatim. Compaction affects only the in-memory working set — the on-disk history stays complete. `/clear` clears the in-memory context, but the on-disk session log remains a full append-only record.
-
-The session log is loss-less and may contain file contents and command output; it is written `0600` inside the workspace and ignored via `.gitignore`.
-
-Current limitations:
-
-- TUI is MVP-only: it has an interactive permission modal, rich tool output (output excerpts plus Edit/Write line diffs), and a growing multi-line input with submitted-input history recall, but no file tree, transcript browser, or syntax highlighting yet.
-- No transcript-backed session resume; JSONL transcripts are append-only and opt-in.
-- Slash commands run on an extensible registry (built-ins `/help`, `/clear`, `/status`, `/mode`, `/model`, `/compact`, `/cost`, `/exit`; `/mode safe|interactive` switches permission mode and `/model <name>` switches the model, both at runtime). MCP tools are supported (stdio + Streamable HTTP, the tools primitive — see [MCP servers](#mcp-servers-model-context-protocol)), as are skills (progressive disclosure via the `Skill` tool — see [Skills](#skills)) and MCP resources/prompts (`ListMcpResources`/`ReadMcpResource`, `ListMcpPrompts`/`GetMcpPrompt`), roots, and opt-in sampling. Lifecycle hooks (PreToolUse/PostToolUse/UserPromptSubmit — see [Hooks](#hooks)) are supported, as are sub-agents (delegation via the `Task` tool — see [Sub-agents](#sub-agents)), and persistent cross-session memory (the `Remember` tool — see [Memory](#memory)).
-
-## Implemented tools
-
-Built-in tools are registered in `tools.Builtins()` and exposed to both the model tool spec and prompt tool summary:
-
-| Tool | Current effect |
-|------|----------------|
-| `Read` | Reads workspace files — text with line numbers (recording complete/partial read metadata), images (png/jpg/gif/webp) returned as images. |
-| `Write` | Creates files or overwrites fresh-read files inside the workspace. |
-| `Edit` | Performs exact string replacement on fresh-read files inside the workspace. |
-| `Delete` | Deletes a workspace file/directory — to the system recycle bin by default (recoverable), irreversibly with `permanent=true`. |
-| `Glob` | Finds workspace files with slash glob patterns and `**`; concurrency-safe with sibling safe tool calls. |
-| `Grep` | Searches workspace files with regular expressions; content/files/count output modes, context lines, multiline; concurrency-safe. |
-| `Bash` | Runs a non-interactive shell command after permission approval (cmd on Windows, bash elsewhere); supports multi-line commands and `run_in_background`. |
-| `BashOutput` / `KillShell` | Read new output from, or terminate, a background shell started with `run_in_background`. |
-| `TodoWrite` | Records the current task list (content/status/activeForm per item); side-effect-free and allowed without approval. |
-| `WebFetch` | Fetches an http(s) URL and returns its text (HTML reduced to plain text); SSRF-hardened; a network operation that requires approval (shown per host). |
-| `WebSearch` | Searches the web (DuckDuckGo's no-JS page) and returns top results with title/URL/snippet. |
-| `Analyze` | Records structured analysis steps for the active thinking protocol (only advertised when an in-turn reasoning gate is active). |
-| `AskUser` | Asks the user a question and stops the turn to wait for their reply. |
-| `Task` | Delegates a self-contained task to a named sub-agent (its own session, restricted tools, optional model) and returns the sub-agent's report; orchestration allowed without approval, since each child tool call is authorized individually (see [Sub-agents](#sub-agents)). |
-| `Remember` | Saves a durable fact to runcode's persistent memory (project by default, or user scope) so it is recalled in future sessions; runcode-managed metadata written to a fixed path, allowed without approval (see [Memory](#memory)). |
-
-MCP server tools are also exposed dynamically as `mcp__<server>__<tool>` when configured (see [MCP servers](#mcp-servers-model-context-protocol)), and the `Skill` tool loads reusable workflows on demand (see [Skills](#skills)). Plugin tools are not implemented yet.
-
-## Permissions and safety
-
-The executor calls `internal/permissions` before running every tool:
-
-- Workspace `Read`/`Glob`/`Grep` are allowed by default.
-- `Write`/`Edit` mutations require approval and fresh-read checks.
-- `Bash` commands are classified before execution; unknown, privileged, destructive, outside-write, and complex shell-control commands are denied before approval.
-- `WebFetch` (network) and MCP server tools (external) always require approval; "allow for session/project" remembers a grant per host and per server+tool respectively.
-- `safe` mode is non-interactive, so approval-requiring actions resolve to denial.
-- `interactive` mode asks once on stderr and only for actions already classified as approvable. Approval offers allow once / allow for session / allow for project; "allow for project" persists to `<workspace>/.runcode/permissions.json` (0600, gitignored) and is honored across processes. That file also holds a denylist checked before prompting (a deny always wins over an allow); a corrupt file fails fast rather than dropping deny rules.
-
-`runcode permissions` manages that file without hand-editing JSON: `permissions list` numbers the persisted allow/deny rules, `permissions remove <n>` deletes one by number (works for every grain, including the mutation/command rules the TUI writes), and `permissions clear [--allow|--deny]` wipes them. `permissions deny <host>` / `permissions allow <host>` add a network rule for a host (default tool `WebFetch`) — the one rule kind that is reliably typeable and matches exactly; a deny always wins, so allowing a denied host is refused until the deny is removed.
-
-Telemetry records bounded metadata such as operation, risk, resource scope, permission effect, and command classification. It does not record raw paths, raw commands, tool inputs, tool outputs, file contents, credentials, or URLs.
-
-Transcript recording is off by default. When enabled with `--transcript jsonl`, runcode writes append-only turn records to `<workspace>/.runcode/transcripts/<session-id>.jsonl`; records include user text, final assistant text, bounded tool summaries, and Bash command strings, but not system prompts, credentials, generic tool raw input, or full tool output.
-
-`--transcript sqlite` records the same sanitized records into a single indexed `<workspace>/.runcode/transcripts.db` instead. Browse and search it without opening a chat: `runcode transcript list` summarizes recorded sessions, and `runcode transcript search <query>` returns matching turns newest-first. Search uses an FTS5 trigram index over user text, assistant text, and tool text — fast on large transcripts, substring- and CJK-friendly, and it indexes each turn's tool calls (tool names plus Bash commands), so `search "git push"` finds turns by the commands they ran. Use `--tool` to match only tool commands, `--session` to scope, and `--limit` to cap; queries shorter than 3 characters fall back to a LIKE scan. Read commands never create a database — if none exists they tell you how to enable recording.
+- **Tools**: 14 built-ins (Read/Write/Edit/Delete/Glob/Grep/Bash + background shells/TodoWrite/WebFetch/WebSearch/Analyze/AskUser), plus dynamically added MCP tools, `Skill`, `Task` (sub-agents), and `Remember` (memory).
+- **Permissions**: every tool call is classified and authorized; `safe` (non-interactive deny) and `interactive` (ask) in the CLI/TUI, plus `judge` (model harm-gate auto-allow with deterministic floors, budget breaker, and audit events) and `flight` in the desktop. Grants persist to `<workspace>/.runcode/permissions.json`, managed by `runcode permissions`.
+- **MCP**: stdio + Streamable HTTP servers configured in the **user-level** `config.toml` only (`[mcp.servers.<name>]`, `${VAR}` expansion); tools appear as `mcp__<server>__<tool>`; resources/prompts/roots supported, sampling opt-in.
+- **Skills / Sub-agents / Memory / Hooks**: `SKILL.md` directories with progressive disclosure; `*.md` agent definitions delegated via `Task` (one level deep, concurrent fan-out); two-scope persistent memory via `Remember`; 8 lifecycle hook events (user-level config only, argv exec, JSON on stdin).
+- **Sessions**: full history persisted per workspace (`jsonl` or pure-Go `sqlite` backend), resume/continue, generated titles, token-budget context compaction; sanitized searchable transcripts (FTS5) as a separate opt-in record.
+- **Providers**: Anthropic (official SDK) and OpenAI-compatible HTTP/SSE, with thinking budgets, image input, prompt-cache boundaries, and connection-phase retries.
+- **Configuration**: TOML files with precedence flag > env > project `runcode.toml` > user `config.toml` > default; credentials, MCP servers, and hooks are honored **only** from the user-level file.
 
 ## Architecture at a glance
 
 ```text
-User input
-  -> cmd/runcode chat OR cmd/runcode tui
-  -> shared chat config/session factory
-  -> Anthropic provider
-  -> internal/repl.Session
-  -> prompt.BuildSystemPrompt + tools.Builtins tool specs
-  -> model stream
-  -> tool_use
-  -> internal/repl.Executor
-  -> internal/permissions.Service
-  -> Tool.Run
-  -> tool_result
-  -> chat stdout OR TUI StreamDelta event
+user input
+  -> cmd/runcode chat | tui        (this repo)
+  -> XRUN desktop / server skeleton (this repo)
+       -> engine.Build(cfg, Options{...}) -> Session   (agentloop, external module)
+            system prompt + tool specs -> model stream -> tool_use
+            -> executor -> permissions -> Tool.Run -> tool_result
+       -> streamed text / tool events / approval requests back to the shell
 ```
 
-See:
-
-- [docs/architecture.md](./docs/architecture.md) for the implemented architecture, subsystem boundaries, and data flow.
-- [docs/desktop.md](./docs/desktop.md) for the desktop app (XRUN) architecture and build.
+- [docs/architecture.md](./docs/architecture.md) — this repo's shells, module boundaries, protocol codegen.
+- [docs/desktop.md](./docs/desktop.md) — the desktop app (XRUN) architecture and build.
+- agentloop's `README.md` and `docs/` — engine internals (ReAct loop, permissions, tools, providers, persistence).
 
 ## Project layout
 
 ```text
-cmd/runcode/           Cobra CLI: version, chat, tui, config, permissions, sessions, transcript
-cmd/runcode-desktop/   nested Go module: Wails desktop shell + React frontend (XRUN)
-internal/engine/       transport-agnostic engine facade shared by all three frontends
-internal/repl/         ReAct session, executor, streaming, harm judge, reasoning
-internal/desktop/      desktop core (session manager, events, async approver; no Wails dependency)
-internal/ui/           Bubble Tea TUI: status area, viewport, input, Markdown, tool cards, slash-command registry
-internal/permissions/  action/resource/risk model, policy, approval, command classification, harm gate
-internal/mcp/          Model Context Protocol client: JSON-RPC, stdio + HTTP, tools/resources/prompts/roots/sampling
-internal/subagent/     Task tool and sub-agent launcher
-internal/hooks/        user-configured lifecycle hooks (8 events)
-internal/prompt/       system prompt assembler and cache boundary
-internal/compaction/   token-budget semantic history compaction
-internal/telemetry/    event model, JSONL, async, memory recorders
-internal/persistence/  session history (jsonl/sqlite), sanitized transcripts, TOML settings
-internal/toolpath/     workspace path resolution and fresh-read gates
-pkg/tool/              public tool interface, schema, context, result types
-pkg/llm/               provider-neutral LLM DTOs, stream interfaces, provider registry (anthropic/openai)
-pkg/agent|skill|memory|command/  sub-agent, skill, memory, and custom-slash-command definitions
-tools/                 built-in tools and registry
-docs/                  architecture and desktop docs (rebuilt from code)
+cmd/runcode/             Cobra CLI: version, chat, tui, config, permissions, sessions, transcript
+cmd/runcode-desktop/     nested Go module: Wails desktop shell + React frontend (XRUN)
+cmd/runcode-server/      nested Go module: server skeleton (HTTP/SSE, engine public surface only)
+internal/desktop/        desktop core (host.Manager adapter, events, approver; no Wails dependency)
+internal/ui/             Bubble Tea TUI: views, slash-command registry, session picker, approval bridge
+pkg/command/             custom slash commands (*.md discovery)
+tools/preview/           desktop artifact-preview tool (injected via ExtraTools)
+tools/protogen/          protocol TS code generator (reads agentloop/protocol, writes frontend src/protocol/)
 ```
-
-Scaffolded but not implemented yet: `pkg/plugin` and `prompts/agents` / `prompts/templates`.
 
 ## Contributing
 
-This project is in **alpha**. The `pkg/` SDK is **not stable** until v1.0. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+This project is in **alpha**. Engine contributions (tools, providers, permission model) go to the agentloop repo; this repo takes shell work (CLI/TUI/desktop/server). See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
