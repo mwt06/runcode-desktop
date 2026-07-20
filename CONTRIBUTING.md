@@ -10,10 +10,12 @@ Thanks for your interest! `runcode` is in **alpha** — we welcome bug reports, 
 
 ## Quick development setup
 
+The engine repo must sit next to this one (each `go.mod` has `replace … => ../agentloop`):
+
 ```bash
 git clone https://github.com/wt68/runcode.git
+git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # sibling checkout, fixed name & location
 cd runcode
-go mod download
 go build ./cmd/runcode
 go test -race ./...
 ```
@@ -36,9 +38,7 @@ Required:
 ## Architectural rules
 
 - `internal/` is **never** imported from outside the module. Don't expose internals via re-export.
-- `pkg/` is the public surface. Adding a new exported symbol requires changelog entry.
-- Tools live in `tools/<name>/`. Each tool is a self-contained package implementing `pkg/tool.Tool`.
-- LLM providers live in `pkg/llm/providers/<name>/`. Each provider implements `pkg/llm.Provider` and passes the contract test.
+- Engine work — tools, LLM providers, the permission model, persistence, the public engine API — belongs in the **agentloop** repository (`gitlab.ouc-online.com.cn/aibase/agentloop`). This repository takes shell work: CLI/TUI, the desktop app, and the server skeleton.
 
 ## Pull request process
 
