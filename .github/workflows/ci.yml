@@ -11,6 +11,12 @@ permissions:
 
 # go.work exists for local development only; CI builds each module through the
 # go.mod replace chain so the workspace file can never mask a broken module.
+#
+# TODO(agentloop checkout): every job below needs the engine repository
+# (gitlab.ouc-online.com.cn/aibase/agentloop) checked out at ../agentloop —
+# each go.mod's replace points there. Wiring that up (deploy key / mirror /
+# GOPRIVATE + credentials) is an infra decision still to be made; until it
+# lands these jobs cannot resolve the engine module.
 env:
   GOWORK: off
 
@@ -35,13 +41,6 @@ jobs:
           version: latest
           args: --timeout=5m
 
-      - name: golangci-lint (engine)
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
-          working-directory: engine
-
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -63,11 +62,8 @@ jobs:
       - name: Test (root module)
         run: go test -race ./...
 
-      - name: Test (engine module)
-        run: go -C engine test -race ./...
-
       # The server skeleton's own test suite includes the dependency audit
-      # proving it only imports the engine module's public surface.
+      # proving it only imports the engine module's (agentloop's) public surface.
       - name: Test (server skeleton)
         run: go -C cmd/runcode-server test -race ./...
 
@@ -86,9 +82,6 @@ jobs:
           cache: true
           cache-dependency-path: '**/go.sum'
 
-      - name: Build (engine module)
-        run: go -C engine build ./...
-
       - name: Build (server skeleton)
         run: go -C cmd/runcode-server build ./...
 
@@ -100,31 +93,6 @@ jobs:
         with:
           version: latest
           args: build --snapshot --clean
-
-  deps:
-    name: Dependency direction audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.x'
-          cache: true
-          cache-dependency-path: '**/go.sum'
-
-      # The engine module must never import the root module: ports are defined
-      # in the engine, implementations live in the shells.
-      - name: Engine must not depend on root module
-        run: |
-          bad=$(go -C engine list -deps ./... | grep 'wt68/runcode' | grep -v 'wt68/runcode/engine' || true)
-          if [ -n "$bad" ]; then
-            echo "engine module depends on root module packages:" >&2
-            echo "$bad" >&2
-            exit 1
-          fi
 
   protocol:
     name: Protocol drift gates
@@ -146,19 +114,6 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: cmd/runcode-desktop/frontend/package-lock.json
-
-      # engine/protocol must stay stdlib-only: the structural guarantee that
-      # engine-internal types cannot leak onto the wire.
-      # A dot in an import path means an external module domain; stdlib paths
-      # never contain one.
-      - name: Protocol package is stdlib-only
-        run: |
-          bad=$(go -C engine list -f '{{join .Imports "\n"}}' ./protocol | grep '\.' || true)
-          if [ -n "$bad" ]; then
-            echo "engine/protocol imports non-stdlib packages:" >&2
-            echo "$bad" >&2
-            exit 1
-          fi
 
       # Generated TS must match the committed files, and the command registry
       # must match desktop.App's exported methods (protogen checks both).
