@@ -58,3 +58,4 @@ vendor/
 /xiao.svg
 /cmd/runcode-desktop/core.cfg
 /cmd/runcode-desktop/core-tools.cfg
+/cmd/runcode-server/runcode-server.exe

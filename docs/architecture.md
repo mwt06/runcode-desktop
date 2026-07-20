@@ -80,10 +80,10 @@ wire 协议的单一事实源是 agentloop 的 `protocol` 包(stdlib-only)。本
 
 以下主题的文档随引擎迁入 agentloop 仓库(同级 `../agentloop`),本仓库不再复述:
 
-- `README.md` —— 引擎消费者指南(如何 Build 会话、换提示词、加工具)
-- `docs/engine-api.md` —— 门面 API(Config/Options/Build/Session)
-- `docs/protocol.md` —— 双端 wire 协议与代码生成约定
-- `docs/server-handoff.md` —— 服务端开发交接
+- agentloop `README.md` —— 引擎消费者指南(如何 Build 会话、换提示词、加工具)
+- agentloop `docs/engine-api.md` —— 门面 API(Config/Options/Build/Session)
+- agentloop `docs/protocol.md` —— 双端 wire 协议与代码生成约定
+- agentloop `docs/server-handoff.md` —— 服务端开发交接
 
 涵盖:ReAct 循环、权限系统(四模式 + harm judge)、工具系统(14 内置工具 + MCP/Skill/Task/Remember)、提示词装配与缓存边界、provider 层(anthropic/openai)、会话/transcript 持久化、host 多会话层、MCP/skills/子代理/记忆/hooks 扩展系统。
 
