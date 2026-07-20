@@ -101,15 +101,15 @@ go vet ./...
 
 1. 整目录拷贝 `cmd/runcode-server/` 到你们仓库根（连同 `scripts/`、测试）。
 2. 改 `go.mod` 的 module 名（例如 `github.com/yourorg/runcode-server`）。
-3. 把 `replace gitlab.ouc-online.com.cn/aibase/agentloop => ../../../agentloop` 删掉，
-   `require gitlab.ouc-online.com.cn/aibase/agentloop vX.Y.Z` 固定到已发布 tag；`go mod tidy`。
+3. `require gitlab.ouc-online.com.cn/aibase/agentloop vX.Y.Z` 固定到已发布 tag（本骨架已无 replace），
+   构建环境设 `GOPRIVATE=gitlab.ouc-online.com.cn`；`go mod tidy`。
 4. `go test -race ./...` 全绿即接手成功（依赖审计测试会持续守住交接面）。
 
 ### HANDOFF 锚点清单（代码内以 `HANDOFF(<名>)` 注释标出，即「同事要换掉」的位置）
 
 | 锚点 | 位置 | 要做的事 |
 |---|---|---|
-| `HANDOFF(module)` | `go.mod` | 改 module 名；replace → require 固定 tag |
+| `HANDOFF(module)` | `go.mod` | 改 module 名；require 固定 tag + `GOPRIVATE` 直连内网 GitLab |
 | `HANDOFF(config)` | `main.go` | env/flag → 你们的配置中心/密钥管理（`config` 结构体是唯一消费面） |
 | `HANDOFF(auth)` | `server.go`（呼应 `main.go`） | 单令牌 Bearer → 多用户认证；把用户身份放进 request context，为每用户注入 `engine.Config.TokenSource`/`OnUnauthorized`（契约见 agentloop 根包 `config.go`：goroutine-safe、刷新去重由实现负责） |
 | `HANDOFF(permission-mode)` | `rpc.go` `rpcStartSession` | 固定 `safe` → 放开 `interactive`/`judge`；前端必须先接住 `permission:request` 事件并回调 `ResolvePermission` |

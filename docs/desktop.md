@@ -80,7 +80,7 @@ harm judge 在 `buildAndSetLocked`（`internal/desktop/app.go`）接线：`permi
 
 `main.go`：`//go:embed all:frontend/dist`；`eventSink` 把 `desktop.EventSink` 桥接到 `wruntime.EventsEmit`（OnStartup 前的事件丢弃）；`wailsDialog` 提供原生目录/图片选择器；窗口 1280×820（最小 1024×680）、**Frameless**（前端自绘标题栏与窗口控制）、`Bind: []any{app}`——前端调用落在 `window.go.desktop.App.*`。生成的绑定在 `frontend/wailsjs/`（git-ignored，wails 再生成）。
 
-嵌套 module（`cmd/runcode-desktop/go.mod`，`replace github.com/wt68/runcode => ../..`、`replace ...agentloop => ../../../agentloop`）把 Wails/CGO/WebView 重依赖隔离在核心模块之外；核心 `go build ./...` 不拉 Wails。
+嵌套 module（`cmd/runcode-desktop/go.mod`，`replace github.com/wt68/runcode => ../..`；引擎 agentloop 走 require tag/go.work，无 replace）把 Wails/CGO/WebView 重依赖隔离在核心模块之外；核心 `go build ./...` 不拉 Wails。
 
 ## frontend：React + Vite + TS
 

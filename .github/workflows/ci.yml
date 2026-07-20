@@ -12,11 +12,13 @@ permissions:
 # go.work exists for local development only; CI builds each module through the
 # go.mod replace chain so the workspace file can never mask a broken module.
 #
-# TODO(agentloop checkout): every job below needs the engine repository
-# (gitlab.ouc-online.com.cn/aibase/agentloop) checked out at ../agentloop —
-# each go.mod's replace points there. Wiring that up (deploy key / mirror /
-# GOPRIVATE + credentials) is an infra decision still to be made; until it
-# lands these jobs cannot resolve the engine module.
+# TODO(agentloop fetch): the engine is required as a tagged module
+# (gitlab.ouc-online.com.cn/aibase/agentloop, no replace) and resolves via
+# GOPRIVATE + git credentials with network reach to the internal GitLab.
+# GitHub-hosted runners cannot reach that intranet host, so these jobs cannot
+# resolve the engine module here — the likely endgame is moving this repo's CI
+# to the internal GitLab (where a runner and CI config already exist for the
+# engine repo).
 env:
   GOWORK: off
 

@@ -24,9 +24,9 @@
 - **根模块**(`github.com/wt68/runcode`):CLI/TUI、桌面核心(`internal/desktop`)、`tools/preview`、`tools/protogen`。
 - **`cmd/runcode-desktop/`**(嵌套 module):Wails/CGO 重依赖隔离层,`replace` 指回根模块与引擎。
 - **`cmd/runcode-server/`**(嵌套 module):独立仓库服务端的可跑参考实现,自带依赖审计测试(`deps_test.go`——只许 import agentloop 公开面与自身)。
-- **引擎**(`gitlab.ouc-online.com.cn/aibase/agentloop`):同级 checkout `../agentloop`,经各 go.mod 的 `replace` 解析。
+- **引擎**(`gitlab.ouc-online.com.cn/aibase/agentloop`):require 固定 tag(无 replace)。开发时经 `go.work` 与同级 checkout `../agentloop` 联动;`GOWORK=off` 构建经 `GOPRIVATE=gitlab.ouc-online.com.cn` 直连内网 GitLab 拉取 tag。
 
-依赖方向:**外壳 → agentloop**,反向不存在("引擎永不依赖外壳"的纪律由 agentloop 仓库自己的 CI 审计)。`go.work`(use:`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`)供本地联动;CI/发布一律 `GOWORK=off`,replace 链是权威。
+依赖方向:**外壳 → agentloop**,反向不存在("引擎永不依赖外壳"的纪律由 agentloop 仓库自己的 CI 审计)。`go.work`(use:`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`)供本地联动;CI/发布一律 `GOWORK=off`,引擎按 require 的 tag 版本解析——引擎改动须打新 tag 并升 require 才进 CI/发布。
 
 ## 仓库布局
 

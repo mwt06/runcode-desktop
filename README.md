@@ -20,18 +20,24 @@
 
 ## Quick start
 
-The engine repo must sit **next to** this one (each `go.mod` has `replace … => ../agentloop`):
+For development, check out the engine repo **next to** this one — the committed `go.work` links them so engine edits take effect live:
 
 ```bash
 git clone https://github.com/wt68/runcode.git
-git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # sibling checkout, fixed name & location
+git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # sibling checkout (go.work links it)
 cd runcode
 go build ./cmd/runcode
 ./runcode version
 ./runcode --help
 ```
 
-> Requires Go 1.26+.
+To build without the sibling checkout (CI-style), fetch the tagged engine directly instead:
+
+```bash
+GOWORK=off GOPRIVATE=gitlab.ouc-online.com.cn go build ./cmd/runcode
+```
+
+> Requires Go 1.26+ and, for the direct fetch, git credentials for the internal GitLab.
 
 ## Current CLI
 

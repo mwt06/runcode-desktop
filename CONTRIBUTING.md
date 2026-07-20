@@ -10,11 +10,11 @@ Thanks for your interest! `runcode` is in **alpha** — we welcome bug reports, 
 
 ## Quick development setup
 
-The engine repo must sit next to this one (each `go.mod` has `replace … => ../agentloop`):
+For development, check out the engine repo next to this one — the committed `go.work` links them so engine edits take effect live (builds without the sibling work too: `GOWORK=off GOPRIVATE=gitlab.ouc-online.com.cn` fetches the tagged engine directly):
 
 ```bash
 git clone https://github.com/wt68/runcode.git
-git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # sibling checkout, fixed name & location
+git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # sibling checkout (go.work links it)
 cd runcode
 go build ./cmd/runcode
 go test -race ./...

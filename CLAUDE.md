@@ -9,7 +9,7 @@
 
 ## 构建与打包
 
-引擎已独立成仓：**`gitlab.ouc-online.com.cn/aibase/agentloop`**，以同级 checkout `../agentloop` 存在，经各 go.mod 的 `replace` 指向。改引擎（ReAct 循环、工具、权限、provider、持久化等）去 agentloop 仓库；本仓库只改外壳。
+引擎已独立成仓：**`gitlab.ouc-online.com.cn/aibase/agentloop`**（require 固定 tag，无 replace）。本地开发用同级 checkout `../agentloop` 经 `go.work` 联动（改引擎实时生效）；`GOWORK=off` 构建则设 `GOPRIVATE=gitlab.ouc-online.com.cn` 直连内网 GitLab 拉取 tag。改引擎（ReAct 循环、工具、权限、provider、持久化等）去 agentloop 仓库；本仓库只改外壳。
 
 本仓库含**三个 Go module**（依赖方向：外壳 → agentloop，反向不存在）：
 
@@ -17,7 +17,7 @@
 2. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
 3. **服务端骨架（`cmd/runcode-server`，嵌套 module）**——独立仓库服务端的可跑参考实现。
 
-`go.work` 已提交（use：`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`）供本地联动；**CI/发布链路一律 `GOWORK=off`**，go.mod 的 replace 链是权威（三个 go.mod 各自 replace 指向 `../agentloop`；CI 目前尚未解决内网 agentloop 的拉取，见 `.github/workflows/ci.yml` 顶部 TODO）。
+`go.work` 已提交（use：`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`）供本地联动；**CI/发布链路一律 `GOWORK=off`**，此时引擎按 go.mod require 的 tag 版本经 `GOPRIVATE` 从内网 GitLab 解析——引擎改动须打新 tag 并升 require 才进 CI/发布（GitHub CI 够不着内网 GitLab，见 `.github/workflows/ci.yml` 顶部 TODO）。
 
 ### 常用命令（根目录执行）
 
@@ -29,7 +29,7 @@
 
 ### 桌面版（Wails，`cmd/runcode-desktop`）
 
-- 桌面是**嵌套 Go module**（`cmd/runcode-desktop/go.mod`），用 `replace github.com/wt68/runcode => ../..` 指回核心、`replace ...agentloop => ../../../agentloop` 指向引擎，把 Wails/CGO/WebView 重依赖隔离在核心之外；核心的 `go build ./...` 与 CI 不会拉 Wails。模块路径仍在 `github.com/wt68/runcode/...` 下，故可复用核心的 `internal/` 包。
+- 桌面是**嵌套 Go module**（`cmd/runcode-desktop/go.mod`），用 `replace github.com/wt68/runcode => ../..` 指回核心，把 Wails/CGO/WebView 重依赖隔离在核心之外；核心的 `go build ./...` 与 CI 不会拉 Wails。模块路径仍在 `github.com/wt68/runcode/...` 下，故可复用核心的 `internal/` 包。
 - **正式打包**（产出可发布 exe，需已装 `wails` CLI，本机验证 v2.12.0；会跑 `npm install` + `npm run build` 重建前端）：
   ```bash
   cd cmd/runcode-desktop && wails build

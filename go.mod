@@ -71,5 +71,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.52.0 // indirect
 )
-
-replace gitlab.ouc-online.com.cn/aibase/agentloop => ../agentloop

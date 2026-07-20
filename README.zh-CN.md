@@ -20,18 +20,24 @@
 
 ## 快速开始
 
-引擎仓库必须与本仓库**同级**（各 `go.mod` 有 `replace … => ../agentloop`）：
+日常开发把引擎仓库 checkout 到本仓库**同级**——已提交的 `go.work` 会把两者联动，改引擎实时生效：
 
 ```bash
 git clone https://github.com/wt68/runcode.git
-git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # 同级 checkout，目录名与位置固定
+git clone https://gitlab.ouc-online.com.cn/aibase/agentloop.git agentloop   # 同级 checkout(go.work 联动)
 cd runcode
 go build ./cmd/runcode
 ./runcode version
 ./runcode --help
 ```
 
-> 需要 Go 1.26+。
+不想要同级 checkout(CI 式构建)时，直接拉取 tag 版本的引擎：
+
+```bash
+GOWORK=off GOPRIVATE=gitlab.ouc-online.com.cn go build ./cmd/runcode
+```
+
+> 需要 Go 1.26+;直连拉取需有内网 GitLab 的 git 凭证。
 
 ## 当前 CLI
 
