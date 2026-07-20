@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 const (

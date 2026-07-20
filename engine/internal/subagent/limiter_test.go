@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/agent"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/agent"
 )
 
 // countingLimiter is a fake cross-session Limiter: a real semaphore plus

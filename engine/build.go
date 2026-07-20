@@ -11,25 +11,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/engine/agent"
-	"github.com/wt68/runcode/engine/internal/prompt"
-	"github.com/wt68/runcode/engine/internal/repl"
-	"github.com/wt68/runcode/engine/internal/subagent"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/mcp"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/projectctx"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/agent"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/repl"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/subagent"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/projectctx"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 	// Provider packages are imported for their init() side effect: each registers
 	// its factory with llm.Build. BuildProvider then selects by name without a
 	// hardcoded switch over concrete provider types.
-	"github.com/wt68/runcode/engine/hooks"
-	_ "github.com/wt68/runcode/engine/llm/providers/anthropic"
-	_ "github.com/wt68/runcode/engine/llm/providers/openai"
-	"github.com/wt68/runcode/engine/memory"
-	"github.com/wt68/runcode/engine/skill"
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
+	_ "gitlab.ouc-online.com.cn/aibase/agentloop/llm/providers/anthropic"
+	_ "gitlab.ouc-online.com.cn/aibase/agentloop/llm/providers/openai"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/memory"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/skill"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // safeMode is the non-interactive permission mode name.

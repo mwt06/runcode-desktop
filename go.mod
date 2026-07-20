@@ -2,18 +2,12 @@ module github.com/wt68/runcode
 
 go 1.26
 
-// The engine lives in a nested module (see engine/go.mod); the replace keeps
-// builds hermetic to this checkout. Kept authoritative even though go.work
-// exists: CI and goreleaser must build with GOWORK=off.
-replace github.com/wt68/runcode/engine => ./engine
-
 require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/spf13/cobra v1.10.2
-	github.com/wt68/runcode/engine v0.0.0-00010101000000-000000000000
 	golang.org/x/sys v0.42.0
 	golang.org/x/tools v0.42.0
 )
@@ -65,6 +59,7 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
+	gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
@@ -76,3 +71,5 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.52.0 // indirect
 )
+
+replace gitlab.ouc-online.com.cn/aibase/agentloop => ../agentloop

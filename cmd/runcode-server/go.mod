@@ -9,8 +9,6 @@ module github.com/wt68/runcode/cmd/runcode-server
 
 go 1.26
 
-require github.com/wt68/runcode/engine v0.0.0-00010101000000-000000000000
-
 require (
 	github.com/anthropics/anthropic-sdk-go v1.45.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -29,6 +27,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
+	gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
@@ -40,4 +39,4 @@ require (
 	modernc.org/sqlite v1.52.0 // indirect
 )
 
-replace github.com/wt68/runcode/engine => ../../engine
+replace gitlab.ouc-online.com.cn/aibase/agentloop => ../../../agentloop

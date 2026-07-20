@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
 )
 
 func TestToolSpecs(t *testing.T) {

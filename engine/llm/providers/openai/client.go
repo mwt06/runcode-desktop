@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // maxSSELine bounds a single SSE data line. Tool-call argument payloads can be

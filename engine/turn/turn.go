@@ -5,7 +5,7 @@
 // on the llm wire types, decoupled from the engine's internal ReAct loop.
 package turn
 
-import "github.com/wt68/runcode/engine/llm"
+import "gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 
 // ReasoningScenario names the task class the reasoning classifier assigns to a
 // turn (e.g. troubleshooting, planning); the engine maps it to prompt guidance.

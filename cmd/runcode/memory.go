@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/engine"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
 )
 
 // projectRuncodeDir is the workspace-local runcode data directory. It aliases the

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // AsyncApprover bridges blocking permission prompts — invoked on a turn

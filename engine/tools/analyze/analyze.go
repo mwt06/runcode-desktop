@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // Name is the stable tool identifier.

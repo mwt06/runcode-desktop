@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
 // SessionMeta is the small mutable session state that must travel with a

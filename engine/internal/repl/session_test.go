@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/internal/prompt"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/telemetry"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools"
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/telemetry"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
 func TestNewSessionRequiresProvider(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools/delete"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/delete"
 )
 
 func TestDeletePermanentRemovesFile(t *testing.T) {

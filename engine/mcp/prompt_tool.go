@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // ListPromptsToolName and GetPromptToolName are the model-facing names of the

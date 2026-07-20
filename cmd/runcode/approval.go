@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/wt68/runcode/engine/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
 const maxApprovalAttempts = 3

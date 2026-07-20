@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools/read"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/read"
 )
 
 func TestReadToolReadsLineNumberedContent(t *testing.T) {

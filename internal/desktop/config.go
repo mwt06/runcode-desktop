@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/cost"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/mcp"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/cost"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 // buildConfig resolves a StartSessionRequest into an engine.Config. Fields the

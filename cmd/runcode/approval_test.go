@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wt68/runcode/engine/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
 func TestApprovalPrompterAllowsYes(t *testing.T) {

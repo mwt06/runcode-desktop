@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 type promptResult struct {

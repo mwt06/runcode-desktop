@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/engine/skill"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/skill"
 )
 
 // projectSkillsDir is the workspace directory that holds project skills.

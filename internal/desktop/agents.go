@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/engine"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
 )
 
 // isBuiltinAgentName reports whether name is one of the compiled-in agents, which

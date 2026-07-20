@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
 )
 
 type fakeHandle struct {

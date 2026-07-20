@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // previewRunes bounds how much of a user prompt is kept for a list preview.

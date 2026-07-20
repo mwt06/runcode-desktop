@@ -21,10 +21,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/protocol"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 // Session is the slice of engine.Session the host consumes, defined here so

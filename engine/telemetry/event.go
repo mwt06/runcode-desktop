@@ -3,7 +3,7 @@ package telemetry
 import (
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 type EventName string

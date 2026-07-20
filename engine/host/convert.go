@@ -3,11 +3,11 @@ package host
 import (
 	"strings"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/protocol"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 // This file is the host's single crossing point between the engine's internal

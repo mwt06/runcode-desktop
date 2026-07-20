@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 func ToolResultBlock(result ExecuteResult) (llm.ContentBlock, error) {

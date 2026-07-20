@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	enginePrefix = "github.com/wt68/runcode/engine"
+	enginePrefix = "gitlab.ouc-online.com.cn/aibase/agentloop"
 	selfPrefix   = "github.com/wt68/runcode/cmd/runcode-server"
 )
 
@@ -39,7 +39,7 @@ func goList(t *testing.T, args ...string) []string {
 }
 
 // allowedRuncodeDep 判定一个 runcode 域内的包是否允许出现在依赖闭包里：
-// 只有 engine 模块（github.com/wt68/runcode/engine[/...]）和本模块自身。
+// 只有 engine 模块（gitlab.ouc-online.com.cn/aibase/agentloop[/...]）和本模块自身。
 func allowedRuncodeDep(pkg string) bool {
 	if pkg == selfPrefix || strings.HasPrefix(pkg, selfPrefix+"/") {
 		return true

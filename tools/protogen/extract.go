@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // eventPayloads is the explicit event→payload table: each protocol Event*

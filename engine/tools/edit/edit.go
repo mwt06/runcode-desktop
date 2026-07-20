@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wt68/runcode/engine/diff"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/diff"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
 )
 
 const maxEditableBytes = 1_000_000

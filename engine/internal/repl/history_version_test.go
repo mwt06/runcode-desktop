@@ -3,7 +3,7 @@ package repl
 import (
 	"testing"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // A turn's history commit must not clobber a /clear (ResetHistory) or /compact that

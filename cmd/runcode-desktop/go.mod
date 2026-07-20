@@ -52,7 +52,7 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	github.com/wt68/runcode/engine v0.0.0-00010101000000-000000000000 // indirect
+	gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
@@ -67,6 +67,4 @@ require (
 
 replace github.com/wt68/runcode => ../..
 
-// replace directives don't propagate across modules, so the engine replace
-// from the root go.mod must be repeated here.
-replace github.com/wt68/runcode/engine => ../../engine
+replace gitlab.ouc-online.com.cn/aibase/agentloop => ../../../agentloop

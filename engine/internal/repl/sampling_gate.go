@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wt68/runcode/engine/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
 // SamplingGate gates MCP sampling requests (a server asking to use the model)

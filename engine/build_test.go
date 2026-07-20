@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 )
 
 // buildTestProviderName is a fake provider registered once for Build tests, so

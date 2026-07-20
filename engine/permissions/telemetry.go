@@ -3,7 +3,7 @@ package permissions
 import (
 	"context"
 
-	"github.com/wt68/runcode/engine/telemetry"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/telemetry"
 )
 
 func RecordDecision(ctx context.Context, recorder telemetry.Recorder, req TelemetryRequest) {

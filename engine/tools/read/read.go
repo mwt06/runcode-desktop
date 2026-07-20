@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
 )
 
 // maxImageBytes bounds an image read so a huge file cannot blow up the request.

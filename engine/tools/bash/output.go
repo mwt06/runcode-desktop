@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // BashOutputTool reads output produced by a background shell since the last read.

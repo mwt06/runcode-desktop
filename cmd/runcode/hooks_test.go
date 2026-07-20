@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/wt68/runcode/engine/hooks"
-	"github.com/wt68/runcode/engine/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 func TestHooksFromConfig(t *testing.T) {

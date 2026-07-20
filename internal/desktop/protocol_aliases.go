@@ -1,6 +1,6 @@
 package desktop
 
-import "github.com/wt68/runcode/engine/protocol"
+import "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 
 // The desktop wire types — the request/response/event payloads serialized to
 // the frontend — live in engine/protocol, the single source of truth for the

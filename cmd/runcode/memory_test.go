@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/memory"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/memory"
 )
 
 func TestMemorySummaryCountsProject(t *testing.T) {

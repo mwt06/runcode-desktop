@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/host"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // ---- 测试装配 ----

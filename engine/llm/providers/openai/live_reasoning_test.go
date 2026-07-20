@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // TestLiveReasoningEmitsThinking exercises the real provider (convert + HTTP/SSE +

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/telemetry"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/telemetry"
 )
 
 type turnObserver struct {

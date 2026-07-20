@@ -4,5 +4,5 @@ use (
 	.
 	./cmd/runcode-desktop
 	./cmd/runcode-server
-	./engine
+	../agentloop
 )

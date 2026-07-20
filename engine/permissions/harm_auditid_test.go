@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // The harm-gate audit event must carry the tool_use_id of the call it decided, so

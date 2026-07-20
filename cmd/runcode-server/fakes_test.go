@@ -8,10 +8,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/host"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 // fakeSession 实现 host.Session。RunTurn 先经 opts.StreamDelta 流出一段文本

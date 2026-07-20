@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/engine/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
 )
 
 const DefaultMaxBytes = 64 * 1024

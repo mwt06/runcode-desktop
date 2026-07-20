@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/internal/prompt"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools/webfetch"
-	"github.com/wt68/runcode/engine/tools/write"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/webfetch"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/write"
 )
 
 // When the user denies an interactive approval, the turn must stop and return

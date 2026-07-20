@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/wt68/runcode/engine/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
 )
 
 const (

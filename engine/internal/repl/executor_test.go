@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/telemetry"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/telemetry"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
 )
 
 func TestExecutorRunsReadTool(t *testing.T) {

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools"
-	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/engine/webclient"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/bash"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/webclient"
 )
 
 // ToolsetSpec carries the per-session parameters a ToolRuntime needs to

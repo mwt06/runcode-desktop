@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // ReasoningExecMode decides where a scenario's structured analysis runs: a

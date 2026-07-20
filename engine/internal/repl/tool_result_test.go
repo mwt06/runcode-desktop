@@ -3,8 +3,8 @@ package repl
 import (
 	"testing"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 func TestToolResultBlockConvertsText(t *testing.T) {

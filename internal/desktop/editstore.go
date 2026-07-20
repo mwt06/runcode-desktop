@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/engine/diff"
-	"github.com/wt68/runcode/engine/host"
-	"github.com/wt68/runcode/engine/transcript"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/diff"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 // maxEditSnapshotBytes bounds a single pre/post snapshot. Larger files are skipped

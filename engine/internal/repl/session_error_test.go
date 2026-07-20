@@ -6,11 +6,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wt68/runcode/engine/internal/prompt"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools/glob"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/glob"
 )
 
 // A turn that errors before completing must still record the user's prompt, so a

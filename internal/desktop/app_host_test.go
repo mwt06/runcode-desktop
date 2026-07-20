@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/host"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // wireError must pass host command errors (*protocol.Error) through untouched,

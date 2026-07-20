@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/mcp"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
 )
 
 // ListTools returns the full catalog of built-in tools (always, so a disabled one

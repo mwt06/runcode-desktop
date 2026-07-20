@@ -11,12 +11,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/cost"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/settings"
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/cost"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
 // anthropicProvider is the default provider name and the one that strictly

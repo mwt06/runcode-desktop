@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 func TestStartupErrorError(t *testing.T) {

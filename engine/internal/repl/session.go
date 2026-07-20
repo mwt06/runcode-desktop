@@ -16,17 +16,17 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/wt68/runcode/engine/hooks"
-	"github.com/wt68/runcode/engine/internal/compaction"
-	"github.com/wt68/runcode/engine/internal/prompt"
-	"github.com/wt68/runcode/engine/internal/prompt/sections"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/telemetry"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/transcript"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/compaction"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt/sections"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/telemetry"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 const DefaultMaxIterations = 8

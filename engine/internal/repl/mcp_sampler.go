@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
 )
 
 // defaultSamplingMaxTokens bounds a sampling completion when the server requests

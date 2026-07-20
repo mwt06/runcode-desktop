@@ -12,8 +12,8 @@ import (
 
 	_ "modernc.org/sqlite" // registers the pure-Go "sqlite" database/sql driver
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
 const (

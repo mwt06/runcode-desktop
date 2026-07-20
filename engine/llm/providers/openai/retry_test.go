@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // sequenceDoer returns a scripted sequence of responses/errors across calls.

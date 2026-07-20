@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/engine/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 )
 
 // backendPool shares one sessions.Backend per (workspace, kind) across all of

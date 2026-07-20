@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
 // Test group 6: the janitor reclaims idle sessions but never one with a turn

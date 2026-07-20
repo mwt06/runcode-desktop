@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // DefaultKeepRecentTurns is the number of most-recent turns kept verbatim when

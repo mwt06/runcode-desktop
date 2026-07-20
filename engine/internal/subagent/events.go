@@ -1,6 +1,6 @@
 package subagent
 
-import "github.com/wt68/runcode/engine/tool"
+import "gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 
 // eventBridgeBuffer bounds the channel the child session writes tool events to.
 const eventBridgeBuffer = 32

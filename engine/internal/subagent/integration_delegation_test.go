@@ -7,10 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wt68/runcode/engine/agent"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/agent"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // seqProvider replays one scripted stream per Stream call and records every

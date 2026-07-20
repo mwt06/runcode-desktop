@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
 // describeAction must feed the harm judge the deterministic classifier facts as

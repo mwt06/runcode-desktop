@@ -12,11 +12,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/wt68/runcode/engine/hooks"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/telemetry"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/telemetry"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
 )
 
 var (

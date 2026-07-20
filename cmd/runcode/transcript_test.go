@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
 func runTranscriptCmd(t *testing.T, args ...string) string {

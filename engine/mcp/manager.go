@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // TransportType selects how a server is reached.

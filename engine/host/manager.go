@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/protocol"
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/bash"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 // toolEventBuffer bounds each session's tool-event channel so a burst of tool

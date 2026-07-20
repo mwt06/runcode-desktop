@@ -3,9 +3,9 @@ package prompt
 import (
 	"fmt"
 
-	"github.com/wt68/runcode/engine/internal/prompt/sections"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt/sections"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 type AssemblerOpts struct {

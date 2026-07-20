@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/engine/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
 )
 
 // Manual reasoning (Enabled without AutoClassify) applies the chosen scenario's

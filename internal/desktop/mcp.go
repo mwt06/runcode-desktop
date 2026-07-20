@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/mcp"
-	"github.com/wt68/runcode/engine/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 // ListMCPServers returns every configured MCP server (from the shared

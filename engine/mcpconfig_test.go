@@ -3,8 +3,8 @@ package engine
 import (
 	"testing"
 
-	"github.com/wt68/runcode/engine/mcp"
-	"github.com/wt68/runcode/engine/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 func boolPtr(b bool) *bool { return &b }

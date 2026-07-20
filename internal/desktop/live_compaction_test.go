@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // preserveDesktopConfig snapshots the real desktop.json and restores it after the

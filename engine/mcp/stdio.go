@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/wt68/runcode/engine/internal/secenv"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/secenv"
 )
 
 // StdioConfig launches a local MCP server as a subprocess and speaks JSON-RPC

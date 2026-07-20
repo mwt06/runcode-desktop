@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/wt68/runcode/engine/internal/id"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/id"
 )
 
 var ErrInvalidSessionID = errors.New("invalid session id")

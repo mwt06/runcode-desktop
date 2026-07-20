@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // maxBodyBytes 限制单个 RPC 请求体（骨架的命令都很小；带附件的命令届时另定）。

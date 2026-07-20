@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // Process-level envelopes carry an empty sessionId and a monotonic seq

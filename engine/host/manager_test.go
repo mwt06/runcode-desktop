@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/protocol"
-	"github.com/wt68/runcode/engine/turn"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
 )
 
 // Test group 1a: table stress — 8 goroutines mixing Create/SendMessage/

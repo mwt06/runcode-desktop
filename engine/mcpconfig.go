@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/engine/mcp"
-	"github.com/wt68/runcode/engine/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 // MCPServersFromConfig converts the user-level MCP config into connectable server

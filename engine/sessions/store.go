@@ -7,7 +7,7 @@ package sessions
 import (
 	"context"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // Store appends complete conversation messages for a session. Implementations

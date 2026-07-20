@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wt68/runcode/engine"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
 )
 
 // Test group 5a: one workspace shares exactly one backend across sessions

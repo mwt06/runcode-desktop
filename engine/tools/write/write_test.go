@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/toolpath"
-	"github.com/wt68/runcode/engine/tools/write"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/write"
 )
 
 func TestWriteToolCreatesFile(t *testing.T) {

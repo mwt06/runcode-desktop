@@ -7,8 +7,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/wt68/runcode/engine/host"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // subscriberBuffer 是每个 SSE 订阅者的有界缓冲。写满意味着客户端消费不动

@@ -1,7 +1,7 @@
 // Command runcode-server 是 runcode 引擎的 HTTP 参考宿主（服务端交接骨架）。
 //
 // 它演示一个网络服务端接入 engine 的全部要点，且只使用 engine 模块的公开面
-// （github.com/wt68/runcode/engine/...）与标准库：
+// （gitlab.ouc-online.com.cn/aibase/agentloop/...）与标准库：
 //
 //   - 命令面：POST /api/v1/rpc/{command}，请求/响应 JSON，错误 = protocol.Error；
 //   - 事件面：GET /api/v1/sessions/{id}/events，SSE 推送 protocol.Envelope；
@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/wt68/runcode/engine/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 )
 
 // config 是进程级配置，flag > env > 内置默认 三级解析。

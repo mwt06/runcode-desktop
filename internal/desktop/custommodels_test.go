@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 func TestCustomModelsCRUDRoundTrip(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // ListResourcesToolName and ReadResourceToolName are the model-facing names of

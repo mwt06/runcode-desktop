@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tools"
-	"github.com/wt68/runcode/engine/tools/bash"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/bash"
 )
 
 func TestBuiltinsContainsReadWriteEditGlobGrepAndBash(t *testing.T) {

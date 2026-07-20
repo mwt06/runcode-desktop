@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // TestProviderEndToEndOverHTTP exercises the real transport: an httptest server

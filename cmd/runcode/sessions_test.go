@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 )
 
 func seedSession(t *testing.T, workspace, id string, history []llm.Message) {

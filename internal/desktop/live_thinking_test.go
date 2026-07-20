@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // TestLiveDesktopEmitsThinking drives a full turn through the real App (engine +

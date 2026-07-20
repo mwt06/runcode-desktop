@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // ddgHTML mimics DuckDuckGo's HTML result rows: title anchors (result__a) wrap the

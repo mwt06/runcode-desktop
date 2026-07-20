@@ -5,7 +5,7 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/wt68/runcode/engine/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 	"github.com/wt68/runcode/internal/ui"
 	"github.com/wt68/runcode/pkg/command"
 )

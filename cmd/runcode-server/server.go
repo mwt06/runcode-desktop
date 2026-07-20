@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wt68/runcode/engine/host"
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // server 装配 HTTP 面：路由、鉴权、错误映射。业务全部委托给 host.Manager，

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wt68/runcode/engine/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // envelopeSink wraps the shell-provided EventSink so the desktop's

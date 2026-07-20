@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // classifyError normalizes an SDK/transport error into a neutral *llm.Error so

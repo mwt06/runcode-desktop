@@ -1,6 +1,6 @@
 package subagent
 
-import "github.com/wt68/runcode/engine/agent"
+import "gitlab.ouc-online.com.cn/aibase/agentloop/agent"
 
 // GeneralPurposeName is the built-in agent always available for delegation. It
 // inherits every delegatable tool and is suited to open-ended investigation.

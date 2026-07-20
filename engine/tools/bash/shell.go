@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"github.com/wt68/runcode/engine/internal/secenv"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/secenv"
 )
 
 // shellKind reports which shell the Bash tool runs commands in.

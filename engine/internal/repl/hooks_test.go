@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/hooks"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/permissions"
-	"github.com/wt68/runcode/engine/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 // stubHooks is a hooks.Runner returning a fixed decision per event and recording

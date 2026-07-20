@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wt68/runcode/engine/internal/prompt"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/prompt"
 )
 
 func TestGenerateTitleSummarizesRequest(t *testing.T) {

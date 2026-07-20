@@ -3,19 +3,19 @@ package tools
 import (
 	"net/http"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools/analyze"
-	"github.com/wt68/runcode/engine/tools/askuser"
-	"github.com/wt68/runcode/engine/tools/bash"
-	"github.com/wt68/runcode/engine/tools/delete"
-	"github.com/wt68/runcode/engine/tools/edit"
-	"github.com/wt68/runcode/engine/tools/glob"
-	"github.com/wt68/runcode/engine/tools/grep"
-	"github.com/wt68/runcode/engine/tools/read"
-	"github.com/wt68/runcode/engine/tools/todo"
-	"github.com/wt68/runcode/engine/tools/webfetch"
-	"github.com/wt68/runcode/engine/tools/websearch"
-	"github.com/wt68/runcode/engine/tools/write"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/analyze"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/askuser"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/bash"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/delete"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/edit"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/glob"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/grep"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/read"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/todo"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/webfetch"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/websearch"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/write"
 )
 
 // Config carries per-session tool construction options; the zero value

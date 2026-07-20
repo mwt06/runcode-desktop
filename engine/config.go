@@ -11,9 +11,9 @@
 package engine
 
 import (
-	"github.com/wt68/runcode/engine/hooks"
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/mcp"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
 )
 
 // Config is the fully resolved configuration for a session. Frontends resolve it

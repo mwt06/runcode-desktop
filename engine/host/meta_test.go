@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 )
 
 // Test group 7: Create with Resume re-applies the persisted SessionMeta —

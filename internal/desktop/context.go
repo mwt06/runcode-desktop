@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wt68/runcode/engine"
-	"github.com/wt68/runcode/engine/projectctx"
+	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/projectctx"
 )
 
 // maxDocBytes bounds how much of a project-instructions file we read into the

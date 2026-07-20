@@ -3,8 +3,8 @@ package sessions_test
 import (
 	"testing"
 
-	"github.com/wt68/runcode/engine/sessions"
-	"github.com/wt68/runcode/engine/sessions/backendtest"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions/backendtest"
 )
 
 // The built-in backends are held to the same contract future remote

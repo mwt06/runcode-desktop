@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	protocolPkgPath = "github.com/wt68/runcode/engine/protocol"
+	protocolPkgPath = "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 	desktopPkgPath  = "github.com/wt68/runcode/internal/desktop"
 )
 

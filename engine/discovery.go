@@ -6,12 +6,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wt68/runcode/engine/agent"
-	"github.com/wt68/runcode/engine/internal/subagent"
-	"github.com/wt68/runcode/engine/memory"
-	"github.com/wt68/runcode/engine/settings"
-	"github.com/wt68/runcode/engine/skill"
-	"github.com/wt68/runcode/engine/tools/bash"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/agent"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/internal/subagent"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/memory"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/skill"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/bash"
 )
 
 const (

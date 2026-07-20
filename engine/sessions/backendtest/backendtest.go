@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/sessions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 )
 
 // Factory opens a fresh Backend over the same underlying storage on every

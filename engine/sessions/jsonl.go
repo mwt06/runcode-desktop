@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wt68/runcode/engine/llm"
-	"github.com/wt68/runcode/engine/toolpath"
-	"github.com/wt68/runcode/engine/transcript"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/toolpath"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
 const sessionsDirName = "sessions"

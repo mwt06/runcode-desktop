@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wt68/runcode/engine/tool"
-	"github.com/wt68/runcode/engine/tools"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tools"
 )
 
 func lastEvent(t *testing.T, events []tool.Event) tool.Event {

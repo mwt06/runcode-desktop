@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wt68/runcode/engine/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
 
 // ErrUnsupportedContent is returned when a neutral block cannot be represented
