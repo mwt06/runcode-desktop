@@ -1,13 +1,14 @@
 # runcode-server —— 服务端交接骨架
 
-一个**只依赖 engine 模块公开面（`github.com/wt68/runcode/engine/...`）与标准库**的
-HTTP 参考宿主：命令面 RPC + 事件面 SSE，会话托管全部交给 `engine/host.Manager`。
+一个**只依赖 engine 模块公开面（`gitlab.ouc-online.com.cn/aibase/agentloop/...`）与标准库**的
+HTTP 参考宿主：命令面 RPC + 事件面 SSE，会话托管全部交给 agentloop 的 `host.Manager`。
 它的存在意义是向独立仓库的服务端同事证明：**engine 的交接面是完整的**——拷走本目录、
 改两行 go.mod 即可起步，不需要 runcode 根模块的任何内部包。
 
-- 协议语义（回合状态机 / 信封 / 错误码 / 传输映射）：见仓库 `docs/protocol.md`。
+- 协议语义（回合状态机 / 信封 / 错误码 / 传输映射）：见 agentloop 仓库（同级
+  `../agentloop`）的 `docs/protocol.md`。
 - 依赖约束由测试固化：`TestOnlyEnginePublicImports`（deps_test.go）审计依赖闭包，
-  出现 engine 之外的任何 `wt68/runcode` 包即红。第三方依赖为零（SSE 用 stdlib 即可，
+  只许 agentloop 与本模块自身，出现任何 `wt68/runcode` 包即红。第三方依赖为零（SSE 用 stdlib 即可，
   WS 升级留给正式服务端）。
 
 ## 快速开始
@@ -46,7 +47,7 @@ TOKEN=devtoken ./scripts/smoke.sh
 
 ## API 一览
 
-传输映射对应 `docs/protocol.md` §7 的「HTTP/WS（未来服务端）」列，WS 降级为 SSE（协议明确允许）。
+传输映射对应 agentloop `docs/protocol.md` §7 的「HTTP/WS（未来服务端）」列，WS 降级为 SSE（协议明确允许）。
 
 ### 命令面：`POST /api/v1/rpc/{command}`
 
@@ -77,11 +78,11 @@ message = `not implemented in the skeleton`）：
 ### 事件面：`GET /api/v1/sessions/{id}/events`（SSE）
 
 - `text/event-stream`，每条事件一帧 `data: <protocol.Envelope JSON>`；
-  帧顺序即每会话 `seq` 顺序（`seq` 从 1 严格递增，见 `docs/protocol.md` §3）。
+  帧顺序即每会话 `seq` 顺序（`seq` 从 1 严格递增，见 agentloop `docs/protocol.md` §3）。
 - 每订阅者有界缓冲 256 条；客户端消费不动即被断开并记日志——重连后凭 seq 缺口走
   `Status`（+ 将来的 `ResumeSession`）对账，事件**不重放**。
 - `?after=<seq>` 被接受但忽略（骨架不做重放，见代码 HANDOFF(replay) 注释）。
-- 回合状态机（`docs/protocol.md` §2）：`SendMessage` 受理后 0..n 个
+- 回合状态机（agentloop `docs/protocol.md` §2）：`SendMessage` 受理后 0..n 个
   `assistant:delta | assistant:thinking | tool:event | permission:request | warning`，
   以恰好一个 `turn:end` 或 `turn:error` 收尾。
 
@@ -100,8 +101,8 @@ go vet ./...
 
 1. 整目录拷贝 `cmd/runcode-server/` 到你们仓库根（连同 `scripts/`、测试）。
 2. 改 `go.mod` 的 module 名（例如 `github.com/yourorg/runcode-server`）。
-3. 把 `replace github.com/wt68/runcode/engine => ../../engine` 删掉，
-   `require github.com/wt68/runcode/engine vX.Y.Z` 固定到 engine 的已发布 tag；`go mod tidy`。
+3. 把 `replace gitlab.ouc-online.com.cn/aibase/agentloop => ../../../agentloop` 删掉，
+   `require gitlab.ouc-online.com.cn/aibase/agentloop vX.Y.Z` 固定到已发布 tag；`go mod tidy`。
 4. `go test -race ./...` 全绿即接手成功（依赖审计测试会持续守住交接面）。
 
 ### HANDOFF 锚点清单（代码内以 `HANDOFF(<名>)` 注释标出，即「同事要换掉」的位置）
@@ -110,12 +111,12 @@ go vet ./...
 |---|---|---|
 | `HANDOFF(module)` | `go.mod` | 改 module 名；replace → require 固定 tag |
 | `HANDOFF(config)` | `main.go` | env/flag → 你们的配置中心/密钥管理（`config` 结构体是唯一消费面） |
-| `HANDOFF(auth)` | `server.go`（呼应 `main.go`） | 单令牌 Bearer → 多用户认证；把用户身份放进 request context，为每用户注入 `engine.Config.TokenSource`/`OnUnauthorized`（契约见 `engine/config.go`：goroutine-safe、刷新去重由实现负责） |
+| `HANDOFF(auth)` | `server.go`（呼应 `main.go`） | 单令牌 Bearer → 多用户认证；把用户身份放进 request context，为每用户注入 `engine.Config.TokenSource`/`OnUnauthorized`（契约见 agentloop 根包 `config.go`：goroutine-safe、刷新去重由实现负责） |
 | `HANDOFF(permission-mode)` | `rpc.go` `rpcStartSession` | 固定 `safe` → 放开 `interactive`/`judge`；前端必须先接住 `permission:request` 事件并回调 `ResolvePermission` |
-| `HANDOFF(backend)` | `rpc.go` `rpcStartSession` | `SessionBackend` 空（workspace 本地 JSONL）→ Redis 热层 + DB 归档：实现 `engine/sessions.Backend` 注入；**验收 = `engine/sessions/backendtest` 契约测试全绿** |
-| `HANDOFF(sandbox)` | `rpc.go` `rpcStartSession` | 多租户隔离：注入 `engine.Config.ToolEnv`（per-session HOME/代理/凭证）；更强的选择性沙盒实现 `engine.ToolRuntime`（`engine/toolruntime.go`） |
+| `HANDOFF(backend)` | `rpc.go` `rpcStartSession` | `SessionBackend` 空（workspace 本地 JSONL）→ Redis 热层 + DB 归档：实现 agentloop `sessions.Backend` 注入；**验收 = agentloop `sessions/backendtest` 契约测试全绿** |
+| `HANDOFF(sandbox)` | `rpc.go` `rpcStartSession` | 多租户隔离：注入 `engine.Config.ToolEnv`（per-session HOME/代理/凭证）；更强的选择性沙盒实现 `engine.ToolRuntime`（agentloop 根包 `toolruntime.go`） |
 | `HANDOFF(session-list)` | `rpc.go` `rpcListSessions` | 活动会话表 → 持久会话列表（`sessions.OpenBackend(workspace, kind).List`） |
-| `HANDOFF(transport-ws)` | `events.go`（hub 注释） | SSE → WebSocket 升级：hub 原样可用，把 SSE handler 换成 WS 连接注册；trigger 命令的重试去重靠 WS 信封的 client request id（`docs/protocol.md` §7） |
+| `HANDOFF(transport-ws)` | `events.go`（hub 注释） | SSE → WebSocket 升级：hub 原样可用，把 SSE handler 换成 WS 连接注册；trigger 命令的重试去重靠 WS 信封的 client request id（agentloop `docs/protocol.md` §7） |
 | `HANDOFF(replay)` | `events.go` `handleEvents` | `?after=<seq>` 重放：hub 加每会话环形缓冲，订阅时补发 `seq > after` 的存量信封 |
 | `HANDOFF(process-events)` | `events.go` `Emit` | `sessionId == ""` 的进程级事件目前丢弃；需要时开独立广播流 |
 
@@ -123,7 +124,7 @@ go vet ./...
 
 - **WS 升级**：单连接多路复用 + client request id 去重（SSE 是协议允许的降级形态）。
 - **多用户认证与 TokenSource 注入**：JWT/网关会话 → per-user `engine.Config.TokenSource`。
-- **Redis 热层 + DB 归档 Backend**：实现 `engine/sessions.Backend`，
-  验收标准 = `engine/sessions/backendtest` 契约测试。
+- **Redis 热层 + DB 归档 Backend**：实现 agentloop `sessions.Backend`，
+  验收标准 = agentloop `sessions/backendtest` 契约测试。
 - **选择性沙盒 ToolRuntime**：`engine.ToolRuntime` 网关运行时（本地工具 + 沙盒转发混合）。
 - **部署**：容器化、水平扩展（会话粘滞或共享 Backend）、可观测性。
