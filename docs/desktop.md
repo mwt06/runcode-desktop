@@ -19,12 +19,12 @@ internal/desktop/               根模块：传输无关的桌面核心（不依
   context.go / files.go / store.go 项目指令与记忆读写、# 文件选择器、desktop.json 持久化
   harm.go                       harm judge 接线与 auto-allow 审计事件
 
-engine/（嵌套 module）         共享引擎门面（CLI/TUI/桌面三前端共用，见 docs/architecture.md）
+../agentloop（外部 module）    共享引擎 gitlab.ouc-online.com.cn/aibase/agentloop（同级 checkout，见 docs/architecture.md）
 ```
 
 ## internal/desktop：传输无关核心
 
-`App`（`internal/desktop/app.go`）是单会话（单工作区）管理器：全部状态由一把 `sync.Mutex` 保护，turn 在独立 goroutine 上运行、结果经事件回报，因此所有命令方法都不阻塞 UI 线程。构造方式为 `New(sink)` + `SetDialoger(d)`（原生对话框由外壳注入）。
+`App`（`internal/desktop/app.go`）是引擎 `host.Manager` 之上的**单会话适配层**：会话表/事件信封与 seq/审批路由由 host 层负责（`host.NewManager(host.Options{Build: host.DefaultBuild, ...})`，单用户外壳不设配额、不做空闲回收），App 只叠加"单会话策略"——`currentID` 把所有命令路由到活动会话，`startMu` 串行化开/关/切换会话的生命周期。turn 在 host 的 goroutine 上运行、结果经事件回报，命令方法不阻塞 UI 线程。构造方式为 `New(sink)` + `SetDialoger(d)`（原生对话框由外壳注入）。
 
 ### 命令面（全部绑定给前端）
 
@@ -80,7 +80,7 @@ harm judge 在 `buildAndSetLocked`（`internal/desktop/app.go`）接线：`permi
 
 `main.go`：`//go:embed all:frontend/dist`；`eventSink` 把 `desktop.EventSink` 桥接到 `wruntime.EventsEmit`（OnStartup 前的事件丢弃）；`wailsDialog` 提供原生目录/图片选择器；窗口 1280×820（最小 1024×680）、**Frameless**（前端自绘标题栏与窗口控制）、`Bind: []any{app}`——前端调用落在 `window.go.desktop.App.*`。生成的绑定在 `frontend/wailsjs/`（git-ignored，wails 再生成）。
 
-嵌套 module（`cmd/runcode-desktop/go.mod`，`replace github.com/wt68/runcode => ../..`）把 Wails/CGO/WebView 重依赖隔离在核心模块之外；核心 `go build ./...` 不拉 Wails。
+嵌套 module（`cmd/runcode-desktop/go.mod`，`replace github.com/wt68/runcode => ../..`、`replace ...agentloop => ../../../agentloop`）把 Wails/CGO/WebView 重依赖隔离在核心模块之外；核心 `go build ./...` 不拉 Wails。
 
 ## frontend：React + Vite + TS
 
