@@ -14,6 +14,14 @@ export type Block =
   | { kind: 'error'; id: string; text: string }
   | { kind: 'warning'; id: string; text: string }
   | { kind: 'notice'; id: string; text: string }
+  // compaction marks the point where earlier turns were folded into a summary,
+  // rendered as a divider across the conversation flow. inTok/outTok are what the
+  // summary call itself spent; contextTokens is the estimated working-history size
+  // after compaction (both shown so the fold's cost and result are visible).
+  | { kind: 'compaction'; id: string; before: number; after: number; inTok: number; outTok: number; contextTokens: number }
+  // retry marks a transient LLM-request failure being retried, rendered as a
+  // divider carrying the disconnect reason and the attempt number.
+  | { kind: 'retry'; id: string; reason: string; attempt: number; maxAttempts: number }
   | { kind: 'planchoice'; id: string }
   // usage closes a completed reply with that turn's own token spend (the parent
   // session's model calls — sub-agent tokens are shown on the Task card instead).

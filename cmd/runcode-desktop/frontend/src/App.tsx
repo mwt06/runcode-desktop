@@ -358,6 +358,10 @@ export default function App() {
   const [ctxTokens, setCtxTokens] = useState(0)
   const [ctxEstimated, setCtxEstimated] = useState(false)
   const [compacting, setCompacting] = useState(false)
+  // toast is a transient, self-dismissing hint shown above the composer (e.g.
+  // "nothing to compact"), kept out of the persistent conversation flow.
+  const [toast, setToast] = useState('')
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
@@ -480,6 +484,7 @@ export default function App() {
   // narrows (tooltips and the active-state colors still convey each button).
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const [toolbarW, setToolbarW] = useState(0)
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
   useEffect(() => {
     const el = toolbarRef.current
     if (!el) {
@@ -544,7 +549,9 @@ export default function App() {
     mention?.trigger === '/'
       ? (() => {
           const q = mention.query.toLowerCase()
-          return chatAgents.filter((a) => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)).slice(0, 50)
+          // Only user/project sub-agents are offered here; built-ins are hidden
+          // from the picker (the model can still delegate to them on its own).
+          return chatAgents.filter((a) => a.source !== 'builtin').filter((a) => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)).slice(0, 50)
         })()
       : []
   const mentionCount =
@@ -691,6 +698,19 @@ export default function App() {
             return [...prev.slice(0, -1), { ...last, thinking: (last.thinking ?? '') + text }]
           }
           return [...prev, { kind: 'assistant', id: nextID(), text: '', thinking: text, streaming: true, ts: now() }]
+        })
+      }),
+      // A transient LLM-request failure is being retried. Drop any stale partial
+      // output (the retry re-streams from scratch) and mark the break with a
+      // divider carrying the reason and attempt number.
+      onEvent(Events.Retry, ({ reason, attempt, maxAttempts }) => {
+        setBlocks((prev) => {
+          const divider = { kind: 'retry' as const, id: nextID(), reason, attempt, maxAttempts }
+          const last = prev[prev.length - 1]
+          if (last && last.kind === 'assistant' && last.streaming) {
+            return [...prev.slice(0, -1), divider]
+          }
+          return [...prev, divider]
         })
       }),
       onEvent(Events.ToolEvent, (ev) => {
@@ -912,6 +932,13 @@ export default function App() {
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     }
   }
+  // showToast flashes a transient hint above the composer; a fresh call resets
+  // the dismiss timer so rapid repeats don't stack or blink.
+  function showToast(text: string) {
+    setToast(text)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(''), 2600)
+  }
   // doCompact forces a summary-compaction of the in-memory history now. The on-disk
   // log stays complete; this only shrinks what is resent to the model next turn.
   async function doCompact() {
@@ -919,11 +946,19 @@ export default function App() {
     setCompacting(true)
     try {
       const r = await compact()
-      const msg =
-        r.after < r.before
-          ? `已压缩上下文：${r.before} → ${r.after} 条消息`
-          : '暂无可压缩内容（最近对话已很精简）'
-      setBlocks((prev) => [...prev, { kind: 'notice', id: nextID(), text: msg }])
+      if (r.after < r.before) {
+        // Compaction happened: mark the fold point with a divider in the flow
+        // (carrying the summary call's own token spend and the new context size), and
+        // drop the context meter now to the estimated post-compaction size (the next
+        // real turn replaces it with a provider-measured exact count).
+        setBlocks((prev) => [...prev, { kind: 'compaction', id: nextID(), before: r.before, after: r.after, inTok: r.inputTokens, outTok: r.outputTokens, contextTokens: r.contextTokens }])
+        setCtxTokens(r.contextTokens)
+        setCtxEstimated(true)
+      } else {
+        // Nothing to compact: a transient hint above the composer, not a row that
+        // piles up in the conversation on repeated presses of a short chat.
+        showToast('暂无可压缩内容（最近对话已很精简）')
+      }
     } catch (e) {
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     } finally {
@@ -1242,6 +1277,13 @@ export default function App() {
         {pending && <PermissionModal req={pending} onDecide={decide} remaining={permQueue.length - 1} onDenyRest={denyRest} />}
 
         <footer className="flex-none relative px-6 pt-3.5 pb-[18px] w-full max-w-[1200px] mx-auto">
+          {toast && (
+            <div className="absolute left-0 right-0 -top-1 flex justify-center pointer-events-none z-10">
+              <div className="anim-rise px-3 py-1.5 rounded-full text-[12px] bg-surface2 border border-line2 text-muted shadow-card">
+                {toast}
+              </div>
+            </div>
+          )}
           {info?.planMode && (
             <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-[12px] px-3.5 py-2.5">
               <span className="text-primaryink flex-none"><Icon name="compass" size={16} /></span>
@@ -2699,6 +2741,31 @@ function BlockView({ block, onOpenFile, resolveFile }: { block: Block; onOpenFil
           <div className="px-3 py-1.5 rounded-full text-[12.5px] bg-surface2 border border-line2 text-muted">
             {block.text}
           </div>
+        </div>
+      )
+    case 'compaction':
+      return (
+        <div className="flex flex-col items-center gap-1 my-1 anim-rise select-none" title="较早的对话已折叠为一条摘要，仍完整保存在磁盘会话记录中">
+          <div className="flex items-center gap-3 w-full">
+            <div className="flex-1 h-px bg-line2" />
+            <span className="text-[11.5px] text-faint whitespace-nowrap">
+              已压缩对话 · {block.before} → {block.after} 条
+            </span>
+            <div className="flex-1 h-px bg-line2" />
+          </div>
+          <span className="text-[11px] text-faint font-mono tabular-nums">
+            本次压缩 ↑{fmtTokens(block.inTok)} ↓{fmtTokens(block.outTok)} · 当前上下文 ≈{fmtTokens(block.contextTokens)}
+          </span>
+        </div>
+      )
+    case 'retry':
+      return (
+        <div className="flex items-center gap-3 my-1 anim-rise select-none" title="模型请求连接中断，正在自动重试（磁盘记录不受影响）">
+          <div className="flex-1 h-px bg-[#f0c98a]" />
+          <span className="text-[11.5px] text-[#9a6b12] whitespace-nowrap">
+            连接中断：{block.reason} · 重试 {block.attempt}/{block.maxAttempts}
+          </span>
+          <div className="flex-1 h-px bg-[#f0c98a]" />
         </div>
       )
     case 'usage':
