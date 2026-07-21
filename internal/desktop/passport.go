@@ -85,7 +85,7 @@ func (a *App) PassportStatus() PassportStatus {
 }
 
 // PassportLogin 执行完整登录流程，阻塞至完成/超时/取消。
-func (a *App) PassportLogin() (PassportStatus, error) {
+func (a *App) PassportLogin(scheme string) (PassportStatus, error) {
 	// 防护并发登录：若已有登录流程进行中，拒绝新请求
 	a.mu.Lock()
 	if a.loginCancel != nil {
@@ -124,7 +124,7 @@ func (a *App) PassportLogin() (PassportStatus, error) {
 		a.mu.Unlock()
 	}()
 
-	authURL := buildAuthorizeURL(cfg.Authority, cfg.ClientID, cfg.RedirectURI, cfg.Scopes, state, challenge)
+	authURL := buildAuthorizeURL(cfg.Authority, cfg.ClientID, cfg.RedirectURI, cfg.Scopes, state, challenge, scheme)
 	if err := openBrowser(authURL); err != nil {
 		return PassportStatus{}, wireError(fmt.Errorf("无法打开系统浏览器: %w", err))
 	}
@@ -252,11 +252,59 @@ func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 	return models, nil
 }
 
+// PassportValidate confirms the persisted token still works by calling the
+// Bridge /api/me. On an auth rejection (401/403) it retries once after forcing a
+// token refresh; if that still fails the token is dead, so it logs out and
+// reports not-logged-in — the UI then returns to the login screen. A transient
+// network/server error keeps the session (a Bridge outage must not force a
+// re-login).
+func (a *App) PassportValidate() PassportStatus {
+	if !a.tokens.LoggedIn() {
+		return PassportStatus{}
+	}
+	me, status, err := a.fetchMeStatus()
+	if err == nil {
+		a.mu.Lock()
+		a.passportUser = &me
+		a.mu.Unlock()
+		return me
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		a.tokens.ForceRefresh()
+		if me2, _, err2 := a.fetchMeStatus(); err2 == nil {
+			a.mu.Lock()
+			a.passportUser = &me2
+			a.mu.Unlock()
+			return me2
+		}
+		a.tokens.Clear()
+		a.mu.Lock()
+		a.passportUser = nil
+		a.mu.Unlock()
+		return PassportStatus{}
+	}
+	// Transient failure (network / 5xx): keep the session rather than log out.
+	a.mu.Lock()
+	cached := a.passportUser
+	a.mu.Unlock()
+	if cached != nil {
+		return *cached
+	}
+	return PassportStatus{LoggedIn: true}
+}
+
 // fetchMe 经 Bridge /api/me 拉取用户信息。
 func (a *App) fetchMe() (PassportStatus, error) {
-	body, err := a.bridgeGet("/api/me")
+	st, _, err := a.fetchMeStatus()
+	return st, err
+}
+
+// fetchMeStatus fetches /api/me and also returns the HTTP status so callers can
+// distinguish an auth rejection from a transient failure.
+func (a *App) fetchMeStatus() (PassportStatus, int, error) {
+	body, status, err := a.bridgeGetStatus("/api/me")
 	if err != nil {
-		return PassportStatus{}, wireError(err)
+		return PassportStatus{}, status, err
 	}
 	var me struct {
 		UserID   string `json:"userId"`
@@ -267,36 +315,42 @@ func (a *App) fetchMe() (PassportStatus, error) {
 		TenantID string `json:"tenantId"`
 	}
 	if err := json.Unmarshal(body, &me); err != nil {
-		return PassportStatus{}, wireError(err)
+		return PassportStatus{}, status, wireError(err)
 	}
 	return PassportStatus{LoggedIn: true, UserID: me.UserID, UserName: me.UserName,
-		Name: me.Name, Nickname: me.Nickname, Avatar: me.Avatar, TenantID: me.TenantID}, nil
+		Name: me.Name, Nickname: me.Nickname, Avatar: me.Avatar, TenantID: me.TenantID}, status, nil
 }
 
 // bridgeGet 带登录令牌 GET Bridge 端点，返回响应体。
 func (a *App) bridgeGet(path string) ([]byte, error) {
+	body, _, err := a.bridgeGetStatus(path)
+	return body, err
+}
+
+// bridgeGetStatus is bridgeGet plus the HTTP status code (0 before a response).
+func (a *App) bridgeGetStatus(path string) ([]byte, int, error) {
 	tok, err := a.tokens.Token()
 	if err != nil {
-		return nil, wireError(err)
+		return nil, 0, wireError(err)
 	}
 	cfg := passportConfig()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BridgeBaseURL+path, nil)
 	if err != nil {
-		return nil, wireError(err)
+		return nil, 0, wireError(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := passportHTTP().Do(req)
 	if err != nil {
-		return nil, wireError(fmt.Errorf("访问中间服务失败: %w", err))
+		return nil, 0, wireError(fmt.Errorf("访问中间服务失败: %w", err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, wireError(fmt.Errorf("中间服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+		return body, resp.StatusCode, wireError(fmt.Errorf("中间服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
 	}
-	return body, nil
+	return body, resp.StatusCode, nil
 }
 
 // applyPassport 在 provider=="passport" 时把引擎配置切到 Bridge + TokenSource。

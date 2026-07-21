@@ -56,8 +56,9 @@ func stateNonce(state string) string {
 	return ""
 }
 
-// buildAuthorizeURL 组装 Passport 授权端点 URL。
-func buildAuthorizeURL(authority, clientID, redirectURI, scopes, state, challenge string) string {
+// buildAuthorizeURL 组装 Passport 授权端点 URL。scheme 非空时作为 scheme 参数
+// 选择上游身份源（如统一认证的 OneOuchnPassport）；空则走基座通行证默认。
+func buildAuthorizeURL(authority, clientID, redirectURI, scopes, state, challenge, scheme string) string {
 	q := url.Values{}
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", redirectURI)
@@ -66,6 +67,9 @@ func buildAuthorizeURL(authority, clientID, redirectURI, scopes, state, challeng
 	q.Set("state", state)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
+	if scheme != "" {
+		q.Set("scheme", scheme)
+	}
 	return strings.TrimRight(authority, "/") + "/connect/authorize?" + q.Encode()
 }
 

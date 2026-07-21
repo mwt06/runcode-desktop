@@ -100,6 +100,7 @@ export {
   passportLogout,
   passportModels,
   passportStatus,
+  passportValidate,
   passportTenants,
   pickImageAttachment,
   pickWorkspaceFolder,

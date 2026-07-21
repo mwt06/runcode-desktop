@@ -49,7 +49,7 @@ func TestGenStateCarriesPort(t *testing.T) {
 func TestBuildAuthorizeURL(t *testing.T) {
 	u := buildAuthorizeURL("https://passport.example", "runcode-desktop",
 		"http://localhost:8199/oauth/callback", "openid profile offline_access passportapi",
-		"n.51000", "CHALLENGE")
+		"n.51000", "CHALLENGE", "OneOuchnPassport")
 	parsed, err := url.Parse(u)
 	if err != nil {
 		t.Fatal(err)
@@ -66,10 +66,20 @@ func TestBuildAuthorizeURL(t *testing.T) {
 		"state":                 "n.51000",
 		"code_challenge":        "CHALLENGE",
 		"code_challenge_method": "S256",
+		"scheme":                "OneOuchnPassport",
 	} {
 		if q.Get(k) != want {
 			t.Fatalf("%s = %q, want %q", k, q.Get(k), want)
 		}
+	}
+}
+
+func TestBuildAuthorizeURLNoSchemeOmitsParam(t *testing.T) {
+	u := buildAuthorizeURL("https://passport.example", "runcode-desktop",
+		"http://localhost:8199/oauth/callback", "openid", "n.5", "C", "")
+	parsed, _ := url.Parse(u)
+	if _, ok := parsed.Query()["scheme"]; ok {
+		t.Fatal("empty scheme must not add a scheme param (base passport)")
 	}
 }
 

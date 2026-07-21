@@ -12,7 +12,7 @@ import {
   saveSettings, pickWorkspaceFolder,
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
   listTools, setToolEnabled, setAgentEnabled, setSkillEnabled, readProjectContext, saveProjectContext, readMemory,
-  passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
+  passportStatus, passportValidate, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
   setActiveTenant, activeTenant,
   listCustomModels, saveCustomModel, deleteCustomModel,
   webProxy, setWebProxy,
@@ -358,13 +358,16 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
 
   const q = query.trim().toLowerCase()
   const hit = (a: string, b: string, name: string) => !q || name.toLowerCase().includes(q) || a.toLowerCase().includes(q) || b.toLowerCase().includes(q)
-  const shownTools = toolList.filter((t) => t.toggleable).filter((t) => { const z = TOOL_ZH[t.name]; return hit(z?.label ?? '', z?.desc ?? t.description, t.name) })
-  const shownAgents = agentList.filter((a) => { const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined; return hit(z?.label ?? '', z?.desc ?? a.description, a.name) })
+  // This page manages only user/project-authored capabilities; built-ins are the
+  // engine's fixed, read-only set, so they are hidden here (the model still uses
+  // them, and the composer's / picker still lists built-in agents to delegate).
+  const shownTools = toolList.filter((t) => t.toggleable && t.source !== 'builtin').filter((t) => { const z = TOOL_ZH[t.name]; return hit(z?.label ?? '', z?.desc ?? t.description, t.name) })
+  const shownAgents = agentList.filter((a) => a.source !== 'builtin').filter((a) => hit('', a.description, a.name))
   const shownSkills = skillList.filter((s) => hit(s.name, s.description, s.name))
 
   const tabs: { k: typeof tab; label: string; n?: number }[] = [
-    { k: 'tools', label: '工具', n: toolList.filter((t) => t.toggleable).length },
-    { k: 'agents', label: '子代理', n: agentList.length },
+    { k: 'tools', label: '工具', n: toolList.filter((t) => t.toggleable && t.source !== 'builtin').length },
+    { k: 'agents', label: '子代理', n: agentList.filter((a) => a.source !== 'builtin').length },
     { k: 'skills', label: '技能', n: skillList.length },
     { k: 'mcp', label: 'MCP' },
   ]
@@ -485,8 +488,8 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
               const badge = s.source === 'user' ? '用户' : '项目'
               return card('s/' + s.source + '/' + s.name, 'book', s.name, '', badge, s.description, scopeOn(s.disabledUser, s.disabledProject), otherOffLabel(s.disabledUser, s.disabledProject), (n) => toggleSkill(s.name, n), () => setDetail({ k: 'skill', item: s }))
             })}
-            {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-16">没有匹配的工具</div>}
-            {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-16">没有匹配的子代理</div>}
+            {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-16">{q ? '没有匹配的工具' : '还没有自定义工具（内置工具已隐藏，模型仍可使用；连接 MCP 服务器可在此管理其工具）'}</div>}
+            {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-16">{q ? '没有匹配的子代理' : '还没有自定义子代理，点右上「新建」创建（内置子代理已隐藏，仍可在对话中委派）'}</div>}
             {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建，或「导入」一个已有的 SKILL.md</div>}
           </div>
         </div>
@@ -940,29 +943,36 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
   const [tenants, setTenants] = useState<PassportTenant[]>([])
   const [tenantId, setTenantId] = useState('')
+  const [platformModels, setPlatformModels] = useState<PassportModel[]>([])
   const [loggingIn, setLoggingIn] = useState(false)
   const [acctMsg, setAcctMsg] = useState('')
+  const loadPlatformModels = async (tid: string) => {
+    if (!tid) { setPlatformModels([]); return }
+    try { setPlatformModels((await passportModels(tid)) ?? []) } catch { setPlatformModels([]) }
+  }
   const refreshAccount = async () => {
     try {
       const st = await passportStatus()
       setPassport(st)
       if (st.loggedIn) {
         setTenants((await passportTenants()) ?? [])
-        setTenantId(await activeTenant())
-      } else { setTenants([]) }
+        const tid = await activeTenant()
+        setTenantId(tid)
+        await loadPlatformModels(tid)
+      } else { setTenants([]); setPlatformModels([]) }
     } catch { /* ignore */ }
   }
   useEffect(() => {
     void refreshAccount()
     return onEvent(Events.PassportChanged, () => void refreshAccount())
   }, [])
-  const doAcctLogin = async () => {
+  const doAcctLogin = async (scheme: string) => {
     setLoggingIn(true); setAcctMsg('')
-    try { await passportLogin(); await refreshAccount() } catch (e) { setAcctMsg(errText(e)) } finally { setLoggingIn(false) }
+    try { await passportLogin(scheme); await refreshAccount() } catch (e) { setAcctMsg(errText(e)) } finally { setLoggingIn(false) }
   }
   const onSwitchTenant = async (tid: string) => {
     setTenantId(tid); setAcctMsg('')
-    try { await setActiveTenant(tid) } catch (e) { setAcctMsg(errText(e)) }
+    try { await setActiveTenant(tid); await loadPlatformModels(tid) } catch (e) { setAcctMsg(errText(e)) }
   }
   const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
   const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
@@ -1024,8 +1034,11 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
-              <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin()}>
+              <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin('OneOuchnPassport')}>
                 {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
+              </button>
+              <button type="button" className={`${BTN} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin('')}>
+                基座通行证登录
               </button>
               {loggingIn && <button type="button" className="text-[12px] text-muted" onClick={() => void passportCancelLogin()}>取消</button>}
             </div>
@@ -1043,7 +1056,24 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
 
         <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
           <div className="text-[13px] font-semibold text-ink">会话</div>
-          <label className={label}>模型<input className={field} value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 qwen3.6-27b" /></label>
+          <label className={label}>模型
+            {(platformModels.length > 0 || customModels.length > 0) && (
+              <select className={field} value="" onChange={(e) => { if (e.target.value) setModel(e.target.value) }}>
+                <option value="">从列表选择模型…</option>
+                {platformModels.length > 0 && (
+                  <optgroup label="平台模型（即时生效）">
+                    {platformModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                  </optgroup>
+                )}
+                {customModels.length > 0 && (
+                  <optgroup label="自定义模型（改接入点，下次新建会话生效）">
+                    {customModels.map((m) => <option key={m.name} value={m.model}>{m.name} · {m.model}</option>)}
+                  </optgroup>
+                )}
+              </select>
+            )}
+            <input className={field} value={model} onChange={(e) => setModel(e.target.value)} placeholder="或手动填写模型 ID，如 qwen3.6-27b" />
+          </label>
           <label className={label}>权限模式
             <select className={field} value={permissionMode} onChange={(e) => setPermissionMode(e.target.value)}>
               <option value="interactive">交互（逐项询问）</option>
@@ -1793,6 +1823,10 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [loggingIn, setLoggingIn] = useState(false)
   const [passportError, setPassportError] = useState('')
+  // validating gates the whole form on a one-time startup token check: the
+  // persisted token is verified against the server before we decide login vs
+  // form, so an expired/revoked token lands on the login screen, not a broken form.
+  const [validating, setValidating] = useState(true)
   // modelChoice: 'passport:<id>' | 'custom:<name>' | ''（未选）。
   // 手动配置/高级默认项都移到设置页；这里只在登录 + 选定租户后选择一个模型。
   const [modelChoice, setModelChoice] = useState(initial.provider === 'passport' && initial.model ? `passport:${initial.model}` : '')
@@ -1857,12 +1891,23 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
   }
   useEffect(() => {
-    void refreshPassport()
-    return onEvent(Events.PassportChanged, (st) => {
+    let alive = true
+    // Validate the persisted token against the server first (shows the loading
+    // gate); only then reveal login screen or form.
+    passportValidate()
+      .then((st) => {
+        if (!alive) return
+        setPassport(st)
+        if (st.loggedIn) void refreshPassport()
+      })
+      .catch(() => { /* keep not-logged-in default */ })
+      .finally(() => { if (alive) setValidating(false) })
+    const off = onEvent(Events.PassportChanged, (st) => {
       setPassport(st)
       if (!st.loggedIn) { setPlatformModels([]); setTenants([]); setTenantId(''); setModelChoice('') }
       else void refreshPassport()
     })
+    return () => { alive = false; off() }
   }, [])
 
   // 用户选定末级租户：重拉该租户模型，清掉可能已失效的平台模型选择。
@@ -1872,10 +1917,12 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     await doLoadModels(tid)
   }
 
-  const doLogin = async () => {
+  // scheme selects the upstream identity source: 'OneOuchnPassport' for 统一认证,
+  // '' for the base passport (基座通行证).
+  const doLogin = async (scheme: string) => {
     setLoggingIn(true); setPassportError('')
     try {
-      await passportLogin()
+      await passportLogin(scheme)
       await refreshPassport()
     } catch (e) {
       setPassportError(errText(e))
@@ -1974,7 +2021,21 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     onStart(req)
   }, [passport.loggedIn])
 
-  // 未登录：整屏登录门——背景 + 吉祥物 + 标语 + 唯一的"统一认证登录"入口。
+  // 启动校验中：转圈的加载门，验完持久化 token 再决定进登录还是表单。
+  if (validating) {
+    return (
+      <div
+        className="relative flex flex-col items-center justify-center flex-1 min-h-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${loginBg})` }}
+      >
+        <img src={loginMascot} alt="" draggable={false} className="w-[150px] h-auto select-none pointer-events-none opacity-90" />
+        <div className="mt-8 w-9 h-9 rounded-full border-[3px] border-white/50 border-t-white animate-spin" />
+        <div className="mt-5 text-[14px] text-white/90 tracking-wide">正在验证登录状态…</div>
+      </div>
+    )
+  }
+
+  // 未登录：整屏登录门——背景 + 吉祥物 + 标语 + 两个登录入口(统一认证 / 基座通行证)。
   // 工作区/模型等表单只在登录成功后出现。
   if (!passport.loggedIn) {
     return (
@@ -1983,17 +2044,26 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         style={{ backgroundImage: `url(${loginBg})` }}
       >
         <img src={loginMascot} alt="" draggable={false} className="w-[190px] h-auto select-none pointer-events-none" />
-        <h1 className="mt-7 mb-12 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
+        <h1 className="mt-7 mb-10 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
           智开AI，您的AI办公助手
         </h1>
         <button
           type="button"
           disabled={loggingIn}
-          onClick={() => void doLogin()}
+          onClick={() => void doLogin('OneOuchnPassport')}
           className="w-[300px] py-3.5 rounded-full text-white text-[16px] font-semibold tracking-[0.15em] shadow-[0_10px_24px_rgba(46,107,255,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-70 disabled:cursor-default"
           style={{ background: 'linear-gradient(90deg, #2050d8 0%, #3f7bff 55%, #55a5ff 100%)' }}
         >
           {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
+        </button>
+        <button
+          type="button"
+          disabled={loggingIn}
+          onClick={() => void doLogin('')}
+          className="mt-3.5 w-[300px] py-3 rounded-full text-[15px] font-semibold tracking-[0.12em] border-2 bg-white/80 hover:bg-white transition-colors disabled:opacity-70 disabled:cursor-default"
+          style={{ color: '#2050d8', borderColor: '#2050d8' }}
+        >
+          基座通行证登录
         </button>
         {loggingIn && (
           <button type="button" className="mt-4 text-[13px] text-muted hover:text-ink" onClick={() => void passportCancelLogin()}>
@@ -2019,8 +2089,8 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   }
 
   return (
-    <div className="flex items-center justify-center flex-1 min-h-0 p-6">
-      <div className="w-[480px] max-h-full overflow-y-auto bg-surface rounded-[18px] p-8 flex flex-col gap-[13px] shadow-card">
+    <div className="flex items-start justify-center flex-1 min-h-0 overflow-y-auto px-6 py-10">
+      <div className="w-[480px] flex flex-col gap-[13px]">
         <div className="flex items-center gap-3.5 mb-1">
           <span className="w-[48px] h-[48px] rounded-[13px] inline-flex items-center justify-center bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
           <div>
