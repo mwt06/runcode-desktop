@@ -150,8 +150,8 @@ export function passportCancelLogin(): Promise<void> {
 
 // PassportLogin 执行完整登录流程，阻塞至完成/超时/取消。
 // kind: trigger
-export function passportLogin(): Promise<PassportStatus> {
-  return app().PassportLogin();
+export function passportLogin(scheme: string): Promise<PassportStatus> {
+  return app().PassportLogin(scheme);
 }
 
 // PassportLogout 清除本地令牌（不调 Passport endsession——桌面登出不应 顺带登出浏览器里的 SSO 会话）。
@@ -176,6 +176,12 @@ export function passportStatus(): Promise<PassportStatus> {
 // kind: query
 export function passportTenants(): Promise<PassportTenant[] | null> {
   return app().PassportTenants();
+}
+
+// PassportValidate confirms the persisted token still works by calling the Bridge /api/me.
+// kind: query
+export function passportValidate(): Promise<PassportStatus> {
+  return app().PassportValidate();
 }
 
 // PickImageAttachment opens a native image picker and returns the chosen path ("" if cancelled).

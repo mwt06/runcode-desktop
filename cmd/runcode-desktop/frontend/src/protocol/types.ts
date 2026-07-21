@@ -14,6 +14,7 @@ export const Events = {
   HarmAutoAllow: 'harm:autoallow',
   PassportChanged: 'passport:changed',
   PermissionRequest: 'permission:request',
+  Retry: 'llm:retry',
   SessionRenamed: 'session:renamed',
   ToolEvent: 'tool:event',
   TurnEnd: 'turn:end',
@@ -127,6 +128,9 @@ export interface AssistantDelta {
 export interface CompactResult {
   before: number;
   after: number;
+  contextTokens: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 // Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点（OpenAI 兼容），与通行证平台模型 并列显示在模型选择器里；选中后按老的直连路径起会话。
@@ -306,6 +310,13 @@ export interface ResumedTool {
   input?: string;
   isError: boolean;
   output?: string;
+}
+
+// Mirrors protocol.RetryNotice. RetryNotice reports that an LLM request failed transiently and is being retried.
+export interface RetryNotice {
+  reason: string;
+  attempt: number;
+  maxAttempts: number;
 }
 
 // Mirrors protocol.SessionInfo. SessionInfo is the display state returned when a session starts and by Status.

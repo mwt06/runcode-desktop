@@ -23,6 +23,7 @@ var eventPayloads = map[string]string{
 	"EventAssistantThinking": "AssistantDelta",
 	"EventHarmAutoAllow":     "HarmAutoAllow",
 	"EventPassportChanged":   "PassportStatus",
+	"EventRetry":             "RetryNotice",
 	"EventPermissionRequest": "PermissionRequest",
 	"EventSessionRenamed":    "SessionRenamed",
 	"EventToolEvent":         "ToolEvent",
