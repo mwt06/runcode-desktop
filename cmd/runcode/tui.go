@@ -193,7 +193,7 @@ func (s *tuiSessionService) Reset(context.Context) error {
 }
 
 func (s *tuiSessionService) Compact(ctx context.Context) (ui.CompactResult, error) {
-	before, after, err := s.session.Compact(ctx)
+	before, after, _, err := s.session.Compact(ctx)
 	if err != nil {
 		return ui.CompactResult{}, err
 	}

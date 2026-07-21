@@ -667,11 +667,17 @@ func (a *App) Compact() (CompactResult, error) {
 	if err != nil {
 		return CompactResult{}, wireError(err)
 	}
-	before, after, err := session.Compact(context.Background())
+	before, after, usage, err := session.Compact(context.Background())
 	if err != nil {
 		return CompactResult{}, wireError(err)
 	}
-	return CompactResult{Before: before, After: after}, nil
+	return CompactResult{
+		Before:        before,
+		After:         after,
+		ContextTokens: session.EstimateContextTokens(),
+		InputTokens:   usage.InputTokens,
+		OutputTokens:  usage.OutputTokens,
+	}, nil
 }
 
 // SetPlanMode toggles plan mode on the active session and returns the updated
