@@ -13,7 +13,7 @@ func (a *App) OpenExternal(relPath string) error {
 	if err != nil {
 		return wireError(err)
 	}
-	return wireError(openCommand(full).Start())
+	return wireError(startAndReap(openCommand(full)))
 }
 
 // RevealInFolder shows the workspace file in the OS file manager.
@@ -22,7 +22,19 @@ func (a *App) RevealInFolder(relPath string) error {
 	if err != nil {
 		return wireError(err)
 	}
-	return wireError(revealCommand(full).Start())
+	return wireError(startAndReap(revealCommand(full)))
+}
+
+// startAndReap starts cmd and reaps it in the background once it exits. The
+// launchers here (explorer/open/xdg-open, browser handoff) are fire-and-forget,
+// but a child that is never Wait()ed lingers as a zombie on POSIX until the app
+// itself exits — and open/reveal are high-frequency actions over a long session.
+func startAndReap(cmd *exec.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // ResolveArtifactPath returns the absolute path of a workspace file, for the

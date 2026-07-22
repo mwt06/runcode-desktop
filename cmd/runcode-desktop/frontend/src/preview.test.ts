@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './preview'
+
+describe('normalizeSheetGrid', () => {
+  it('pads ragged rows to the widest row and coerces cells to strings', () => {
+    expect(normalizeSheetGrid([['a', 'b', 'c'], [1], []])).toEqual([
+      ['a', 'b', 'c'],
+      ['1', '', ''],
+      ['', '', ''],
+    ])
+  })
+  it('turns null/undefined cells into empty strings', () => {
+    expect(normalizeSheetGrid([[null, undefined, 0, false]])).toEqual([['', '', '0', 'false']])
+  })
+  it('keeps HTML-looking cell content as inert text, never markup', () => {
+    const payload = '<img src=x onerror=alert(1)>'
+    const grid = normalizeSheetGrid([[payload, '</td><script>evil()</script>']])
+    expect(grid).toEqual([[payload, '</td><script>evil()</script>']])
+  })
+  it('returns an empty grid for an empty sheet', () => {
+    expect(normalizeSheetGrid([])).toEqual([])
+  })
+})
 
 describe('clampPreviewWidth', () => {
   it('keeps an in-range stored value', () => {

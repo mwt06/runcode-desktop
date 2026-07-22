@@ -9,7 +9,7 @@ import (
 
 // pickerPreviewRunes bounds how much of a session preview the picker shows on one
 // row so a long first prompt cannot break the layout.
-const pickerPreviewRunes = 60
+const pickerPreviewWidth = 60
 
 // SessionSummary is one display row for the startup session picker. It is a
 // neutral view type so the picker does not depend on the persistence layer; the
@@ -133,16 +133,8 @@ func summaryLine(s SessionSummary) string {
 	if strings.TrimSpace(preview) == "" {
 		preview = "(no user text)"
 	}
-	preview = truncateRunesEllipsis(preview, pickerPreviewRunes)
+	preview = truncate(preview, pickerPreviewWidth)
 	return fmt.Sprintf("%-22s %-9s %3d turn%s  %s", s.ID, s.When, s.Turns, pluralS(s.Turns), preview)
-}
-
-func truncateRunesEllipsis(s string, max int) string {
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "…"
 }
 
 func pluralS(n int) string {

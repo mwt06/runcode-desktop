@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
@@ -206,7 +207,7 @@ func renderDivider(width int, label string) string {
 	label = strings.TrimSpace(label)
 	line := strings.Repeat("─", width)
 	if label != "" {
-		labelWidth := runeWidth(label)
+		labelWidth := displayWidth(label)
 		if labelWidth+1 < width {
 			line = strings.Repeat("─", width-labelWidth-1) + " " + label
 		}
@@ -305,7 +306,10 @@ func renderMessage(message ChatMessage, width int, expanded bool) string {
 		return label
 	}
 	if renderAsMarkdown {
-		text = renderMarkdown(text, messageBodyWidth(width))
+		// Only completed messages are cacheable: a streaming message changes on
+		// every delta, and caching each intermediate snapshot would flood the memo
+		// with keys that are never looked up again.
+		text = renderMarkdown(text, messageBodyWidth(width), !message.Streaming)
 	}
 	return fmt.Sprintf("%s\n%s", label, indent(text, "  "))
 }
@@ -314,25 +318,65 @@ func renderToolProgress(progress ToolProgress) string {
 	return renderToolProgressGroup([]ChatMessage{{Role: RoleTool, Tool: &progress}}, false)
 }
 
-func renderMarkdown(text string, width int) string {
+// Every viewport refresh re-renders the whole transcript, and a streaming turn
+// refreshes on each delta and tool event — without memoization that re-parses
+// every earlier (unchanged) message per keystroke of model output, with cost
+// growing linearly in conversation length. The memo caches rendered markdown for
+// completed messages, and the glamour renderer (expensive to construct) is reused
+// until the wrap width changes. The map is cleared wholesale past its cap: a
+// rebuild costs one render per visible message, and an eviction policy isn't worth
+// the bookkeeping. The mutex serializes bubbletea's render goroutine with tests.
+const markdownMemoCap = 512
+
+type markdownMemoKey struct {
+	width int
+	text  string
+}
+
+var (
+	markdownMu            sync.Mutex
+	markdownMemo          = map[markdownMemoKey]string{}
+	markdownRenderer      *glamour.TermRenderer
+	markdownRendererWidth int
+)
+
+func renderMarkdown(text string, width int, cacheable bool) string {
 	if strings.TrimSpace(text) == "" {
 		return text
 	}
 	if width < 1 {
 		return text
 	}
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStyles(tuiMarkdownStyle()),
-		glamour.WithWordWrap(width),
-	)
+	markdownMu.Lock()
+	defer markdownMu.Unlock()
+	key := markdownMemoKey{width: width, text: text}
+	if cacheable {
+		if out, ok := markdownMemo[key]; ok {
+			return out
+		}
+	}
+	if markdownRenderer == nil || markdownRendererWidth != width {
+		renderer, err := glamour.NewTermRenderer(
+			glamour.WithStyles(tuiMarkdownStyle()),
+			glamour.WithWordWrap(width),
+		)
+		if err != nil {
+			return text
+		}
+		markdownRenderer, markdownRendererWidth = renderer, width
+	}
+	rendered, err := markdownRenderer.Render(text)
 	if err != nil {
 		return text
 	}
-	rendered, err := renderer.Render(text)
-	if err != nil {
-		return text
+	out := strings.TrimRight(rendered, "\n")
+	if cacheable {
+		if len(markdownMemo) >= markdownMemoCap {
+			markdownMemo = map[markdownMemoKey]string{}
+		}
+		markdownMemo[key] = out
 	}
-	return strings.TrimRight(rendered, "\n")
+	return out
 }
 
 func tuiMarkdownStyle() ansi.StyleConfig {
@@ -485,7 +529,7 @@ func renderToolProgressSummary(summary toolProgressSummary, expanded bool) []str
 	}
 	line := toolSummaryLabel(summary, fileCount) + " · " + status
 	if message := displayToolMessage(summary); message != "" {
-		line += " · " + truncate(message, toolLineMaxRunes)
+		line += " · " + truncate(message, toolLineMaxWidth)
 	}
 	hasMore := fileCount > collapsedToolFileLimit || summary.outputTotal > collapsedToolOutputLimit
 	if hasMore && !expanded {
@@ -714,16 +758,12 @@ func compactStatusLine(parts []string, width int) string {
 	parts = nonEmpty(parts)
 	for len(parts) > 0 {
 		line := strings.Join(parts, " | ")
-		if width <= 0 || runeWidth(line) <= width {
+		if width <= 0 || displayWidth(line) <= width {
 			return line
 		}
 		parts = parts[:len(parts)-1]
 	}
 	return truncate("runcode", width)
-}
-
-func runeWidth(value string) int {
-	return len([]rune(value))
 }
 
 func shortPath(value string) string {
@@ -745,18 +785,4 @@ func transcriptLabel(status Status) string {
 		return status.Transcript + ":" + status.SessionID
 	}
 	return status.Transcript
-}
-
-func truncate(value string, width int) string {
-	if width <= 0 {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= width {
-		return value
-	}
-	if width <= 1 {
-		return string(runes[:width])
-	}
-	return string(runes[:width-1]) + "…"
 }

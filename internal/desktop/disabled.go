@@ -5,7 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// disabledMu serializes setDisabled's load→mutate→save cycle (both scope files).
+// The toggles are Wails-bound and the frontend can fire several in quick
+// succession; unsynchronized cycles would start from the same stale snapshot and
+// the later save would silently drop the earlier toggle.
+var disabledMu sync.Mutex
 
 // 工具/子代理的"关闭"清单，分两个作用域持久化：
 //   - 用户级(全局)：%AppData%/runcode/disabled.json，对所有工作区生效
@@ -52,14 +59,13 @@ func saveDisabled(path string, c disabledConfig) error {
 	if path == "" {
 		return errors.New("无效的保存路径")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Atomic replace: a crash mid-write must not truncate the list and silently
+	// re-enable everything the user turned off.
+	return writeFileAtomic(filepath.Dir(path), filepath.Base(path), data)
 }
 
 // effectiveDisabled 返回某工作区下用户级 ∪ 项目级的关闭名单(工具、子代理、技能)。
@@ -144,6 +150,8 @@ func (a *App) setDisabled(scope, kind string, enabled bool, name string) error {
 	if err != nil {
 		return err
 	}
+	disabledMu.Lock()
+	defer disabledMu.Unlock()
 	c := loadDisabled(path)
 	var target *[]string
 	switch kind {

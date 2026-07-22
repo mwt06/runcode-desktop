@@ -162,7 +162,9 @@ func startCallbackServer() (*callbackServer, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", cs.handle)
-	cs.srv = &http.Server{Handler: mux}
+	// ReadHeaderTimeout 与 preview_server.go 一致：只监听回环，但仍不给慢速请求头
+	// 无限占住连接的机会（gosec G112）。
+	cs.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = cs.srv.Serve(ln) }()
 	return cs, nil
 }

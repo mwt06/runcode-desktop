@@ -198,9 +198,7 @@ func (a *App) PassportTenants() ([]PassportTenant, error) {
 // 模型选择器与下次新建/恢复会话使用)。仅在通行证会话下更新 baseURL。
 func (a *App) SetActiveTenant(tenantID string) error {
 	tenantID = strings.TrimSpace(tenantID)
-	raw := loadRawConfig()
-	raw.TenantID = tenantID
-	saveRawConfig(raw)
+	updateRawConfig(func(raw *StartSessionRequest) { raw.TenantID = tenantID })
 	pc := passportConfig()
 	a.mu.Lock()
 	a.passportTenant = tenantID
@@ -391,5 +389,5 @@ func openBrowser(url string) error {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	return cmd.Start()
+	return startAndReap(cmd)
 }

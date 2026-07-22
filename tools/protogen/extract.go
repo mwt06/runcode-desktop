@@ -92,6 +92,24 @@ var constGroupSpecs = []constGroupSpec{
 	},
 }
 
+// constExemptTypes names constant types that are transport metadata rather than
+// wire values a client switches on, so their constants generate no TS and don't
+// trip the ungrouped-constant check. CommandKind classifies App methods
+// server-side; the per-command kinds already reach TS through the commands table
+// (which has its own missing/stale sync check).
+var constExemptTypes = map[string]bool{
+	"CommandKind": true,
+}
+
+// constTypeName returns the declared (named) type of a constant, "" for untyped
+// or basic-typed constants.
+func constTypeName(c *types.Const) string {
+	if named, ok := types.Unalias(c.Type()).(*types.Named); ok {
+		return named.Obj().Name()
+	}
+	return ""
+}
+
 type model struct {
 	version    int64  // protocol.Version
 	versionDoc string // its Go doc synopsis
@@ -169,6 +187,7 @@ func extract(protoPkg, deskPkg *packages.Package) (*model, error) {
 
 	// Constants → const groups (+ protocol.Version).
 	var eventConsts []string
+	var ungrouped []string
 	for _, name := range scope.Names() {
 		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || !c.Exported() {
@@ -188,7 +207,14 @@ func extract(protoPkg, deskPkg *packages.Package) (*model, error) {
 		}
 		grp := matchGroup(name)
 		if grp == nil {
-			continue // ungrouped constants (e.g. CommandQuery) are transport metadata, not wire values
+			// No silent drops: a string constant that matches no group prefix is
+			// either transport metadata (its type is exempted below) or a mistake —
+			// someone added a constant group and forgot to register it, and the TS
+			// side would just silently miss it. Force the decision.
+			if !constExemptTypes[constTypeName(c)] {
+				ungrouped = append(ungrouped, name)
+			}
+			continue
 		}
 		item := constItem{key: strings.TrimPrefix(name, grp.goPrefix), value: constant.StringVal(c.Val())}
 		for i := range m.groups {
@@ -204,6 +230,11 @@ func extract(protoPkg, deskPkg *packages.Package) (*model, error) {
 		if strings.HasPrefix(name, "Event") {
 			eventConsts = append(eventConsts, name)
 		}
+	}
+	if len(ungrouped) > 0 {
+		sort.Strings(ungrouped)
+		return nil, fmt.Errorf("exported string constants in protocol match no const group prefix and no exempt type — register a constGroupSpec (they become a TS union) or add their type to constExemptTypes (transport metadata):\n  %s",
+			strings.Join(ungrouped, ", "))
 	}
 	// Fixed group order, sorted items.
 	sort.Slice(m.groups, func(i, j int) bool {
@@ -266,13 +297,19 @@ func extractStruct(name string, st *types.Struct, doc string, mapper *typeMapper
 		if f.Embedded() {
 			return def, fmt.Errorf("protocol.%s embeds %s: embedded fields are not supported by protogen", name, f.Name())
 		}
-		jsonName, optional, skip := parseJSONTag(reflect.StructTag(st.Tag(i)).Get("json"), f.Name())
+		jsonName, optional, stringEncoded, skip := parseJSONTag(reflect.StructTag(st.Tag(i)).Get("json"), f.Name())
 		if skip {
 			continue
 		}
 		tsType, err := fieldTSType(name, jsonName, f.Type(), optional, mapper)
 		if err != nil {
 			return def, fmt.Errorf("protocol.%s.%s: %w", name, f.Name(), err)
+		}
+		if stringEncoded && isStringEncodable(f.Type()) {
+			// `,string` wraps the value in a JSON string on the wire (typically to
+			// keep 64-bit integers exact past JS float precision) — the Go type no
+			// longer reflects the wire type.
+			tsType = "string"
 		}
 		def.fields = append(def.fields, fieldDef{name: jsonName, optional: optional, tsType: tsType})
 	}
@@ -297,23 +334,43 @@ func fieldTSType(structName, jsonName string, t types.Type, optional bool, mappe
 	return mapper.ts(t, true)
 }
 
-// parseJSONTag returns the wire name, whether omitempty is set, and whether
-// the field is excluded from JSON entirely.
-func parseJSONTag(tag, goName string) (name string, optional, skip bool) {
+// parseJSONTag returns the wire name, whether omitempty is set, whether the
+// value is string-encoded on the wire (`,string`), and whether the field is
+// excluded from JSON entirely. `json:"-"` skips; `json:"-,"` is encoding/json's
+// escape for a field literally named "-".
+func parseJSONTag(tag, goName string) (name string, optional, stringEncoded, skip bool) {
 	parts := strings.Split(tag, ",")
 	name = parts[0]
 	if name == "-" && len(parts) == 1 {
-		return "", false, true
+		return "", false, false, true
 	}
-	if name == "" || name == "-" {
+	if name == "" {
 		name = goName
 	}
 	for _, opt := range parts[1:] {
-		if opt == "omitempty" {
+		switch opt {
+		case "omitempty":
 			optional = true
+		case "string":
+			stringEncoded = true
 		}
 	}
-	return name, optional, false
+	return name, optional, stringEncoded, false
+}
+
+// isStringEncodable mirrors the types encoding/json honors `,string` for —
+// string, bool, integer, and floating-point (plus pointers to them); the option
+// is ignored elsewhere, so the TS override must not fire there either.
+func isStringEncodable(t types.Type) bool {
+	t = types.Unalias(t)
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	b, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	return b.Info()&(types.IsString|types.IsBoolean|types.IsInteger|types.IsFloat) != 0
 }
 
 func extractEvents(scope *types.Scope, eventConsts []string, structNames map[string]bool) ([]eventDef, error) {

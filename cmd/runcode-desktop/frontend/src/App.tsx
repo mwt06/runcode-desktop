@@ -1045,9 +1045,26 @@ export default function App() {
     setPlan(null)
     setPlanOpen(false)
   }
+  // 会话/工作区切换的并发防护：新建/恢复/切工作区都是"发请求→拿结果→整体替换
+  // 会话状态"，用户快速连点两个目标时，先发但后落地的旧响应不得覆盖新会话
+  // （否则界面静默回跳，且 openRecent 第二段 await 的编辑元数据会合并进错误的
+  // 会话）。每次发起切换代际 +1，每个 await 之后核对代际，过期响应整体丢弃；
+  // switching 供入口回调挡住切换进行中的重复点击。
+  const switchGen = useRef(0)
+  const [switching, setSwitching] = useState(false)
+  function beginSwitch() {
+    const gen = ++switchGen.current
+    setSwitching(true)
+    return () => gen !== switchGen.current
+  }
+  function endSwitch(stale: () => boolean) {
+    if (!stale()) setSwitching(false)
+  }
   async function newChat() {
+    const stale = beginSwitch()
     try {
       const i = await newSession()
+      if (stale()) return
       setInfo(i)
       setBlocks([])
       clearPlan()
@@ -1057,13 +1074,18 @@ export default function App() {
       setElapsed(0)
       refreshRecents()
     } catch (e) {
+      if (stale()) return
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
+    } finally {
+      endSwitch(stale)
     }
   }
   // Pick a different folder and open a fresh session there (a new workspace).
   async function switchToWorkspace(dir: string) {
+    const stale = beginSwitch()
     try {
       const i = await switchWorkspace(dir)
+      if (stale()) return
       setInfo(i)
       setBlocks([])
       clearPlan()
@@ -1073,10 +1095,13 @@ export default function App() {
       setElapsed(0)
       setView('chat')
       refreshRecents()
-      loadConfig().then((c) => c && setInitialReq(c)).catch(() => {}) // refresh recent-workspace MRU
+      loadConfig().then((c) => { if (c && !stale()) setInitialReq(c) }).catch(() => {}) // refresh recent-workspace MRU
     } catch (e) {
+      if (stale()) return
       setView('chat')
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
+    } finally {
+      endSwitch(stale)
     }
   }
   async function switchWorkspaceFolder() {
@@ -1097,8 +1122,10 @@ export default function App() {
 
   async function openRecent(id: string) {
     if (id === info?.sessionId) return
+    const stale = beginSwitch()
     try {
       const r = await resumeSession(id)
+      if (stale()) return
       setInfo(r.info)
       setBlocks(
         (r.blocks ?? []).map((b): Block => {
@@ -1132,6 +1159,7 @@ export default function App() {
       // Re-attach edit metadata to resumed tool steps by tool-use id, so the "已编辑"
       // cards + undo/review re-render (the resume payload itself carries no diffs).
       const edits = (await listEdits()) ?? []
+      if (stale()) return
       if (edits.length > 0) {
         const byTUID = new Map(edits.map((e) => [e.toolUseId, e]))
         setBlocks((prev) => prev.map((b) => {
@@ -1152,7 +1180,10 @@ export default function App() {
       setElapsed(0)
       refreshRecents()
     } catch (e) {
+      if (stale()) return
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
+    } finally {
+      endSwitch(stale)
     }
   }
 
@@ -1190,18 +1221,20 @@ export default function App() {
           currentId={info?.sessionId}
           cwd={info?.cwd}
           recentWorkspaces={initialReq?.recentWorkspaces ?? []}
-          onPickWorkspace={switchToWorkspace}
-          onSwitchWorkspace={switchWorkspaceFolder}
+          onPickWorkspace={(dir) => { if (!switching) void switchToWorkspace(dir) }}
+          onSwitchWorkspace={() => { if (!switching) void switchWorkspaceFolder() }}
           onDelete={deleteRecent}
           view={view}
           onNav={setView}
           onNew={() => {
+            if (switching) return
             setView('chat')
-            newChat()
+            void newChat()
           }}
           onResume={(id) => {
+            if (switching) return
             setView('chat')
-            openRecent(id)
+            void openRecent(id)
           }}
         />
 

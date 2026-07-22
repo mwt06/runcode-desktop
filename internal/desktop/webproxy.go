@@ -20,9 +20,7 @@ func (a *App) SetWebProxy(v string) (string, error) {
 	// 只持久化，不再发布进程环境变量：建会话时 buildConfig/openSessionHeld 把
 	// 持久化值注入 engine.Config.WebProxy（按会话隔离）；正在运行的会话保持原
 	// 代理，下个新建/恢复的会话采用新值。
-	raw := loadRawConfig()
-	raw.WebProxy = norm
-	saveRawConfig(raw)
+	updateRawConfig(func(raw *StartSessionRequest) { raw.WebProxy = norm })
 	return norm, nil
 }
 

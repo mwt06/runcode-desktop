@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Markdown } from './markdown'
 import { readArtifact, readArtifactBytes, openExternal, resolveArtifactPath, copyText, reviewEdit, errText, type EditDiff } from './bridge'
 import { Icon } from './icons'
-import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, fileColor, filterFiles, buildFileTree, type FileNode } from './preview'
+import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, fileColor, filterFiles, buildFileTree, normalizeSheetGrid, type FileNode } from './preview'
 import { type PreviewTab, tabKey } from './preview-tabs'
 import { basename } from './paths'
 
@@ -86,11 +86,13 @@ function ImperativeDocView({ relPath, reloadKey, load, busyHint }: {
   )
 }
 
-// XlsxView renders a workbook as one HTML table per sheet (SheetJS), with a sheet
-// switcher when there is more than one. sheet_to_html HTML-escapes cell values, so
-// the generated markup is safe to inject.
+// XlsxView renders a workbook as one React table per sheet (SheetJS), with a sheet
+// switcher when there is more than one. Cells go through sheet_to_json as plain
+// strings and React's own text escaping — workbook content is untrusted, and
+// sheet_to_html output must never be injected raw (its escaping has known gaps for
+// rich-text cells, so that path is an XSS vector inside the privileged WebView).
 function XlsxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }) {
-  const [sheets, setSheets] = useState<{ name: string; html: string }[] | null>(null)
+  const [sheets, setSheets] = useState<{ name: string; rows: string[][] }[] | null>(null)
   const [active, setActive] = useState(0)
   const [err, setErr] = useState('')
   useEffect(() => {
@@ -104,8 +106,11 @@ function XlsxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }
         const XLSX = await import('xlsx')
         if (cancelled) return
         const wb = XLSX.read(buf, { type: 'array' })
-        const out = wb.SheetNames.map((name) => ({ name, html: XLSX.utils.sheet_to_html(wb.Sheets[name]) }))
-        if (!cancelled) setSheets(out.length ? out : [{ name: 'Sheet1', html: '<em>空表</em>' }])
+        const out = wb.SheetNames.map((name) => ({
+          name,
+          rows: normalizeSheetGrid(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' }) as unknown[][]),
+        }))
+        if (!cancelled) setSheets(out.length ? out : [{ name: 'Sheet1', rows: [] }])
       } catch (e) {
         if (!cancelled) setErr(errText(e))
       }
@@ -136,7 +141,23 @@ function XlsxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }
           ))}
         </div>
       )}
-      <div className="flex-1 overflow-auto p-3 xlsx-host" dangerouslySetInnerHTML={{ __html: sheets[active].html }} />
+      <div className="flex-1 overflow-auto p-3 xlsx-host">
+        {sheets[active].rows.length === 0 ? (
+          <em>空表</em>
+        ) : (
+          <table>
+            <tbody>
+              {sheets[active].rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }

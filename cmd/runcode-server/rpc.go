@@ -74,7 +74,7 @@ func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, &protocol.Error{Code: protocol.ErrCodeUnavailable, Message: "not implemented in the skeleton"})
 		return
 	}
-	body, err := requestBody(r)
+	body, err := requestBody(w, r)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -93,8 +93,10 @@ func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 // requestBody 读出请求体；GET 且无 body 时把 query string 合成为 JSON 对象
 // （GET /api/v1/rpc/Status?sessionId=... 与 POST body 等价），空请求归一为 {}。
-func requestBody(r *http.Request) ([]byte, error) {
-	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxBodyBytes))
+// MaxBytesReader 必须拿到真实的 ResponseWriter：超限时它据此标记连接在响应后
+// 关闭，传 nil 会退化成先排空再关，白给超大 chunked 请求体一轮无谓的读取。
+func requestBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
 		return nil, &protocol.Error{Code: protocol.ErrCodeInvalidArgument, Message: "read request body: " + err.Error()}
 	}

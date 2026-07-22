@@ -210,6 +210,15 @@ export function extractFilePaths(text: string): string[] {
   return out
 }
 
+// normalizeSheetGrid squares up SheetJS sheet_to_json(header:1) output into a
+// uniform text grid: every row padded to the widest row, every cell coerced to a
+// plain string. Workbook content is untrusted — cells must stay plain text for the
+// React renderer to escape, never library-generated HTML injected raw.
+export function normalizeSheetGrid(rows: unknown[][]): string[][] {
+  const width = rows.reduce((m, r) => Math.max(m, r.length), 0)
+  return rows.map((r) => Array.from({ length: width }, (_, i) => (r[i] == null ? '' : String(r[i]))))
+}
+
 // matchWorkspaceFiles keeps candidates that correspond to a real workspace file,
 // returning the actual workspace-relative paths (forward-slash), deduped, in order.
 // A candidate matches if — normalized — it equals a file path or a file path ends

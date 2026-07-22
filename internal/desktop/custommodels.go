@@ -37,31 +37,31 @@ func (a *App) SaveCustomModel(m CustomModel) ([]CustomModel, error) {
 	if m.Model == "" {
 		return nil, wireError(errors.New("模型 ID 不能为空"))
 	}
-	cfg := loadRawConfig()
-	next := make([]CustomModel, 0, len(cfg.CustomModels)+1)
-	for _, existing := range cfg.CustomModels {
-		if existing.Name != m.Name {
-			next = append(next, existing)
+	updateRawConfig(func(cfg *StartSessionRequest) {
+		next := make([]CustomModel, 0, len(cfg.CustomModels)+1)
+		for _, existing := range cfg.CustomModels {
+			if existing.Name != m.Name {
+				next = append(next, existing)
+			}
 		}
-	}
-	next = append(next, protectCustomModel(m))
-	cfg.CustomModels = next
-	saveRawConfig(cfg)
+		next = append(next, protectCustomModel(m))
+		cfg.CustomModels = next
+	})
 	return a.ListCustomModels(), nil
 }
 
 // DeleteCustomModel 按名称删除，返回最新列表。
 func (a *App) DeleteCustomModel(name string) []CustomModel {
 	name = strings.TrimSpace(name)
-	cfg := loadRawConfig()
-	next := cfg.CustomModels[:0]
-	for _, m := range cfg.CustomModels {
-		if m.Name != name {
-			next = append(next, m)
+	updateRawConfig(func(cfg *StartSessionRequest) {
+		next := cfg.CustomModels[:0]
+		for _, m := range cfg.CustomModels {
+			if m.Name != name {
+				next = append(next, m)
+			}
 		}
-	}
-	cfg.CustomModels = next
-	saveRawConfig(cfg)
+		cfg.CustomModels = next
+	})
 	return a.ListCustomModels()
 }
 

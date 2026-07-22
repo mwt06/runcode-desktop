@@ -4,7 +4,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// configMu serializes every read-modify-write cycle on desktop.json. All mutators
+// rewrite the whole file from a fresh read, and they are Wails-bound methods the
+// frontend can invoke concurrently — without the lock, two overlapping saves would
+// start from the same stale snapshot and the later write would silently drop the
+// earlier one's change. Pure readers (LoadConfig, loadRawConfig) don't need it:
+// writes are atomic replaces, so a read sees either the old or the new file, never
+// a torn one.
+var configMu sync.Mutex
 
 // desktopConfigPath is where the last-used start form values are persisted, so a
 // restart prefills the form instead of resetting it.
@@ -50,11 +60,14 @@ func (a *App) LoadConfig() StartSessionRequest {
 // persistThinkingEffort updates only the thinking-effort field of the saved start
 // request, so an in-conversation change to the reasoning strength survives a
 // restart without disturbing the other persisted form values. Failures are
-// non-fatal.
+// non-fatal. The lock spans the read and the write: a concurrent save between the
+// two would otherwise be clobbered by this stale snapshot.
 func (a *App) persistThinkingEffort(effort string) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	req := a.LoadConfig()
 	req.ThinkingEffort = effort
-	saveConfig(req)
+	saveConfigHeld(req)
 }
 
 // maxRecentWorkspaces caps the MRU workspace list so the picker stays short and
@@ -63,13 +76,18 @@ const maxRecentWorkspaces = 8
 
 // saveConfig persists the request so the next launch prefills the form. Credentials
 // are encrypted at rest (DPAPI on Windows) and never written in the clear; the file
-// is still 0600. Failures are non-fatal.
+// is still 0600 (writeFileAtomic creates via CreateTemp). Failures are non-fatal.
 func saveConfig(req StartSessionRequest) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	saveConfigHeld(req)
+}
+
+// saveConfigHeld is saveConfig's body; the caller must hold configMu (the
+// carry-forward read below and the write form one read-modify-write cycle).
+func saveConfigHeld(req StartSessionRequest) {
 	path, err := desktopConfigPath()
 	if err != nil {
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
 	// The MRU workspace list is server-owned: recompute it from the previously
@@ -86,23 +104,7 @@ func saveConfig(req StartSessionRequest) {
 	}
 	// Atomic replace (temp + rename): a crash mid-write must never leave a torn
 	// config holding half of the encrypted credentials or the MRU list.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".desktop.json.*")
-	if err != nil {
-		return
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename succeeds
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		return
-	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		return
-	}
-	_ = os.Rename(tmpName, path)
+	_ = writeFileAtomic(filepath.Dir(path), filepath.Base(path), data)
 }
 
 // protectRequestSecrets replaces the plaintext credential fields with their
@@ -154,22 +156,26 @@ func loadRawConfig() StartSessionRequest {
 	return req
 }
 
-// saveRawConfig writes the raw persisted request back as-is (used by the
-// custom-model CRUD, which manages its own field encryption). Failures are
+// updateRawConfig applies mutate to a fresh read of the persisted request and
+// writes the result back atomically, all under configMu. It is the only way to
+// change individual persisted fields (custom models, web proxy, tenant): callers
+// that did their own load→mutate→save would race other writers and lose updates.
+// The mutator manages its own field encryption where needed. Failures are
 // non-fatal, mirroring saveConfig.
-func saveRawConfig(req StartSessionRequest) {
+func updateRawConfig(mutate func(*StartSessionRequest)) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	cfg := loadRawConfig()
+	mutate(&cfg)
 	path, err := desktopConfigPath()
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	data, err := json.MarshalIndent(req, "", "  ")
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o600)
+	_ = writeFileAtomic(filepath.Dir(path), filepath.Base(path), data)
 }
 
 // mergeRecentWorkspaces promotes cwd to the front of the MRU list, de-duplicating

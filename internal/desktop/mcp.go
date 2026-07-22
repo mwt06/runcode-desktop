@@ -5,11 +5,19 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
+
+// mcpMu serializes the load→mutate→write cycles on the user-level MCP server
+// config. Save/Delete/SetEnabled are Wails-bound and can overlap; without the
+// lock, two cycles reading the same snapshot would silently lose the earlier
+// write. (Atomicity of the file write itself is the engine's concern —
+// settings.WriteUserMCPServers owns the file format and the write.)
+var mcpMu sync.Mutex
 
 // ListMCPServers returns every configured MCP server (from the shared
 // config.toml), annotated with live connection state from the running session.
@@ -82,6 +90,8 @@ func (a *App) SaveMCPServer(in MCPServerInput) error {
 		return wireError(err)
 	}
 
+	mcpMu.Lock()
+	defer mcpMu.Unlock()
 	servers, err := a.loadMCPServers()
 	if err != nil {
 		return wireError(err)
@@ -99,6 +109,8 @@ func (a *App) DeleteMCPServer(name string) error {
 	if name == "" {
 		return wireError(errors.New("服务器名称不能为空"))
 	}
+	mcpMu.Lock()
+	defer mcpMu.Unlock()
 	servers, err := a.loadMCPServers()
 	if err != nil {
 		return wireError(err)
@@ -110,6 +122,8 @@ func (a *App) DeleteMCPServer(name string) error {
 // SetMCPServerEnabled toggles a server on or off without touching its other fields.
 func (a *App) SetMCPServerEnabled(name string, enabled bool) error {
 	name = strings.TrimSpace(name)
+	mcpMu.Lock()
+	defer mcpMu.Unlock()
 	servers, err := a.loadMCPServers()
 	if err != nil {
 		return wireError(err)

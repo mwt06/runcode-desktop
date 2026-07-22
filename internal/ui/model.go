@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 	"github.com/wt68/runcode/pkg/command"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 const (
@@ -22,8 +22,8 @@ const (
 	bottomChromeHeight   = 4
 	maxToolStoredFiles   = 50
 	maxToolStoredOutput  = 50
-	toolLineMaxRunes     = 200
-	toolFilePathMaxRunes = 96
+	toolLineMaxWidth     = 200
+	toolFilePathMaxWidth = 96
 	// maxInputRows caps how tall the multi-line input grows before it scrolls
 	// internally, keeping the conversation viewport usable on small terminals.
 	maxInputRows = 8
@@ -641,7 +641,7 @@ func safeToolFilePath(value string) (string, bool) {
 			}
 		}
 	}
-	return truncateRunes(strings.Join(segments, "/"), toolFilePathMaxRunes), true
+	return truncate(strings.Join(segments, "/"), toolFilePathMaxWidth), true
 }
 
 func toolEventMessage(event tool.Event) string {
@@ -696,21 +696,7 @@ func safeOutputText(text string) string {
 		}
 		b.WriteRune(r)
 	}
-	return truncateRunes(b.String(), toolLineMaxRunes)
-}
-
-func truncateRunes(value string, width int) string {
-	if width <= 0 {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= width {
-		return value
-	}
-	if width <= 1 {
-		return string(runes[:width])
-	}
-	return string(runes[:width-1]) + "…"
+	return truncate(b.String(), toolLineMaxWidth)
 }
 
 func (m *Model) finishTurn(result TurnResult) {
