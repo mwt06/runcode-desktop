@@ -70,14 +70,14 @@ func (d *wailsDialog) PickFile(title string) (string, error) {
 	})
 }
 
-func (d *wailsDialog) PickFolder(title string) (string, error) {
+func (d *wailsDialog) PickFolder(title, defaultDir string) (string, error) {
 	d.mu.RLock()
 	ctx := d.ctx
 	d.mu.RUnlock()
 	if ctx == nil {
 		return "", nil
 	}
-	return wruntime.OpenDirectoryDialog(ctx, wruntime.OpenDialogOptions{Title: title})
+	return wruntime.OpenDirectoryDialog(ctx, wruntime.OpenDialogOptions{Title: title, DefaultDirectory: defaultDir})
 }
 
 func (d *wailsDialog) PickImage(title string) (string, error) {

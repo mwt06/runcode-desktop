@@ -18,10 +18,10 @@ func TestPassportConfigDefaultsAndEnvOverride(t *testing.T) {
 	if cfg.ClientID != "runcode-desktop" {
 		t.Fatalf("clientID = %q", cfg.ClientID)
 	}
-	if cfg.BridgeBaseURL != "http://localhost:8199" {
+	if cfg.BridgeBaseURL != "https://bridge-aibase.ouc-online.com.cn" {
 		t.Fatalf("bridge = %q", cfg.BridgeBaseURL)
 	}
-	if cfg.RedirectURI != "http://localhost:8199/oauth/callback" {
+	if cfg.RedirectURI != "https://bridge-aibase.ouc-online.com.cn/oauth/callback" {
 		t.Fatalf("redirect = %q", cfg.RedirectURI)
 	}
 

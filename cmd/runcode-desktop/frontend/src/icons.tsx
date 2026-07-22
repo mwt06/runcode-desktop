@@ -5,6 +5,21 @@ import { useId } from 'react'
 
 type Props = { name: string; size?: number; className?: string }
 
+// TOOL_ICON maps a tool or builtin sub-agent name to its list-row icon, shared by
+// the chat's tool rows and the plugins manager so the same capability always
+// carries the same glyph.
+export const TOOL_ICON: Record<string, string> = {
+  Read: 'file', Write: 'pencil', Edit: 'pencil', Delete: 'trash',
+  Bash: 'terminal', BashOutput: 'terminal', KillShell: 'terminal',
+  Grep: 'search', Glob: 'search', WebFetch: 'globe', WebSearch: 'globe',
+  TodoWrite: 'grid', Analyze: 'sparkles', AskUser: 'chat', open_preview: 'file',
+  Task: 'bot', Skill: 'book', Remember: 'sparkles',
+  Wait: 'clock', GetCurrentTime: 'clock',
+  'general-purpose': 'bot', 'code-reviewer': 'shield', 'code-explorer': 'search',
+  planner: 'grid', debugger: 'terminal',
+}
+export const toolIcon = (name?: string) => TOOL_ICON[name || ''] || 'grid'
+
 // Logo is the XRUN mark: an "X" of two crossing strokes, blue and violet. Used
 // for the app brand and the assistant avatar.
 export function Logo({ size = 24 }: { size?: number }) {
@@ -126,6 +141,13 @@ export function Icon({ name, size = 18, className }: Props) {
         <svg {...common} {...stroke}>
           <circle cx="11" cy="11" r="6.2" />
           <path d="M20 20l-4.4-4.4" />
+        </svg>
+      )
+    case 'eye':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+          <circle cx="12" cy="12" r="3" />
         </svg>
       )
     case 'globe':

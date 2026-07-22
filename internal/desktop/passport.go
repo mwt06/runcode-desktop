@@ -25,13 +25,13 @@ type passportSettings struct {
 	Authority     string // 如 https://passport-ai.ouchn.edu.cn
 	ClientID      string
 	Scopes        string
-	BridgeBaseURL string // 如 http://localhost:8199（不含 /v1）
+	BridgeBaseURL string // 如 https://bridge-aibase.ouc-online.com.cn（不含 /v1）
 	RedirectURI   string // BridgeBaseURL + /oauth/callback
 }
 
 func passportConfig() passportSettings {
 	authority := strings.TrimRight(envOr("RUNCODE_PASSPORT_AUTHORITY", "https://passport-ai.ouchn.edu.cn"), "/")
-	bridge := strings.TrimRight(envOr("RUNCODE_BRIDGE_BASE_URL", "http://localhost:8199"), "/")
+	bridge := strings.TrimRight(envOr("RUNCODE_BRIDGE_BASE_URL", "https://bridge-aibase.ouc-online.com.cn"), "/")
 	return passportSettings{
 		Authority:     authority,
 		ClientID:      envOr("RUNCODE_PASSPORT_CLIENT_ID", "runcode-desktop"),

@@ -109,6 +109,32 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 	return out, nil
 }
 
+// DeleteSession permanently removes a saved session (history + title/meta
+// sidecars) from the workspace store. It does not touch the live in-memory
+// session; deleting the one you are currently in just makes it unresumable.
+func (a *App) DeleteSession(id string) error {
+	a.mu.Lock()
+	ws := a.workspace
+	a.mu.Unlock()
+	id = strings.TrimSpace(id)
+	if ws == "" || id == "" {
+		return wireError(errors.New("无效的会话"))
+	}
+	backend, err := sessions.OpenBackend(ws, sessions.BackendJSONL)
+	if err != nil {
+		return wireError(err)
+	}
+	defer backend.Close(context.Background())
+	deleter, ok := backend.(sessions.Deleter)
+	if !ok {
+		return wireError(errors.New("当前会话存储不支持删除"))
+	}
+	if err := deleter.Delete(context.Background(), id); err != nil {
+		return wireError(err)
+	}
+	return nil
+}
+
 // ResumeSession reopens a saved session by id (reusing the active session's
 // provider/model/credentials) and returns its prior conversation for display.
 func (a *App) ResumeSession(id string) (ResumedSession, error) {
@@ -148,7 +174,7 @@ func (a *App) PickWorkspaceFolder() (string, error) {
 	if dialog == nil {
 		return "", wireError(errors.New("当前环境不支持目录选择"))
 	}
-	dir, err := dialog.PickFolder("选择工作区目录")
+	dir, err := dialog.PickFolder("选择工作区目录", "")
 	return dir, wireError(err)
 }
 

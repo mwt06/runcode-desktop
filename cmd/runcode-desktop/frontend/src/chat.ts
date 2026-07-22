@@ -27,12 +27,19 @@ export type Block =
   // session's model calls — sub-agent tokens are shown on the Task card instead).
   | { kind: 'usage'; id: string; inTok: number; outTok: number; durMs?: number }
 
+// ToolBlock narrows Block to a tool row; taskgroup members are always Task tools.
+export type ToolBlock = Extract<Block, { kind: 'tool' }>
+
 export type Group =
   | { kind: 'block'; block: Block }
   | { kind: 'exec'; id: string; tools: ToolEvent[] }
   | { kind: 'ask'; id: string; tool: ToolEvent }
   | { kind: 'analyze'; id: string; tool: ToolEvent }
   | { kind: 'edits'; id: string; edits: EditRecord[] }
+  // taskgroup collects a fan-out of parallel Task delegations (adjacent Task calls
+  // issued in one assistant response) so they render as one container of compact
+  // rows instead of N fully-expanded streaming cards.
+  | { kind: 'taskgroup'; id: string; tasks: ToolBlock[] }
 
 export function finalizeStreaming(blocks: Block[]): Block[] {
   return blocks.map((b) => (b.kind === 'assistant' && b.streaming ? { ...b, streaming: false } : b))
@@ -94,6 +101,39 @@ export function mergeTool(prev: ToolEvent | undefined, ev: ToolEvent): ToolEvent
   }
 }
 
+// resumedMatchedFiles reconstructs a file-list result's matched references from the
+// persisted result text, so a resumed session's Glob / Grep(files_with_matches)
+// card renders the same collapsible tree as the live one — the live matched-file
+// events are not persisted; only the result text (one workspace-relative path per
+// line, possibly ending with an "[output truncated]" marker) survives a restart.
+// Returns null when the result is not a pure file list (content/count 模式、报错
+// 或提示语等自由文本),此时调用方保持原样按文本行渲染。
+export function resumedMatchedFiles(
+  toolName: string | undefined,
+  input: unknown,
+  outputText: string,
+): { path: string; kind: string }[] | null {
+  if (toolName === 'Grep') {
+    let mode = ''
+    if (typeof input === 'string') {
+      try {
+        mode = String((JSON.parse(input) as { output_mode?: unknown }).output_mode ?? '')
+      } catch {
+        return null
+      }
+    } else if (input && typeof input === 'object') {
+      mode = String((input as { output_mode?: unknown }).output_mode ?? '')
+    }
+    if (mode !== 'files_with_matches') return null
+  } else if (toolName !== 'Glob') {
+    return null
+  }
+  const paths = outputText.split('\n').map((l) => l.trim()).filter((l) => l !== '' && l !== '[output truncated]')
+  // 文件列表一行一个路径;出现空白说明是提示语/意外格式,放弃重建按文本展示。
+  if (paths.length === 0 || paths.some((p) => /\s/.test(p))) return null
+  return paths.map((p) => ({ path: p, kind: 'matched' }))
+}
+
 // groupBlocks routes blocks into render groups: TodoWrite is dropped (it drives the
 // progress pill), AskUser/Analyze/Task each become their own card, and consecutive
 // plain tool calls collapse into one execution group. A Write/Edit that carries edit
@@ -139,10 +179,19 @@ export function groupBlocks(blocks: Block[]): Group[] {
         continue
       }
       // A Task delegation is its own observable card (its sub-agent's live text and
-      // nested tool calls), so keep it standalone instead of folding it into the
-      // compact exec list — otherwise its nested activity is dropped.
+      // nested tool calls), so it never folds into the compact exec list — otherwise
+      // its nested activity is dropped. Adjacent Task calls (a parallel fan-out
+      // issued in one assistant response) merge into a taskgroup so N delegations
+      // render as one container of compact rows; a lone Task stays a full card.
       if (b.tool.toolName === 'Task') {
-        out.push({ kind: 'block', block: b })
+        const last = out[out.length - 1]
+        if (last && last.kind === 'taskgroup') {
+          last.tasks.push(b)
+        } else if (last && last.kind === 'block' && last.block.kind === 'tool' && last.block.tool.toolName === 'Task') {
+          out[out.length - 1] = { kind: 'taskgroup', id: 'tasks-' + last.block.id, tasks: [last.block, b] }
+        } else {
+          out.push({ kind: 'block', block: b })
+        }
         continue
       }
       const last = out[out.length - 1]

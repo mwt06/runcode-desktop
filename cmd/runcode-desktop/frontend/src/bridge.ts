@@ -112,6 +112,7 @@ export {
   // renamed: the old bridge exposed the Reset command as resetHistory
   reset as resetHistory,
   resumeSession,
+  deleteSession,
   revealInFolder,
   reviewEdit,
   revertEdit,

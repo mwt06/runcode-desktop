@@ -1,11 +1,13 @@
 // Full-screen pages rendered by the app shell: the skills / agents / settings
 // managers and the initial start form. Extracted from App.tsx to keep it focused.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Icon, Logo } from './icons'
+import { Icon, Logo, TOOL_ICON } from './icons'
 import loginBg from './assets/login-bg.jpg'
 import loginMascot from './assets/login-mascot.svg'
 import { Markdown } from './markdown'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
+import { FIELD_CLS, LABEL_CLS, ModelPickerPopover, Popover, SelectField, sourceLabel, type ModelOption } from './components'
+import { shortenPath } from './paths'
 import {
   listSkills, saveSkill, deleteSkill, importSkill,
   listAgents, saveAgent, deleteAgent, importAgent,
@@ -14,11 +16,11 @@ import {
   listTools, setToolEnabled, setAgentEnabled, setSkillEnabled, readProjectContext, saveProjectContext, readMemory,
   passportStatus, passportValidate, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
   setActiveTenant, activeTenant,
-  listCustomModels, saveCustomModel, deleteCustomModel,
+  listCustomModels, saveCustomModel, deleteCustomModel, sessionModels,
   webProxy, setWebProxy,
   onEvent, Events,
-  type SkillInfo, type SkillList,
-  type AgentInfo, type AgentList,
+  type SkillInfo,
+  type AgentInfo,
   type MCPServerInfo, type MCPServerInput,
   type ToolInfo, type ProjectContextInfo, type MemoryInfo,
   type SessionInfo, type StartSessionRequest,
@@ -42,6 +44,9 @@ const TOOL_ZH: Record<string, { label: string; desc: string }> = {
   TodoWrite: { label: '规划任务', desc: '记录当前任务清单，每次传完整列表并替换上一次。' },
   WebFetch: { label: '抓取网页', desc: '抓取一个网址并按提示词处理其内容。' },
   WebSearch: { label: '联网搜索', desc: '通过搜索引擎联网检索并返回结果(标题、网址、摘要)。' },
+  Wait: { label: '等待', desc: '暂停指定秒数再继续——等待构建、部署或后台命令等外部操作稳定后再检查。' },
+  GetCurrentTime: { label: '获取当前时间', desc: '返回当前日期与时间(本地与 UTC、所在时区及 RFC3339 时间戳)。' },
+  Remember: { label: '记录记忆', desc: '把跨会话有用的事实写入持久记忆(用户级或项目级)，下次会话自动带上。' },
   Analyze: { label: '结构化分析', desc: '为当前思考协议记录结构化分析。' },
   AskUser: { label: '询问用户', desc: '向用户提问并停下等待回复，用于需要用户决策或缺少关键信息时。' },
   open_preview: { label: '预览产物', desc: '在桌面预览面板打开工作区文件(仅桌面版)。' },
@@ -119,40 +124,6 @@ const AGENT_ZH: Record<string, { label: string; desc: string; prompt: string }> 
   },
 }
 
-// ScopeSelect 是工具/子代理行尾的启用/停用下拉：启用 / 仅本项目停用 / 全局停用。
-// 停用时下拉标红。任一作用域停用即视为停用(下次新建会话生效)。
-function ScopeSelect({ disabledUser, disabledProject, onSet }: {
-  disabledUser: boolean
-  disabledProject: boolean
-  onSet: (next: 'on' | 'user' | 'project') => void
-}) {
-  const value = disabledUser ? 'user' : disabledProject ? 'project' : 'on'
-  return (
-    <select
-      value={value}
-      title="启用 / 停用范围"
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => { e.stopPropagation(); onSet(e.target.value as 'on' | 'user' | 'project') }}
-      className={`text-[11.5px] rounded-[7px] border px-2 py-1 bg-surface2 outline-none flex-none cursor-pointer ${value === 'on' ? 'border-line2 text-muted' : 'border-red/50 text-red bg-red/5'}`}
-    >
-      <option value="on">启用</option>
-      <option value="project">仅本项目停用</option>
-      <option value="user">全局停用(用户级)</option>
-    </select>
-  )
-}
-
-// applyScopeChange 把下拉选择落成两个作用域的开关调用(仅调用发生变化的那个)。
-async function applyScopeChange(
-  setFn: (name: string, scope: string, enabled: boolean) => Promise<void>,
-  name: string, curUser: boolean, curProject: boolean, next: 'on' | 'user' | 'project',
-) {
-  const target: Record<string, [boolean, boolean]> = { on: [false, false], user: [true, false], project: [false, true] }
-  const [tu, tp] = target[next]
-  if (curUser !== tu) await setFn(name, 'user', !tu)
-  if (curProject !== tp) await setFn(name, 'project', !tp)
-}
-
 // Toggle 是参考设计里的 iOS 拨动开关：蓝色=开，灰色=关。
 function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
   return (
@@ -169,14 +140,59 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (next: bool
   )
 }
 
-// 内置工具/子代理的行首图标(与对话内工具卡片一致的图标名)。
-const PLUGIN_ICON: Record<string, string> = {
-  Read: 'file', Write: 'pencil', Edit: 'pencil', Delete: 'trash',
-  Bash: 'terminal', BashOutput: 'terminal', KillShell: 'terminal',
-  Grep: 'search', Glob: 'search', WebFetch: 'globe', WebSearch: 'globe',
-  TodoWrite: 'grid', Analyze: 'sparkles', AskUser: 'chat', open_preview: 'file',
-  'general-purpose': 'bot', 'code-reviewer': 'shield', 'code-explorer': 'search',
-  planner: 'grid', debugger: 'terminal',
+// ToolMultiSelect 是子代理「工具」字段的多选下拉:从工具目录勾选,存回逗号分隔
+// 串(与子代理 .md frontmatter 的 wire 格式一致);留空 = 继承全部工具。点选不
+// 关闭面板,方便连续勾选;点外部收起。
+function ToolMultiSelect({ value, options, onChange, disabled }: {
+  value: string
+  options: ToolInfo[]
+  onChange: (next: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const picked = value.split(',').map((s) => s.trim()).filter(Boolean)
+  const toggle = (n: string) => {
+    const next = picked.includes(n) ? picked.filter((p) => p !== n) : [...picked, n]
+    onChange(next.join(', '))
+  }
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={`${FIELD_CLS} w-full flex items-center text-left ${disabled ? '' : 'cursor-pointer hover:border-primary/60'} transition-colors`}
+      >
+        <span className={`flex-1 truncate ${picked.length ? 'font-mono' : 'text-faint'}`}>{picked.length ? picked.join(', ') : '继承全部工具'}</span>
+        <Icon name="chevron-down" size={16} className="text-faint flex-none ml-2" />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} placement="down-full" variant="panel" className="max-h-[300px]">
+        <div className="overflow-y-auto py-1">
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className={`w-full text-left px-3.5 py-2 text-[12.5px] hover:bg-surface2 ${picked.length ? 'text-muted' : 'text-primary'}`}
+          >
+            继承全部工具{picked.length === 0 && ' ✓'}
+          </button>
+          {options.map((t) => {
+            const zh = TOOL_ZH[t.name]
+            const on = picked.includes(t.name)
+            return (
+              <button key={t.name} type="button" onClick={() => toggle(t.name)} className="w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2">
+                <span className={`w-4 h-4 rounded border flex-none inline-flex items-center justify-center text-[10px] leading-none ${on ? 'bg-primary border-primary text-white' : 'border-line2 bg-surface'}`}>{on ? '✓' : ''}</span>
+                <span className="text-[13px] text-ink flex-none">{zh?.label ?? t.name}</span>
+                {zh && <span className="font-mono text-[11.5px] text-faint truncate">{t.name}</span>}
+              </button>
+            )
+          })}
+          {options.length === 0 && (
+            <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">工具目录为空(启动一个会话后可选);留空即继承全部工具</div>
+          )}
+        </div>
+      </Popover>
+    </div>
+  )
 }
 
 // AgentDetail 是子代理的全屏详情/编辑页(替代原来的左右分栏)。内置只读。
@@ -198,8 +214,19 @@ function AgentDetail({ agent, onBack, onChanged, onUse }: {
   const editable = isNew || (ag?.editable ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)] disabled:opacity-60'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
+  // 工具/模型的候选清单(进入详情页拉一次):工具来自会话工具目录,模型与设置页
+  // 同源(平台 + 自定义)。拉取失败保持空列表,两个下拉退化为「留空/自定义输入」。
+  const [toolOptions, setToolOptions] = useState<ToolInfo[]>([])
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
+  useEffect(() => {
+    listTools().then((l) => setToolOptions(l ?? [])).catch(() => {})
+    void Promise.all([sessionModels().catch(() => null), listCustomModels().catch(() => null)]).then(([platform, custom]) =>
+      setModelOptions([
+        ...(platform ?? []).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy })),
+        ...(custom ?? []).map((c): ModelOption => ({ kind: 'custom', id: c.model, label: c.name, sub: c.model })),
+      ]),
+    )
+  }, [])
 
   async function save() {
     setBusy(true); setError('')
@@ -219,11 +246,11 @@ function AgentDetail({ agent, onBack, onChanged, onUse }: {
       <div className="max-w-[720px] mx-auto flex flex-col gap-3.5">
         <button type="button" className="self-start text-[13px] text-muted hover:text-ink inline-flex items-center gap-1" onClick={onBack}>← 返回列表</button>
         {!editable && <div className="text-[12.5px] text-muted bg-surface2 border border-line2 rounded-[9px] px-3 py-2">内置子代理，只读。可「在对话中使用」，或在用户/项目级新建同名子代理来覆盖它。以下描述与指令正文为中文对照，模型收到的仍是原始定义。</div>}
-        <label className={label}>名称<input className={field} value={name} disabled={!editable} onChange={(e) => setName(e.target.value)} placeholder="如 code-reviewer(字母、数字、- 或 _)" /></label>
-        <label className={label}>
+        <label className={LABEL_CLS}>名称<input className={FIELD_CLS} value={name} disabled={!editable} onChange={(e) => setName(e.target.value)} placeholder="如 code-reviewer(字母、数字、- 或 _)" /></label>
+        <label className={LABEL_CLS}>
           范围
           {isNew ? (
-            <select className={field} value={scope} onChange={(e) => setScope(e.target.value)}>
+            <select className={FIELD_CLS} value={scope} onChange={(e) => setScope(e.target.value)}>
               <option value="project">项目(仅本工作区 .runcode/agents)</option>
               <option value="user">用户(全局，所有项目可用)</option>
             </select>
@@ -231,14 +258,18 @@ function AgentDetail({ agent, onBack, onChanged, onUse }: {
             <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : scope === 'project' ? '项目(本工作区)' : '内置'}</div>
           )}
         </label>
-        <label className={label}>描述(一句话，告诉 AI 何时委派它)<input className={field} value={description} disabled={!editable} onChange={(e) => setDescription(e.target.value)} placeholder="如 审查代码，找出 bug 与风险" /></label>
+        <label className={LABEL_CLS}>描述(一句话，告诉 AI 何时委派它)<input className={FIELD_CLS} value={description} disabled={!editable} onChange={(e) => setDescription(e.target.value)} placeholder="如 审查代码，找出 bug 与风险" /></label>
         <div className="grid grid-cols-2 gap-3">
-          <label className={label}>工具(可选，逗号分隔；留空=继承全部)<input className={field} value={tools} disabled={!editable} onChange={(e) => setTools(e.target.value)} placeholder="如 Read, Grep, Glob" /></label>
-          <label className={label}>模型(可选，覆盖默认)<input className={field} value={model} disabled={!editable} onChange={(e) => setModel(e.target.value)} placeholder="留空=继承会话模型" /></label>
+          <div className={LABEL_CLS}>工具(可选;留空=继承全部)
+            <ToolMultiSelect value={tools} options={toolOptions} onChange={setTools} disabled={!editable} />
+          </div>
+          <div className={LABEL_CLS}>模型(可选，覆盖默认)
+            <ModelSelect value={model} options={modelOptions} onPick={setModel} placeholder="留空 = 继承会话模型" allowCustom clearLabel="留空 = 继承会话模型" disabled={!editable} />
+          </div>
         </div>
-        <label className={label}>
+        <label className={LABEL_CLS}>
           指令正文(Markdown，子代理的系统提示)
-          <textarea className={`${field} min-h-[280px] font-mono text-[13px] leading-[1.6] resize-y`} value={prompt} disabled={!editable} onChange={(e) => setPrompt(e.target.value)} />
+          <textarea className={`${FIELD_CLS} min-h-[280px] font-mono text-[13px] leading-[1.6] resize-y`} value={prompt} disabled={!editable} onChange={(e) => setPrompt(e.target.value)} />
         </label>
         {error && <div className="text-[12.5px] text-red">{error}</div>}
         <div className="flex gap-2.5">
@@ -268,8 +299,6 @@ function SkillDetail({ skill, onBack, onChanged, onUse }: {
   const [scope, setScope] = useState(isNew ? 'project' : sk?.source === 'user' ? 'user' : 'project')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
   async function save() {
     setBusy(true); setError('')
     try { await saveSkill({ originalName: sk?.name ?? '', name: name.trim(), description, body, scope }); onChanged(); onBack() } catch (e) { setError(errText(e)) } finally { setBusy(false) }
@@ -283,11 +312,11 @@ function SkillDetail({ skill, onBack, onChanged, onUse }: {
     <div className="flex-1 overflow-y-auto px-10 py-7">
       <div className="max-w-[820px] mx-auto flex flex-col gap-4">
         <button type="button" className="self-start text-[13px] text-muted hover:text-ink inline-flex items-center gap-1" onClick={onBack}>← 返回列表</button>
-        <label className={label}>名称<input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="如 ppt-maker(字母、数字、- 或 _)" /></label>
-        <label className={label}>
+        <label className={LABEL_CLS}>名称<input className={FIELD_CLS} value={name} onChange={(e) => setName(e.target.value)} placeholder="如 ppt-maker(字母、数字、- 或 _)" /></label>
+        <label className={LABEL_CLS}>
           范围
           {isNew ? (
-            <select className={field} value={scope} onChange={(e) => setScope(e.target.value)}>
+            <select className={FIELD_CLS} value={scope} onChange={(e) => setScope(e.target.value)}>
               <option value="project">项目(仅本工作区 .runcode/skills)</option>
               <option value="user">用户(全局，所有项目可用)</option>
             </select>
@@ -295,10 +324,10 @@ function SkillDetail({ skill, onBack, onChanged, onUse }: {
             <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : '项目(本工作区)'}</div>
           )}
         </label>
-        <label className={label}>描述(一句话，告诉 AI 何时加载它)<input className={field} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如 制作 PPT 演示文稿" /></label>
-        <label className={label}>
+        <label className={LABEL_CLS}>描述(一句话，告诉 AI 何时加载它)<input className={FIELD_CLS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如 制作 PPT 演示文稿" /></label>
+        <label className={LABEL_CLS}>
           正文(Markdown，技能的完整指令)
-          <textarea className={`${field} min-h-[320px] font-mono text-[13px] leading-[1.6] resize-y`} value={body} onChange={(e) => setBody(e.target.value)} />
+          <textarea className={`${FIELD_CLS} min-h-[320px] font-mono text-[13px] leading-[1.6] resize-y`} value={body} onChange={(e) => setBody(e.target.value)} />
         </label>
         {error && <div className="text-[12.5px] text-red">{error}</div>}
         <div className="flex gap-2.5">
@@ -329,7 +358,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   const reloadSkills = async () => { try { const l = await listSkills(); setSkillList(l?.skills ?? []) } catch { /* ignore */ } }
   useEffect(() => { void reloadTools(); void reloadAgents(); void reloadSkills() }, [])
 
-  // 导入当前标签页对应的能力：弹原生文件选择器(技能选 SKILL.md，子代理选 .md)，
+  // 导入当前标签页对应的能力：弹原生选择器(技能选整个文件夹连同相关文件，子代理选 .md)，
   // 校验后写入所选范围。取消选择不报错(后端原样返回当前列表)。
   const doImport = async (s: 'project' | 'user') => {
     setImportMenu(false)
@@ -361,14 +390,20 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   // This page manages only user/project-authored capabilities; built-ins are the
   // engine's fixed, read-only set, so they are hidden here (the model still uses
   // them, and the composer's / picker still lists built-in agents to delegate).
+  // 全局(用户级)范围下再隐藏项目级条目:用户级停用是按名字记进全局 disabled.json
+  // 的,对只存在于本工作区的项目级子代理/技能做「全局停用」既无意义,还会误伤
+  // 其它项目的同名条目;切到「本项目」范围即可管理它们。
+  const inScope = (source: string) => scope === 'project' || source !== 'project'
+  const scopedAgents = agentList.filter((a) => a.source !== 'builtin' && inScope(a.source))
+  const scopedSkills = skillList.filter((s) => inScope(s.source))
   const shownTools = toolList.filter((t) => t.toggleable && t.source !== 'builtin').filter((t) => { const z = TOOL_ZH[t.name]; return hit(z?.label ?? '', z?.desc ?? t.description, t.name) })
-  const shownAgents = agentList.filter((a) => a.source !== 'builtin').filter((a) => hit('', a.description, a.name))
-  const shownSkills = skillList.filter((s) => hit(s.name, s.description, s.name))
+  const shownAgents = scopedAgents.filter((a) => hit('', a.description, a.name))
+  const shownSkills = scopedSkills.filter((s) => hit(s.name, s.description, s.name))
 
   const tabs: { k: typeof tab; label: string; n?: number }[] = [
     { k: 'tools', label: '工具', n: toolList.filter((t) => t.toggleable && t.source !== 'builtin').length },
-    { k: 'agents', label: '子代理', n: agentList.filter((a) => a.source !== 'builtin').length },
-    { k: 'skills', label: '技能', n: skillList.length },
+    { k: 'agents', label: '子代理', n: scopedAgents.length },
+    { k: 'skills', label: '技能', n: scopedSkills.length },
     { k: 'mcp', label: 'MCP' },
   ]
   const showControls = tab !== 'mcp'
@@ -430,27 +465,22 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
                 <button
                   type="button"
                   onClick={() => setImportMenu((v) => !v)}
-                  title={tab === 'skills' ? '从已有的 SKILL.md 导入技能' : '从已有的 .md 导入子代理'}
+                  title={tab === 'skills' ? '导入技能文件夹（含 SKILL.md 及相关文件）' : '从已有的 .md 导入子代理'}
                   className={`${BTN} px-4 py-2 text-[13px] inline-flex items-center gap-1.5 whitespace-nowrap`}
                 >
                   <Icon name="book" size={15} /> 导入
                   <Icon name="chevron-down" size={12} />
                 </button>
-                {importMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setImportMenu(false)} />
-                    <div className="absolute top-full right-0 mt-1.5 z-20 w-[260px] bg-surface border border-line2 rounded-[11px] shadow-card overflow-hidden py-1">
-                      <div onClick={() => void doImport('project')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
-                        <div className="text-[13px] text-ink">导入到本项目</div>
-                        <div className="text-[11.5px] text-faint mt-0.5">仅当前工作区可用</div>
-                      </div>
-                      <div onClick={() => void doImport('user')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
-                        <div className="text-[13px] text-ink">导入到全局(用户级)</div>
-                        <div className="text-[11.5px] text-faint mt-0.5">所有项目都可用</div>
-                      </div>
-                    </div>
-                  </>
-                )}
+                <Popover open={importMenu} onClose={() => setImportMenu(false)} placement="down-right" className="w-[260px]">
+                  <div onClick={() => void doImport('project')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
+                    <div className="text-[13px] text-ink">导入到本项目</div>
+                    <div className="text-[11.5px] text-faint mt-0.5">仅当前工作区可用</div>
+                  </div>
+                  <div onClick={() => void doImport('user')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
+                    <div className="text-[13px] text-ink">导入到全局(用户级)</div>
+                    <div className="text-[11.5px] text-faint mt-0.5">所有项目都可用</div>
+                  </div>
+                </Popover>
               </div>
             )}
           </div>
@@ -461,7 +491,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
                 {scopeBtn('project', '本项目')}
                 {scopeBtn('user', '全局(用户级)')}
               </div>
-              <span className="text-faint">下次新建会话生效</span>
+              <span className="text-faint">下次新建会话生效{scope === 'user' ? ' · 项目级条目请切到「本项目」范围管理' : ''}</span>
             </div>
           )}
           {err && <p className="mt-3 text-red text-[12.5px]">{err}</p>}
@@ -475,22 +505,22 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
           <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
             {tab === 'tools' && shownTools.map((t) => {
               const z = TOOL_ZH[t.name]
-              return card('t/' + t.name, PLUGIN_ICON[t.name] ?? 'grid', z?.label ?? t.name, z ? t.name : '', t.source === 'mcp' ? (t.server ?? 'MCP') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t.name, n))
+              return card('t/' + t.name, TOOL_ICON[t.name] ?? 'grid', z?.label ?? t.name, z ? t.name : '', t.source === 'mcp' ? (t.server ?? 'MCP') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t.name, n))
             })}
             {tab === 'agents' && shownAgents.map((a) => {
               const z = a.source === 'builtin' ? AGENT_ZH[a.name] : undefined
-              const badge = a.source === 'builtin' ? '内置' : a.source === 'user' ? '用户' : '项目'
+              const badge = sourceLabel(a.source)
               // 内置子代理不可查看详情(只读)；用户/项目的点击进入编辑。所有子代理都可「使用」。
               const onClick = a.source === 'builtin' ? undefined : () => setDetail({ k: 'agent', item: a })
-              return card('a/' + a.source + '/' + a.name, PLUGIN_ICON[a.name] ?? 'bot', z?.label ?? a.name, z ? a.name : '', badge, z?.desc ?? a.description, scopeOn(a.disabledUser, a.disabledProject), otherOffLabel(a.disabledUser, a.disabledProject), (n) => toggleAgent(a.name, n), onClick, () => onUseAgent(a.name))
+              return card('a/' + a.source + '/' + a.name, TOOL_ICON[a.name] ?? 'bot', z?.label ?? a.name, z ? a.name : '', badge, z?.desc ?? a.description, scopeOn(a.disabledUser, a.disabledProject), otherOffLabel(a.disabledUser, a.disabledProject), (n) => toggleAgent(a.name, n), onClick, () => onUseAgent(a.name))
             })}
             {tab === 'skills' && shownSkills.map((s) => {
-              const badge = s.source === 'user' ? '用户' : '项目'
+              const badge = sourceLabel(s.source)
               return card('s/' + s.source + '/' + s.name, 'book', s.name, '', badge, s.description, scopeOn(s.disabledUser, s.disabledProject), otherOffLabel(s.disabledUser, s.disabledProject), (n) => toggleSkill(s.name, n), () => setDetail({ k: 'skill', item: s }))
             })}
             {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-16">{q ? '没有匹配的工具' : '还没有自定义工具（内置工具已隐藏，模型仍可使用；连接 MCP 服务器可在此管理其工具）'}</div>}
             {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-16">{q ? '没有匹配的子代理' : '还没有自定义子代理，点右上「新建」创建（内置子代理已隐藏，仍可在对话中委派）'}</div>}
-            {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建，或「导入」一个已有的 SKILL.md</div>}
+            {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建，或「导入」一个已有的技能文件夹（含 SKILL.md 及相关文件）</div>}
           </div>
         </div>
       )}
@@ -498,415 +528,41 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   )
 }
 
-export function SkillsPage({ onUse }: { onUse: (name: string) => void }) {
-  const [list, setList] = useState<SkillList>({ skills: [], problems: [] })
-  const [sel, setSel] = useState<string | 'new' | null>(null)
-  const [name, setName] = useState('')
-  const [originalName, setOriginalName] = useState('')
-  const [description, setDescription] = useState('')
-  const [body, setBody] = useState('')
-  const [scope, setScope] = useState('project')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
-
-  function refresh() {
-    listSkills()
-      .then((l) => setList(l ?? { skills: [], problems: [] }))
-      .catch((e) => setError(errText(e)))
-  }
-  useEffect(() => {
-    refresh()
-  }, [])
-
-  function edit(sk: SkillInfo) {
-    setSel(sk.name)
-    setName(sk.name)
-    setOriginalName(sk.name)
-    setDescription(sk.description)
-    setBody(sk.body)
-    setScope(sk.source === 'user' ? 'user' : 'project')
-    setError('')
-  }
-  function startNew() {
-    setSel('new')
-    setName('')
-    setOriginalName('')
-    setDescription('')
-    setBody('')
-    setScope('project')
-    setError('')
-  }
-  async function save() {
-    setBusy(true)
-    setError('')
-    try {
-      const l = await saveSkill({ originalName, name: name.trim(), description, body, scope })
-      setList(l)
-      setSel(name.trim())
-      setOriginalName(name.trim())
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function remove() {
-    if (originalName === '') return
-    setBusy(true)
-    try {
-      const l = await deleteSkill(originalName, scope)
-      setList(l)
-      setSel(null)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  // Delete straight from a list row (its own scope), without opening the editor.
-  async function removeFromList(sk: SkillInfo) {
-    setBusy(true)
-    setError('')
-    try {
-      const l = await deleteSkill(sk.name, sk.source)
-      setList(l)
-      if (originalName === sk.name) setSel(null)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function importExisting() {
-    setBusy(true)
-    setError('')
-    try {
-      const l = await importSkill('project')
-      setList(l)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
+// ModelSelect is the settings-page trigger around the shared ModelPickerPopover:
+// a FIELD_CLS-styled button showing the current value that opens the searchable
+// platform + custom model list. allowCustom / clearLabel pass straight through.
+function ModelSelect({ value, options, onPick, placeholder, allowCustom, clearLabel, disabled }: {
+  value: string
+  options: ModelOption[]
+  onPick: (id: string) => void
+  placeholder: string
+  allowCustom?: boolean
+  clearLabel?: string
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
   return (
-    <div className="flex-1 overflow-y-auto px-[30px] py-[28px]">
-      <div className="max-w-[1000px] mx-auto">
-        <h2 className="text-[20px] font-bold tracking-tight">技能</h2>
-        <p className="mt-1 text-muted text-[13px]">技能是可复用的工作流(SKILL.md)。AI 在相关时会自动调用,或用 <code className="font-mono bg-surface2 border border-line2 px-1 rounded">/</code> 指定。保存后<b>当前会话立即生效</b>。</p>
-
-        {(list.problems ?? []).length > 0 && (
-          <div className="mt-3 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-red">
-            {(list.problems ?? []).length} 个技能加载失败:
-            {(list.problems ?? []).map((p, i) => (
-              <div key={i} className="font-mono mt-1 truncate" title={`${p.dir}: ${p.reason}`}>{p.dir} — {p.reason}</div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-5 grid grid-cols-[268px_1fr] gap-5 items-start">
-          <div className="flex flex-col gap-2.5">
-            <div className="flex gap-2">
-              <button className={`${BTN} ${BTN_PRIMARY} flex-1 inline-flex items-center justify-center gap-1.5 whitespace-nowrap !py-2`} onClick={startNew}>
-                <Icon name="plus" size={15} /> 新建
-              </button>
-              <button className={`${BTN} flex-1 inline-flex items-center justify-center gap-1.5 whitespace-nowrap !py-2`} disabled={busy} onClick={importExisting}>
-                <Icon name="book" size={15} /> 导入
-              </button>
-            </div>
-            {(list.skills ?? []).length === 0 ? (
-              <div className="text-faint text-[13px] px-1 py-3 text-center border border-dashed border-line2 rounded-[11px]">还没有技能<br />点「新建」或「导入」</div>
-            ) : (
-              (list.skills ?? []).map((sk) => (
-                <div
-                  key={sk.source + '/' + sk.name}
-                  onClick={() => edit(sk)}
-                  className={`group p-3 rounded-[11px] border cursor-pointer transition ${sel === sk.name ? 'border-primary bg-primarysoft' : 'border-line2 bg-surface hover:border-primary'}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[13.5px] text-ink truncate min-w-0">{sk.name}</span>
-                    <span className="text-[10px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{sk.source === 'project' ? '项目' : '用户'}</span>
-                    <button
-                      className="ml-auto flex-none p-1 -m-1 text-faint hover:text-red opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-40"
-                      title="删除技能"
-                      disabled={busy}
-                      onClick={(e) => { e.stopPropagation(); removeFromList(sk) }}
-                    >
-                      <Icon name="trash" size={14} />
-                    </button>
-                  </div>
-                  <div className="text-[12px] text-muted mt-1 line-clamp-2">{sk.description}</div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="bg-surface border border-line2 rounded-[14px] p-5 shadow-xs min-h-[420px]">
-            {sel === null ? (
-              <div className="text-faint text-[13.5px] h-[380px] flex flex-col items-center justify-center gap-2">
-                <Icon name="book" size={26} />
-                <div>选择左侧技能查看 / 编辑,或新建、导入一个。</div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3.5">
-                <label className={label}>名称<input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="如 ppt-maker(字母、数字、- 或 _)" /></label>
-                <label className={label}>
-                  范围
-                  {sel === 'new' ? (
-                    <select className={field} value={scope} onChange={(e) => setScope(e.target.value)}>
-                      <option value="project">项目(仅本工作区 .runcode/skills)</option>
-                      <option value="user">用户(全局,所有项目可用)</option>
-                    </select>
-                  ) : (
-                    <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : '项目(本工作区)'}</div>
-                  )}
-                </label>
-                <label className={label}>描述(一句话,告诉 AI 何时用它)<input className={field} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如 制作排版规整、风格统一的 PPTX 演示文稿" /></label>
-                <label className={label}>
-                  指令正文(Markdown,AI 调用技能时读取的完整步骤)
-                  <textarea className={`${field} min-h-[300px] font-mono text-[13px] leading-[1.6] resize-y`} value={body} onChange={(e) => setBody(e.target.value)} placeholder={'# 步骤\n1. 先做大纲\n2. 应用设计系统(配色/字体/留白)\n3. ...'} />
-                </label>
-                {error && <div className="text-[12.5px] text-red">{error}</div>}
-                <div className="flex gap-2.5">
-                  <button className={`${BTN} ${BTN_PRIMARY}`} disabled={busy || !name.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
-                  {sel !== 'new' && <button className={BTN} onClick={() => onUse(originalName)}>在对话中使用</button>}
-                  {sel !== 'new' && <button className={`${BTN} ${BTN_DANGER}`} disabled={busy} onClick={remove}>删除</button>}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// AgentsPage is the sub-agent manager: browse, create, edit, and delete the
-// `.runcode/agents/<name>.md` files (project) or the user-global ones. Built-in
-// agents are shown read-only.
-export function AgentsPage({ onUse }: { onUse: (name: string) => void }) {
-  const [list, setList] = useState<AgentList>({ agents: [], problems: [] })
-  const [sel, setSel] = useState<string | 'new' | null>(null)
-  const [name, setName] = useState('')
-  const [originalName, setOriginalName] = useState('')
-  const [description, setDescription] = useState('')
-  const [tools, setTools] = useState('')
-  const [model, setModel] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [scope, setScope] = useState('project')
-  const [editable, setEditable] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)] disabled:opacity-60'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
-
-  function refresh() {
-    listAgents()
-      .then((l) => setList(l ?? { agents: [], problems: [] }))
-      .catch((e) => setError(errText(e)))
-  }
-  useEffect(() => {
-    refresh()
-  }, [])
-  const onSetScope = (ag: AgentInfo) => async (next: 'on' | 'user' | 'project') => {
-    setError('')
-    try {
-      await applyScopeChange(setAgentEnabled, ag.name, ag.disabledUser, ag.disabledProject, next)
-      refresh()
-    } catch (e) {
-      setError(errText(e))
-    }
-  }
-
-  function edit(ag: AgentInfo) {
-    const zh = ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
-    setSel(ag.name)
-    setName(ag.name)
-    setOriginalName(ag.name)
-    // 内置子代理只读，描述与指令正文显示中文对照(仅展示；模型收到的仍是原始定义)。
-    setDescription(zh?.desc ?? ag.description)
-    setTools(ag.tools)
-    setModel(ag.model)
-    setPrompt(zh?.prompt ?? ag.prompt)
-    setScope(ag.source === 'user' ? 'user' : 'project')
-    setEditable(ag.editable)
-    setError('')
-  }
-  function startNew() {
-    setSel('new')
-    setName('')
-    setOriginalName('')
-    setDescription('')
-    setTools('')
-    setModel('')
-    setPrompt('')
-    setScope('project')
-    setEditable(true)
-    setError('')
-  }
-  async function save() {
-    setBusy(true)
-    setError('')
-    try {
-      const l = await saveAgent({ originalName, name: name.trim(), description, tools, model, prompt, scope })
-      setList(l)
-      setSel(name.trim())
-      setOriginalName(name.trim())
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function remove() {
-    if (originalName === '') return
-    setBusy(true)
-    try {
-      const l = await deleteAgent(originalName, scope)
-      setList(l)
-      setSel(null)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function removeFromList(ag: AgentInfo) {
-    setBusy(true)
-    setError('')
-    try {
-      const l = await deleteAgent(ag.name, ag.source)
-      setList(l)
-      if (originalName === ag.name) setSel(null)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function importExisting() {
-    setBusy(true)
-    setError('')
-    try {
-      const l = await importAgent('project')
-      setList(l)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const sourceBadge = (s: string) => (s === 'project' ? '项目' : s === 'user' ? '用户' : '内置')
-
-  return (
-    <div className="flex-1 overflow-y-auto px-[30px] py-[28px]">
-      <div className="max-w-[1000px] mx-auto">
-        <h2 className="text-[20px] font-bold tracking-tight">子代理</h2>
-        <p className="mt-1 text-muted text-[13px]">子代理是专注的助手人格,主 AI 用 <code className="font-mono bg-surface2 border border-line2 px-1 rounded">Task</code> 委派任务,或用 <code className="font-mono bg-surface2 border border-line2 px-1 rounded">/</code> 指定。保存后<b>当前会话立即生效</b>。内置子代理只读。</p>
-
-        {(list.problems ?? []).length > 0 && (
-          <div className="mt-3 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-red">
-            {(list.problems ?? []).length} 个子代理加载失败:
-            {(list.problems ?? []).map((p, i) => (
-              <div key={i} className="font-mono mt-1 truncate" title={`${p.path}: ${p.reason}`}>{p.path} — {p.reason}</div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-5 grid grid-cols-[268px_1fr] gap-5 items-start">
-          <div className="flex flex-col gap-2.5">
-            <div className="flex gap-2">
-              <button className={`${BTN} ${BTN_PRIMARY} flex-1 inline-flex items-center justify-center gap-1.5 whitespace-nowrap !py-2`} onClick={startNew}>
-                <Icon name="plus" size={15} /> 新建
-              </button>
-              <button className={`${BTN} flex-1 inline-flex items-center justify-center gap-1.5 whitespace-nowrap !py-2`} disabled={busy} onClick={importExisting}>
-                <Icon name="book" size={15} /> 导入
-              </button>
-            </div>
-            {(list.agents ?? []).length === 0 ? (
-              <div className="text-faint text-[13px] px-1 py-3 text-center border border-dashed border-line2 rounded-[11px]">还没有子代理<br />点「新建」或「导入」</div>
-            ) : (
-              (list.agents ?? []).map((ag) => {
-                // 内置子代理用中文名+描述，同时保留真实名(供 @ 引用)；用户/项目
-                // 自定义的按原样显示。
-                const zh = ag.source === 'builtin' ? AGENT_ZH[ag.name] : undefined
-                const off = ag.disabledUser || ag.disabledProject
-                return (
-                <div
-                  key={ag.source + '/' + ag.name}
-                  onClick={() => edit(ag)}
-                  className={`group p-3 rounded-[11px] border cursor-pointer transition ${sel === ag.name ? 'border-primary bg-primarysoft' : 'border-line2 bg-surface hover:border-primary'} ${off ? 'opacity-55' : ''}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-[13.5px] text-ink truncate min-w-0">{zh?.label ?? ag.name}</span>
-                    {zh && <span className="font-mono text-[10.5px] text-faint flex-none truncate max-w-[110px]">{ag.name}</span>}
-                    <span className="text-[10px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{sourceBadge(ag.source)}</span>
-                    {ag.editable && (
-                      <button
-                        className="ml-auto flex-none p-1 -m-1 text-faint hover:text-red opacity-0 group-hover:opacity-100 focus:opacity-100 transition disabled:opacity-40"
-                        title="删除子代理"
-                        disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); removeFromList(ag) }}
-                      >
-                        <Icon name="trash" size={14} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-[12px] text-muted mt-1 line-clamp-2">{zh?.desc ?? ag.description}</div>
-                  <div className="flex items-center justify-between gap-2 mt-2">
-                    {off ? <span className="text-[11px] text-red">已停用</span> : <span />}
-                    <ScopeSelect disabledUser={ag.disabledUser} disabledProject={ag.disabledProject} onSet={onSetScope(ag)} />
-                  </div>
-                </div>
-                )
-              })
-            )}
-          </div>
-
-          <div className="bg-surface border border-line2 rounded-[14px] p-5 shadow-xs min-h-[420px]">
-            {sel === null ? (
-              <div className="text-faint text-[13.5px] h-[380px] flex flex-col items-center justify-center gap-2">
-                <Icon name="bot" size={26} />
-                <div>选择左侧子代理查看 / 编辑,或新建、导入一个。</div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3.5">
-                {!editable && <div className="text-[12.5px] text-muted bg-surface2 border border-line2 rounded-[9px] px-3 py-2">内置子代理,只读。可「在对话中使用」,或在用户/项目级新建同名子代理来覆盖它。</div>}
-                <label className={label}>名称<input className={field} value={name} disabled={!editable} onChange={(e) => setName(e.target.value)} placeholder="如 code-reviewer(字母、数字、- 或 _)" /></label>
-                <label className={label}>
-                  范围
-                  {sel === 'new' ? (
-                    <select className={field} value={scope} onChange={(e) => setScope(e.target.value)}>
-                      <option value="project">项目(仅本工作区 .runcode/agents)</option>
-                      <option value="user">用户(全局,所有项目可用)</option>
-                    </select>
-                  ) : (
-                    <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : scope === 'project' ? '项目(本工作区)' : '内置'}</div>
-                  )}
-                </label>
-                <label className={label}>描述(一句话,告诉 AI 何时委派它)<input className={field} value={description} disabled={!editable} onChange={(e) => setDescription(e.target.value)} placeholder="如 审查代码,找出 bug 与风险" /></label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={label}>工具(可选,逗号分隔;留空=继承全部)<input className={field} value={tools} disabled={!editable} onChange={(e) => setTools(e.target.value)} placeholder="如 Read, Grep, Glob" /></label>
-                  <label className={label}>模型(可选,覆盖默认)<input className={field} value={model} disabled={!editable} onChange={(e) => setModel(e.target.value)} placeholder="留空=继承会话模型" /></label>
-                </div>
-                <label className={label}>
-                  指令正文(Markdown,子代理的系统提示)
-                  <textarea className={`${field} min-h-[260px] font-mono text-[13px] leading-[1.6] resize-y`} value={prompt} disabled={!editable} onChange={(e) => setPrompt(e.target.value)} placeholder={'你是一名……\n\n职责:\n- ……\n\n完成后用要点汇报结论。'} />
-                </label>
-                {error && <div className="text-[12.5px] text-red">{error}</div>}
-                <div className="flex gap-2.5">
-                  {editable && <button className={`${BTN} ${BTN_PRIMARY}`} disabled={busy || !name.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>}
-                  {sel !== 'new' && <button className={BTN} onClick={() => onUse(originalName)}>在对话中使用</button>}
-                  {sel !== 'new' && editable && <button className={`${BTN} ${BTN_DANGER}`} disabled={busy} onClick={remove}>删除</button>}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={`${FIELD_CLS} w-full flex items-center text-left ${disabled ? '' : 'cursor-pointer hover:border-primary/60'} transition-colors`}
+      >
+        <span className={`flex-1 truncate ${value ? 'font-mono' : 'text-faint'}`}>{value || placeholder}</span>
+        <Icon name="chevron-down" size={16} className="text-faint flex-none ml-2" />
+      </button>
+      <ModelPickerPopover
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="down-full"
+        className="max-h-[320px]"
+        options={options}
+        current={value}
+        allowCustom={allowCustom}
+        clearLabel={clearLabel}
+        onPick={onPick}
+      />
     </div>
   )
 }
@@ -974,8 +630,12 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
     setTenantId(tid); setAcctMsg('')
     try { await setActiveTenant(tid); await loadPlatformModels(tid) } catch (e) { setAcctMsg(errText(e)) }
   }
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
+  // The searchable model pickers (会话模型 + 判定模型) share the same candidate list:
+  // this tenant's platform models plus the local custom models.
+  const modelOpts: ModelOption[] = [
+    ...platformModels.map((m): ModelOption => ({ id: m.id, label: m.id, sub: m.ownedBy, kind: 'platform' })),
+    ...customModels.map((m): ModelOption => ({ id: m.model, label: m.name, sub: m.model, kind: 'custom' })),
+  ]
 
   async function save() {
     setSaving(true)
@@ -1044,11 +704,11 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
             </div>
           )}
           {passport.loggedIn && tenants.length > 0 && (
-            <label className={label}>租户(切换后下次新建会话生效)
-              <select className={field} value={tenantId} onChange={(e) => void onSwitchTenant(e.target.value)}>
+            <label className={LABEL_CLS}>租户(切换后下次新建会话生效)
+              <SelectField value={tenantId} onChange={(v) => void onSwitchTenant(v)}>
                 {!tenants.some((t) => t.id === tenantId) && <option value={tenantId}>{tenantId || '(令牌自带租户)'}</option>}
                 {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}（{t.id}）</option>)}
-              </select>
+              </SelectField>
             </label>
           )}
           {acctMsg && <div className="text-red text-[12.5px]">{acctMsg}</div>}
@@ -1056,31 +716,16 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
 
         <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
           <div className="text-[13px] font-semibold text-ink">会话</div>
-          <label className={label}>模型
-            {(platformModels.length > 0 || customModels.length > 0) && (
-              <select className={field} value="" onChange={(e) => { if (e.target.value) setModel(e.target.value) }}>
-                <option value="">从列表选择模型…</option>
-                {platformModels.length > 0 && (
-                  <optgroup label="平台模型（即时生效）">
-                    {platformModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
-                  </optgroup>
-                )}
-                {customModels.length > 0 && (
-                  <optgroup label="自定义模型（改接入点，下次新建会话生效）">
-                    {customModels.map((m) => <option key={m.name} value={m.model}>{m.name} · {m.model}</option>)}
-                  </optgroup>
-                )}
-              </select>
-            )}
-            <input className={field} value={model} onChange={(e) => setModel(e.target.value)} placeholder="或手动填写模型 ID，如 qwen3.6-27b" />
-          </label>
-          <label className={label}>权限模式
-            <select className={field} value={permissionMode} onChange={(e) => setPermissionMode(e.target.value)}>
+          <div className={LABEL_CLS}>模型
+            <ModelSelect value={model} options={modelOpts} onPick={setModel} placeholder="选择或搜索模型…" allowCustom />
+          </div>
+          <label className={LABEL_CLS}>权限模式
+            <SelectField value={permissionMode} onChange={setPermissionMode}>
               <option value="interactive">交互（逐项询问）</option>
               <option value="judge">智能（模型审查命令）</option>
               <option value="safe">安全（拒绝高危）</option>
               <option value="flight">飞行（不审计，全部放行）</option>
-            </select>
+            </SelectField>
           </label>
           {permissionMode === 'flight' && (
             <div className="flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5 text-[12.5px] text-red">
@@ -1088,15 +733,15 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
               <span>飞行模式会<b>放行一切操作</b>（含删除文件、sudo 等高危命令），不再询问也不做模型审查。仅在完全信任的环境使用。</span>
             </div>
           )}
-          <label className={label}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
-            <input className={field} value={harmJudgeModel} onChange={(e) => setHarmJudgeModel(e.target.value)} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" />
-          </label>
-          <label className={label}>判定表决（多次独立判定取多数，更稳但更费 token）
-            <select className={field} value={String(harmJudgeVotes)} onChange={(e) => setHarmJudgeVotes(parseInt(e.target.value, 10))}>
+          <div className={LABEL_CLS}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
+            <ModelSelect value={harmJudgeModel} options={modelOpts} onPick={setHarmJudgeModel} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" allowCustom clearLabel="留空 = 默认独立模型" />
+          </div>
+          <label className={LABEL_CLS}>判定表决（多次独立判定取多数，更稳但更费 token）
+            <SelectField value={String(harmJudgeVotes)} onChange={(v) => setHarmJudgeVotes(parseInt(v, 10))}>
               <option value="1">单次（默认）</option>
               <option value="3">3 次取多数</option>
               <option value="5">5 次取多数</option>
-            </select>
+            </SelectField>
           </label>
         </section>
 
@@ -1117,12 +762,12 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
             </div>
           )}
           <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line2 p-3">
-            <input className={field} placeholder="显示名称（如 本地 Ollama）" value={cmName} onChange={(e) => setCmName(e.target.value)} />
+            <input className={FIELD_CLS} placeholder="显示名称（如 本地 Ollama）" value={cmName} onChange={(e) => setCmName(e.target.value)} />
             <div className="grid grid-cols-2 gap-2">
-              <input className={field} placeholder="模型 ID" value={cmModel} onChange={(e) => setCmModel(e.target.value)} />
-              <input className={field} placeholder="Base URL（.../v1）" value={cmBaseURL} onChange={(e) => setCmBaseURL(e.target.value)} />
+              <input className={FIELD_CLS} placeholder="模型 ID" value={cmModel} onChange={(e) => setCmModel(e.target.value)} />
+              <input className={FIELD_CLS} placeholder="Base URL（.../v1）" value={cmBaseURL} onChange={(e) => setCmBaseURL(e.target.value)} />
             </div>
-            <input className={field} type="password" placeholder="API 密钥（可空）" value={cmApiKey} onChange={(e) => setCmApiKey(e.target.value)} />
+            <input className={FIELD_CLS} type="password" placeholder="API 密钥（可空）" value={cmApiKey} onChange={(e) => setCmApiKey(e.target.value)} />
             <button type="button" className={`${BTN} self-start px-5`} disabled={!cmName.trim() || !cmModel.trim()} onClick={async () => {
               const list = await saveCustomModel({ name: cmName.trim(), model: cmModel.trim(), baseURL: cmBaseURL.trim(), apiKey: cmApiKey })
               setCustomModels(list ?? []); setCmName(''); setCmModel(''); setCmBaseURL(''); setCmApiKey('')
@@ -1140,7 +785,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
           </p>
           <div className="flex gap-2">
             <input
-              className={`${field} flex-1`}
+              className={`${FIELD_CLS} flex-1`}
               placeholder="如 127.0.0.1:7890（可省略 http://，支持 socks5://）"
               value={proxy}
               onChange={(e) => { setProxy(e.target.value); setProxyMsg('') }}
@@ -1167,17 +812,17 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
             <div className="text-[13px] font-semibold text-ink">上下文长度控制</div>
             <span className="text-[11.5px] text-faint">下次新建会话生效</span>
           </div>
-          <label className={label}>最大输出 Tokens<input className={field} type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} placeholder="留空则用默认 16384" /></label>
-          <label className={label}>上下文预算（超出后自动总结压缩较早对话；磁盘记录保持完整）
-            <select className={field} value={String(maxContextTokens)} onChange={(e) => setMaxContextTokens(parseInt(e.target.value, 10))}>
+          <label className={LABEL_CLS}>最大输出 Tokens<input className={FIELD_CLS} type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} placeholder="留空则用默认 16384" /></label>
+          <label className={LABEL_CLS}>上下文预算（超出后自动总结压缩较早对话；磁盘记录保持完整）
+            <SelectField value={String(maxContextTokens)} onChange={(v) => setMaxContextTokens(parseInt(v, 10))}>
               <option value="0">关闭 · 不自动压缩</option>
               <option value="32000">32K · 省 token</option>
               <option value="128000">128K · 推荐</option>
               <option value="200000">200K · 大窗口</option>
-            </select>
+            </SelectField>
           </label>
-          <label className={label}>历史消息上限（硬截断，仅保留最近 N 条；留空关闭）
-            <input className={field} type="number" value={maxHistoryMessages} onChange={(e) => setMaxHistoryMessages(e.target.value)} placeholder="留空 = 不截断（推荐优先用上面的自动压缩）" />
+          <label className={LABEL_CLS}>历史消息上限（硬截断，仅保留最近 N 条；留空关闭）
+            <input className={FIELD_CLS} type="number" value={maxHistoryMessages} onChange={(e) => setMaxHistoryMessages(e.target.value)} placeholder="留空 = 不截断（推荐优先用上面的自动压缩）" />
           </label>
         </section>
 
@@ -1443,9 +1088,7 @@ export function MCPPage() {
   const [error, setError] = useState('')
   const [draft, setDraft] = useState<MCPDraft | null>(null)
   const [saving, setSaving] = useState(false)
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
-  const mono = field + ' font-mono text-[12.5px] leading-relaxed'
+  const mono = FIELD_CLS + ' font-mono text-[12.5px] leading-relaxed'
 
   async function refresh() {
     setLoading(true)
@@ -1530,9 +1173,9 @@ export function MCPPage() {
           <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-3.5 shadow-xs">
             <div className="text-[14px] font-semibold">{draft.originalName ? `编辑 ${draft.originalName}` : '新建 MCP 服务器'}</div>
             <div className="grid grid-cols-2 gap-3">
-              <label className={label}>名称<input className={field} value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="例如 filesystem" /></label>
-              <label className={label}>传输方式
-                <select className={field} value={draft.transport} onChange={(e) => set({ transport: e.target.value })}>
+              <label className={LABEL_CLS}>名称<input className={FIELD_CLS} value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="例如 filesystem" /></label>
+              <label className={LABEL_CLS}>传输方式
+                <select className={FIELD_CLS} value={draft.transport} onChange={(e) => set({ transport: e.target.value })}>
                   <option value="stdio">stdio(本地进程)</option>
                   <option value="http">http(远程端点)</option>
                 </select>
@@ -1540,16 +1183,16 @@ export function MCPPage() {
             </div>
             {draft.transport === 'http' ? (
               <>
-                <label className={label}>URL<input className={field} value={draft.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://example.com/mcp" /></label>
-                <label className={label}>请求头(每行 KEY=VALUE,值可用 ${'{ENV_VAR}'})<textarea className={mono} rows={2} value={draft.headersText} onChange={(e) => set({ headersText: e.target.value })} placeholder="Authorization=Bearer ${TOKEN}" /></label>
+                <label className={LABEL_CLS}>URL<input className={FIELD_CLS} value={draft.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://example.com/mcp" /></label>
+                <label className={LABEL_CLS}>请求头(每行 KEY=VALUE,值可用 ${'{ENV_VAR}'})<textarea className={mono} rows={2} value={draft.headersText} onChange={(e) => set({ headersText: e.target.value })} placeholder="Authorization=Bearer ${TOKEN}" /></label>
               </>
             ) : (
               <>
-                <label className={label}>命令<input className={field} value={draft.command} onChange={(e) => set({ command: e.target.value })} placeholder="npx" /></label>
-                <label className={label}>参数(每行一个)<textarea className={mono} rows={3} value={draft.argsText} onChange={(e) => set({ argsText: e.target.value })} placeholder={"-y\n@modelcontextprotocol/server-filesystem"} /></label>
+                <label className={LABEL_CLS}>命令<input className={FIELD_CLS} value={draft.command} onChange={(e) => set({ command: e.target.value })} placeholder="npx" /></label>
+                <label className={LABEL_CLS}>参数(每行一个)<textarea className={mono} rows={3} value={draft.argsText} onChange={(e) => set({ argsText: e.target.value })} placeholder={"-y\n@modelcontextprotocol/server-filesystem"} /></label>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className={label}>环境变量(每行 KEY=VALUE)<textarea className={mono} rows={2} value={draft.envText} onChange={(e) => set({ envText: e.target.value })} placeholder="TOKEN=${MY_TOKEN}" /></label>
-                  <label className={label}>工作目录(可选)<input className={field} value={draft.dir} onChange={(e) => set({ dir: e.target.value })} placeholder="留空则用工作区" /></label>
+                  <label className={LABEL_CLS}>环境变量(每行 KEY=VALUE)<textarea className={mono} rows={2} value={draft.envText} onChange={(e) => set({ envText: e.target.value })} placeholder="TOKEN=${MY_TOKEN}" /></label>
+                  <label className={LABEL_CLS}>工作目录(可选)<input className={FIELD_CLS} value={draft.dir} onChange={(e) => set({ dir: e.target.value })} placeholder="留空则用工作区" /></label>
                 </div>
               </>
             )}
@@ -1593,98 +1236,6 @@ export function MCPPage() {
               </div>
             ))}
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ToolsPage lists the active session's tools grouped by source (core builtins vs
-// each MCP server), flagging which run concurrently — a read-only companion to the
-// permissions page ("what can this session do, and what runs in parallel").
-export function ToolsPage() {
-  const [tools, setTools] = useState<ToolInfo[] | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [toggleError, setToggleError] = useState('')
-  const reload = async () => { try { setTools(await listTools()) } catch { /* ignore */ } }
-  useEffect(() => {
-    void (async () => {
-      try {
-        setTools(await listTools())
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
-  const onSetScope = (t: ToolInfo) => async (next: 'on' | 'user' | 'project') => {
-    setToggleError('')
-    try {
-      await applyScopeChange(setToolEnabled, t.name, t.disabledUser, t.disabledProject, next)
-      await reload()
-    } catch (e) {
-      setToggleError(errText(e))
-    }
-  }
-
-  const list = tools ?? []
-  const builtin = list.filter((t) => t.source !== 'mcp')
-  const byServer: Record<string, ToolInfo[]> = {}
-  for (const t of list.filter((t) => t.source === 'mcp')) {
-    ;(byServer[t.server ?? '?'] ??= []).push(t)
-  }
-  const shortName = (t: ToolInfo) => {
-    const p = `mcp__${t.server}__`
-    return t.source === 'mcp' && t.server && t.name.startsWith(p) ? t.name.slice(p.length) : t.name
-  }
-  const row = (t: ToolInfo) => {
-    // 内置工具用中文名+描述；MCP 工具保持原样(第三方，无中文对照)。
-    const zh = t.source !== 'mcp' ? TOOL_ZH[shortName(t)] : undefined
-    const off = t.disabledUser || t.disabledProject
-    return (
-      <div key={t.name} className={`flex items-start gap-3 py-2.5 border-t border-line first:border-t-0 ${off ? 'opacity-50' : ''}`}>
-        <span className="flex-none min-w-[132px]" title={t.name}>
-          <span className="text-[13px] text-ink font-medium">{zh?.label ?? shortName(t)}</span>
-          {zh && <span className="block font-mono text-[11px] text-faint mt-0.5 break-all">{shortName(t)}</span>}
-        </span>
-        <span className="text-[12.5px] text-muted flex-1 min-w-0 leading-relaxed">{zh?.desc ?? t.description}</span>
-        {t.concurrencySafe && <span className="flex-none text-[10.5px] font-medium text-green bg-green/12 rounded-full px-2 py-0.5 mt-0.5">并行</span>}
-        {t.toggleable && <ScopeSelect disabledUser={t.disabledUser} disabledProject={t.disabledProject} onSet={onSetScope(t)} />}
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto px-[22px] py-7">
-      <div className="max-w-[720px] mx-auto flex flex-col gap-5">
-        <div>
-          <h2 className="m-0 text-[20px] font-bold tracking-tight">工具</h2>
-          <p className="mt-1 text-muted text-[13px]">标 <span className="text-green font-medium">并行</span> 的工具在同一轮里会并发执行(只读类)。行尾 <span className="text-faint">用户 / 项目</span> 可分别关闭该工具，关闭的不再传给模型，<b>下次新建会话生效</b>。</p>
-          {toggleError && <p className="mt-1 text-red text-[12.5px]">{toggleError}</p>}
-        </div>
-        {loading ? (
-          <div className="text-muted text-[13px] py-6 text-center">加载中…</div>
-        ) : list.length === 0 ? (
-          <div className="bg-surface border border-line2 border-dashed rounded-[14px] px-5 py-10 text-center text-muted text-[14px]">启动一个会话后即可查看可用工具。</div>
-        ) : (
-          <>
-            <section className="bg-surface border border-line2 rounded-[14px] p-5 shadow-xs">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[13px] font-semibold text-ink">内置工具</span>
-                <span className="text-[12px] text-faint">{builtin.length}</span>
-              </div>
-              <div>{builtin.map(row)}</div>
-            </section>
-            {Object.keys(byServer).sort().map((server) => (
-              <section key={server} className="bg-surface border border-line2 rounded-[14px] p-5 shadow-xs">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10.5px] font-mono uppercase tracking-wide text-primaryink bg-primarysoft rounded px-1.5 py-0.5">MCP</span>
-                  <span className="text-[13px] font-semibold text-ink">{server}</span>
-                  <span className="text-[12px] text-faint">{byServer[server].length}</span>
-                </div>
-                <div>{byServer[server].map(row)}</div>
-              </section>
-            ))}
-          </>
         )}
       </div>
     </div>
@@ -1806,14 +1357,6 @@ export function MemoryPage() {
   )
 }
 
-// shortenPath keeps a workspace chip readable: the parent + leaf segment (e.g.
-// "runcode_desktop\frontend"), with the full path shown on hover via title.
-function shortenPath(p: string): string {
-  const parts = p.split(/[\\/]+/).filter(Boolean)
-  if (parts.length <= 2) return p
-  return '…' + (p.includes('\\') ? '\\' : '/') + parts.slice(-2).join(p.includes('\\') ? '\\' : '/')
-}
-
 export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: Partial<StartSessionRequest> }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
   const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
@@ -1831,8 +1374,6 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   // 手动配置/高级默认项都移到设置页；这里只在登录 + 选定租户后选择一个模型。
   const [modelChoice, setModelChoice] = useState(initial.provider === 'passport' && initial.model ? `passport:${initial.model}` : '')
   const recent = (initial.recentWorkspaces ?? []).filter((w) => w && w !== cwd)
-  const field = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)]'
-  const label = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
   const browse = async () => {
     try {
       const dir = await pickWorkspaceFolder()
@@ -2029,8 +1570,21 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         style={{ backgroundImage: `url(${loginBg})` }}
       >
         <img src={loginMascot} alt="" draggable={false} className="w-[150px] h-auto select-none pointer-events-none opacity-90" />
-        <div className="mt-8 w-9 h-9 rounded-full border-[3px] border-white/50 border-t-white animate-spin" />
-        <div className="mt-5 text-[14px] text-white/90 tracking-wide">正在验证登录状态…</div>
+        {/* 加载环：浅背景上白色不可见，改用品牌蓝——淡蓝底轨 + 蓝色渐变彗尾旋转。
+            彗尾用 conic-gradient 填满圆再用 radial mask 抠成 3px 圆环，兼容 WebView2。 */}
+        <div className="mt-8 relative w-11 h-11">
+          <div className="absolute inset-0 rounded-full border-[3px]" style={{ borderColor: 'rgba(32,80,216,0.14)' }} />
+          <div
+            className="absolute inset-0 rounded-full animate-spin"
+            style={{
+              background:
+                'conic-gradient(from 0deg, rgba(32,80,216,0) 0deg, rgba(63,123,255,0.4) 150deg, #3f7bff 300deg, #2050d8 360deg)',
+              WebkitMaskImage: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
+              maskImage: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
+            }}
+          />
+        </div>
+        <div className="mt-5 text-[14px] tracking-wide animate-pulse" style={{ color: '#2050d8' }}>正在验证登录状态…</div>
       </div>
     )
   }
@@ -2047,24 +1601,26 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         <h1 className="mt-7 mb-10 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
           智开AI，您的AI办公助手
         </h1>
-        <button
-          type="button"
-          disabled={loggingIn}
-          onClick={() => void doLogin('OneOuchnPassport')}
-          className="w-[300px] py-3.5 rounded-full text-white text-[16px] font-semibold tracking-[0.15em] shadow-[0_10px_24px_rgba(46,107,255,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-70 disabled:cursor-default"
-          style={{ background: 'linear-gradient(90deg, #2050d8 0%, #3f7bff 55%, #55a5ff 100%)' }}
-        >
-          {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
-        </button>
-        <button
-          type="button"
-          disabled={loggingIn}
-          onClick={() => void doLogin('')}
-          className="mt-3.5 w-[300px] py-3 rounded-full text-[15px] font-semibold tracking-[0.12em] border-2 bg-white/80 hover:bg-white transition-colors disabled:opacity-70 disabled:cursor-default"
-          style={{ color: '#2050d8', borderColor: '#2050d8' }}
-        >
-          基座通行证登录
-        </button>
+        <div className="flex items-stretch gap-4">
+          <button
+            type="button"
+            disabled={loggingIn}
+            onClick={() => void doLogin('OneOuchnPassport')}
+            className="w-[230px] py-3.5 rounded-full text-white text-[16px] font-semibold tracking-[0.12em] shadow-[0_10px_24px_rgba(46,107,255,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-70 disabled:cursor-default"
+            style={{ background: 'linear-gradient(90deg, #2050d8 0%, #3f7bff 55%, #55a5ff 100%)' }}
+          >
+            {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
+          </button>
+          <button
+            type="button"
+            disabled={loggingIn}
+            onClick={() => void doLogin('')}
+            className="w-[230px] py-3.5 rounded-full text-[15px] font-semibold tracking-[0.12em] border-2 bg-white/80 hover:bg-white transition-colors disabled:opacity-70 disabled:cursor-default"
+            style={{ color: '#2050d8', borderColor: '#2050d8' }}
+          >
+            基座通行证登录
+          </button>
+        </div>
         {loggingIn && (
           <button type="button" className="mt-4 text-[13px] text-muted hover:text-ink" onClick={() => void passportCancelLogin()}>
             取消登录
@@ -2103,15 +1659,15 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
         </div>
         {tenants.length > 1 && (
-          <div className={label}>租户（只能选择末级，选定后可选模型）
+          <div className={LABEL_CLS}>租户（只能选择末级，选定后可选模型）
             <div className="max-h-[190px] overflow-y-auto rounded-[9px] border border-line2 bg-surface2 p-1.5 flex flex-col gap-0.5">
               {renderTenantNodes(tenantTree, 0)}
             </div>
           </div>
         )}
-        <div className={label}>工作区目录
+        <div className={LABEL_CLS}>工作区目录
           <div className="flex gap-2">
-            <input className={`${field} flex-1 min-w-0`} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="C:\path\to\project" />
+            <input className={`${FIELD_CLS} flex-1 min-w-0`} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="C:\path\to\project" />
             <button type="button" className={`${BTN} shrink-0 px-3`} onClick={browse}>浏览…</button>
           </div>
           {recent.length > 0 && (
@@ -2134,9 +1690,9 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             </div>
           )}
         </div>
-        <label className={label}>模型（选定租户后可选；自定义模型在设置中配置）
+        <label className={LABEL_CLS}>模型（选定租户后可选；自定义模型在设置中配置）
           <select
-            className={field}
+            className={FIELD_CLS}
             value={modelChoice}
             disabled={!tenantId && customModels.length === 0}
             onChange={(e) => setModelChoice(e.target.value)}

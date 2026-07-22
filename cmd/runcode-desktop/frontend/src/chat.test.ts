@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeTool, groupBlocks, parsePlan, finalizeTools, type Block } from './chat'
+import { mergeTool, groupBlocks, parsePlan, finalizeTools, resumedMatchedFiles, type Block } from './chat'
 import type { EditRecord, ToolEvent } from './bridge'
 
 const ev = (o: Partial<ToolEvent>): ToolEvent => ({ type: 'started', ...o })
@@ -57,6 +57,32 @@ describe('groupBlocks', () => {
     expect(groups.map((g) => g.kind)).toEqual(['exec', 'ask', 'analyze', 'block', 'block'])
     const exec = groups[0]
     expect(exec.kind === 'exec' && exec.tools.length).toBe(2)
+  })
+})
+
+describe('groupBlocks taskgroup', () => {
+  const task = (id: string): Block => ({ kind: 'tool', id, tool: ev({ toolName: 'Task', toolUseID: id }) })
+
+  it('merges adjacent Task calls into one taskgroup, keeping order', () => {
+    const g = groupBlocks([task('1'), task('2'), task('3')])
+    expect(g).toHaveLength(1)
+    expect(g[0].kind === 'taskgroup' && g[0].tasks.map((t) => t.id)).toEqual(['1', '2', '3'])
+  })
+
+  it('keeps a lone Task as a plain block', () => {
+    const g = groupBlocks([task('1')])
+    expect(g.map((x) => x.kind)).toEqual(['block'])
+  })
+
+  it('does not group Task calls separated by a visible tool', () => {
+    const g = groupBlocks([task('1'), { kind: 'tool', id: '2', tool: ev({ toolName: 'Read' }) }, task('3')])
+    expect(g.map((x) => x.kind)).toEqual(['block', 'exec', 'block'])
+  })
+
+  it('groups across an invisible TodoWrite between Task calls', () => {
+    const g = groupBlocks([task('1'), { kind: 'tool', id: '2', tool: ev({ toolName: 'TodoWrite' }) }, task('3')])
+    expect(g).toHaveLength(1)
+    expect(g[0].kind).toBe('taskgroup')
   })
 })
 
@@ -154,5 +180,29 @@ describe('groupBlocks edits group', () => {
     ]
     const g = groupBlocks(blocks)
     expect(g.filter((x) => x.kind === 'edits')).toHaveLength(2)
+  })
+})
+
+describe('resumedMatchedFiles', () => {
+  it('rebuilds a Glob result text into matched file references, dropping the truncation marker', () => {
+    const files = resumedMatchedFiles('Glob', { pattern: '**/*' }, 'a.go\ndocs/b.md\n[output truncated]')
+    expect(files).toEqual([
+      { path: 'a.go', kind: 'matched' },
+      { path: 'docs/b.md', kind: 'matched' },
+    ])
+  })
+
+  it('rebuilds Grep files_with_matches with the JSON-string input resumed sessions carry', () => {
+    const files = resumedMatchedFiles('Grep', '{"pattern":"x","output_mode":"files_with_matches"}', 'src/a.ts\nsrc/b.ts')
+    expect(files?.map((f) => f.path)).toEqual(['src/a.ts', 'src/b.ts'])
+  })
+
+  it('leaves non-file-list results as text', () => {
+    // Grep content mode (the default) streams matching lines, not paths.
+    expect(resumedMatchedFiles('Grep', { pattern: 'x' }, 'a.go:1:match line')).toBeNull()
+    // Prose (e.g. a no-match message) must not be mistaken for a one-file list.
+    expect(resumedMatchedFiles('Glob', {}, 'no files matched the pattern')).toBeNull()
+    expect(resumedMatchedFiles('Bash', {}, 'a.go')).toBeNull()
+    expect(resumedMatchedFiles('Glob', {}, '')).toBeNull()
   })
 })

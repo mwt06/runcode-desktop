@@ -4,6 +4,7 @@ import { readArtifact, readArtifactBytes, openExternal, resolveArtifactPath, cop
 import { Icon } from './icons'
 import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, fileColor, filterFiles, buildFileTree, type FileNode } from './preview'
 import { type PreviewTab, tabKey } from './preview-tabs'
+import { basename } from './paths'
 
 // fencedCode wraps source in a Markdown code fence long enough to survive any run
 // of backticks in the source, so the shared Markdown renderer (rehype-highlight)
@@ -70,7 +71,7 @@ function ImperativeDocView({ relPath, reloadKey, load, busyHint }: {
     return () => { cancelled = true }
   }, [relPath, reloadKey, load])
   return (
-    <div className="min-h-full bg-inset/40">
+    <div className="min-h-full bg-inset/40 flex flex-col items-center">
       {state === 'loading' && <div className="p-6 text-[13px] text-muted">正在加载{busyHint}预览…</div>}
       {state === 'error' && (
         <div className="p-6 text-[13px] text-red">预览失败：{err}
@@ -78,7 +79,8 @@ function ImperativeDocView({ relPath, reloadKey, load, busyHint }: {
         </div>
       )}
       {/* Host stays mounted (not hidden) so a renderer that measures its width — pptx —
-          sees the real laid-out width rather than 0. */}
+          sees the real laid-out width rather than 0. flex + items-center 让固定宽度的
+          docx 页面在面板里水平居中（窄于面板时居中，宽时正常横向滚动）。 */}
       <div ref={hostRef} className="docview-host" />
     </div>
   )
@@ -210,8 +212,12 @@ function PptxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }
       }}
     >
       {state === 'loading' && <div className="p-6 text-[13px] text-muted">正在加载幻灯片预览…</div>}
-      <div className="flex-1 min-h-0 overflow-auto p-3 flex items-start justify-center">
-        <div ref={hostRef} className="pptx-host w-full" />
+      <div className="flex-1 min-h-0 overflow-auto p-3">
+        {/* min-h-full + items-center 让幻灯片在面板里垂直居中；内容比面板高时容器随之
+            撑高、从顶部正常滚动，不会裁掉顶部。水平居中由 pptx-host 的 margin:auto 负责。 */}
+        <div className="min-h-full flex items-center justify-center">
+          <div ref={hostRef} className="pptx-host w-full" />
+        </div>
       </div>
       {state === 'ready' && count > 1 && (
         <>
@@ -253,7 +259,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
   const [bust, setBust] = useState(1)
   const [text, setText] = useState<string | null>(null)
   const [err, setErr] = useState('')
-  const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath
+  const name = basename(relPath)
   const textual = kind === 'markdown' || kind === 'code' || kind === 'text'
 
   useEffect(() => {
@@ -317,7 +323,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
 function DiffPanel({ snapshotId, relPath, onClose }: { snapshotId: string; relPath: string; onClose: () => void }) {
   const [diff, setDiff] = useState<EditDiff | null>(null)
   const [err, setErr] = useState('')
-  const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath
+  const name = basename(relPath)
   useEffect(() => {
     let ignore = false
     setDiff(null)
@@ -353,7 +359,7 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: Preview
     <div className="flex-none flex items-center gap-0.5 h-[38px] px-1.5 overflow-x-auto bg-surface">
       {tabs.map((t) => {
         const key = tabKey(t)
-        const name = t.relPath.replace(/\\/g, '/').split('/').pop() || t.relPath
+        const name = basename(t.relPath)
         const on = key === active
         const iconName = t.kind === 'diff' ? 'diff' : kindIcon(classifyPreview(t.relPath).kind)
         const iconColor = t.kind === 'diff' ? undefined : fileColor(t.relPath)

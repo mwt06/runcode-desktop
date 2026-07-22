@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Icon } from './icons'
 import { classifyPreview, artifactKindLabel, kindIcon } from './preview'
 import { openExternal, revealInFolder, resolveArtifactPath, copyText } from './bridge'
+import { basename } from './paths'
+import { DiffStat, Popover } from './components'
 
 async function copyArtifactPath(relPath: string) {
   try {
@@ -25,17 +27,12 @@ function OpenWithMenu({ relPath, previewable, onPreview }: { relPath: string; pr
       >
         打开方式 <Icon name="chevron-down" size={12} />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
-          <div className="absolute right-0 mt-1 z-20 min-w-[168px] bg-surface border border-line2 rounded-lg shadow-card py-1 text-[12.5px] text-ink" onClick={(e) => e.stopPropagation()}>
-            <button className={`${item} ${previewable ? '' : 'text-faint cursor-default'}`} disabled={!previewable} onClick={(e) => { e.stopPropagation(); onPreview(); setOpen(false) }}>预览</button>
-            <button className={item} onClick={(e) => { e.stopPropagation(); openExternal(relPath).catch(() => {}); setOpen(false) }}>用系统默认程序打开</button>
-            <button className={item} onClick={(e) => { e.stopPropagation(); revealInFolder(relPath).catch(() => {}); setOpen(false) }}>在文件夹中显示</button>
-            <button className={item} onClick={(e) => { e.stopPropagation(); copyArtifactPath(relPath); setOpen(false) }}>复制路径</button>
-          </div>
-        </>
-      )}
+      <Popover open={open} onClose={() => setOpen(false)} placement="down-right" className="min-w-[168px] text-[12.5px] text-ink">
+        <button className={`${item} ${previewable ? '' : 'text-faint cursor-default'}`} disabled={!previewable} onClick={(e) => { e.stopPropagation(); onPreview(); setOpen(false) }}>预览</button>
+        <button className={item} onClick={(e) => { e.stopPropagation(); openExternal(relPath).catch(() => {}); setOpen(false) }}>用系统默认程序打开</button>
+        <button className={item} onClick={(e) => { e.stopPropagation(); revealInFolder(relPath).catch(() => {}); setOpen(false) }}>在文件夹中显示</button>
+        <button className={item} onClick={(e) => { e.stopPropagation(); copyArtifactPath(relPath); setOpen(false) }}>复制路径</button>
+      </Popover>
     </div>
   )
 }
@@ -46,7 +43,7 @@ function OpenWithMenu({ relPath, previewable, onPreview }: { relPath: string; pr
 export function ArtifactCard({ relPath, add, del, onOpen, autoOpened }: { relPath: string; add: number; del: number; onOpen: (relPath: string) => void; autoOpened?: boolean }) {
   const { kind } = classifyPreview(relPath)
   const previewable = kind !== 'unsupported'
-  const name = relPath.replace(/\\/g, '/').split('/').pop() || relPath
+  const name = basename(relPath)
   return (
     <div
       onClick={() => previewable && onOpen(relPath)}
@@ -60,7 +57,7 @@ export function ArtifactCard({ relPath, add, del, onOpen, autoOpened }: { relPat
         </div>
         <div className="text-[11px] text-faint font-mono">
           {artifactKindLabel(kind)}
-          {add + del > 0 && <span className="ml-1.5"><span className="text-green">+{add}</span> <span className={del > 0 ? 'text-red' : 'text-faint'}>−{del}</span></span>}
+          {add + del > 0 && <DiffStat add={add} del={del} className="ml-1.5" />}
         </div>
       </div>
       <span className="flex-none text-[11px] text-faint font-mono opacity-0 group-hover:opacity-100 transition-opacity">打开 →</span>

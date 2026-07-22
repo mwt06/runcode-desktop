@@ -33,8 +33,9 @@ type Dialoger interface {
 	// cancelled).
 	PickFile(title string) (string, error)
 	// PickFolder opens a directory-open dialog and returns the chosen path ("" if the
-	// user cancelled).
-	PickFolder(title string) (string, error)
+	// user cancelled). defaultDir, when non-empty and existing, is the starting
+	// directory.
+	PickFolder(title, defaultDir string) (string, error)
 	// PickImage opens an image-file dialog and returns the chosen path ("" if the
 	// user cancelled).
 	PickImage(title string) (string, error)

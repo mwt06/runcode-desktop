@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,9 +134,12 @@ func (a *App) DeleteSkill(name, scope string) (SkillList, error) {
 	return a.ListSkills(), nil
 }
 
-// ImportSkill opens a file picker for an existing SKILL.md and copies it into the
-// given scope's skills directory under its declared name. Returns the unchanged
-// list when the user cancels.
+// ImportSkill opens a folder picker (defaulting to ~/.claude/skills) and copies
+// skills into the given scope's skills directory, each under its declared name
+// with all its related files (references/, scripts/, assets/, …). The chosen
+// folder may be a single skill (it holds a SKILL.md) or a container of skills
+// like .claude/skills (each immediate subdirectory holding a SKILL.md is
+// imported). Returns the unchanged list when the user cancels.
 func (a *App) ImportSkill(scope string) (SkillList, error) {
 	root, err := a.skillRoot(scope)
 	if err != nil {
@@ -144,30 +148,120 @@ func (a *App) ImportSkill(scope string) (SkillList, error) {
 	if a.dialog == nil {
 		return SkillList{}, wireError(errors.New("当前环境不支持文件选择"))
 	}
-	path, err := a.dialog.PickFile("选择要导入的 SKILL.md")
+	src, err := a.dialog.PickFolder("选择技能文件夹，或包含多个技能的目录（如 .claude/skills）", defaultSkillsDir())
 	if err != nil {
 		return SkillList{}, wireError(err)
 	}
-	if strings.TrimSpace(path) == "" {
+	if strings.TrimSpace(src) == "" {
 		return a.ListSkills(), nil // cancelled
 	}
-	data, err := os.ReadFile(path)
+	imported, err := importSkillsFrom(src, root)
 	if err != nil {
-		return SkillList{}, wireError(fmt.Errorf("读取所选文件失败: %w", err))
+		return SkillList{}, wireError(err)
 	}
-	name := frontmatterName(string(data))
-	if !validSkillName(name) {
-		return SkillList{}, wireError(errors.New("所选文件不是有效的 SKILL.md(frontmatter 缺少合法的 name)"))
-	}
-	dir := filepath.Join(root, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return SkillList{}, wireError(fmt.Errorf("创建技能目录失败: %w", err))
-	}
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), data, 0o600); err != nil {
-		return SkillList{}, wireError(fmt.Errorf("写入 SKILL.md 失败: %w", err))
+	if imported == 0 {
+		return SkillList{}, wireError(errors.New("所选文件夹及其子目录都没有有效的技能（含合法 SKILL.md）"))
 	}
 	a.reloadSessionSkills()
 	return a.ListSkills(), nil
+}
+
+// defaultSkillsDir is the conventional Claude skills directory (~/.claude/skills),
+// used as the import picker's starting location. Empty if the home dir is unknown.
+func defaultSkillsDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".claude", "skills")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return ""
+	}
+	return dir
+}
+
+// importSkillsFrom copies skills out of src into the scope root. If src itself is
+// a skill (has SKILL.md) exactly that one is imported; otherwise every immediate
+// subdirectory that holds a SKILL.md is imported (so a container like
+// .claude/skills imports all of its skills). Returns how many were imported.
+func importSkillsFrom(src, root string) (int, error) {
+	if hasSkillManifest(src) {
+		if err := importOneSkill(src, root); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return 0, fmt.Errorf("读取所选目录失败: %w", err)
+	}
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		child := filepath.Join(src, e.Name())
+		if !hasSkillManifest(child) {
+			continue
+		}
+		if err := importOneSkill(child, root); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func hasSkillManifest(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "SKILL.md"))
+	return err == nil && !info.IsDir()
+}
+
+// importOneSkill validates a single skill folder's SKILL.md and copies the whole
+// folder into root/<declared-name>.
+func importOneSkill(src, root string) error {
+	data, err := os.ReadFile(filepath.Join(src, "SKILL.md"))
+	if err != nil {
+		return fmt.Errorf("读取 %s 的 SKILL.md 失败: %w", filepath.Base(src), err)
+	}
+	name := frontmatterName(string(data))
+	if !validSkillName(name) {
+		return fmt.Errorf("%s 的 SKILL.md 缺少合法的 name", filepath.Base(src))
+	}
+	if err := copySkillDir(src, filepath.Join(root, name)); err != nil {
+		return fmt.Errorf("导入技能文件失败: %w", err)
+	}
+	return nil
+}
+
+// copySkillDir recursively copies a skill folder src into dst — regular files and
+// subdirectories only; symlinks and special files are skipped so an import cannot
+// reach outside the chosen folder. Existing files at dst are overwritten.
+func copySkillDir(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !d.Type().IsRegular() {
+			return nil // skip symlinks / special files
+		}
+		content, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, content, 0o600)
+	})
 }
 
 // frontmatterName extracts the name from a SKILL.md's "--- ... ---" frontmatter.

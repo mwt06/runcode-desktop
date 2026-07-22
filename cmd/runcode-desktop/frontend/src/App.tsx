@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo, type ReactNode, type CSSProperties, type PointerEvent } from 'react'
-import { Icon, Logo } from './icons'
+import { Icon, Logo, toolIcon } from './icons'
 import { Markdown } from './markdown'
 import {
   Events,
@@ -20,6 +20,7 @@ import {
   compact,
   listSessions,
   resumeSession,
+  deleteSession,
   newSession,
   pickWorkspaceFolder,
   switchWorkspace,
@@ -37,9 +38,7 @@ import {
   deleteAgent,
   importAgent,
   type SkillInfo,
-  type SkillList,
   type AgentInfo,
-  type AgentList,
   type SessionInfo,
   type SessionSummary,
   type StartSessionRequest,
@@ -56,17 +55,22 @@ import {
   mergeTool,
   groupBlocks,
   parsePlan,
+  resumedMatchedFiles,
   type Block,
   type AgentNested,
   type Group,
+  type ToolBlock,
 } from './chat'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
+import { ConfirmDialog, CollapsibleGroup, DiffStat, ModelPickerPopover, Popover, SourceBadge, type ModelOption } from './components'
 import { PluginsPage, SettingsPage, PermissionsPage, MemoryPage, StartForm } from './pages'
 import { PreviewPane, FileBrowser } from './preview-panel'
 import { ArtifactCard } from './artifact-card'
 import { EditedCards } from './edited-card'
-import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles } from './preview'
+import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles, buildFileTree, classifyPreview, kindIcon, fileColor, type FileNode } from './preview'
 import { openTab, closeTab, type PreviewTab } from './preview-tabs'
+import { basename, shortenPath } from './paths'
+import { fmtTokens, fmtDuration } from './format'
 
 let seq = 0
 const nextID = () => `b${++seq}`
@@ -124,21 +128,11 @@ function computeMention(value: string, cursor: number): { query: string; start: 
 const VERB: Record<string, string> = {
   Read: '读取文件', Write: '写入文件', Edit: '编辑', Delete: '删除', Glob: '查找文件', Grep: '搜索项目代码',
   Bash: '运行命令', BashOutput: '后台输出', KillShell: '终止命令', WebFetch: '抓取网页',
+  WebSearch: '联网搜索', Wait: '等待', GetCurrentTime: '获取当前时间',
   TodoWrite: '规划任务', Task: '委派子代理', Skill: '加载技能', Remember: '记录记忆', Analyze: '结构化分析',
   open_preview: '预览',
 }
-const basename = (p?: string) => (p ? p.replace(/\\/g, '/').split('/').pop() || p : '')
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
-// A tool-type icon for the compact list rows, so a long tool sequence scans at a glance.
-const TOOL_ICON: Record<string, string> = {
-  Read: 'file', Write: 'pencil', Edit: 'pencil', Delete: 'trash',
-  Bash: 'terminal', BashOutput: 'terminal', KillShell: 'terminal',
-  Grep: 'search', Glob: 'search', WebFetch: 'globe',
-  Task: 'bot', Skill: 'book', Remember: 'sparkles', Analyze: 'sparkles',
-  TodoWrite: 'grid', AskUser: 'chat',
-  open_preview: 'file',
-}
-const toolIcon = (name?: string) => TOOL_ICON[name || ''] || 'grid'
 // toolInputObj parses a tool call's arguments into an object (live events carry the
 // parsed value; resumed sessions carry a JSON string).
 function toolInputObj(t: ToolEvent): Record<string, unknown> {
@@ -164,6 +158,12 @@ function toolVerbTarget(t: ToolEvent): { verb: string; target: string } {
       break
     case 'WebFetch':
       try { target = new URL(String(o.url ?? '')).host } catch { target = clip(String(o.url ?? ''), 44) }
+      break
+    case 'WebSearch':
+      target = clip(String(o.query ?? ''), 44)
+      break
+    case 'Wait':
+      target = o.seconds != null ? `${o.seconds}s` : ''
       break
     default:
       target = basename(t.files?.[0]?.path) || basename(String(o.path ?? ''))
@@ -283,18 +283,6 @@ function askPayload(input: unknown): { question: string; options: string[] } {
   return { question: obj.question ?? '', options: Array.isArray(obj.options) ? obj.options : [] }
 }
 
-// ModelChoice unifies a platform (passport) model and a custom direct-connection
-// model for the in-chat picker. key is what SwitchModel takes — a model id for
-// platform, the custom model's display name for custom; modelId is what lands in
-// info.model, used only to mark the current selection.
-type ModelChoice = {
-  kind: 'platform' | 'custom'
-  key: string
-  label: string
-  sub?: string
-  modelId: string
-}
-
 export default function App() {
   const [started, setStarted] = useState(false)
   const [view, setView] = useState<'chat' | 'settings' | 'plugins' | 'permissions' | 'memory'>('chat')
@@ -302,30 +290,29 @@ export default function App() {
   // 对话内模型选择器：点底部模型名弹出，模糊检索，最多显示 10 个。平台(通行证)模型
   // 与自定义直连模型合并展示，都能被搜索和切换；切到自定义模型会换连接(见后端 SwitchModel)。
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
-  const [modelOptions, setModelOptions] = useState<ModelChoice[]>([])
-  const [modelQuery, setModelQuery] = useState('')
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const openModelPicker = async () => {
-    setModelQuery('')
     setModelPickerOpen(true)
     try {
       const [platform, custom] = await Promise.all([
         sessionModels().catch(() => null),
         listCustomModels().catch(() => null),
       ])
+      // id 即 SwitchModel 的入参——平台模型传模型 id，自定义模型传其显示名；
+      // modelId 标记当前选中项(自定义模型落在 info.model 里的是底层模型 id)。
       setModelOptions([
-        ...(platform ?? []).map((m): ModelChoice => ({ kind: 'platform', key: m.id, label: m.id, sub: m.ownedBy, modelId: m.id })),
-        ...(custom ?? []).map((c): ModelChoice => ({ kind: 'custom', key: c.name, label: c.name, sub: c.model, modelId: c.model })),
+        ...(platform ?? []).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy })),
+        ...(custom ?? []).map((c): ModelOption => ({ kind: 'custom', id: c.name, label: c.name, sub: c.model, modelId: c.model })),
       ])
     } catch { setModelOptions([]) }
   }
-  const pickModel = async (choice: ModelChoice) => {
-    setModelPickerOpen(false)
+  const pickModel = async (choice: ModelOption) => {
     try {
       // Adopt the full returned status: switching to/from a custom model rebuilds the
       // session, which rebinds the preview server to a new port — so previewBaseURL
       // (and sessionId) must be refreshed, not just the model, or the preview iframe
       // keeps loading the dead port and shows “拒绝连接”.
-      const st = await switchModel(choice.kind, choice.key)
+      const st = await switchModel(choice.kind, choice.id)
       setInfo((prev) => (st ? { ...prev, ...st } : prev))
     } catch { /* 切换失败保持原样 */ }
   }
@@ -362,6 +349,14 @@ export default function App() {
   // "nothing to compact"), kept out of the persistent conversation flow.
   const [toast, setToast] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 侧栏折叠态：上提到这里，让折叠开关能放到主栏顶部状态条（「空闲」前），
+  // 而侧栏本身按此 prop 变宽窄。持久化到 localStorage。
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar.collapsed') === '1')
+  const toggleSidebar = () =>
+    setSidebarCollapsed((v) => {
+      localStorage.setItem('sidebar.collapsed', v ? '0' : '1')
+      return !v
+    })
   const [elapsed, setElapsed] = useState(0)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
@@ -823,7 +818,13 @@ export default function App() {
       onEvent(Events.TurnError, ({ error }) => {
         setBusy(false)
         setPermQueue([])
-        setBlocks((prev) => [...finalizeTools(finalizeStreaming(prev)), { kind: 'error', id: nextID(), text: error }])
+        // 用户中断/取消回合会以 "context canceled" 抵达——那是停止，不是失败，
+        // 别渲染成红色报错块（否则点停止看起来像“出错了”而非“已停止”）。
+        const cancelled = /cancel(?:l)?ed/i.test(error)
+        setBlocks((prev) => {
+          const base = finalizeTools(finalizeStreaming(prev))
+          return cancelled ? base : [...base, { kind: 'error', id: nextID(), text: error }]
+        })
       }),
       // Enqueue (don't replace): concurrent tools may each prompt. Dedup by id in
       // case an event is delivered twice.
@@ -857,8 +858,18 @@ export default function App() {
     return () => offs.forEach((off) => off && off())
   }, [])
 
+  // Pin the conversation to the bottom while output streams, but only if the user
+  // is already at (or near) the bottom — once they scroll up to read, streaming
+  // updates (especially sub-agents' frequent nested events) must not yank the view
+  // back down. Sending a new message re-pins.
+  const chatStick = useRef(true)
+  const onChatScroll = () => {
+    const el = scrollRef.current
+    if (el) chatStick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  }
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    const el = scrollRef.current
+    if (el && chatStick.current) el.scrollTo({ top: el.scrollHeight })
   }, [blocks, pending])
 
   useEffect(() => {
@@ -884,7 +895,8 @@ export default function App() {
   }
   async function send(text: string, attach: string[] = []) {
     if ((!text && attach.length === 0) || busy) return
-    const names = attach.map((p) => p.replace(/\\/g, '/').split('/').pop() || p)
+    const names = attach.map((p) => basename(p))
+    chatStick.current = true
     setBlocks((prev) => [...prev, { kind: 'user', id: nextID(), text, ts: now(), attachments: names.length ? names : undefined }])
     setBusy(true)
     try {
@@ -1049,10 +1061,8 @@ export default function App() {
     }
   }
   // Pick a different folder and open a fresh session there (a new workspace).
-  async function switchWorkspaceFolder() {
+  async function switchToWorkspace(dir: string) {
     try {
-      const dir = await pickWorkspaceFolder()
-      if (!dir) return // cancelled
       const i = await switchWorkspace(dir)
       setInfo(i)
       setBlocks([])
@@ -1063,9 +1073,25 @@ export default function App() {
       setElapsed(0)
       setView('chat')
       refreshRecents()
+      loadConfig().then((c) => c && setInitialReq(c)).catch(() => {}) // refresh recent-workspace MRU
     } catch (e) {
       setView('chat')
       setBlocks((prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
+    }
+  }
+  async function switchWorkspaceFolder() {
+    try {
+      const dir = await pickWorkspaceFolder()
+      if (dir) await switchToWorkspace(dir)
+    } catch { /* cancelled */ }
+  }
+  async function deleteRecent(id: string) {
+    try {
+      await deleteSession(id)
+      refreshRecents()
+      showToast('会话已删除')
+    } catch (e) {
+      showToast(`删除失败：${errText(e)}`)
     }
   }
 
@@ -1085,6 +1111,9 @@ export default function App() {
           const t: Partial<ResumedTool> = b.tool ?? {}
           const out = (t.output ?? '').trim()
           const lines = out ? out.split('\n').map((text) => ({ stream: t.isError ? 'stderr' : 'stdout', text })) : []
+          // 查找/搜索(文件列表模式)的结果文本重建成 matched 文件引用——实时的
+          // 文件事件不落盘,重建后恢复的卡片与实时共用同一个可折叠结构树渲染。
+          const matched = t.isError ? null : resumedMatchedFiles(t.toolName, t.input, out)
           return {
             kind: 'tool',
             id: nextID(),
@@ -1094,8 +1123,8 @@ export default function App() {
               toolUseID: t.toolUseId,
               input: t.input,
               message: t.isError ? 'completed with error' : 'completed',
-              files: t.path ? [{ path: t.path }] : undefined,
-              output: lines,
+              files: matched ?? (t.path ? [{ path: t.path }] : undefined),
+              output: matched ? [] : lines,
             },
           }
         }),
@@ -1156,10 +1185,14 @@ export default function App() {
       <TitleBar />
       <div className="flex flex-1 min-h-0">
         <Sidebar
+          collapsed={sidebarCollapsed}
           recents={recents}
           currentId={info?.sessionId}
           cwd={info?.cwd}
+          recentWorkspaces={initialReq?.recentWorkspaces ?? []}
+          onPickWorkspace={switchToWorkspace}
           onSwitchWorkspace={switchWorkspaceFolder}
+          onDelete={deleteRecent}
           view={view}
           onNav={setView}
           onNew={() => {
@@ -1175,11 +1208,21 @@ export default function App() {
         <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface">
         {/* Secondary bar below the full-width TitleBar: status + context meter + preview toggle.
             Also a drag region, since it spans the top of the main pane. */}
-        <header className="h-[52px] flex-none flex items-center justify-between pl-[22px] pr-1.5 bg-surface border-b border-line2 select-none" style={DRAG}>
-          <span className={`inline-flex items-center gap-1.5 text-[12.5px] ${busy ? 'text-green' : 'text-muted'}`}>
-            <span className={`w-[7px] h-[7px] rounded-full ${busy ? 'bg-green blip shadow-[0_0_0_3px_rgba(31,157,99,0.16)]' : 'bg-faint'}`} />
-            {busy ? '运行中' : '空闲'}
-          </span>
+        <header className="h-[52px] flex-none flex items-center justify-between pl-2 pr-1.5 bg-surface border-b border-line2 select-none" style={DRAG}>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleSidebar}
+              title={sidebarCollapsed ? '展开侧栏' : '折叠侧栏'}
+              style={NO_DRAG}
+              className="flex-none flex items-center justify-center w-8 h-8 rounded-[9px] text-muted hover:text-ink hover:bg-surface2 transition"
+            >
+              <Icon name="panel-left" size={17} />
+            </button>
+            <span className={`inline-flex items-center gap-1.5 text-[12.5px] ${busy ? 'text-green' : 'text-muted'}`}>
+              <span className={`w-[7px] h-[7px] rounded-full ${busy ? 'bg-green blip shadow-[0_0_0_3px_rgba(31,157,99,0.16)]' : 'bg-faint'}`} />
+              {busy ? '运行中' : '空闲'}
+            </span>
+          </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-[18px] text-muted text-[12.5px]" style={NO_DRAG}>
               <ContextMeter used={ctxTokens} budget={info?.maxContextTokens ?? 0} estimated={ctxEstimated} onCompact={doCompact} compacting={compacting} busy={busy} />
@@ -1235,12 +1278,12 @@ export default function App() {
             />
           </div>
         )}
-        <div className="flex-1 overflow-y-auto bg-surface px-6 pt-3 pb-8" ref={scrollRef}>
+        <div className="flex-1 overflow-y-auto bg-surface px-6 pt-3 pb-8" ref={scrollRef} onScroll={onChatScroll}>
           <div className="mx-auto max-w-[1200px] flex flex-col gap-6">
             {blocks.length === 0 && (
               <div className="mt-[16vh] text-center text-faint">
                 <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
-                <p>让 XRUN 在 <code className="font-mono bg-surface border border-line2 px-2 py-0.5 rounded-md text-muted">{shorten(info?.cwd)}</code> 中探索、修改或运行点什么。</p>
+                <p>让 XRUN 在 <code className="font-mono bg-surface border border-line2 px-2 py-0.5 rounded-md text-muted">{shortenPath(info?.cwd)}</code> 中探索、修改或运行点什么。</p>
               </div>
             )}
             {groups.map((g) =>
@@ -1252,6 +1295,8 @@ export default function App() {
                 <BotRow key={g.id}><EditedCards edits={g.edits} reverted={revertedEdits} onReview={openDiffTab} onUndo={handleUndo} /></BotRow>
               ) : g.kind === 'analyze' ? (
                 <BotRow key={g.id}><AnalyzeCard tool={g.tool} /></BotRow>
+              ) : g.kind === 'taskgroup' ? (
+                <BotRow key={g.id}><AgentTaskGroup tasks={g.tasks} /></BotRow>
               ) : g.block.kind === 'planchoice' ? (
                 <BotRow key={g.block.id}><PlanChoiceCard busy={busy} onExecute={executePlanAs} onDismiss={dismissPlanChoice} /></BotRow>
               ) : (
@@ -1308,7 +1353,7 @@ export default function App() {
                   <div className="min-w-0">
                     <div className="text-[13px] text-ink flex items-center gap-1.5">
                       {sk.name}
-                      <span className="text-[10px] text-faint border border-line2 rounded px-1 py-px">{sk.source === 'user' ? '用户' : '项目'}</span>
+                      <SourceBadge source={sk.source} />
                     </div>
                     <div className="text-[11.5px] text-faint truncate">{sk.description}</div>
                   </div>
@@ -1334,7 +1379,7 @@ export default function App() {
                   <div className="min-w-0">
                     <div className="text-[13px] text-ink flex items-center gap-1.5">
                       {ag.name}
-                      <span className="text-[10px] text-faint border border-line2 rounded px-1 py-px">{ag.source === 'user' ? '用户' : ag.source === 'project' ? '项目' : '内置'}</span>
+                      <SourceBadge source={ag.source} />
                     </div>
                     <div className="text-[11.5px] text-faint truncate">{ag.description}</div>
                   </div>
@@ -1363,7 +1408,7 @@ export default function App() {
                     onMouseEnter={() => setMention((m) => (m ? { ...m, sel: i } : m))}
                     className={`flex items-center gap-2.5 px-3.5 py-1.5 cursor-pointer ${mention.sel === i ? 'bg-primarysoft' : 'hover:bg-surface2'}`}
                   >
-                    <span className="w-6 h-6 rounded-[6px] flex-none bg-inset text-faint font-bold text-[8px] font-mono inline-flex items-center justify-center">{ext(p)}</span>
+                    <span className="w-6 h-6 rounded-[6px] flex-none bg-inset inline-flex items-center justify-center" style={{ color: fileColor(p) }}><Icon name={kindIcon(classifyPreview(p).kind)} size={14} /></span>
                     <span className="text-[13px] text-ink flex-none">{name}</span>
                     {dir && <span className="text-[11.5px] text-faint font-mono truncate min-w-0">{dir}</span>}
                   </div>
@@ -1374,7 +1419,7 @@ export default function App() {
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-1.5">
               {attachments.map((p, i) => {
-                const name = p.replace(/\\/g, '/').split('/').pop() || p
+                const name = basename(p)
                 return (
                   <span key={p + i} className="inline-flex items-center gap-1.5 bg-surface2 border border-line2 rounded-[9px] pl-2.5 pr-1 py-1 text-[12px] text-ink max-w-[220px]">
                     <Icon name="file" size={13} />
@@ -1444,17 +1489,12 @@ export default function App() {
                 >
                   <Icon name="plus" size={16} />
                 </button>
-                {addMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setAddMenu(false)} />
-                    <div className="absolute bottom-full left-0 mb-1.5 z-20 w-[180px] bg-surface border border-line2 rounded-[11px] shadow-card overflow-hidden py-1">
-                      <div onClick={() => { setAddMenu(false); openSkillPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="book" size={15} /> 技能</div>
-                      <div onClick={() => { setAddMenu(false); openAgentPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="bot" size={15} /> 智能体</div>
-                      <div onClick={() => { setAddMenu(false); openFilePicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="hash" size={15} /> 文件</div>
-                      <div onClick={() => { setAddMenu(false); pickAttachment() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="paperclip" size={15} /> 图片附件</div>
-                    </div>
-                  </>
-                )}
+                <Popover open={addMenu} onClose={() => setAddMenu(false)} placement="up-left" className="w-[180px]">
+                  <div onClick={() => { setAddMenu(false); openSkillPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="book" size={15} /> 技能</div>
+                  <div onClick={() => { setAddMenu(false); openAgentPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="bot" size={15} /> 智能体</div>
+                  <div onClick={() => { setAddMenu(false); openFilePicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="hash" size={15} /> 文件</div>
+                  <div onClick={() => { setAddMenu(false); pickAttachment() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="paperclip" size={15} /> 图片附件</div>
+                </Popover>
               </div>
               {/* The mode label is the last to go: unlike the toggles below, the shield
                   icon alone carries no hint of which mode is active. */}
@@ -1481,22 +1521,17 @@ export default function App() {
                   {!compactBar && ((info?.reasoningScenario ?? 'off') === 'off' ? '思考模型' : (REASONING_LABEL[info!.reasoningScenario!] ?? info!.reasoningScenario))}
                   <Icon name="chevron-down" size={12} />
                 </button>
-                {reasonMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setReasonMenu(false)} />
-                    <div className="absolute bottom-full left-0 mb-1.5 z-20 w-[224px] bg-surface border border-line2 rounded-[11px] shadow-card overflow-hidden py-1">
-                      {REASONING.map((r) => (
-                        <div
-                          key={r.value}
-                          onClick={() => chooseReasoning(r.value)}
-                          className={`px-3 py-[7px] text-[13px] cursor-pointer ${(info?.reasoningScenario ?? 'off') === r.value ? 'bg-primarysoft text-primaryink font-medium' : 'text-ink hover:bg-surface2'}`}
-                        >
-                          {r.label}
-                        </div>
-                      ))}
+                <Popover open={reasonMenu} onClose={() => setReasonMenu(false)} placement="up-left" className="w-[224px]">
+                  {REASONING.map((r) => (
+                    <div
+                      key={r.value}
+                      onClick={() => chooseReasoning(r.value)}
+                      className={`px-3 py-[7px] text-[13px] cursor-pointer ${(info?.reasoningScenario ?? 'off') === r.value ? 'bg-primarysoft text-primaryink font-medium' : 'text-ink hover:bg-surface2'}`}
+                    >
+                      {r.label}
                     </div>
-                  </>
-                )}
+                  ))}
+                </Popover>
               </div>
               )}
               <div className="relative flex-none">
@@ -1509,22 +1544,17 @@ export default function App() {
                   {!compactBar && ((info?.thinkingEffort ?? 'off') === 'off' ? '思考强度' : `思考 · ${THINKING_LABEL[info!.thinkingEffort!] ?? info!.thinkingEffort}`)}
                   <Icon name="chevron-down" size={12} />
                 </button>
-                {thinkMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setThinkMenu(false)} />
-                    <div className="absolute bottom-full left-0 mb-1.5 z-20 w-[200px] bg-surface border border-line2 rounded-[11px] shadow-card overflow-hidden py-1">
-                      {THINKING.map((t) => (
-                        <div
-                          key={t.value}
-                          onClick={() => chooseThinking(t.value)}
-                          className={`px-3 py-[7px] text-[13px] cursor-pointer ${(info?.thinkingEffort ?? 'off') === t.value ? 'bg-primarysoft text-primaryink font-medium' : 'text-ink hover:bg-surface2'}`}
-                        >
-                          {t.label}
-                        </div>
-                      ))}
+                <Popover open={thinkMenu} onClose={() => setThinkMenu(false)} placement="up-left" className="w-[200px]">
+                  {THINKING.map((t) => (
+                    <div
+                      key={t.value}
+                      onClick={() => chooseThinking(t.value)}
+                      className={`px-3 py-[7px] text-[13px] cursor-pointer ${(info?.thinkingEffort ?? 'off') === t.value ? 'bg-primarysoft text-primaryink font-medium' : 'text-ink hover:bg-surface2'}`}
+                    >
+                      {t.label}
                     </div>
-                  </>
-                )}
+                  ))}
+                </Popover>
               </div>
             </div>
             {/* Right group takes the remaining pressure: the model name truncates rather
@@ -1542,51 +1572,26 @@ export default function App() {
                   <span className="truncate min-w-0">{info?.model}</span>
                   <Icon name="chevron-down" size={12} className="flex-none" />
                 </button>
-                {modelPickerOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setModelPickerOpen(false)} />
-                    <div className="absolute bottom-full right-0 mb-2 w-[320px] max-h-[380px] bg-surface border border-line2 rounded-[13px] shadow-[0_18px_50px_rgba(30,35,60,0.22)] z-20 flex flex-col overflow-hidden">
-                      <div className="p-2.5 border-b border-line">
-                        <input
-                          autoFocus
-                          value={modelQuery}
-                          onChange={(e) => setModelQuery(e.target.value)}
-                          placeholder="搜索模型…"
-                          className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2 outline-none focus:border-primary"
-                        />
-                      </div>
-                      <div className="overflow-y-auto py-1">
-                        {(() => {
-                          const q = modelQuery.trim().toLowerCase()
-                          const matches = modelOptions
-                            .filter((m) => !q || m.label.toLowerCase().includes(q) || (m.sub ?? '').toLowerCase().includes(q) || m.key.toLowerCase().includes(q))
-                            .slice(0, 10)
-                          if (modelOptions.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">无可选模型(登录通行证或在设置中添加自定义模型)</div>
-                          if (matches.length === 0) return <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">没有匹配的模型</div>
-                          return matches.map((m) => {
-                            const current = m.modelId === info?.model
-                            return (
-                              <button
-                                key={`${m.kind}:${m.key}`}
-                                type="button"
-                                onClick={() => void pickModel(m)}
-                                className={`w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 transition ${current ? 'text-primary' : 'text-ink'}`}
-                              >
-                                <span className="font-mono text-[12.5px] truncate flex-1">{m.label}</span>
-                                {m.kind === 'custom' && <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-primarysoft text-primaryink flex-none">自定义</span>}
-                                {m.sub && m.sub !== m.label && <span className="text-[11px] text-faint flex-none truncate max-w-[110px]">{m.sub}</span>}
-                                {current && <span className="text-primary text-[13px] flex-none">✓</span>}
-                              </button>
-                            )
-                          })
-                        })()}
-                      </div>
-                    </div>
-                  </>
-                )}
+                <ModelPickerPopover
+                  open={modelPickerOpen}
+                  onClose={() => setModelPickerOpen(false)}
+                  placement="up-right"
+                  className="w-[320px] max-h-[380px]"
+                  options={modelOptions}
+                  current={info?.model}
+                  limit={10}
+                  onPick={(_, o) => { if (o) void pickModel(o) }}
+                />
               </div>
               {busy ? (
-                <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(224,86,74,0.3)] hover:brightness-105" onClick={() => interrupt()} title="停止"><Icon name="stop" size={16} /></button>
+                <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(224,86,74,0.3)] hover:brightness-105" onClick={() => {
+                  // 乐观停止：立即取消引擎回合，并即刻收尾 UI（清 busy、结束流式渲染）。
+                  // 不等 turn:end 事件——事件延迟或漏收都不会让停止“看起来没反应”；真在跑的
+                  // 回合由 interrupt() 取消，其后续事件到达时 busy 已为 false，幂等无副作用。
+                  void interrupt()
+                  setBusy(false)
+                  setBlocks((prev) => finalizeTools(finalizeStreaming(prev)))
+                }} title="停止"><Icon name="stop" size={16} /></button>
               ) : (
                 <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-primary text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(91,108,240,0.32)] hover:brightness-105 disabled:opacity-40 disabled:shadow-none disabled:cursor-default" onClick={handleSend} disabled={!input.trim() && attachments.length === 0} title="发送"><Icon name="send" size={17} /></button>
               )}
@@ -1700,9 +1705,7 @@ function PlanPill({
             <span className="w-px h-3.5 bg-line2 flex-none" />
             <span className="text-muted whitespace-nowrap">{filesChanged} 个文件已更改</span>
             {(adds > 0 || dels > 0) && (
-              <span className="font-mono tabular-nums text-[12px] whitespace-nowrap">
-                <span className="text-green">+{adds}</span> <span className={dels > 0 ? 'text-red' : 'text-faint'}>−{dels}</span>
-              </span>
+              <DiffStat add={adds} del={dels} className="font-mono tabular-nums text-[12px] whitespace-nowrap" />
             )}
           </>
         )}
@@ -1789,11 +1792,11 @@ function ReplyArtifacts({ text, files, tabs, cwd, onOpen }: { text: string; file
   const paths = useMemo(() => matchWorkspaceFiles(extractFilePaths(text), files), [text, files])
   if (paths.length === 0) return null
   return (
-    <div className="flex flex-col gap-1.5 mt-1.5">
+    <CollapsibleGroup icon="eye" label="可预览文件" count={paths.length}>
       {paths.map((p) => (
         <ArtifactCard key={p} relPath={p} add={0} del={0} onOpen={onOpen} autoOpened={tabs.some((t) => t.kind === 'file' && t.relPath === p)} />
       ))}
-    </div>
+    </CollapsibleGroup>
   )
 }
 
@@ -1838,32 +1841,41 @@ function WindowControls() {
 }
 
 function Sidebar({
+  collapsed,
   recents,
   currentId,
   cwd,
+  recentWorkspaces,
+  onPickWorkspace,
   onSwitchWorkspace,
+  onDelete,
   view,
   onNav,
   onNew,
   onResume,
 }: {
+  collapsed: boolean
   recents: SessionSummary[]
   currentId?: string
   cwd?: string
+  recentWorkspaces: string[]
+  onPickWorkspace: (path: string) => void
   onSwitchWorkspace: () => void
+  onDelete: (id: string) => void
   view: 'chat' | 'settings' | 'plugins' | 'permissions' | 'memory'
   onNav: (v: 'chat' | 'settings' | 'plugins' | 'permissions' | 'memory') => void
   onNew: () => void
   onResume: (id: string) => void
 }) {
-  // 折叠成图标栏(而非整块隐藏)：导航/新建/工作区仍可点，只收起文字与最近对话，
-  // 所以折叠后不会没法导航。状态持久化，与 preview.width 的做法一致。
-  const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem('sidebar.collapsed') === '1')
-  const toggleCollapsed = () =>
-    setCollapsed((v) => {
-      localStorage.setItem('sidebar.collapsed', v ? '0' : '1')
-      return !v
-    })
+  // Workspace switcher popover: search + recent-workspace list + browse.
+  const [wsOpen, setWsOpen] = useState(false)
+  const [wsQuery, setWsQuery] = useState('')
+  // 待确认删除的会话（打开自定义确认弹窗，替代原生 window.confirm）。
+  const [confirmDel, setConfirmDel] = useState<SessionSummary | null>(null)
+  const wsq = wsQuery.trim().toLowerCase()
+  const wsMatches = recentWorkspaces.filter((w) => w && w !== cwd && (!wsq || w.toLowerCase().includes(wsq)))
+  // 折叠成图标栏（而非整块隐藏）：导航/新建/工作区仍可点，只收起文字与最近对话。
+  // collapsed 由父组件（App）提供——折叠开关已移到主栏顶部状态条（「空闲」前）。
   const wsName = cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '—'
   const nav = [
     { label: '对话', name: 'chat', view: 'chat' as const },
@@ -1876,13 +1888,6 @@ function Sidebar({
     <aside
       className={`${collapsed ? 'w-[64px] px-2.5' : 'w-[268px] px-4'} py-4 flex-none bg-surface border-r border-line2 flex flex-col transition-[width] duration-200 ease-out`}
     >
-      <button
-        onClick={toggleCollapsed}
-        title={collapsed ? '展开侧栏' : '折叠侧栏'}
-        className={`flex-none flex items-center h-8 mb-2 rounded-[9px] text-muted hover:text-ink hover:bg-surface2 transition ${collapsed ? 'justify-center' : 'justify-end px-2'}`}
-      >
-        <Icon name="panel-left" size={17} />
-      </button>
       <button
         className={`w-full border-none bg-primary text-white font-semibold text-sm rounded-[11px] cursor-pointer inline-flex items-center justify-center gap-2 shadow-[0_5px_14px_rgba(91,108,240,0.3)] hover:brightness-105 transition ${collapsed ? 'h-10' : 'py-3'}`}
         onClick={onNew}
@@ -1913,7 +1918,7 @@ function Sidebar({
         <div className="mt-[22px] flex-1 overflow-y-auto -mr-1 pr-1">
           <div className="text-[11.5px] text-faint px-[11px] pb-2 tracking-wide">最近对话</div>
           {recents.length === 0 ? (
-            <div className="text-faint text-[13px] px-[11px] py-1">暂无对话</div>
+            <div className="text-faint text-[13px] py-1 text-center">暂无对话</div>
           ) : (
             recents.map((s) => {
               const active = s.id === currentId
@@ -1922,34 +1927,92 @@ function Sidebar({
                   key={s.id}
                   onClick={() => onResume(s.id)}
                   title={s.title}
-                  className={`flex items-center gap-2.5 px-[11px] py-[9px] rounded-[9px] cursor-pointer text-[13.5px] mb-0.5 ${
-                    active ? 'text-ink bg-surface2 shadow-[inset_2px_0_0_var(--color-primary)]' : 'text-muted hover:bg-surface2'
+                  className={`group flex items-center gap-2.5 px-[11px] py-[9px] rounded-[9px] cursor-pointer text-[13.5px] mb-0.5 ${
+                    active ? 'text-ink bg-surface2' : 'text-muted hover:bg-surface2'
                   }`}
                 >
                   <Icon name="file" size={15} />
                   <span className="flex-1 min-w-0 truncate">{s.title}</span>
-                  <span className="text-faint text-[11px] flex-none">{s.when}</span>
+                  <span className="text-faint text-[11px] flex-none group-hover:hidden">{s.when}</span>
+                  <button
+                    type="button"
+                    title="删除此会话（不可恢复）"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setConfirmDel(s)
+                    }}
+                    className="hidden group-hover:inline-flex flex-none text-faint hover:text-red leading-none px-0.5"
+                  >
+                    ✕
+                  </button>
                 </div>
               )
             })
           )}
         </div>
       )}
-      <button
-        onClick={onSwitchWorkspace}
-        title={`当前工作区:${cwd || '—'}\n点击切换到其它目录`}
-        className={`mt-3 flex-none flex items-center py-2.5 rounded-[10px] border border-line2 bg-surface hover:border-primary hover:bg-surface2 text-muted hover:text-ink transition ${
-          collapsed ? 'justify-center' : 'gap-2 px-[11px]'
-        }`}
-      >
-        <Icon name="folder" size={16} />
-        {!collapsed && (
-          <>
-            <span className="flex-1 min-w-0 truncate text-left font-mono text-[12.5px]">{wsName}</span>
-            <span className="text-faint text-[11px] flex-none">切换</span>
-          </>
-        )}
-      </button>
+      <div className="relative mt-3 flex-none">
+        <button
+          onClick={() => { if (collapsed) { onSwitchWorkspace() } else { setWsQuery(''); setWsOpen((o) => !o) } }}
+          title={`当前工作区:${cwd || '—'}\n点击切换（历史工作区可搜索）`}
+          className={`w-full flex items-center py-2.5 rounded-[10px] border border-line2 bg-surface hover:border-primary hover:bg-surface2 text-muted hover:text-ink transition ${
+            collapsed ? 'justify-center' : 'gap-2 px-[11px]'
+          }`}
+        >
+          <Icon name="folder" size={16} />
+          {!collapsed && (
+            <>
+              <span className="flex-1 min-w-0 truncate text-left font-mono text-[12.5px]">{wsName}</span>
+              <span className="text-faint text-[11px] flex-none">切换</span>
+            </>
+          )}
+        </button>
+        <Popover open={wsOpen && !collapsed} onClose={() => setWsOpen(false)} placement="up-full" variant="panel" className="max-h-[340px]">
+          <div className="p-2.5 border-b border-line">
+            <input
+              autoFocus
+              value={wsQuery}
+              onChange={(e) => setWsQuery(e.target.value)}
+              placeholder="搜索历史工作区…"
+              className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2 outline-none focus:border-primary"
+            />
+          </div>
+          <div className="overflow-y-auto py-1">
+            {wsMatches.map((w) => (
+              <button
+                key={w}
+                type="button"
+                title={w}
+                onClick={() => { setWsOpen(false); onPickWorkspace(w) }}
+                className="w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 text-ink"
+              >
+                <Icon name="folder" size={14} />
+                <span className="font-mono text-[12.5px] truncate flex-1">{w}</span>
+              </button>
+            ))}
+            {wsMatches.length === 0 && (
+              <div className="px-3.5 py-4 text-center text-[12px] text-muted">{recentWorkspaces.length === 0 ? '暂无历史工作区' : '没有匹配的工作区'}</div>
+            )}
+            <button
+              type="button"
+              onClick={() => { setWsOpen(false); onSwitchWorkspace() }}
+              className="w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 text-primary border-t border-line mt-1"
+            >
+              <Icon name="folder" size={14} />
+              <span className="text-[12.5px]">浏览其它目录…</span>
+            </button>
+          </div>
+        </Popover>
+      </div>
+      {confirmDel && (
+        <ConfirmDialog
+          title="删除会话"
+          message={<>确定删除会话「<b className="text-ink font-semibold">{confirmDel.title}</b>」？此操作不可撤销。</>}
+          confirmLabel="删除"
+          onConfirm={() => { onDelete(confirmDel.id); setConfirmDel(null) }}
+          onCancel={() => setConfirmDel(null)}
+        />
+      )}
     </aside>
   )
 }
@@ -2098,11 +2161,7 @@ function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmAllows?:
                 {verb}
                 {target && <span className="font-mono text-faint"> {target}</span>}
               </span>
-              {showDiff && (
-                <span className="font-mono text-[11.5px] tabular-nums flex-none">
-                  <span className="text-green">+{add}</span> <span className={del > 0 ? 'text-red' : 'text-faint'}>−{del}</span>
-                </span>
-              )}
+              {showDiff && <DiffStat add={add} del={del} className="font-mono text-[11.5px] tabular-nums flex-none" />}
               {allowReason && (
                 <span title="智能模式已自动放行，展开查看原因" className="flex-none inline-flex items-center gap-1 text-[10.5px] text-primaryink bg-primarysoft rounded px-1.5 py-0.5">
                   <Icon name="shield" size={11} /> 智能放行
@@ -2135,6 +2194,15 @@ function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmAllows?:
   )
 }
 
+// taskMeta extracts a Task call's display fields (sub-agent name, description) from
+// its input; live events carry the parsed object, resumed sessions a JSON string.
+function taskMeta(tool: ToolEvent, nested?: AgentNested): { sub: string; desc: string } {
+  const raw = (tool as ToolEvent & { input?: unknown }).input
+  const o: { subagent_type?: string; description?: string } =
+    typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return {} } })() : ((raw as object) ?? {})
+  return { sub: o.subagent_type || nested?.agent || '子代理', desc: o.description || '' }
+}
+
 // AgentTaskCard renders a Task delegation as a live, observable nested view: the
 // sub-agent's streamed text plus its own tool calls (each drillable). It is
 // expanded while the sub-agent runs and collapses to a summary when it finishes.
@@ -2142,19 +2210,9 @@ function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: AgentNested
   const running = tool.type !== 'completed' && tool.type !== 'failed'
   const failed = tool.type === 'failed'
   const [open, setOpen] = useState(false)
-  const [selTool, setSelTool] = useState<number | null>(null)
   const expanded = running || open
-  const meta = (() => {
-    const raw = (tool as ToolEvent & { input?: unknown }).input
-    const o: { subagent_type?: string; description?: string } =
-      typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return {} } })() : ((raw as object) ?? {})
-    return { sub: o.subagent_type || nested?.agent || '子代理', desc: o.description || '' }
-  })()
+  const meta = taskMeta(tool, nested)
   const tools = nested?.tools ?? []
-  // Auto-expand the running child tool (like the top-level exec card) so its
-  // streaming output shows live; an explicit click takes over.
-  const runningChild = tools.findIndex((ct) => ct.type !== 'completed' && ct.type !== 'failed')
-  const activeChild = selTool != null && selTool < tools.length ? selTool : runningChild
   return (
     <div className="anim-rise flex flex-col gap-2">
       <div className={`flex items-center gap-2 text-[12.5px] ${running ? '' : 'cursor-pointer'}`} onClick={() => !running && setOpen((o) => !o)}>
@@ -2177,36 +2235,154 @@ function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: AgentNested
         )}
       </div>
       {meta.desc && <div className="text-[12.5px] text-faint break-words">{meta.desc}</div>}
+      {expanded && <AgentTaskDetail nested={nested} running={running} />}
+    </div>
+  )
+}
+
+// AgentTaskDetail renders a sub-agent's activity — its child tool calls (each
+// drillable) and its streamed text. Shared by the single-Task card and the
+// parallel taskgroup rows. The whole view lives in a bounded inner scroll pane:
+// streamed text would otherwise keep growing the page and fight the user's own
+// scrolling; overscroll-contain stops wheel events from chaining to the chat flow.
+function AgentTaskDetail({ nested, running }: { nested?: AgentNested; running: boolean }) {
+  const [selTool, setSelTool] = useState<number | null>(null)
+  const { ref, onScroll } = useStickToBottom<HTMLDivElement>(nested)
+  const tools = nested?.tools ?? []
+  // Auto-expand the running child tool (like the top-level exec card) so its
+  // streaming output shows live; an explicit click takes over.
+  const runningChild = tools.findIndex((ct) => ct.type !== 'completed' && ct.type !== 'failed')
+  const activeChild = selTool != null && selTool < tools.length ? selTool : runningChild
+  return (
+    <div ref={ref} onScroll={onScroll} className="max-h-[340px] overflow-y-auto overscroll-contain flex flex-col gap-2">
+      {tools.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {tools.map((ct, i) => {
+            const st = ct.type === 'failed' ? 'failed' : ct.type === 'completed' ? 'done' : 'running'
+            const active = activeChild === i
+            const iconColor = st === 'failed' ? 'text-red' : st === 'running' ? 'text-primary' : 'text-faint'
+            return (
+              <div key={i}>
+                <div onClick={() => setSelTool(active ? null : i)} className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg cursor-pointer select-none ${active ? 'bg-surface2' : 'hover:bg-surface2'}`}>
+                  <span className={`flex-none ${iconColor}`}><Icon name={toolIcon(ct.toolName)} size={14} /></span>
+                  <span className="flex-1 min-w-0 truncate text-[#3f4653]">{toolLabel(ct)}</span>
+                  {st === 'running' ? <Spinner size={13} /> : st === 'failed' ? <span className="text-red text-[12px] flex-none">✕</span> : <span className="text-green flex-none"><CheckMark size={13} /></span>}
+                  <Icon name="chevron-down" size={12} className={`flex-none text-faint transition ${active ? 'rotate-180' : ''}`} />
+                </div>
+                {active && <div className="px-2 pb-2 pt-0.5"><ToolDetail tool={ct} /></div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {nested?.text ? (
+        <div className="text-[13.5px] text-[#3f4653] leading-[1.7] break-words">
+          <Markdown>{nested.text}</Markdown>
+          {running && <span className="caret">▍</span>}
+        </div>
+      ) : running ? (
+        <div className="text-faint text-[12.5px]">子代理思考中…</div>
+      ) : null}
+    </div>
+  )
+}
+
+// taskActivity summarizes what a running sub-agent is doing right now — its active
+// child tool, else the last line it streamed — for the compact taskgroup row.
+function taskActivity(nested?: AgentNested): string {
+  if (!nested) return ''
+  for (let i = nested.tools.length - 1; i >= 0; i--) {
+    const ct = nested.tools[i]
+    if (ct.type !== 'completed' && ct.type !== 'failed') return toolLabel(ct)
+  }
+  const lines = nested.text.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const s = lines[i].trim()
+    if (s) return s
+  }
+  return ''
+}
+
+// AgentTaskGroup renders a parallel fan-out of Task delegations as one container:
+// a header with aggregate progress and one compact row per sub-agent, expandable on
+// click. Rows default to collapsed — the opposite of the single-Task card — because
+// several force-expanded streaming panes at once are unreadable.
+function AgentTaskGroup({ tasks }: { tasks: ToolBlock[] }) {
+  const [open, setOpen] = useState(false)
+  const running = tasks.some((t) => t.tool.type !== 'completed' && t.tool.type !== 'failed')
+  const failed = tasks.filter((t) => t.tool.type === 'failed').length
+  const finished = tasks.length - tasks.filter((t) => t.tool.type !== 'completed' && t.tool.type !== 'failed').length
+  const expanded = running || open
+  // Aggregate usage: tokens sum across sub-agents; duration is the longest child,
+  // since they ran in parallel.
+  const usages = tasks.map((t) => t.nested?.usage).filter((u): u is NonNullable<AgentNested['usage']> => !!u)
+  const inTok = usages.reduce((s, u) => s + u.inTok, 0)
+  const outTok = usages.reduce((s, u) => s + u.outTok, 0)
+  const durMs = usages.reduce((m, u) => Math.max(m, u.durMs ?? 0), 0)
+  return (
+    <div className="anim-rise flex flex-col gap-2">
+      <div className={`flex items-center gap-2 text-[12.5px] ${running ? '' : 'cursor-pointer'}`} onClick={() => !running && setOpen((o) => !o)}>
+        <span className="inline-flex items-center text-primary flex-none"><Icon name="bot" size={14} /></span>
+        <span className="font-medium text-ink">并行子代理 · {tasks.length} 个任务</span>
+        <span className="inline-flex items-center gap-1.5 text-faint font-mono flex-none">
+          <span className={`w-[6px] h-[6px] rounded-full ${running ? 'bg-primary blip' : failed > 0 ? 'bg-red' : 'bg-green'}`} />
+          {running ? `${finished}/${tasks.length} 完成` : failed > 0 ? `${finished - failed} 成功 · ${failed} 失败` : '全部完成'}
+        </span>
+        {!running && (inTok > 0 || outTok > 0) && (
+          <span className="text-[11px] text-faint font-mono tabular-nums flex-none" title="各子代理用量合计;耗时取最长者(并行运行)">
+            ↑{fmtTokens(inTok)} ↓{fmtTokens(outTok)}{durMs > 0 ? ` · ${fmtDuration(durMs)}` : ''}
+          </span>
+        )}
+        {!running && (
+          <button className="ml-1 flex-none text-faint hover:text-ink inline-flex items-center gap-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}>
+            {open ? '收起' : '展开'}
+            <Icon name="chevron-down" size={13} className={open ? 'rotate-180 transition' : 'transition'} />
+          </button>
+        )}
+      </div>
       {expanded && (
-        <div className="flex flex-col gap-2">
-          {tools.length > 0 && (
-            <div className="flex flex-col gap-0.5">
-              {tools.map((ct, i) => {
-                const st = ct.type === 'failed' ? 'failed' : ct.type === 'completed' ? 'done' : 'running'
-                const active = activeChild === i
-                const iconColor = st === 'failed' ? 'text-red' : st === 'running' ? 'text-primary' : 'text-faint'
-                return (
-                  <div key={i}>
-                    <div onClick={() => setSelTool(active ? null : i)} className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg cursor-pointer select-none ${active ? 'bg-surface2' : 'hover:bg-surface2'}`}>
-                      <span className={`flex-none ${iconColor}`}><Icon name={toolIcon(ct.toolName)} size={14} /></span>
-                      <span className="flex-1 min-w-0 truncate text-[#3f4653]">{toolLabel(ct)}</span>
-                      {st === 'running' ? <Spinner size={13} /> : st === 'failed' ? <span className="text-red text-[12px] flex-none">✕</span> : <span className="text-green flex-none"><CheckMark size={13} /></span>}
-                      <Icon name="chevron-down" size={12} className={`flex-none text-faint transition ${active ? 'rotate-180' : ''}`} />
-                    </div>
-                    {active && <div className="px-2 pb-2 pt-0.5"><ToolDetail tool={ct} /></div>}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          {nested?.text ? (
-            <div className="text-[13.5px] text-[#3f4653] leading-[1.7] break-words">
-              <Markdown>{nested.text}</Markdown>
-              {running && <span className="caret">▍</span>}
-            </div>
-          ) : running ? (
-            <div className="text-faint text-[12.5px]">子代理思考中…</div>
-          ) : null}
+        <div className="flex flex-col gap-0.5">
+          {tasks.map((t) => <AgentTaskRow key={t.id} block={t} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// AgentTaskRow is one sub-agent inside an AgentTaskGroup: a compact status line
+// (who, what, current activity or final stats) that expands on click to the full
+// nested detail view. A resumed Task carries no live nested data, so expanding it
+// falls back to the plain tool detail (input + persisted result).
+function AgentTaskRow({ block }: { block: ToolBlock }) {
+  const [open, setOpen] = useState(false)
+  const t = block.tool
+  const running = t.type !== 'completed' && t.type !== 'failed'
+  const failed = t.type === 'failed'
+  const meta = taskMeta(t, block.nested)
+  const activity = running ? taskActivity(block.nested) : ''
+  const usage = block.nested?.usage
+  const steps = block.nested?.tools.length ?? 0
+  return (
+    <div>
+      <div onClick={() => setOpen((o) => !o)} className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg cursor-pointer select-none ${open ? 'bg-surface2' : 'hover:bg-surface2'}`}>
+        {running ? <span className="flex-none"><Spinner size={13} /></span> : failed ? <span className="text-red text-[12px] flex-none">✕</span> : <span className="text-green flex-none"><CheckMark size={13} /></span>}
+        <span className="flex-none font-medium text-ink">{meta.sub}</span>
+        <span className="flex-1 min-w-0 truncate text-[#3f4653]">{meta.desc}</span>
+        {running && activity && (
+          <span className="flex-none max-w-[40%] truncate text-faint text-[12px]">{activity}</span>
+        )}
+        {!running && (
+          <span className="flex-none text-[11px] text-faint font-mono tabular-nums">
+            {steps > 0 ? `${steps} 步` : ''}
+            {usage && (usage.inTok > 0 || usage.outTok > 0) ? ` · ↑${fmtTokens(usage.inTok)} ↓${fmtTokens(usage.outTok)}` : ''}
+            {usage?.durMs ? ` · ${fmtDuration(usage.durMs)}` : ''}
+          </span>
+        )}
+        <Icon name="chevron-down" size={12} className={`flex-none text-faint transition ${open ? 'rotate-180' : ''}`} />
+      </div>
+      {open && (
+        <div className="px-2 pb-2 pt-0.5">
+          {block.nested ? <AgentTaskDetail nested={block.nested} running={running} /> : <ToolDetail tool={t} />}
         </div>
       )}
     </div>
@@ -2322,6 +2498,61 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
   return <RawJson value={o} />
 }
 
+// MatchedFileTree renders a Glob/Grep matched-file list as a collapsible
+// directory tree instead of one full path per line: each directory appears once
+// (a single-child directory chain collapses into one "a/b/c/" row) with a
+// chevron + descendant-file count, and clicking it folds that subtree away —
+// a big same-directory result set neither repeats its prefix nor swamps the
+// card. Everything starts expanded; the fold state lives with the card.
+function MatchedFileTree({ paths }: { paths: string[] }) {
+  const tree = useMemo(() => buildFileTree(paths), [paths])
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const toggle = (p: string) =>
+    setCollapsed((s) => {
+      const next = new Set(s)
+      if (next.has(p)) next.delete(p)
+      else next.add(p)
+      return next
+    })
+  const countFiles = (n: FileNode): number =>
+    n.dir ? (n.children ?? []).reduce((sum, c) => sum + countFiles(c), 0) : 1
+  const render = (nodes: FileNode[], depth: number): ReactNode[] =>
+    nodes.flatMap((n) => {
+      const pad = { paddingLeft: depth * 14 }
+      if (!n.dir) {
+        return [
+          <div key={'f:' + n.path} className="flex items-center gap-1.5 min-w-0" style={pad} title={n.path}>
+            <span className="flex-none" style={{ color: fileColor(n.path) }}><Icon name={kindIcon(classifyPreview(n.path).kind)} size={13} /></span>
+            <span className="font-mono text-[12px] text-ink truncate">{n.name}</span>
+          </div>,
+        ]
+      }
+      let label = n.name
+      let cur = n
+      while ((cur.children?.length ?? 0) === 1 && cur.children![0].dir) {
+        cur = cur.children![0]
+        label += '/' + cur.name
+      }
+      const open = !collapsed.has(n.path)
+      return [
+        <div
+          key={'d:' + n.path}
+          onClick={() => toggle(n.path)}
+          className="flex items-center gap-1.5 cursor-pointer select-none"
+          style={pad}
+          title={cur.path}
+        >
+          <Icon name="chevron-down" size={11} className={`flex-none text-faint transition ${open ? '' : '-rotate-90'}`} />
+          <Icon name="folder" size={13} className="flex-none text-faint" />
+          <span className="font-mono text-[12px] text-ink truncate">{label}/</span>
+          <span className="font-mono text-[11px] text-faint flex-none">· {countFiles(cur)}</span>
+        </div>,
+        ...(open ? render(cur.children ?? [], depth + 1) : []),
+      ]
+    })
+  return <div className="space-y-1">{render(tree, 0)}</div>
+}
+
 // ToolDetail shows one tool call's input arguments and its return content
 // (matched files, command/diff output, or a result message).
 function ToolDetail({ tool }: { tool: ToolEvent }) {
@@ -2346,11 +2577,9 @@ function ToolDetail({ tool }: { tool: ToolEvent }) {
           <img src={imgSrc} alt="" className="max-h-[340px] max-w-full rounded-[5px] block" />
         </div>
       ) : matched.length > 0 ? (
-        <ul className="list-none m-0 p-0 flex flex-col gap-1 bg-surface2 border border-line rounded-[8px] py-2 px-2.5 max-h-[360px] overflow-auto">
-          {matched.slice(0, 400).map((f, i) => (
-            <li key={i} className="font-mono text-[12px] text-ink truncate" title={f.path}>{f.path}</li>
-          ))}
-        </ul>
+        <div className="bg-surface2 border border-line rounded-[8px] py-2 px-2.5 max-h-[360px] overflow-auto">
+          <MatchedFileTree paths={matched.slice(0, 400).map((f) => f.path)} />
+        </div>
       ) : out.length > 0 ? (
         <pre ref={outScroll.ref} onScroll={outScroll.onScroll} className="m-0 font-mono text-[12px] leading-[1.55] bg-surface2 border border-line rounded-[8px] py-2 max-h-[360px] overflow-auto">
           {out.slice(0, 400).map((l, i) => (
@@ -2393,12 +2622,21 @@ export function ToolPreview() {
   const grep: ToolEvent = {
     type: 'completed', toolName: 'Grep', toolUseID: 'g1',
     input: { pattern: 'StreamDelta', path: 'internal', glob: '*.go', output_mode: 'files_with_matches' },
+    // 50 entries on purpose: enough to overflow the list's max-height (a flex-squash
+    // bug once hid exactly this), mixing root files + two directories so the
+    // MatchedFileTree rendering (collapsed dir chains, indentation) is exercised too.
     files: [
-      { path: 'internal/repl/session.go', kind: 'matched' },
-      { path: 'internal/subagent/launcher.go', kind: 'matched' },
-      { path: 'internal/engine/build.go', kind: 'matched' },
+      { path: 'index.html', kind: 'matched' as const },
+      { path: 'README.md', kind: 'matched' as const },
+      { path: 'projects/matrix_transformations/analysis/image_analysis.csv', kind: 'matched' as const },
+      { path: 'projects/matrix_transformations/analysis/slides_outline.md', kind: 'matched' as const },
+      { path: 'projects/matrix_transformations/analysis/notes.txt', kind: 'matched' as const },
+      ...Array.from({ length: 45 }, (_, i) => ({
+        path: `projects/matrix_transformations/svg_output/${String(i + 1).padStart(2, '0')}_矩阵变换_较长文件名示例.svg`,
+        kind: 'matched' as const,
+      })),
     ],
-    filesTotal: 7,
+    filesTotal: 76,
   }
   const running: ToolEvent = {
     type: 'progress', toolName: 'Bash', toolUseID: 'r1',
@@ -2423,6 +2661,8 @@ export function ToolPreview() {
         <ExecutionCard tools={[running]} />
         <div className="text-[13px] text-muted">图片 Read 展开(缩略图):</div>
         <div className="bg-surface border border-line2 rounded-[14px] p-4"><ToolDetail tool={readImg} /></div>
+        <div className="text-[13px] text-muted">查找/搜索展开(匹配文件列表):</div>
+        <div className="bg-surface border border-line2 rounded-[14px] p-4"><ToolDetail tool={grep} /></div>
       </div>
     </div>
   )
@@ -2613,7 +2853,6 @@ function ContextMeter({
   compacting: boolean
   busy: boolean
 }) {
-  const k = (n: number) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n))
   const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0
   const near = budget > 0 && pct >= 80
   const bar = pct >= 100 ? 'bg-red' : near ? 'bg-[#e0954a]' : 'bg-primary'
@@ -2638,10 +2877,10 @@ function ContextMeter({
               <span className={`block h-full ${bar} transition-[width]`} style={{ width: pct + '%' }} />
             </span>
             <b className={`font-semibold tabular-nums ${near ? 'text-[#b26a1f]' : 'text-ink'}`}>{approx}{pct}%</b>
-            <span className="text-faint tabular-nums">{approx}{k(used)}/{k(budget)}</span>
+            <span className="text-faint tabular-nums">{approx}{fmtTokens(used)}/{fmtTokens(budget)}</span>
           </>
         ) : (
-          <span className="text-ink font-semibold tabular-nums">{approx}{k(used)} <span className="text-faint font-normal">· 未限</span></span>
+          <span className="text-ink font-semibold tabular-nums">{approx}{fmtTokens(used)} <span className="text-faint font-normal">· 未限</span></span>
         )}
       </span>
       <button
@@ -2654,22 +2893,6 @@ function ContextMeter({
       </button>
     </div>
   )
-}
-
-// fmtTokens renders a token count compactly: 340 → "340", 1234 → "1.2k", 23000 → "23k".
-function fmtTokens(n: number): string {
-  if (n >= 10000) return Math.round(n / 1000) + 'k'
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
-  return String(n)
-}
-
-// fmtDuration renders elapsed ms compactly: 850 → "0.9s", 3200 → "3.2s", 75000 → "1m15s".
-function fmtDuration(ms?: number): string {
-  if (!ms || ms < 0) return ''
-  const s = ms / 1000
-  if (s < 60) return (s < 10 ? s.toFixed(1) : Math.round(s).toString()) + 's'
-  const m = Math.floor(s / 60)
-  return `${m}m${Math.round(s % 60)}s`
 }
 
 function BlockView({ block, onOpenFile, resolveFile }: { block: Block; onOpenFile?: (relPath: string) => void; resolveFile?: (token: string) => string | null }) {
@@ -2858,24 +3081,4 @@ function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { req: Pe
       </div>
     </div>
   )
-}
-
-function shorten(p?: string): string {
-  if (!p) return ''
-  const parts = p.replace(/\\/g, '/').split('/')
-  return parts.length <= 2 ? p : '…/' + parts.slice(-2).join('/')
-}
-function dirname(p: string): string {
-  const s = p.replace(/\\/g, '/')
-  const i = s.lastIndexOf('/')
-  return i > 0 ? s.slice(0, i) : ''
-}
-function ext(p: string): string {
-  const e = basename(p).split('.').pop() || ''
-  return e.length <= 4 ? e.toUpperCase() : 'FILE'
-}
-function fmtTime(s: number): string {
-  const m = Math.floor(s / 60)
-  const ss = s % 60
-  return `${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
 }

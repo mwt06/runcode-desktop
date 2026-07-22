@@ -46,6 +46,12 @@ export function deleteMCPServer(name: string): Promise<void> {
   return app().DeleteMCPServer(name);
 }
 
+// DeleteSession permanently removes a saved session (history + title/meta sidecars) from the workspace store.
+// kind: idempotent-set
+export function deleteSession(id: string): Promise<void> {
+  return app().DeleteSession(id);
+}
+
 // DeleteSkill removes a skill directory in the given scope and returns the list.
 // kind: idempotent-set
 export function deleteSkill(name: string, scope: string): Promise<SkillList> {
