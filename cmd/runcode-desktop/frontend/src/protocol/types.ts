@@ -133,11 +133,13 @@ export interface CompactResult {
   outputTokens: number;
 }
 
-// Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点（OpenAI 兼容），与通行证平台模型 并列显示在模型选择器里；选中后按老的直连路径起会话。
+// Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点，与通行证平台模型并列显示在模型 选择器里。Provider 是引擎 provider registry 的名称（当前为 openai/anthropic）； 旧配置没有该字段时由桌面端按 openai 兼容处理。密钥字段仅用于桌面端持久化， ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
 export interface CustomModel {
   name: string;
+  provider?: string;
   model: string;
   baseURL: string;
+  hasAPIKey?: boolean;
   apiKey?: string;
   apiKeyProtected?: string;
 }
@@ -257,10 +259,11 @@ export interface PassportStatus {
   tenantId?: string;
 }
 
-// Mirrors protocol.PassportTenant. PassportTenant 是当前用户可用的租户（Bridge /api/tenants）。
+// Mirrors protocol.PassportTenant. PassportTenant 是当前用户可用的租户（Bridge /api/tenants）。 ParentID 供前端渲染层级树；父租户可能不在用户的可用列表里 （用户只被授了子级），前端须把这类节点当根渲染，不能丢弃。
 export interface PassportTenant {
   id: string;
   name: string;
+  parentId?: string;
 }
 
 // Mirrors protocol.PermissionRequest. PermissionRequest asks the user to approve or deny one pending action.
@@ -317,6 +320,17 @@ export interface RetryNotice {
   reason: string;
   attempt: number;
   maxAttempts: number;
+}
+
+// Mirrors protocol.SaveCustomModelRequest. SaveCustomModelRequest 新增或修改一个自定义模型。编辑时 OriginalName 定位旧 记录；APIKey 留空表示保留旧密钥，ClearAPIKey 才显式清除，两者不能同时使用。
+export interface SaveCustomModelRequest {
+  originalName?: string;
+  name: string;
+  provider?: string;
+  model: string;
+  baseURL: string;
+  apiKey?: string;
+  clearAPIKey?: boolean;
 }
 
 // Mirrors protocol.SessionInfo. SessionInfo is the display state returned when a session starts and by Status.
@@ -387,6 +401,7 @@ export interface StartSessionRequest {
   cwd: string;
   provider: string;
   model: string;
+  customModelName?: string;
   tenantId: string;
   baseURL: string;
   apiKey: string;

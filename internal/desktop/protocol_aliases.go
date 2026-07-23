@@ -73,7 +73,8 @@ type (
 	PassportTenant = protocol.PassportTenant
 
 	// Custom direct-connection models (was custommodels.go).
-	CustomModel = protocol.CustomModel
+	CustomModel            = protocol.CustomModel
+	SaveCustomModelRequest = protocol.SaveCustomModelRequest
 
 	// Interactive approval (was types.go); the summary crosses as a wire DTO.
 	PermissionRequest = protocol.PermissionRequest

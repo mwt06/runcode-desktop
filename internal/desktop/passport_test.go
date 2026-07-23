@@ -112,7 +112,9 @@ func TestPassportTenants(t *testing.T) {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"changsha","name":"changs学院"},{"id":"crtvup","name":"出版社"}]`))
+		// parentId 必须透传给前端渲染层级树——protocol.PassportTenant 一度缺此
+		// 字段导致被静默丢弃、树退化成平铺
+		_, _ = w.Write([]byte(`[{"id":"guokai","name":"国开","parentId":"SuperTenant"},{"id":"changsha","name":"changs学院","parentId":"guokai"}]`))
 	}))
 	defer srv.Close()
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
@@ -124,8 +126,11 @@ func TestPassportTenants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tenants) != 2 || tenants[0].ID != "changsha" || tenants[1].Name != "出版社" {
+	if len(tenants) != 2 || tenants[0].ID != "guokai" || tenants[1].Name != "changs学院" {
 		t.Fatalf("tenants = %+v", tenants)
+	}
+	if tenants[0].ParentID != "SuperTenant" || tenants[1].ParentID != "guokai" {
+		t.Fatalf("parentId 未透传: %+v", tenants)
 	}
 }
 
@@ -143,6 +148,117 @@ func TestApplyPassportTenantScopedBaseURL(t *testing.T) {
 	cfg = app.applyPassport(cfg, req)
 	if cfg.BaseURL != "http://bridge.local:8199/t/changsha/v1" {
 		t.Fatalf("baseURL = %q, want tenant-scoped", cfg.BaseURL)
+	}
+}
+
+func TestSetActiveTenantPersistsAndRestores(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+
+	if err := app.SetActiveTenant(" child "); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.ActiveTenant(); got != "child" {
+		t.Fatalf("active tenant = %q, want child", got)
+	}
+	if got := loadRawConfig().TenantID; got != "child" {
+		t.Fatalf("persisted tenant = %q, want child", got)
+	}
+	if got := New(&recordingSink{}).ActiveTenant(); got != "child" {
+		t.Fatalf("restored tenant = %q, want child", got)
+	}
+
+	if err := app.SetActiveTenant("   "); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.ActiveTenant(); got != "" {
+		t.Fatalf("active tenant after clear = %q", got)
+	}
+	if got := loadRawConfig().TenantID; got != "" {
+		t.Fatalf("persisted tenant after clear = %q", got)
+	}
+}
+
+func TestNewRestoresPersistedActiveTenant(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+		raw.TenantID = " persisted "
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := New(&recordingSink{}).ActiveTenant(); got != "persisted" {
+		t.Fatalf("restored tenant = %q, want persisted", got)
+	}
+}
+
+func TestSetActiveTenantUpdatesBridgeBaseURL(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "http://bridge.local:8199")
+	app := New(&recordingSink{})
+	app.mu.Lock()
+	app.config.Provider = "openai"
+	app.config.BaseURL = "http://bridge.local:8199/v1"
+	app.configPassport = true
+	app.mu.Unlock()
+
+	if err := app.SetActiveTenant("changsha"); err != nil {
+		t.Fatal(err)
+	}
+	app.mu.Lock()
+	baseURL := app.config.BaseURL
+	app.mu.Unlock()
+	if baseURL != "http://bridge.local:8199/t/changsha/v1" {
+		t.Fatalf("baseURL = %q, want tenant-scoped bridge URL", baseURL)
+	}
+}
+
+func TestSetActiveTenantLeavesCustomBridgeLikeURLUnchanged(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "https://bridge.example")
+	app := New(&recordingSink{})
+	app.mu.Lock()
+	app.config.Provider = "openai"
+	app.config.BaseURL = "https://bridge.example.custom/v1"
+	app.configPassport = false
+	app.mu.Unlock()
+
+	if err := app.SetActiveTenant("tenant-b"); err != nil {
+		t.Fatal(err)
+	}
+	app.mu.Lock()
+	baseURL := app.config.BaseURL
+	app.mu.Unlock()
+	if baseURL != "https://bridge.example.custom/v1" {
+		t.Fatalf("custom baseURL rewritten to %q", baseURL)
+	}
+}
+
+func TestSessionModelsKeepLiveTenantAfterNextTenantChanges(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
+
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+	app.mu.Lock()
+	app.currentID = "live-session"
+	app.livePassport = true
+	app.livePassportTenant = "tenant-a"
+	app.passportTenant = "tenant-b"
+	app.mu.Unlock()
+
+	if _, err := app.SessionModels(); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/t/tenant-a/v1/models" {
+		t.Fatalf("models path = %q, want live tenant A", gotPath)
 	}
 }
 
@@ -174,9 +290,47 @@ func TestSaveSettingsKeepsPassportWiring(t *testing.T) {
 	}
 	app.mu.Lock()
 	cfg := app.config
+	liveCfg := app.liveConfig
+	configPassport := app.configPassport
+	livePassport := app.livePassport
 	app.mu.Unlock()
-	if cfg.Provider != "openai" || cfg.TokenSource == nil {
-		t.Fatalf("config after SaveSettings: provider=%q tokenSource-nil=%v, want openai wiring kept", cfg.Provider, cfg.TokenSource == nil)
+	if cfg.Provider != "openai" || cfg.TokenSource == nil || !configPassport {
+		t.Fatalf("config after SaveSettings: provider=%q tokenSource-nil=%v passport=%v", cfg.Provider, cfg.TokenSource == nil, configPassport)
+	}
+	if liveCfg.Provider != "openai" || liveCfg.TokenSource == nil || !livePassport {
+		t.Fatalf("live config after SaveSettings: provider=%q tokenSource-nil=%v passport=%v", liveCfg.Provider, liveCfg.TokenSource == nil, livePassport)
+	}
+}
+
+func TestSaveSettingsForNextTenantDoesNotChangeLiveModel(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+
+	start := StartSessionRequest{CWD: t.TempDir(), Provider: "passport", Model: "model-a", TenantID: "tenant-a"}
+	if _, err := app.StartSession(start); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	if err := app.SetActiveTenant("tenant-b"); err != nil {
+		t.Fatalf("SetActiveTenant: %v", err)
+	}
+	next := start
+	next.Model = "model-b"
+	next.TenantID = "tenant-b"
+	if _, err := app.SaveSettings(next); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+
+	app.mu.Lock()
+	nextModel := app.config.Model
+	liveModel := app.liveConfig.Model
+	liveTenant := app.livePassportTenant
+	app.mu.Unlock()
+	if nextModel != "model-b" {
+		t.Fatalf("next model = %q, want model-b", nextModel)
+	}
+	if liveModel != "model-a" || liveTenant != "tenant-a" {
+		t.Fatalf("live connection changed: model=%q tenant=%q", liveModel, liveTenant)
 	}
 }
 

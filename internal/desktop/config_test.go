@@ -122,6 +122,21 @@ func TestBuildConfigThinkingEffort(t *testing.T) {
 	}
 }
 
+func TestBuildConfigExplicitBaseURLDoesNotInheritEnvironmentCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "https://env.invalid")
+	t.Setenv("ANTHROPIC_API_KEY", "env-secret")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+	cfg, err := buildConfig(StartSessionRequest{
+		CWD: t.TempDir(), Provider: "openai", Model: "m", BaseURL: "https://explicit.invalid/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseURL != "https://explicit.invalid/v1" || cfg.APIKey != "" || cfg.AuthToken != "" {
+		t.Fatalf("explicit endpoint inherited environment credentials: %+v", cfg)
+	}
+}
+
 func TestBuildConfigRequestOverridesEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "env-model")
 	t.Setenv("RUNCODE_PROVIDER", "anthropic")

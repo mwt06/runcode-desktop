@@ -198,11 +198,18 @@ func (a *App) PassportTenants() ([]PassportTenant, error) {
 // 模型选择器与下次新建/恢复会话使用)。仅在通行证会话下更新 baseURL。
 func (a *App) SetActiveTenant(tenantID string) error {
 	tenantID = strings.TrimSpace(tenantID)
-	updateRawConfig(func(raw *StartSessionRequest) { raw.TenantID = tenantID })
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
+	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+		raw.TenantID = tenantID
+		return nil
+	}); err != nil {
+		return wireError(err)
+	}
 	pc := passportConfig()
 	a.mu.Lock()
 	a.passportTenant = tenantID
-	if a.config.Provider == "openai" && strings.HasPrefix(a.config.BaseURL, pc.BridgeBaseURL) {
+	if a.configPassport {
 		a.config.BaseURL = pc.BridgeBaseURL + tenantPathPrefix(tenantID) + "/v1"
 	}
 	a.mu.Unlock()
@@ -224,6 +231,9 @@ func (a *App) SessionModels() ([]PassportModel, error) {
 	}
 	a.mu.Lock()
 	tid := a.passportTenant
+	if a.currentID != "" && a.livePassport {
+		tid = a.livePassportTenant
+	}
 	a.mu.Unlock()
 	return a.PassportModels(tid)
 }
@@ -365,9 +375,6 @@ func (a *App) applyPassport(cfg engine.Config, req StartSessionRequest) engine.C
 	cfg.TokenSource = a.tokens.Token
 	// 服务端 401(令牌过期/被拒)时强制刷新一次令牌后重试。
 	cfg.OnUnauthorized = a.tokens.ForceRefresh
-	a.mu.Lock()
-	a.passportTenant = strings.TrimSpace(req.TenantID)
-	a.mu.Unlock()
 	return cfg
 }
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wt68/runcode/tools/preview"
 	"gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
@@ -15,7 +16,6 @@ import (
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"
-	"github.com/wt68/runcode/tools/preview"
 )
 
 // Sentinel errors for the desktop's own preconditions; wireError maps them to
@@ -63,11 +63,10 @@ type App struct {
 	// never be reaped under the user).
 	mgr *host.Manager
 
-	// startMu serializes session lifecycle transitions (StartSession /
-	// NewSession / ResumeSession / SwitchWorkspace / SwitchModel-rebuild /
-	// CloseSession), preserving the desktop's "close the old session, then open
-	// the new one" atomicity. It is never held while a.mu is taken by another
-	// path, and never across anything but mgr lifecycle calls.
+	// startMu serializes session lifecycle and connection-setting transitions
+	// (including SaveSettings and SetActiveTenant), preserving both the desktop's
+	// single-session policy and agreement between persisted/next/live connection
+	// state. No path may hold a.mu while waiting for startMu.
 	startMu sync.Mutex
 
 	mu sync.Mutex
@@ -86,11 +85,19 @@ type App struct {
 	emit        func(event string, payload any)
 	pendingEmit func(event string, payload any)
 	// workspace is the directory of the active session, used to list/resume the
-	// workspace's saved sessions. config is the last-built configuration, reused
-	// (with a different Resume/SessionID) to open another session in the same
-	// workspace without re-collecting provider/model/credentials.
-	workspace string
-	config    engine.Config
+	// workspace's saved sessions. config is the configuration for the next session;
+	// normally it matches the live session, but Settings may change it without
+	// rebuilding that session. configPassport records its connection origin
+	// explicitly so a Bridge-looking custom URL is never treated as Passport.
+	workspace      string
+	config         engine.Config
+	configPassport bool
+	liveConfig     engine.Config
+	// livePassport/livePassportTenant describe the manager's currently open
+	// connection. They stay unchanged when Settings selects a tenant for the next
+	// session, keeping the in-chat model catalog aligned with actual request routing.
+	livePassport       bool
+	livePassportTenant string
 	// preview is the loopback static server for the active workspace, and
 	// previewURL its base URL (see startPreview/stopPreview in preview.go).
 	preview    *previewServer
@@ -116,7 +123,12 @@ type App struct {
 // and sequenced by the host (per-session seq space); process-level events are
 // enveloped by the App's own sink with an empty session id.
 func New(sink EventSink) *App {
-	a := &App{out: sink, sink: newEnvelopeSink(sink), edits: newEditStore()}
+	a := &App{
+		out:            sink,
+		sink:           newEnvelopeSink(sink),
+		edits:          newEditStore(),
+		passportTenant: strings.TrimSpace(loadRawConfig().TenantID),
+	}
 	a.mgr = host.NewManager(host.Options{
 		Build:     host.DefaultBuild,
 		Sink:      hostSinkAdapter{app: a},
@@ -241,6 +253,12 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 // StartSession opens (or reopens) the session for a workspace and returns its
 // display state. Any existing session is closed first.
 func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
+	originalReq := req
+	var err error
+	req, err = a.resolveCustomModelRequest(req)
+	if err != nil {
+		return SessionInfo{}, wireError(err)
+	}
 	cfg, err := buildConfig(req)
 	if err != nil {
 		return SessionInfo{}, wireError(err)
@@ -256,12 +274,13 @@ func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
 	a.mu.Lock()
 	a.workspace = cfg.CWD
 	a.mu.Unlock()
-	info, err := a.openSessionHeld(cfg)
+	isPassport := strings.EqualFold(strings.TrimSpace(req.Provider), "passport")
+	info, err := a.openSessionWithConnectionHeld(cfg, isPassport, req.TenantID)
 	if err != nil {
 		return SessionInfo{}, wireError(err)
 	}
-	// Persist the form values so the next launch prefills them.
-	saveConfig(req)
+	// Persist only the profile reference, never the resolved API key/Base URL copy.
+	saveConfig(customModelPersistenceRequest(originalReq, req))
 	return info, nil
 }
 
@@ -273,6 +292,13 @@ func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
 // restarted; on failure the previous session is already closed (matching the
 // pre-host buildAndSetLocked) and the recorded config stays unchanged.
 func (a *App) openSessionHeld(cfg engine.Config) (SessionInfo, error) {
+	return a.openSessionWithConnectionHeld(cfg, a.configPassport, a.passportTenant)
+}
+
+// openSessionWithConnectionHeld is openSessionHeld with explicit connection
+// identity. Callers that build a new connection pass its origin directly; callers
+// that reuse a.config use openSessionHeld and inherit the stored identity.
+func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, tenantID string) (SessionInfo, error) {
 	a.closeCurrentHeld()
 
 	// Refresh the web-tool proxy from the persisted setting so "生效于下个会话"
@@ -290,6 +316,15 @@ func (a *App) openSessionHeld(cfg engine.Config) (SessionInfo, error) {
 	a.currentID = id
 	a.workspace = cfg.CWD
 	a.config = cfg
+	a.configPassport = passport
+	a.liveConfig = cfg
+	a.livePassport = passport
+	if passport {
+		a.passportTenant = strings.TrimSpace(tenantID)
+		a.livePassportTenant = strings.TrimSpace(tenantID)
+	} else {
+		a.livePassportTenant = ""
+	}
 	a.turnActive = false
 	a.lastUserText = ""
 	a.emit = pendingEmit
@@ -512,38 +547,75 @@ func (a *App) SetPermissionMode(mode string) error {
 // next New/Resume session. It returns the (possibly updated) session status; an
 // empty status with nil error means the settings were saved with no live session.
 func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
 	a.mu.Lock()
 	ws := a.workspace
+	nextTenant := a.passportTenant
 	a.mu.Unlock()
 	if strings.TrimSpace(req.CWD) == "" {
 		req.CWD = ws
 	}
 
-	// Persist for next launch (carries the API key, written 0600 by saveConfig).
-	saveConfig(req)
+	// Connection selection is backend-owned: the settings renderer may hold an old
+	// initial request after an in-chat connection switch. Preserve the latest saved
+	// Passport/custom profile instead of allowing unrelated settings to restore it.
+	persisted := loadRawConfig()
+	if strings.TrimSpace(persisted.CustomModelName) != "" || strings.EqualFold(strings.TrimSpace(persisted.Provider), "passport") {
+		req.Provider = persisted.Provider
+		req.CustomModelName = persisted.CustomModelName
+		req.BaseURL = ""
+		req.APIKey = ""
+		req.AuthToken = ""
+		if strings.EqualFold(strings.TrimSpace(persisted.Provider), "passport") {
+			req.TenantID = nextTenant
+		}
+	}
+
+	// Resolve first so persistence can canonicalize the profile while still dropping
+	// its backend-only API key/Base URL copy.
+	resolvedReq, resolveErr := a.resolveCustomModelRequest(req)
+	if resolveErr != nil {
+		return SessionInfo{}, wireError(resolveErr)
+	}
+	saveConfig(customModelPersistenceRequest(req, resolvedReq))
 
 	// Rebuild the stored engine config so a subsequent New/Resume session adopts the
-	// new connection settings; the workspace stays put. applyPassport mirrors
-	// StartSession so a persisted provider:"passport" config keeps its Bridge
-	// wiring (BaseURL/TokenSource) instead of degrading to a literal "passport"
-	// provider the engine cannot build.
+	// new connection settings; the workspace stays put. Resolve a custom profile in
+	// the backend first, mirroring StartSession, so saving unrelated settings cannot
+	// replace its endpoint with blank fields. applyPassport keeps managed Bridge
+	// wiring instead of degrading to a literal "passport" provider.
 	if ws != "" {
-		if cfg, err := buildConfig(req); err == nil {
+		if cfg, err := buildConfig(resolvedReq); err == nil {
 			cfg.CWD = ws
-			cfg = a.applyPassport(cfg, req)
-			if strings.EqualFold(strings.TrimSpace(req.Provider), "passport") && !a.tokens.LoggedIn() {
+			cfg = a.applyPassport(cfg, resolvedReq)
+			isPassport := strings.EqualFold(strings.TrimSpace(resolvedReq.Provider), "passport")
+			if isPassport && !a.tokens.LoggedIn() {
 				return SessionInfo{}, wireError(errors.New("未登录通行证，请先登录后再选择平台模型"))
 			}
 			a.mu.Lock()
 			a.config = cfg
+			a.configPassport = isPassport
+			if isPassport {
+				a.passportTenant = strings.TrimSpace(resolvedReq.TenantID)
+			}
+			sameLiveConnection := a.currentID != "" && isPassport == a.livePassport
+			if sameLiveConnection && isPassport {
+				sameLiveConnection = strings.TrimSpace(resolvedReq.TenantID) == a.livePassportTenant
+			}
 			a.mu.Unlock()
+			if sameLiveConnection && strings.TrimSpace(req.CustomModelName) == "" {
+				if m := strings.TrimSpace(req.Model); m != "" {
+					_ = a.SetModel(m)
+					a.mu.Lock()
+					a.liveConfig.Model = m
+					a.mu.Unlock()
+				}
+			}
 		}
 	}
 
-	// Apply what the live session supports immediately.
-	if m := strings.TrimSpace(req.Model); m != "" {
-		_ = a.SetModel(m)
-	}
+	// Permission mode is connection-independent and can always be applied live.
 	if req.PermissionMode != "" {
 		_ = a.SetPermissionMode(req.PermissionMode)
 	}
@@ -588,25 +660,26 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 	defer a.startMu.Unlock()
 	a.mu.Lock()
 	id := a.currentID
-	cfg := a.config
+	cfg := a.liveConfig
 	busy := a.turnActive
-	tenant := a.passportTenant
+	livePassport := a.livePassport
+	liveTenant := a.livePassportTenant
+	nextTenant := a.passportTenant
 	a.mu.Unlock()
 	if id == "" {
 		return SessionInfo{}, wireError(errNoSession)
 	}
 	pc := passportConfig()
-	onBridge := cfg.Provider == "openai" && strings.HasPrefix(cfg.BaseURL, pc.BridgeBaseURL)
 
 	if kind == "custom" {
-		cm, ok := a.findCustomModel(name)
-		if !ok {
-			return SessionInfo{}, wireError(fmt.Errorf("自定义模型不存在: %s", name))
+		cm, err := a.resolveCustomModel(name)
+		if err != nil {
+			return SessionInfo{}, wireError(err)
 		}
 		if busy {
 			return SessionInfo{}, wireError(errBusy)
 		}
-		cfg.Provider = "openai"
+		cfg.Provider = normalizeCustomModelProvider(cm.Provider)
 		cfg.BaseURL = cm.BaseURL
 		cfg.APIKey = cm.APIKey
 		cfg.AuthToken = ""
@@ -615,17 +688,20 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 		cfg.TokenSource = nil
 		cfg.OnUnauthorized = nil
 		cfg.Model = cm.Model
-		return a.rebuildResumingHeld(cfg, id)
+		return a.rebuildResumingWithConnectionHeld(cfg, id, false, "")
 	}
 
-	// Platform (passport) model. Staying on the current bridge connection is just a
-	// model-id swap; no rebuild, no history reload.
-	if onBridge {
+	// Platform (passport) model. Staying on the current live Passport connection is
+	// just a model-id swap; no rebuild, no history reload.
+	if livePassport {
 		if err := a.mgr.SetModel(id, name); err != nil {
 			return SessionInfo{}, wireError(err)
 		}
 		a.mu.Lock()
-		a.config.Model = name
+		a.liveConfig.Model = name
+		if a.configPassport && nextTenant == liveTenant {
+			a.config.Model = name
+		}
 		a.mu.Unlock()
 		return a.Status()
 	}
@@ -638,24 +714,23 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 		return SessionInfo{}, wireError(errBusy)
 	}
 	cfg.Provider = "openai"
-	cfg.BaseURL = pc.BridgeBaseURL + tenantPathPrefix(tenant) + "/v1"
+	cfg.BaseURL = pc.BridgeBaseURL + tenantPathPrefix(nextTenant) + "/v1"
 	cfg.APIKey = ""
 	cfg.AuthToken = ""
 	cfg.TokenSource = a.tokens.Token
 	cfg.OnUnauthorized = a.tokens.ForceRefresh
 	cfg.Model = name
-	return a.rebuildResumingHeld(cfg, id)
+	return a.rebuildResumingWithConnectionHeld(cfg, id, true, nextTenant)
 }
 
-// rebuildResumingHeld rebuilds the session from cfg while resuming the current
-// conversation (resumeID), so a connection swap (model/tenant/endpoint change)
-// keeps history. The caller must hold startMu and have set cfg's
-// provider/endpoint/model fields.
-func (a *App) rebuildResumingHeld(cfg engine.Config, resumeID string) (SessionInfo, error) {
+// rebuildResumingWithConnectionHeld rebuilds the session from cfg while
+// resuming the current conversation. Explicit connection identity keeps custom
+// URLs and Passport routing distinct. The caller must hold startMu.
+func (a *App) rebuildResumingWithConnectionHeld(cfg engine.Config, resumeID string, passport bool, tenantID string) (SessionInfo, error) {
 	cfg.Resume = resumeID
 	cfg.Continue = false
 	cfg.SessionID = ""
-	info, err := a.openSessionHeld(cfg)
+	info, err := a.openSessionWithConnectionHeld(cfg, passport, tenantID)
 	if err != nil {
 		return SessionInfo{}, wireError(err)
 	}

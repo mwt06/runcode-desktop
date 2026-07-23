@@ -40,6 +40,7 @@ export type {
   ResumedBlock,
   ResumedSession,
   ResumedTool,
+  SaveCustomModelRequest,
   SessionInfo,
   SessionRenamed,
   SessionSummary,
@@ -61,13 +62,7 @@ export type {
 export type { Error as ProtocolError } from './protocol/types'
 export { Events, ToolEventTypes, Decisions, ErrCodes, ProtocolVersion } from './protocol/types'
 
-// PassportTenant: the wire type carries only id/name — the Go backend
-// (protocol.PassportTenant) has never sent parentId; the old handwritten
-// `parentId: string` was drift. The tenant-tree UI reads parentId and treats its
-// absence as "root", so it renders a flat list at runtime. Keep an optional
-// parentId here so that code keeps compiling with unchanged behavior.
-import type { PassportTenant as WirePassportTenant } from './protocol/types'
-export type PassportTenant = WirePassportTenant & { parentId?: string }
+export type { PassportTenant } from './protocol/types'
 
 // ---- events (generated; unwraps the Envelope exactly like the old helpers) ----
 export { onEvent, onEnvelope } from './protocol/events'

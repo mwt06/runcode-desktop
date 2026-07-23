@@ -54,7 +54,14 @@ func (a *App) LoadConfig() StartSessionRequest {
 	if err := json.Unmarshal(data, &req); err != nil {
 		return defaultRequest()
 	}
-	return unprotectRequestSecrets(req)
+	// Custom models are backend-owned records and may contain OS-protected keys.
+	// The renderer obtains their redacted summaries through ListCustomModels only.
+	req.CustomModels = nil
+	req.APIKey = ""
+	req.AuthToken = ""
+	req.APIKeyProtected = ""
+	req.AuthTokenProtected = ""
+	return req
 }
 
 // persistThinkingEffort updates only the thinking-effort field of the saved start
@@ -160,22 +167,25 @@ func loadRawConfig() StartSessionRequest {
 // writes the result back atomically, all under configMu. It is the only way to
 // change individual persisted fields (custom models, web proxy, tenant): callers
 // that did their own load→mutate→save would race other writers and lose updates.
-// The mutator manages its own field encryption where needed. Failures are
-// non-fatal, mirroring saveConfig.
-func updateRawConfig(mutate func(*StartSessionRequest)) {
+// Validation that depends on the current snapshot belongs in mutate; returning an
+// error aborts without writing. Persistence failures are returned so settings UIs
+// never report success for a change that did not reach disk.
+func updateRawConfig(mutate func(*StartSessionRequest) error) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 	cfg := loadRawConfig()
-	mutate(&cfg)
+	if err := mutate(&cfg); err != nil {
+		return err
+	}
 	path, err := desktopConfigPath()
 	if err != nil {
-		return
+		return err
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = writeFileAtomic(filepath.Dir(path), filepath.Base(path), data)
+	return writeFileAtomic(filepath.Dir(path), filepath.Base(path), data)
 }
 
 // mergeRecentWorkspaces promotes cwd to the front of the MRU list, de-duplicating

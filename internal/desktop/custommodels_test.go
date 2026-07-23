@@ -1,90 +1,287 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 func TestCustomModelsCRUDRoundTrip(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir()) // 隔离 desktop.json（Windows: os.UserConfigDir 读 APPDATA）
-
+	t.Setenv("APPDATA", t.TempDir())
 	app := New(&recordingSink{})
 	if got := app.ListCustomModels(); len(got) != 0 {
 		t.Fatalf("initial = %+v, want empty", got)
 	}
 
-	list, err := app.SaveCustomModel(CustomModel{Name: "本地 Ollama", Model: "qwen2.5-coder", BaseURL: "http://localhost:11434/v1", APIKey: "sk-local"})
+	list, err := app.SaveCustomModel(SaveCustomModelRequest{
+		Name: "本地 Ollama", Provider: " OpenAI ", Model: "qwen2.5-coder", BaseURL: " http://localhost:11434/v1 ",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 || list[0].Name != "本地 Ollama" {
+	if len(list) != 1 || list[0].Name != "本地 Ollama" || list[0].Provider != "openai" || list[0].BaseURL != "http://localhost:11434/v1" {
 		t.Fatalf("after save = %+v", list)
 	}
-
-	// 重新 List：Windows(DPAPI) 上 APIKey 应解密可读；无平台加密时（secret_other 的
-	// no-op）密钥按设计被丢弃——两种情况 protected 字段都必须已清空
-	got := app.ListCustomModels()
-	if len(got) != 1 || got[0].APIKeyProtected != "" {
-		t.Fatalf("list = %+v, want one entry with cleared protected field", got)
-	}
-	if _, ok := protectSecret("probe"); ok {
-		if got[0].APIKey != "sk-local" {
-			t.Fatalf("list = %+v, want decrypted key on this platform", got)
-		}
-	} else if got[0].APIKey != "" {
-		t.Fatalf("list = %+v, want dropped key on platform without secret protection", got)
+	if list[0].APIKey != "" || list[0].APIKeyProtected != "" || list[0].HasAPIKey {
+		t.Fatalf("list leaked or invented key state: %+v", list[0])
 	}
 
-	// 同名覆盖
-	list, err = app.SaveCustomModel(CustomModel{Name: "本地 Ollama", Model: "llama3", BaseURL: "http://localhost:11434/v1"})
+	list, err = app.SaveCustomModel(SaveCustomModelRequest{
+		OriginalName: "本地 Ollama", Name: "本地 Ollama", Provider: "anthropic", Model: "claude-test", BaseURL: "https://example.test",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 || list[0].Model != "llama3" {
-		t.Fatalf("after overwrite = %+v", list)
+	if len(list) != 1 || list[0].Provider != "anthropic" || list[0].Model != "claude-test" {
+		t.Fatalf("after edit = %+v", list)
 	}
 
-	if list = app.DeleteCustomModel("本地 Ollama"); len(list) != 0 {
+	list, err = app.DeleteCustomModel(" 本地 Ollama ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
 		t.Fatalf("after delete = %+v", list)
 	}
 }
 
-func TestSaveCustomModelValidates(t *testing.T) {
+func TestSaveCustomModelProviderAndInputValidation(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	app := New(&recordingSink{})
-	if _, err := app.SaveCustomModel(CustomModel{Name: "", Model: "m"}); err == nil {
-		t.Fatal("want error for empty name")
+	for _, tc := range []struct {
+		name string
+		req  SaveCustomModelRequest
+	}{
+		{name: "empty name", req: SaveCustomModelRequest{Name: "", Model: "m"}},
+		{name: "empty model", req: SaveCustomModelRequest{Name: "n", Model: ""}},
+		{name: "unknown provider", req: SaveCustomModelRequest{Name: "n", Provider: "azure", Model: "m"}},
+		{name: "replace and clear key", req: SaveCustomModelRequest{Name: "n", Model: "m", APIKey: "secret", ClearAPIKey: true}},
+		{name: "clear while creating", req: SaveCustomModelRequest{Name: "n", Model: "m", ClearAPIKey: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := app.SaveCustomModel(tc.req); err == nil {
+				t.Fatal("want error")
+			}
+		})
 	}
-	if _, err := app.SaveCustomModel(CustomModel{Name: "n", Model: ""}); err == nil {
-		t.Fatal("want error for empty model")
+	if got := app.ListCustomModels(); len(got) != 0 {
+		t.Fatalf("invalid saves changed storage: %+v", got)
 	}
 }
 
-func TestFindCustomModel(t *testing.T) {
+func TestSaveCustomModelRenamesAndRejectsConflict(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	app := New(&recordingSink{})
-	if _, err := app.SaveCustomModel(CustomModel{Name: "本地 Ollama", Model: "qwen2.5-coder", BaseURL: "http://localhost:11434/v1"}); err != nil {
+	for _, req := range []SaveCustomModelRequest{
+		{Name: "A", Model: "model-a"},
+		{Name: "B", Provider: "anthropic", Model: "model-b"},
+	} {
+		if _, err := app.SaveCustomModel(req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.CustomModelName = "A"
+		cfg.Provider = "openai"
+		cfg.Model = "model-a"
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := app.findCustomModel("  本地 Ollama  ") // 名称前后空白应被容错
-	if !ok || got.Model != "qwen2.5-coder" || got.BaseURL != "http://localhost:11434/v1" {
-		t.Fatalf("findCustomModel = %+v, ok=%v", got, ok)
+
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{OriginalName: "A", Name: "B", Model: "replacement"}); err == nil {
+		t.Fatal("want conflict when renaming A to existing B")
 	}
-	if _, ok := app.findCustomModel("不存在"); ok {
-		t.Fatal("want not found for unknown name")
+	list := app.ListCustomModels()
+	if len(list) != 2 || list[0].Name != "A" || list[0].Model != "model-a" || list[1].Name != "B" || list[1].Model != "model-b" {
+		t.Fatalf("conflicting rename changed records: %+v", list)
+	}
+
+	list, err := app.SaveCustomModel(SaveCustomModelRequest{OriginalName: "A", Name: "C", Provider: "anthropic", Model: "model-c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].Name != "C" || list[0].Provider != "anthropic" || list[1].Name != "B" {
+		t.Fatalf("successful rename = %+v", list)
+	}
+	if got := loadRawConfig().CustomModelName; got != "C" {
+		t.Fatalf("selected profile reference = %q, want C after rename", got)
+	}
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{OriginalName: "missing", Name: "D", Model: "m"}); err == nil {
+		t.Fatal("want stale edit to fail instead of creating")
+	}
+}
+
+func TestDeleteCustomModelClearsSelectedProfileReference(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "selected", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.CustomModelName = "selected"
+		cfg.Provider = "openai"
+		cfg.Model = "m"
+		cfg.BaseURL = "https://stale.invalid"
+		cfg.APIKeyProtected = "stale"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DeleteCustomModel("selected"); err != nil {
+		t.Fatal(err)
+	}
+	raw := loadRawConfig()
+	if raw.CustomModelName != "" || raw.Provider != "" || raw.Model != "" || raw.BaseURL != "" || raw.APIKeyProtected != "" {
+		t.Fatalf("deleted selected profile left stale connection fields: %+v", raw)
+	}
+}
+
+func TestSaveCustomModelSecretIntentAndRedaction(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+
+	// Seed an opaque protected value directly. Keep/clear semantics must not depend
+	// on this test platform having DPAPI available.
+	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.CustomModels = []CustomModel{{
+			Name: "secured", Provider: "openai", Model: "m", APIKeyProtected: "opaque-ciphertext",
+		}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list := app.ListCustomModels()
+	if len(list) != 1 || !list[0].HasAPIKey || list[0].APIKey != "" || list[0].APIKeyProtected != "" {
+		t.Fatalf("redacted list = %+v", list)
+	}
+
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{OriginalName: "secured", Name: "secured", Model: "m2"}); err != nil {
+		t.Fatal(err)
+	}
+	raw := loadRawConfig().CustomModels
+	if len(raw) != 1 || raw[0].APIKeyProtected != "opaque-ciphertext" {
+		t.Fatalf("blank edit did not preserve ciphertext: %+v", raw)
+	}
+
+	list, err := app.SaveCustomModel(SaveCustomModelRequest{OriginalName: "secured", Name: "secured", Model: "m2", ClearAPIKey: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].HasAPIKey || loadRawConfig().CustomModels[0].APIKeyProtected != "" {
+		t.Fatalf("clear key failed: list=%+v raw=%+v", list, loadRawConfig().CustomModels)
+	}
+
+	if _, ok := protectSecret("probe"); ok {
+		list, err = app.SaveCustomModel(SaveCustomModelRequest{OriginalName: "secured", Name: "secured", Model: "m2", APIKey: "new-secret"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !list[0].HasAPIKey || list[0].APIKey != "" || list[0].APIKeyProtected != "" {
+			t.Fatalf("replacement response leaked key: %+v", list[0])
+		}
+		resolved, err := app.resolveCustomModel("secured")
+		if err != nil || resolved.APIKey != "new-secret" {
+			t.Fatalf("resolved = %+v, err=%v", resolved, err)
+		}
+	}
+
+	path, err := desktopConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "new-secret") || strings.Contains(string(data), "originalName") || strings.Contains(string(data), "clearAPIKey") {
+		t.Fatalf("request-only/plaintext fields reached desktop.json: %s", data)
+	}
+}
+
+func TestListCustomModelsLegacyProviderDefaultsToOpenAI(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.CustomModels = []CustomModel{{Name: "legacy", Model: "m"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app := New(&recordingSink{})
+	list := app.ListCustomModels()
+	if len(list) != 1 || list[0].Provider != "openai" {
+		t.Fatalf("legacy list = %+v", list)
+	}
+}
+
+func TestLoadConfigDoesNotExposeCustomModelStorage(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.CustomModels = []CustomModel{{Name: "secured", Model: "m", APIKey: "legacy-plaintext", APIKeyProtected: "ciphertext"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := New(&recordingSink{}).LoadConfig()
+	if len(got.CustomModels) != 0 {
+		t.Fatalf("LoadConfig exposed backend-owned custom models: %+v", got.CustomModels)
+	}
+	if got.APIKey != "" || got.AuthToken != "" || got.APIKeyProtected != "" || got.AuthTokenProtected != "" {
+		t.Fatalf("LoadConfig exposed top-level credentials: %+v", got)
+	}
+}
+
+func TestCustomModelPersistenceRequestDropsExpandedCredentials(t *testing.T) {
+	original := StartSessionRequest{
+		CWD: "workspace", CustomModelName: " local ", Provider: "malicious", Model: "wrong",
+		BaseURL: "https://client.invalid", APIKey: "client-secret", AuthToken: "client-token",
+		APIKeyProtected: "client-protected", AuthTokenProtected: "client-auth-protected",
+	}
+	resolved := StartSessionRequest{
+		CWD: "workspace", CustomModelName: "local", Provider: "anthropic", Model: "claude",
+		BaseURL: "https://resolved.invalid", APIKey: "resolved-secret",
+	}
+	got := customModelPersistenceRequest(original, resolved)
+	if got.CustomModelName != "local" || got.Provider != "anthropic" || got.Model != "claude" {
+		t.Fatalf("identity = %+v, want canonical resolved profile", got)
+	}
+	if got.BaseURL != "" || got.APIKey != "" || got.AuthToken != "" || got.APIKeyProtected != "" || got.AuthTokenProtected != "" {
+		t.Fatalf("persistence request retained expanded credentials: %+v", got)
+	}
+}
+
+func TestResolveCustomModelRequestDoesNotExposeOrInheritCredentials(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	t.Setenv("ANTHROPIC_BASE_URL", "https://env.invalid")
+	t.Setenv("ANTHROPIC_API_KEY", "env-secret")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+	app := New(&recordingSink{})
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "local", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	req, err := app.resolveCustomModelRequest(StartSessionRequest{CWD: t.TempDir(), CustomModelName: " local "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := buildConfig(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "openai" || cfg.Model != "m" || cfg.BaseURL != "" || cfg.APIKey != "" || cfg.AuthToken != "" {
+		t.Fatalf("custom config inherited environment credentials: %+v", cfg)
 	}
 }
 
 func TestSwitchModelGuards(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	app := New(&recordingSink{})
-	// 空模型名：在取会话前就应报错。
 	if _, err := app.SwitchModel("platform", "   "); err == nil {
 		t.Fatal("want error for empty model name")
 	}
-	// 无会话：任何切换都应返回 no_session 结构化错误（wireError 包装 errNoSession）。
 	wantNoSession := func(err error, what string) {
 		t.Helper()
 		var pe *protocol.Error
@@ -96,4 +293,37 @@ func TestSwitchModelGuards(t *testing.T) {
 	wantNoSession(err, "SwitchModel without session")
 	_, err = app.SwitchModel("custom", "本地 Ollama")
 	wantNoSession(err, "SwitchModel custom without session")
+}
+
+func TestCustomModelStoredJSONShape(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "plain", Provider: "anthropic", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	path, err := desktopConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	models, ok := decoded["customModels"].([]any)
+	if !ok || len(models) != 1 {
+		t.Fatalf("customModels JSON = %#v", decoded["customModels"])
+	}
+	entry := models[0].(map[string]any)
+	if entry["provider"] != "anthropic" || entry["name"] != "plain" {
+		t.Fatalf("stored entry = %#v", entry)
+	}
+	for _, forbidden := range []string{"apiKey", "hasAPIKey", "originalName", "clearAPIKey"} {
+		if _, exists := entry[forbidden]; exists {
+			t.Fatalf("stored entry contains %s: %#v", forbidden, entry)
+		}
+	}
 }

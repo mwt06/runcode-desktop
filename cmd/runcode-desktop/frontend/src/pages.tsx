@@ -6,25 +6,32 @@ import loginBg from './assets/login-bg.jpg'
 import loginMascot from './assets/login-mascot.svg'
 import { Markdown } from './markdown'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
-import { FIELD_CLS, LABEL_CLS, ModelPickerPopover, Popover, SelectField, sourceLabel, type ModelOption } from './components'
+import { FIELD_CLS, LABEL_CLS, ModelPickerPopover, ModelSelect, Popover, sourceLabel, type ModelOption } from './components'
 import { shortenPath } from './paths'
+import { customModelProviderLabel } from './custom-models'
+import {
+  canAutoStartPassport,
+  createPassportAccountCoordinator,
+  initialPassportAccountSnapshot,
+  type PassportAccountCoordinator,
+} from './passport-account'
+import { CustomModelsSection } from './settings-page'
 import {
   listSkills, saveSkill, deleteSkill, importSkill,
   listAgents, saveAgent, deleteAgent, importAgent,
-  saveSettings, pickWorkspaceFolder,
+  pickWorkspaceFolder,
   listMCPServers, saveMCPServer, deleteMCPServer, setMCPServerEnabled,
   listTools, setToolEnabled, setAgentEnabled, setSkillEnabled, readProjectContext, saveProjectContext, readMemory,
   passportStatus, passportValidate, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
-  setActiveTenant, activeTenant,
-  listCustomModels, saveCustomModel, deleteCustomModel, sessionModels,
-  webProxy, setWebProxy,
+  activeTenant, setActiveTenant,
+  listCustomModels, sessionModels,
   onEvent, Events,
   type SkillInfo,
   type AgentInfo,
   type MCPServerInfo, type MCPServerInput,
   type ToolInfo, type ProjectContextInfo, type MemoryInfo,
-  type SessionInfo, type StartSessionRequest,
-  type PassportStatus, type PassportModel, type PassportTenant, type CustomModel,
+  type StartSessionRequest,
+  type PassportTenant, type CustomModel,
   errText,
 } from './bridge'
 
@@ -214,18 +221,15 @@ function AgentDetail({ agent, onBack, onChanged, onUse }: {
   const editable = isNew || (ag?.editable ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // 工具/模型的候选清单(进入详情页拉一次):工具来自会话工具目录,模型与设置页
-  // 同源(平台 + 自定义)。拉取失败保持空列表,两个下拉退化为「留空/自定义输入」。
+  // 工具/模型的候选清单(进入详情页拉一次)。子代理的 model 只是当前连接上的
+  // 模型 ID 覆盖，不能携带另一条自定义连接的 endpoint/密钥，因此这里只列平台模型。
   const [toolOptions, setToolOptions] = useState<ToolInfo[]>([])
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   useEffect(() => {
     listTools().then((l) => setToolOptions(l ?? [])).catch(() => {})
-    void Promise.all([sessionModels().catch(() => null), listCustomModels().catch(() => null)]).then(([platform, custom]) =>
-      setModelOptions([
-        ...(platform ?? []).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy })),
-        ...(custom ?? []).map((c): ModelOption => ({ kind: 'custom', id: c.model, label: c.name, sub: c.model })),
-      ]),
-    )
+    sessionModels()
+      .then((platform) => setModelOptions((platform ?? []).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy }))))
+      .catch(() => setModelOptions([]))
   }, [])
 
   async function save() {
@@ -531,315 +535,6 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
 // ModelSelect is the settings-page trigger around the shared ModelPickerPopover:
 // a FIELD_CLS-styled button showing the current value that opens the searchable
 // platform + custom model list. allowCustom / clearLabel pass straight through.
-function ModelSelect({ value, options, onPick, placeholder, allowCustom, clearLabel, disabled }: {
-  value: string
-  options: ModelOption[]
-  onPick: (id: string) => void
-  placeholder: string
-  allowCustom?: boolean
-  clearLabel?: string
-  disabled?: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
-        className={`${FIELD_CLS} w-full flex items-center text-left ${disabled ? '' : 'cursor-pointer hover:border-primary/60'} transition-colors`}
-      >
-        <span className={`flex-1 truncate ${value ? 'font-mono' : 'text-faint'}`}>{value || placeholder}</span>
-        <Icon name="chevron-down" size={16} className="text-faint flex-none ml-2" />
-      </button>
-      <ModelPickerPopover
-        open={open}
-        onClose={() => setOpen(false)}
-        placement="down-full"
-        className="max-h-[320px]"
-        options={options}
-        current={value}
-        allowCustom={allowCustom}
-        clearLabel={clearLabel}
-        onPick={onPick}
-      />
-    </div>
-  )
-}
-
-export function SettingsPage({ initial, info, onSaved }: { initial: Partial<StartSessionRequest>; info: SessionInfo | null; onSaved: (info: SessionInfo) => void }) {
-  // Model and permission mode prefer the live session (they can change at runtime);
-  // connection settings come from the saved config.
-  const [model, setModel] = useState(info?.model || initial.model || '')
-  const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
-  const [harmJudgeVotes, setHarmJudgeVotes] = useState(initial.harmJudgeVotes ?? 1)
-  const [permissionMode, setPermissionMode] = useState(info?.permissionMode || initial.permissionMode || 'interactive')
-  const [maxTokens, setMaxTokens] = useState(initial.maxTokens ? String(initial.maxTokens) : '')
-  const [maxContextTokens, setMaxContextTokens] = useState(initial.maxContextTokens ?? 128000)
-  const [maxHistoryMessages, setMaxHistoryMessages] = useState(initial.maxHistoryMessages ? String(initial.maxHistoryMessages) : '')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
-  // 自定义模型（直连接入点）在设置里集中管理；开始页模型选择器会列出它们。
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
-  const [cmName, setCmName] = useState('')
-  const [cmModel, setCmModel] = useState('')
-  const [cmBaseURL, setCmBaseURL] = useState('')
-  const [cmApiKey, setCmApiKey] = useState('')
-  // 联网工具(WebSearch/WebFetch)的代理，与模型出口无关。
-  const [proxy, setProxy] = useState('')
-  const [proxyMsg, setProxyMsg] = useState('')
-  useEffect(() => {
-    void (async () => {
-      try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
-      try { setProxy((await webProxy()) ?? '') } catch { /* ignore */ }
-    })()
-  }, [])
-  // 账号：登录态 + 租户切换。
-  const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
-  const [tenants, setTenants] = useState<PassportTenant[]>([])
-  const [tenantId, setTenantId] = useState('')
-  const [platformModels, setPlatformModels] = useState<PassportModel[]>([])
-  const [loggingIn, setLoggingIn] = useState(false)
-  const [acctMsg, setAcctMsg] = useState('')
-  const loadPlatformModels = async (tid: string) => {
-    if (!tid) { setPlatformModels([]); return }
-    try { setPlatformModels((await passportModels(tid)) ?? []) } catch { setPlatformModels([]) }
-  }
-  const refreshAccount = async () => {
-    try {
-      const st = await passportStatus()
-      setPassport(st)
-      if (st.loggedIn) {
-        setTenants((await passportTenants()) ?? [])
-        const tid = await activeTenant()
-        setTenantId(tid)
-        await loadPlatformModels(tid)
-      } else { setTenants([]); setPlatformModels([]) }
-    } catch { /* ignore */ }
-  }
-  useEffect(() => {
-    void refreshAccount()
-    return onEvent(Events.PassportChanged, () => void refreshAccount())
-  }, [])
-  const doAcctLogin = async (scheme: string) => {
-    setLoggingIn(true); setAcctMsg('')
-    try { await passportLogin(scheme); await refreshAccount() } catch (e) { setAcctMsg(errText(e)) } finally { setLoggingIn(false) }
-  }
-  const onSwitchTenant = async (tid: string) => {
-    setTenantId(tid); setAcctMsg('')
-    try { await setActiveTenant(tid); await loadPlatformModels(tid) } catch (e) { setAcctMsg(errText(e)) }
-  }
-  // The searchable model pickers (会话模型 + 判定模型) share the same candidate list:
-  // this tenant's platform models plus the local custom models.
-  const modelOpts: ModelOption[] = [
-    ...platformModels.map((m): ModelOption => ({ id: m.id, label: m.id, sub: m.ownedBy, kind: 'platform' })),
-    ...customModels.map((m): ModelOption => ({ id: m.model, label: m.name, sub: m.model, kind: 'custom' })),
-  ]
-
-  async function save() {
-    setSaving(true)
-    setSaved(false)
-    setError('')
-    try {
-      const i = await saveSettings({
-        cwd: info?.cwd ?? '',
-        model,
-        // provider/baseURL/apiKey 不在设置里编辑（通行证会话自动接线、自定义模型
-        // 各自带连接）；原样透传避免保存设置时改动会话接线。
-        provider: initial.provider ?? '',
-        baseURL: initial.baseURL ?? '',
-        apiKey: initial.apiKey ?? '',
-        permissionMode,
-        maxTokens: maxTokens.trim() ? parseInt(maxTokens, 10) || 0 : 0,
-        maxContextTokens,
-        maxHistoryMessages: maxHistoryMessages.trim() ? parseInt(maxHistoryMessages, 10) || 0 : 0,
-        harmJudgeModel,
-        harmJudgeVotes,
-        // Preserved (edited via the in-conversation picker, not this form) so saving
-        // connection settings does not silently reset the reasoning strength.
-        thinkingEffort: initial.thinkingEffort ?? '',
-        // 本表单不涉及的字段按 wire 零值发送 —— 与旧版直接省略这些键时 Go 端
-        // json 反序列化得到的零值完全一致（生成的 StartSessionRequest 为全量必填）。
-        tenantId: '',
-        authToken: '',
-        reasoningScenario: '',
-        resume: '',
-        continue: false,
-      })
-      if (i && i.model) onSaved(i)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2200)
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto px-[22px] py-7">
-      <div className="max-w-[640px] mx-auto flex flex-col gap-5">
-        <div>
-          <h2 className="m-0 text-[20px] font-bold tracking-tight">设置</h2>
-          <p className="mt-1 text-muted text-[13px]">模型与权限模式即时生效；连接设置在下次新建会话时生效。</p>
-        </div>
-
-        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
-          <div className="text-[13px] font-semibold text-ink">账号(通行证)</div>
-          {passport.loggedIn ? (
-            <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
-              <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
-              <button type="button" className="text-[12.5px] text-muted hover:text-red" onClick={() => { void passportLogout() }}>登出</button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin('OneOuchnPassport')}>
-                {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
-              </button>
-              <button type="button" className={`${BTN} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin('')}>
-                基座通行证登录
-              </button>
-              {loggingIn && <button type="button" className="text-[12px] text-muted" onClick={() => void passportCancelLogin()}>取消</button>}
-            </div>
-          )}
-          {passport.loggedIn && tenants.length > 0 && (
-            <label className={LABEL_CLS}>租户(切换后下次新建会话生效)
-              <SelectField value={tenantId} onChange={(v) => void onSwitchTenant(v)}>
-                {!tenants.some((t) => t.id === tenantId) && <option value={tenantId}>{tenantId || '(令牌自带租户)'}</option>}
-                {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}（{t.id}）</option>)}
-              </SelectField>
-            </label>
-          )}
-          {acctMsg && <div className="text-red text-[12.5px]">{acctMsg}</div>}
-        </section>
-
-        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
-          <div className="text-[13px] font-semibold text-ink">会话</div>
-          <div className={LABEL_CLS}>模型
-            <ModelSelect value={model} options={modelOpts} onPick={setModel} placeholder="选择或搜索模型…" allowCustom />
-          </div>
-          <label className={LABEL_CLS}>权限模式
-            <SelectField value={permissionMode} onChange={setPermissionMode}>
-              <option value="interactive">交互（逐项询问）</option>
-              <option value="judge">智能（模型审查命令）</option>
-              <option value="safe">安全（拒绝高危）</option>
-              <option value="flight">飞行（不审计，全部放行）</option>
-            </SelectField>
-          </label>
-          {permissionMode === 'flight' && (
-            <div className="flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5 text-[12.5px] text-red">
-              <span className="flex-none mt-px"><Icon name="shield" size={15} /></span>
-              <span>飞行模式会<b>放行一切操作</b>（含删除文件、sudo 等高危命令），不再询问也不做模型审查。仅在完全信任的环境使用。</span>
-            </div>
-          )}
-          <div className={LABEL_CLS}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
-            <ModelSelect value={harmJudgeModel} options={modelOpts} onPick={setHarmJudgeModel} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" allowCustom clearLabel="留空 = 默认独立模型" />
-          </div>
-          <label className={LABEL_CLS}>判定表决（多次独立判定取多数，更稳但更费 token）
-            <SelectField value={String(harmJudgeVotes)} onChange={(v) => setHarmJudgeVotes(parseInt(v, 10))}>
-              <option value="1">单次（默认）</option>
-              <option value="3">3 次取多数</option>
-              <option value="5">5 次取多数</option>
-            </SelectField>
-          </label>
-        </section>
-
-        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="text-[13px] font-semibold text-ink">自定义模型</div>
-            <span className="text-[11.5px] text-faint">直连接入点，开始页可选</span>
-          </div>
-          <p className="text-[12px] text-muted -mt-1.5">除通行证平台模型外，可在此添加自备的 OpenAI 兼容模型（各自带 Base URL 与密钥）。</p>
-          {customModels.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              {customModels.map((m) => (
-                <div key={m.name} className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2 text-[12.5px]">
-                  <span className="truncate">{m.name} <span className="text-muted">· {m.model}</span> <span className="text-faint font-mono text-[11px]">{m.baseURL}</span></span>
-                  <button type="button" className="text-muted hover:text-red flex-none ml-2" onClick={async () => setCustomModels((await deleteCustomModel(m.name)) ?? [])}>删除</button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line2 p-3">
-            <input className={FIELD_CLS} placeholder="显示名称（如 本地 Ollama）" value={cmName} onChange={(e) => setCmName(e.target.value)} />
-            <div className="grid grid-cols-2 gap-2">
-              <input className={FIELD_CLS} placeholder="模型 ID" value={cmModel} onChange={(e) => setCmModel(e.target.value)} />
-              <input className={FIELD_CLS} placeholder="Base URL（.../v1）" value={cmBaseURL} onChange={(e) => setCmBaseURL(e.target.value)} />
-            </div>
-            <input className={FIELD_CLS} type="password" placeholder="API 密钥（可空）" value={cmApiKey} onChange={(e) => setCmApiKey(e.target.value)} />
-            <button type="button" className={`${BTN} self-start px-5`} disabled={!cmName.trim() || !cmModel.trim()} onClick={async () => {
-              const list = await saveCustomModel({ name: cmName.trim(), model: cmModel.trim(), baseURL: cmBaseURL.trim(), apiKey: cmApiKey })
-              setCustomModels(list ?? []); setCmName(''); setCmModel(''); setCmBaseURL(''); setCmApiKey('')
-            }}>添加自定义模型</button>
-          </div>
-        </section>
-
-        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="text-[13px] font-semibold text-ink">联网工具代理</div>
-            <span className="text-[11.5px] text-faint">仅 WebSearch / WebFetch</span>
-          </div>
-          <p className="text-[12px] text-muted -mt-1.5">
-            联网搜索走 DuckDuckGo，直连不通时可在此填代理。<b>只影响联网工具</b>，不改变模型 API 与通行证的出口。留空为直连。
-          </p>
-          <div className="flex gap-2">
-            <input
-              className={`${FIELD_CLS} flex-1`}
-              placeholder="如 127.0.0.1:7890（可省略 http://，支持 socks5://）"
-              value={proxy}
-              onChange={(e) => { setProxy(e.target.value); setProxyMsg('') }}
-            />
-            <button type="button" className={`${BTN} px-5 flex-none`} onClick={async () => {
-              setProxyMsg('')
-              try {
-                const norm = await setWebProxy(proxy)
-                setProxy(norm ?? '')
-                setProxyMsg(norm ? `已保存：${norm}（新建会话后生效）` : '已清除，联网工具将直连')
-              } catch (e) {
-                setProxyMsg(errText(e))
-              }
-            }}>保存</button>
-          </div>
-          {proxyMsg && <div className="text-[12px] text-muted -mt-1">{proxyMsg}</div>}
-          <p className="text-[11.5px] text-faint -mt-1">
-            出于安全，联网工具始终拒绝访问内网/回环地址(如 127.0.0.1、192.168.*、169.254.169.254)，配了代理也一样。
-          </p>
-        </section>
-
-        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-[13px] shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="text-[13px] font-semibold text-ink">上下文长度控制</div>
-            <span className="text-[11.5px] text-faint">下次新建会话生效</span>
-          </div>
-          <label className={LABEL_CLS}>最大输出 Tokens<input className={FIELD_CLS} type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} placeholder="留空则用默认 16384" /></label>
-          <label className={LABEL_CLS}>上下文预算（超出后自动总结压缩较早对话；磁盘记录保持完整）
-            <SelectField value={String(maxContextTokens)} onChange={(v) => setMaxContextTokens(parseInt(v, 10))}>
-              <option value="0">关闭 · 不自动压缩</option>
-              <option value="32000">32K · 省 token</option>
-              <option value="128000">128K · 推荐</option>
-              <option value="200000">200K · 大窗口</option>
-            </SelectField>
-          </label>
-          <label className={LABEL_CLS}>历史消息上限（硬截断，仅保留最近 N 条；留空关闭）
-            <input className={FIELD_CLS} type="number" value={maxHistoryMessages} onChange={(e) => setMaxHistoryMessages(e.target.value)} placeholder="留空 = 不截断（推荐优先用上面的自动压缩）" />
-          </label>
-        </section>
-
-        <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-1.5 shadow-xs">
-          <div className="text-[13px] font-semibold text-ink">工作区</div>
-          <div className="font-mono text-[12.5px] text-muted break-all">{info?.cwd || '—'}</div>
-        </section>
-
-        {error && <div className="text-red text-[13px]">{error}</div>}
-        <div className="flex items-center gap-3 pb-2">
-          <button className={`${BTN} ${BTN_PRIMARY} px-7 py-2.5`} disabled={saving} onClick={save}>{saving ? '保存中…' : '保存设置'}</button>
-          {saved && <span className="text-green text-[13px]">✓ 已保存</span>}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // PERM_CHIP maps a permission outcome to its label + color. 'auto' is an allow the
 // smart mode grants without asking (workspace mutations); it reads green with an
@@ -1359,10 +1054,13 @@ export function MemoryPage() {
 
 export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: Partial<StartSessionRequest> }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
-  const [passport, setPassport] = useState<PassportStatus>({ loggedIn: false })
-  const [tenants, setTenants] = useState<PassportTenant[]>([])
-  const [tenantId, setTenantId] = useState(initial.tenantId ?? '')
-  const [platformModels, setPlatformModels] = useState<PassportModel[]>([])
+  const [account, setAccount] = useState(initialPassportAccountSnapshot)
+  const accountCoordinator = useRef<PassportAccountCoordinator | null>(null)
+  const passport = account.status
+  const tenants = account.tenants
+  const tenantId = account.tenantId
+  const platformModels = account.models
+  const eligibleTenantIds = new Set(account.eligibleTenants.map((tenant) => tenant.id))
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [loggingIn, setLoggingIn] = useState(false)
   const [passportError, setPassportError] = useState('')
@@ -1381,98 +1079,74 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     } catch { /* user cancelled the native picker */ }
   }
 
-  // loadModels 拉取指定租户的平台模型；失败必须显式提示（不静默清空）。
-  const loadModels = async (tid: string) => {
-    try {
-      setPlatformModels((await passportModels(tid)) ?? [])
-      setPassportError('')
-    } catch (e) {
-      setPlatformModels([])
-      setPassportError(`获取平台模型失败：${errText(e)}`)
-    }
-  }
-
-  // leafTenantIds 返回可选的末级租户 id 集合：任何被别的租户当作 parentId 的
-  // 节点都不是叶子（只能选最后一级）。parentId 里的 "SuperTenant"/"" 等非真实
-  // id 从集合里移除也无害。
-  const leafTenantIds = (list: PassportTenant[]) => {
-    const leaves = new Set(list.map((t) => t.id))
-    for (const t of list) if (t.parentId) leaves.delete(t.parentId)
-    return leaves
-  }
-
-  // loadModels 拉取指定租户的平台模型；失败必须显式提示（不静默清空）。
-  const doLoadModels = loadModels
-
-  // refreshPassport re-syncs login status, the tenant tree, the models for the
-  // selected leaf tenant, and the local custom models. If exactly one leaf
-  // tenant exists it is auto-selected; otherwise the user must pick a leaf
-  // before models load. Platform models require a login; custom models are local.
-  const refreshPassport = async () => {
-    try {
-      const st = await passportStatus()
-      setPassport(st)
-      if (st.loggedIn) {
-        let tid = tenantId
-        try {
-          const list = (await passportTenants()) ?? []
-          setTenants(list)
-          const leaves = leafTenantIds(list)
-          if (!leaves.has(tid)) tid = leaves.size === 1 ? [...leaves][0] : ''
-          setTenantId(tid)
-        } catch (e) {
-          setTenants([])
-          setPassportError(`获取租户列表失败：${errText(e)}`)
-          tid = ''
-        }
-        if (tid) await doLoadModels(tid)
-        else setPlatformModels([])
-      }
-    } catch { /* 登录状态读取失败：保持当前状态 */ }
-    try { setCustomModels((await listCustomModels()) ?? []) } catch { /* ignore */ }
-  }
   useEffect(() => {
     let alive = true
-    // Validate the persisted token against the server first (shows the loading
-    // gate); only then reveal login screen or form.
-    passportValidate()
-      .then((st) => {
-        if (!alive) return
-        setPassport(st)
-        if (st.loggedIn) void refreshPassport()
-      })
-      .catch(() => { /* keep not-logged-in default */ })
-      .finally(() => { if (alive) setValidating(false) })
-    const off = onEvent(Events.PassportChanged, (st) => {
-      setPassport(st)
-      if (!st.loggedIn) { setPlatformModels([]); setTenants([]); setTenantId(''); setModelChoice('') }
-      else void refreshPassport()
+    const coordinator = createPassportAccountCoordinator({
+      passportStatus,
+      passportTenants,
+      activeTenant,
+      setActiveTenant,
+      passportModels,
+      errorText: errText,
+    }, (next) => {
+      if (!alive) return
+      setAccount(next)
+      if (next.error) setPassportError(next.error)
+      else if (next.phase === 'ready' || next.phase === 'logged-out') setPassportError('')
+      if (next.phase === 'error' || next.phase === 'ready' || next.phase === 'logged-out') setValidating(false)
     })
-    return () => { alive = false; off() }
+    accountCoordinator.current = coordinator
+
+    // Custom profiles are local and remain usable without a Passport login.
+    listCustomModels().then((models) => {
+      if (alive) setCustomModels(models ?? [])
+    }).catch(() => {})
+
+    // Token validation and tenant reconciliation are one startup gate. A Passport
+    // session is not ready until its leaf tenant is persisted and its models loaded.
+    passportValidate()
+      .then((status) => coordinator.refresh(status))
+      .catch((e) => {
+        if (alive) {
+          setPassportError(`验证登录状态失败：${errText(e)}`)
+          setValidating(false)
+        }
+      })
+    const off = onEvent(Events.PassportChanged, (status) => {
+      if (!status.loggedIn) setModelChoice('')
+      void coordinator.refresh(status)
+    })
+    return () => {
+      alive = false
+      off()
+      coordinator.dispose()
+      accountCoordinator.current = null
+    }
   }, [])
 
-  // 用户选定末级租户：重拉该租户模型，清掉可能已失效的平台模型选择。
+  // 用户选择末级租户时，先持久化后端活动租户，再加载该租户模型。协调器会
+  // 拒绝父节点/未知 id，并防止较慢的旧请求覆盖新选择。
   const selectTenant = async (tid: string) => {
-    setTenantId(tid)
     if (modelChoice.startsWith('passport:')) setModelChoice('')
-    await doLoadModels(tid)
+    await accountCoordinator.current?.selectTenant(tid)
   }
 
   // scheme selects the upstream identity source: 'OneOuchnPassport' for 统一认证,
-  // '' for the base passport (基座通行证).
+  // '' for the base passport (基座通行证). PassportLogin emits PassportChanged;
+  // that event is the sole catalog refresh trigger, avoiding duplicate requests.
   const doLogin = async (scheme: string) => {
     setLoggingIn(true); setPassportError('')
     try {
       await passportLogin(scheme)
-      await refreshPassport()
     } catch (e) {
       setPassportError(errText(e))
     } finally { setLoggingIn(false) }
   }
 
   // buildRequest maps the selected model onto the wire request. A passport model
-  // needs its id + the selected tenant (backend resolves auth/base URL); a custom
-  // model resends its stored baseURL/apiKey. The session's permission mode and
+  // needs its id + the selected tenant; a custom model sends only its saved profile
+  // name so the backend resolves Base URL/key without exposing them to the renderer.
+  // The session's permission mode and
   // advanced knobs come from the saved settings (initial.*) — they are edited on
   // the Settings page, not here. Returns null when nothing valid is selected.
   const buildRequest = (): StartSessionRequest | null => {
@@ -1485,6 +1159,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       harmJudgeVotes: initial.harmJudgeVotes ?? 1,
       // 起始页不涉及的字段按 wire 零值发送 —— 与旧版直接省略这些键时 Go 端
       // json 反序列化得到的零值完全一致（生成的 StartSessionRequest 为全量必填）。
+      customModelName: '',
       tenantId: '',
       baseURL: '',
       apiKey: '',
@@ -1496,13 +1171,15 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       continue: false,
     }
     if (modelChoice.startsWith('passport:')) {
-      if (!passport.loggedIn || !tenantId) return null
-      return { ...base, provider: 'passport', model: modelChoice.slice('passport:'.length), tenantId }
+      const selectedModel = modelChoice.slice('passport:'.length)
+      if (account.phase !== 'ready' || !passport.loggedIn || !eligibleTenantIds.has(tenantId)) return null
+      if (!platformModels.some((model) => model.id === selectedModel)) return null
+      return { ...base, provider: 'passport', model: selectedModel, tenantId }
     }
     if (modelChoice.startsWith('custom:')) {
       const cm = customModels.find((m) => `custom:${m.name}` === modelChoice)
       if (!cm) return null
-      return { ...base, provider: 'openai', model: cm.model, baseURL: cm.baseURL, apiKey: cm.apiKey ?? '' }
+      return { ...base, provider: cm.provider || 'openai', model: cm.model, customModelName: cm.name }
     }
     return null
   }
@@ -1527,14 +1204,15 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const renderTenantNodes = (nodes: TenantNode[], depth: number): ReactNode[] =>
     nodes.flatMap((n): ReactNode[] => {
       const pad = { paddingLeft: `${8 + depth * 16}px` }
-      const leaf = n.children.length === 0
+      const leaf = eligibleTenantIds.has(n.t.id)
       const row = leaf ? (
         <button
           key={n.t.id}
           type="button"
+          disabled={account.phase === 'resolving' || starting}
           onClick={() => void selectTenant(n.t.id)}
           style={pad}
-          className={`flex items-center gap-2 w-full text-left pr-2 py-1.5 rounded-[7px] text-[13px] transition-colors ${tenantId === n.t.id ? 'bg-primarysoft text-primary font-medium' : 'hover:bg-surface2 text-ink'}`}
+          className={`flex items-center gap-2 w-full text-left pr-2 py-1.5 rounded-[7px] text-[13px] transition-colors disabled:opacity-60 ${tenantId === n.t.id ? 'bg-primarysoft text-primary font-medium' : 'hover:bg-surface2 text-ink'}`}
         >
           <span className={`w-[7px] h-[7px] rounded-full flex-none ${tenantId === n.t.id ? 'bg-primary' : 'bg-line2'}`} />
           <span className="truncate">{n.t.name}</span>
@@ -1545,22 +1223,21 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       return [row, ...renderTenantNodes(n.children, depth + 1)]
     })
 
-  // 已选过工作区（上次会话持久化了 cwd + 模型）且已登录 → 自动进入，
-  // 无需再次选择；只触发一次，启动失败(error)时回落到表单让用户处理。
+  // 自动进入只在首个完整的 Passport ready 快照后评估一次。这样单租户必须
+  // 已真正绑定且模型目录已返回，多租户无有效旧选择时也不会在用户手选后误触发。
+  const autoStartEvaluated = useRef(false)
   const autoStarted = useRef(false)
   const [autoEntering, setAutoEntering] = useState(false)
   useEffect(() => {
-    if (autoStarted.current || !passport.loggedIn || starting || error) return
-    if (!(initial.cwd ?? '').trim()) return
-    // 只有上次保存的就是通行证会话才自动进入；旧的手动配置一律显示表单，
-    // 让用户能选择租户 + 平台模型（否则会被旧配置直接带进会话，看不到选择界面）。
-    if (initial.provider !== 'passport') return
+    if (autoStarted.current || autoStartEvaluated.current || account.phase !== 'ready' || !passport.loggedIn) return
+    autoStartEvaluated.current = true
+    if (starting || error || !canAutoStartPassport(initial, account)) return
     const req = buildRequest()
-    if (!req || !(req.model ?? '').trim()) return
+    if (!req) return
     autoStarted.current = true
     setAutoEntering(true)
     onStart(req)
-  }, [passport.loggedIn])
+  }, [account, passport.loggedIn, starting, error])
 
   // 启动校验中：转圈的加载门，验完持久化 token 再决定进登录还是表单。
   if (validating) {
@@ -1589,44 +1266,49 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     )
   }
 
-  // 未登录：整屏登录门——背景 + 吉祥物 + 标语 + 两个登录入口(统一认证 / 基座通行证)。
-  // 工作区/模型等表单只在登录成功后出现。
-  if (!passport.loggedIn) {
+  // 未登录且没有本地自定义模型时显示登录门；已有直连配置不依赖 Passport，
+  // 可以继续进入工作区表单并直接启动。
+  if (!passport.loggedIn && customModels.length === 0) {
     return (
       <div
-        className="relative flex flex-col items-center justify-center flex-1 min-h-0 bg-cover bg-center"
+        className="relative flex-1 min-h-0 overflow-y-auto bg-cover bg-center px-6 py-10"
         style={{ backgroundImage: `url(${loginBg})` }}
       >
-        <img src={loginMascot} alt="" draggable={false} className="w-[190px] h-auto select-none pointer-events-none" />
-        <h1 className="mt-7 mb-10 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
-          智开AI，您的AI办公助手
-        </h1>
-        <div className="flex items-stretch gap-4">
-          <button
-            type="button"
-            disabled={loggingIn}
-            onClick={() => void doLogin('OneOuchnPassport')}
-            className="w-[230px] py-3.5 rounded-full text-white text-[16px] font-semibold tracking-[0.12em] shadow-[0_10px_24px_rgba(46,107,255,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-70 disabled:cursor-default"
-            style={{ background: 'linear-gradient(90deg, #2050d8 0%, #3f7bff 55%, #55a5ff 100%)' }}
-          >
-            {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
-          </button>
-          <button
-            type="button"
-            disabled={loggingIn}
-            onClick={() => void doLogin('')}
-            className="w-[230px] py-3.5 rounded-full text-[15px] font-semibold tracking-[0.12em] border-2 bg-white/80 hover:bg-white transition-colors disabled:opacity-70 disabled:cursor-default"
-            style={{ color: '#2050d8', borderColor: '#2050d8' }}
-          >
-            基座通行证登录
-          </button>
+        <div className="mx-auto flex w-full max-w-[640px] flex-col items-center">
+          <img src={loginMascot} alt="" draggable={false} className="w-[190px] h-auto select-none pointer-events-none" />
+          <h1 className="mt-7 mb-10 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
+            智开AI，您的AI办公助手
+          </h1>
+          <div className="flex items-stretch gap-4">
+            <button
+              type="button"
+              disabled={loggingIn}
+              onClick={() => void doLogin('OneOuchnPassport')}
+              className="w-[230px] py-3.5 rounded-full text-white text-[16px] font-semibold tracking-[0.12em] shadow-[0_10px_24px_rgba(46,107,255,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-70 disabled:cursor-default"
+              style={{ background: 'linear-gradient(90deg, #2050d8 0%, #3f7bff 55%, #55a5ff 100%)' }}
+            >
+              {loggingIn ? '等待浏览器登录…' : '统一认证登录'}
+            </button>
+            <button
+              type="button"
+              disabled={loggingIn}
+              onClick={() => void doLogin('')}
+              className="w-[230px] py-3.5 rounded-full text-[15px] font-semibold tracking-[0.12em] border-2 bg-white/80 hover:bg-white transition-colors disabled:opacity-70 disabled:cursor-default"
+              style={{ color: '#2050d8', borderColor: '#2050d8' }}
+            >
+              基座通行证登录
+            </button>
+          </div>
+          {loggingIn && (
+            <button type="button" className="mt-4 text-[13px] text-muted hover:text-ink" onClick={() => void passportCancelLogin()}>
+              取消登录
+            </button>
+          )}
+          {passportError && <div className="mt-4 max-w-[420px] text-center text-red text-[13px]">{passportError}</div>}
+          <div className="mt-8 w-full">
+            <CustomModelsSection models={customModels} onChanged={setCustomModels} />
+          </div>
         </div>
-        {loggingIn && (
-          <button type="button" className="mt-4 text-[13px] text-muted hover:text-ink" onClick={() => void passportCancelLogin()}>
-            取消登录
-          </button>
-        )}
-        {passportError && <div className="mt-4 max-w-[420px] text-center text-red text-[13px]">{passportError}</div>}
       </div>
     )
   }
@@ -1654,15 +1336,43 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             <p className="mt-[3px] text-muted text-[13px]">你的 AI 编程伙伴 · 打开一个工作区开始会话</p>
           </div>
         </div>
-        <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
-          <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
-          <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
-        </div>
-        {tenants.length > 1 && (
-          <div className={LABEL_CLS}>租户（只能选择末级，选定后可选模型）
-            <div className="max-h-[190px] overflow-y-auto rounded-[9px] border border-line2 bg-surface2 p-1.5 flex flex-col gap-0.5">
-              {renderTenantNodes(tenantTree, 0)}
-            </div>
+        {passport.loggedIn ? (
+          <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+            <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
+            <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+            <span className="text-[12.5px] text-muted">当前使用本地自定义模型；登录后还可选择平台模型。</span>
+            <button type="button" className="text-[12px] text-primary hover:text-primaryink" onClick={() => void doLogin('OneOuchnPassport')}>登录通行证</button>
+          </div>
+        )}
+        {passport.loggedIn && (
+          <div className={LABEL_CLS}>
+            <span>
+              租户
+              {account.eligibleTenants.length > 1 && <span className="font-normal text-muted">（只能选择末级，选定后可选模型）</span>}
+            </span>
+            {account.phase === 'resolving' && account.eligibleTenants.length === 0 ? (
+              <div className="rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5 text-[12.5px] text-muted">正在加载并绑定租户…</div>
+            ) : account.eligibleTenants.length === 0 ? (
+              <div className="rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5 text-[12.5px] text-muted">
+                {account.phase === 'error' ? '租户加载失败，请查看下方提示' : '当前账号没有可用的末级租户'}
+              </div>
+            ) : account.eligibleTenants.length === 1 ? (
+              <div className="flex items-center justify-between rounded-[9px] border border-primary/25 bg-primarysoft px-3 py-2.5">
+                <span className="min-w-0 truncate text-[13px] text-ink">
+                  {account.eligibleTenants[0].name} <span className="font-mono text-[11px] text-muted">（{account.eligibleTenants[0].id}）</span>
+                </span>
+                <span className={`ml-3 shrink-0 text-[11.5px] ${tenantId === account.eligibleTenants[0].id ? 'text-primary' : 'text-muted'}`}>
+                  {tenantId === account.eligibleTenants[0].id ? '✓ 已绑定' : account.phase === 'resolving' ? '正在绑定…' : '等待绑定'}
+                </span>
+              </div>
+            ) : (
+              <div className="max-h-[190px] overflow-y-auto rounded-[9px] border border-line2 bg-surface2 p-1.5 flex flex-col gap-0.5">
+                {renderTenantNodes(tenantTree, 0)}
+              </div>
+            )}
           </div>
         )}
         <div className={LABEL_CLS}>工作区目录
@@ -1694,10 +1404,10 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           <select
             className={FIELD_CLS}
             value={modelChoice}
-            disabled={!tenantId && customModels.length === 0}
+            disabled={account.phase === 'resolving' || (!tenantId && customModels.length === 0)}
             onChange={(e) => setModelChoice(e.target.value)}
           >
-            <option value="" disabled>{tenantId ? '选择一个模型…' : '请先在上方选择租户'}</option>
+            <option value="" disabled>{account.phase === 'resolving' ? '正在加载租户和模型…' : tenantId || customModels.length > 0 ? '选择一个模型…' : account.eligibleTenants.length === 0 ? '当前账号没有可用租户' : '请先在上方选择租户'}</option>
             {tenantId && platformModels.length > 0 && (
               <optgroup label="平台模型（通行证）">
                 {platformModels.map((m) => <option key={m.id} value={`passport:${m.id}`}>{m.id}（{m.ownedBy}）</option>)}
@@ -1705,7 +1415,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             )}
             {customModels.length > 0 && (
               <optgroup label="自定义模型">
-                {customModels.map((m) => <option key={m.name} value={`custom:${m.name}`}>{m.name}</option>)}
+                {customModels.map((m) => <option key={m.name} value={`custom:${m.name}`}>{m.name}（{customModelProviderLabel(m.provider)}）</option>)}
               </optgroup>
             )}
           </select>

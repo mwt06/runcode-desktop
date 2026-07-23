@@ -66,7 +66,7 @@ func TestConfigMutatorsConcurrentNoLostUpdate(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < n; i++ {
-			if _, err := app.SaveCustomModel(CustomModel{Name: fmt.Sprintf("m%02d", i), Model: "x"}); err != nil {
+			if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: fmt.Sprintf("m%02d", i), Model: "x"}); err != nil {
 				t.Error(err)
 				return
 			}

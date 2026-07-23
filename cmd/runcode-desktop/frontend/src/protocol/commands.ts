@@ -4,7 +4,7 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
-import type { AgentList, AgentSaveRequest, CompactResult, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
+import type { AgentList, AgentSaveRequest, CompactResult, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
 
 // app resolves the Wails binding for desktop.App lazily, so importing this
 // module before the runtime injects window.go is safe.
@@ -34,7 +34,7 @@ export function deleteAgent(name: string, scope: string): Promise<AgentList> {
   return app().DeleteAgent(name, scope);
 }
 
-// DeleteCustomModel 按名称删除，返回最新列表。
+// DeleteCustomModel 按名称删除，返回最新列表。未知名称是幂等 no-op。
 // kind: idempotent-set
 export function deleteCustomModel(name: string): Promise<CustomModel[] | null> {
   return app().DeleteCustomModel(name);
@@ -70,7 +70,7 @@ export function importAgent(scope: string): Promise<AgentList> {
   return app().ImportAgent(scope);
 }
 
-// ImportSkill opens a file picker for an existing SKILL.md and copies it into the given scope's skills directory under its declared name.
+// ImportSkill opens a folder picker (defaulting to ~/.claude/skills) and copies skills into the given scope's skills directory, each under its declared name with all its related files (references/, scripts/, assets/, …).
 // kind: trigger
 export function importSkill(scope: string): Promise<SkillList> {
   return app().ImportSkill(scope);
@@ -88,7 +88,7 @@ export function listAgents(): Promise<AgentList> {
   return app().ListAgents();
 }
 
-// ListCustomModels 返回解密后的自定义模型列表（给表单编辑/起会话用）。
+// ListCustomModels 返回脱敏后的自定义模型列表。连接密钥只在后端解析会话时 解密，前端仅知道是否已配置，不能读取明文或落盘密文。
 // kind: query
 export function listCustomModels(): Promise<CustomModel[] | null> {
   return app().ListCustomModels();
@@ -274,10 +274,10 @@ export function saveAgent(req: AgentSaveRequest): Promise<AgentList> {
   return app().SaveAgent(req);
 }
 
-// SaveCustomModel 新增或同名覆盖一个自定义模型，返回最新列表（已解密）。
+// SaveCustomModel 新增或修改一个自定义模型，返回最新的脱敏列表。编辑时 OriginalName 定位原记录；APIKey 留空保留旧密钥，只有 ClearAPIKey 才清除。
 // kind: idempotent-set
-export function saveCustomModel(m: CustomModel): Promise<CustomModel[] | null> {
-  return app().SaveCustomModel(m);
+export function saveCustomModel(req: SaveCustomModelRequest): Promise<CustomModel[] | null> {
+  return app().SaveCustomModel(req);
 }
 
 // SaveMCPServer creates or updates a server and persists it to config.toml.

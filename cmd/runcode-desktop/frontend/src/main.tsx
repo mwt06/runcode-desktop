@@ -6,7 +6,8 @@ import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import '@fontsource/ibm-plex-mono/600.css'
 import 'highlight.js/styles/github.css'
-import App, { ToolPreview, ThinkingPreview } from './App'
+import App from './App'
+import { ToolPreview, ThinkingPreview } from './chat-view'
 import './styles.css'
 
 const preview = new URLSearchParams(location.search).get('preview')

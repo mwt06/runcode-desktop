@@ -51,14 +51,35 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 		return engine.Config{}, fmt.Errorf("unsupported thinking effort %q (want off, low, medium, or high)", req.ThinkingEffort)
 	}
 
+	provider := firstNonEmpty(req.Provider, os.Getenv("RUNCODE_PROVIDER"), "anthropic")
+	baseURL := firstNonEmpty(req.BaseURL, os.Getenv("ANTHROPIC_BASE_URL"))
+	apiKey := firstNonEmpty(req.APIKey, os.Getenv("ANTHROPIC_API_KEY"))
+	authToken := firstNonEmpty(req.AuthToken, os.Getenv("ANTHROPIC_AUTH_TOKEN"))
+	if strings.TrimSpace(req.BaseURL) != "" {
+		// An explicit endpoint and inherited credentials must never come from different
+		// sources: a stale/old client could otherwise redirect process secrets to an
+		// arbitrary URL by supplying only BaseURL.
+		apiKey = req.APIKey
+		authToken = req.AuthToken
+	}
+	if strings.TrimSpace(req.CustomModelName) != "" {
+		// Custom profiles explicitly own their connection fields. Empty means the
+		// selected provider's default/no-auth behavior, never an unrelated process
+		// credential that could leak to a third-party endpoint.
+		provider = strings.TrimSpace(req.Provider)
+		baseURL = strings.TrimSpace(req.BaseURL)
+		apiKey = req.APIKey
+		authToken = ""
+	}
+
 	cfg := engine.Config{
-		Provider:       firstNonEmpty(req.Provider, os.Getenv("RUNCODE_PROVIDER"), "anthropic"),
+		Provider:       provider,
 		Model:          model,
 		HarmJudgeModel: firstNonEmpty(req.HarmJudgeModel, os.Getenv("RUNCODE_HARM_JUDGE_MODEL")),
 		HarmJudgeVotes: harmVotesFromRequest(req),
-		BaseURL:        firstNonEmpty(req.BaseURL, os.Getenv("ANTHROPIC_BASE_URL")),
-		APIKey:         firstNonEmpty(req.APIKey, os.Getenv("ANTHROPIC_API_KEY")),
-		AuthToken:      firstNonEmpty(req.AuthToken, os.Getenv("ANTHROPIC_AUTH_TOKEN")),
+		BaseURL:        baseURL,
+		APIKey:         apiKey,
+		AuthToken:      authToken,
 		CWD:            abs,
 		PermissionMode: mode,
 		// A coding agent often writes whole files in one tool call, and reasoning

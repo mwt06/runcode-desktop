@@ -157,6 +157,45 @@ export function SourceBadge({ source }: { source: string }) {
 // SelectField is a native <select> dressed to match FIELD_CLS: the browser arrow is
 // removed (appearance-none) and one shared chevron is overlaid at the right, so these
 // and the custom ModelSelect all read as the same dropdown.
+// ModelSelect is a searchable model field: a read-only trigger showing the current
+// value plus a ModelPickerPopover for fuzzy search. Shared by the settings page's
+// session/judge pickers and the per-agent model choice in the plugins manager.
+export function ModelSelect({ value, options, onPick, placeholder, allowCustom, clearLabel, disabled }: {
+  value: string
+  options: ModelOption[]
+  onPick: (id: string) => void
+  placeholder: string
+  allowCustom?: boolean
+  clearLabel?: string
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={`${FIELD_CLS} w-full flex items-center text-left ${disabled ? '' : 'cursor-pointer hover:border-primary/60'} transition-colors`}
+      >
+        <span className={`flex-1 truncate ${value ? 'font-mono' : 'text-faint'}`}>{value || placeholder}</span>
+        <Icon name="chevron-down" size={16} className="text-faint flex-none ml-2" />
+      </button>
+      <ModelPickerPopover
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="down-full"
+        className="max-h-[320px]"
+        options={options}
+        current={value}
+        allowCustom={allowCustom}
+        clearLabel={clearLabel}
+        onPick={onPick}
+      />
+    </div>
+  )
+}
+
 export function SelectField({ value, onChange, children, disabled }: {
   value: string
   onChange: (value: string) => void
