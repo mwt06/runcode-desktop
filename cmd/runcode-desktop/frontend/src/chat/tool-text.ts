@@ -2,6 +2,7 @@
 // 目标、失败原因、增删行数等。全是纯函数(不吃 React、不碰 DOM)，所以能直接单测，
 // 也让上层卡片组件只管排版。
 import { basename } from '@/core/paths'
+import { toolVerb } from '@/core/tool-catalog'
 import type { ToolEvent } from '@/core/bridge'
 import type { AgentNested } from './blocks'
 
@@ -27,21 +28,13 @@ export function toolInputObj(t: ToolEvent): Record<string, unknown> {
   return parseToolInput((t as ToolEvent & { input?: unknown }).input)
 }
 
-const VERB: Record<string, string> = {
-  Read: '读取文件', Write: '写入文件', Edit: '编辑', Delete: '删除', Glob: '查找文件', Grep: '搜索项目代码',
-  Bash: '运行命令', BashOutput: '后台输出', KillShell: '终止命令', WebFetch: '抓取网页',
-  WebSearch: '联网搜索', Wait: '等待', GetCurrentTime: '获取当前时间',
-  TodoWrite: '规划任务', Task: '委派子代理', Skill: '加载技能', Remember: '记录记忆', Analyze: '结构化分析',
-  open_preview: '预览',
-}
-
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
 // toolVerbTarget splits a tool call into its Chinese verb and its most useful target
 // (command / pattern / host / file), so a row can style the two differently (verb in
 // ink, target in mono).
 export function toolVerbTarget(t: ToolEvent): { verb: string; target: string } {
-  const verb = VERB[t.toolName || ''] || t.toolName || '工具'
+  const verb = toolVerb(t.toolName)
   const o = toolInputObj(t)
   let target = ''
   switch (t.toolName) {
