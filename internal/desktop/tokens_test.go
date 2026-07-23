@@ -22,7 +22,7 @@ func TestTokenReturnsValidAccessToken(t *testing.T) {
 
 func TestTokenRefreshesNearExpiry(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"AT2","refresh_token":"RT2","expires_in":3600}`))
 	}))
@@ -41,7 +41,7 @@ func TestTokenRefreshesNearExpiry(t *testing.T) {
 
 func TestTokenRefreshFailureLogsOut(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	}))
@@ -68,7 +68,7 @@ func TestTokenWithoutLoginErrors(t *testing.T) {
 
 func TestTokenEmptyAccessWithRefreshTriggersRefresh(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"AT2","refresh_token":"RT2","expires_in":3600}`))
 	}))
@@ -84,7 +84,7 @@ func TestTokenEmptyAccessWithRefreshTriggersRefresh(t *testing.T) {
 func TestTokenConcurrentCallersSingleRefresh(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	var calls int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&calls, 1)
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")

@@ -9,9 +9,9 @@ import (
 
 type fakeDialoger struct{ path string }
 
-func (f fakeDialoger) PickFile(string) (string, error)   { return f.path, nil }
+func (f fakeDialoger) PickFile(string) (string, error)           { return f.path, nil }
 func (f fakeDialoger) PickFolder(string, string) (string, error) { return f.path, nil }
-func (f fakeDialoger) PickImage(string) (string, error)  { return f.path, nil }
+func (f fakeDialoger) PickImage(string) (string, error)          { return f.path, nil }
 
 func writeSkillDir(t *testing.T, dir, name, body string) {
 	t.Helper()
@@ -46,7 +46,7 @@ func TestImportSkill(t *testing.T) {
 		t.Fatalf("imported = %#v", list.Skills)
 	}
 	// The related file must be copied alongside SKILL.md.
-	root, _ := a.skillRoot("project")
+	root, _ := a.resourceRoot(kindSkills, "project")
 	if data, err := os.ReadFile(filepath.Join(root, "imported-skill", "references", "note.md")); err != nil || string(data) != "ref data" {
 		t.Fatalf("related file not copied: data=%q err=%v", data, err)
 	}

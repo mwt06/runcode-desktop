@@ -1,20 +1,10 @@
 package desktop
 
 import (
-	"path/filepath"
 	"testing"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
-
-func mustAbs(t *testing.T, p string) string {
-	t.Helper()
-	abs, err := filepath.Abs(filepath.FromSlash(p))
-	if err != nil {
-		t.Fatalf("abs %q: %v", p, err)
-	}
-	return abs
-}
 
 func TestBuildConfigRequiresWorkspace(t *testing.T) {
 	t.Parallel()

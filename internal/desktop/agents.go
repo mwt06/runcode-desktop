@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 )
 
 // isBuiltinAgentName reports whether name is one of the compiled-in agents, which
@@ -20,44 +20,6 @@ func isBuiltinAgentName(name string) bool {
 		}
 	}
 	return false
-}
-
-// projectAgentsDir is the workspace directory that holds project sub-agents.
-func (a *App) projectAgentsDir() string {
-	a.mu.Lock()
-	ws := a.workspace
-	a.mu.Unlock()
-	if ws == "" {
-		return ""
-	}
-	return filepath.Join(ws, ".runcode", "agents")
-}
-
-// userAgentsDir is the per-user (global) sub-agents directory.
-func userAgentsDir() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "runcode", "agents")
-}
-
-// agentRoot resolves the directory for a scope ("project" or "user").
-func (a *App) agentRoot(scope string) (string, error) {
-	switch scope {
-	case "user":
-		root := userAgentsDir()
-		if root == "" {
-			return "", errors.New("无法定位用户配置目录")
-		}
-		return root, nil
-	default: // project
-		root := a.projectAgentsDir()
-		if root == "" {
-			return "", errNoSession
-		}
-		return root, nil
-	}
 }
 
 // ListAgents loads built-in, user, and project sub-agents (the same set the AI
@@ -93,12 +55,12 @@ func (a *App) ListAgents() AgentList {
 
 // SaveAgent writes a sub-agent's <name>.md to its scope's root and returns the list.
 func (a *App) SaveAgent(req AgentSaveRequest) (AgentList, error) {
-	root, err := a.agentRoot(req.Scope)
+	root, err := a.resourceRoot(kindAgents, req.Scope)
 	if err != nil {
 		return AgentList{}, wireError(err)
 	}
 	name := strings.TrimSpace(req.Name)
-	if !validSkillName(name) {
+	if !validResourceName(name) {
 		return AgentList{}, wireError(errors.New("子代理名只能包含字母、数字、- 或 _，且不超过 64 个字符"))
 	}
 	// 内置子代理不可就地修改（编辑/重命名内置本身）。允许在用户/项目级新建同名
@@ -135,7 +97,7 @@ func (a *App) SaveAgent(req AgentSaveRequest) (AgentList, error) {
 		return AgentList{}, wireError(fmt.Errorf("write agent file: %w", err))
 	}
 	// On rename, drop the old file.
-	if old := strings.TrimSpace(req.OriginalName); old != "" && old != name && validSkillName(old) {
+	if old := strings.TrimSpace(req.OriginalName); old != "" && old != name && validResourceName(old) {
 		_ = os.Remove(filepath.Join(root, old+".md"))
 	}
 	a.reloadSessionAgents()
@@ -144,12 +106,12 @@ func (a *App) SaveAgent(req AgentSaveRequest) (AgentList, error) {
 
 // DeleteAgent removes a sub-agent file in the given scope and returns the list.
 func (a *App) DeleteAgent(name, scope string) (AgentList, error) {
-	root, err := a.agentRoot(scope)
+	root, err := a.resourceRoot(kindAgents, scope)
 	if err != nil {
 		return AgentList{}, wireError(err)
 	}
 	name = strings.TrimSpace(name)
-	if !validSkillName(name) {
+	if !validResourceName(name) {
 		return AgentList{}, wireError(errors.New("无效的子代理名"))
 	}
 	if isBuiltinAgentName(name) {
@@ -166,7 +128,7 @@ func (a *App) DeleteAgent(name, scope string) (AgentList, error) {
 // given scope's agents directory under its declared name. Returns the unchanged
 // list when the user cancels.
 func (a *App) ImportAgent(scope string) (AgentList, error) {
-	root, err := a.agentRoot(scope)
+	root, err := a.resourceRoot(kindAgents, scope)
 	if err != nil {
 		return AgentList{}, wireError(err)
 	}
@@ -185,7 +147,7 @@ func (a *App) ImportAgent(scope string) (AgentList, error) {
 		return AgentList{}, wireError(fmt.Errorf("读取所选文件失败: %w", err))
 	}
 	name := frontmatterName(string(data))
-	if !validSkillName(name) {
+	if !validResourceName(name) {
 		return AgentList{}, wireError(errors.New("所选文件不是有效的子代理定义(frontmatter 缺少合法的 name)"))
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {

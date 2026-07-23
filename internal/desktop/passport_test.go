@@ -346,7 +346,7 @@ func TestStartSessionPassportRequiresLogin(t *testing.T) {
 func TestPassportStatusRetriesFetchMeAfterFailure(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	fail := true
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if fail {
 			w.WriteHeader(http.StatusBadGateway)
 			return

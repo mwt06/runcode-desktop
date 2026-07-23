@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )

@@ -156,6 +156,9 @@ func TestApprovalModalDeniesOnEsc(t *testing.T) {
 	if resp.Effect != permissions.EffectDeny {
 		t.Fatalf("resp = %#v, want deny", resp)
 	}
+	if model.approval != nil {
+		t.Fatal("approval should be cleared after esc")
+	}
 }
 
 func TestApprovalModalSelectionThenEnter(t *testing.T) {
@@ -175,6 +178,9 @@ func TestApprovalModalSelectionThenEnter(t *testing.T) {
 	if resp.Effect != permissions.EffectAllow || resp.Scope != permissions.ApprovalScopeSession {
 		t.Fatalf("resp = %#v, want allow session via selection", resp)
 	}
+	if model.approval != nil {
+		t.Fatal("approval should be cleared after resolution")
+	}
 }
 
 func TestApprovalModalResolvesAllowProject(t *testing.T) {
@@ -190,6 +196,9 @@ func TestApprovalModalResolvesAllowProject(t *testing.T) {
 	resp := <-reply
 	if resp.Effect != permissions.EffectAllow || resp.Scope != permissions.ApprovalScopeProject {
 		t.Fatalf("resp = %#v, want allow project", resp)
+	}
+	if model.approval != nil {
+		t.Fatal("approval should be cleared after resolution")
 	}
 }
 
@@ -211,6 +220,9 @@ func TestApprovalModalSelectionToProject(t *testing.T) {
 	resp := <-reply
 	if resp.Effect != permissions.EffectAllow || resp.Scope != permissions.ApprovalScopeProject {
 		t.Fatalf("resp = %#v, want allow project via selection", resp)
+	}
+	if model.approval != nil {
+		t.Fatal("approval should be cleared after resolution")
 	}
 }
 

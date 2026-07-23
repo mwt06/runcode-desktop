@@ -267,7 +267,8 @@ func (s *editStore) loadIndexLocked() {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	max := 0
+	// 已用过的最大数字 id;下一个 id 从它 +1 开始。命名避开内建的 max。
+	maxID := 0
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
@@ -288,11 +289,11 @@ func (s *editStore) loadIndexLocked() {
 			m.reverted = true
 		}
 		s.meta[row.SnapshotID] = m
-		if n, err := strconv.Atoi(row.SnapshotID); err == nil && n >= max {
-			max = n
+		if n, err := strconv.Atoi(row.SnapshotID); err == nil && n >= maxID {
+			maxID = n
 		}
 	}
-	s.nextID = max + 1
+	s.nextID = maxID + 1
 }
 
 // markRevertedLocked flips the reverted flag for snapshotID in memory and rewrites

@@ -66,10 +66,3 @@ func (h *promptHistory) newer() (text string, ok bool) {
 	}
 	return h.entries[h.pos], true
 }
-
-// reset returns navigation to the live line without recording anything, used
-// when the input is cleared by other means (e.g. /clear).
-func (h *promptHistory) reset() {
-	h.pos = len(h.entries)
-	h.draft = ""
-}

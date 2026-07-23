@@ -2,6 +2,8 @@ package ui
 
 import "context"
 
+// Service is everything the TUI needs from a session. It is the package's only
+// dependency on the engine, so tests drive the whole model with a fake.
 type Service interface {
 	RunTurn(ctx context.Context, userText string) (TurnResult, error)
 	Reset(ctx context.Context) error
@@ -19,6 +21,8 @@ type CompactResult struct {
 	After  int
 }
 
+// TurnResult is what one completed turn reports back: the final answer plus the
+// counters shown in the status line.
 type TurnResult struct {
 	Text                string
 	StopReason          string
@@ -30,6 +34,8 @@ type TurnResult struct {
 	ReasoningConfidence string
 }
 
+// DiffStats is the workspace's git churn for the status line. Available is false
+// when the workspace is not a git repo (then the other fields mean nothing).
 type DiffStats struct {
 	FilesChanged int
 	Insertions   int
@@ -37,6 +43,8 @@ type DiffStats struct {
 	Available    bool
 }
 
+// Status is the session snapshot the status line renders. It is re-read from the
+// Service rather than mirrored, so it never drifts from the live session.
 type Status struct {
 	Model            string
 	CWD              string

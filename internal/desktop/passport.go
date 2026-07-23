@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 )
 
 // Passport（通行证）登录：系统浏览器 + authorization_code + PKCE。

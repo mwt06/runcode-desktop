@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/cost"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"

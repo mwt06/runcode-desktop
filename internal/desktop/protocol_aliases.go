@@ -27,7 +27,11 @@ const (
 	EventPassportChanged   = protocol.EventPassportChanged
 )
 
-// Wire payload types, aliased from engine/protocol.
+// Wire payload types, aliased from engine/protocol. 块内的注释是分组标签,不是
+// 各别名的 godoc —— 每个标识符的文档在 protocol 包里,这里逐个复述只会造成两处
+// 各自漂移的说明。故对本块豁免 revive 的 exported 规则。
+//
+//nolint:revive // 再导出别名:文档以 protocol 包为准(见上)
 type (
 	// Session lifecycle (was types.go / sessions.go).
 	StartSessionRequest = protocol.StartSessionRequest

@@ -1,5 +1,8 @@
 package ui
 
+// 两类数据:显示用的对话结构(ChatMessage / ToolProgress …)与模型内部流转的
+// bubbletea 消息。前者是导出的——cmd/runcode 与测试都要构造它们。
+
 import (
 	"fmt"
 	"time"
@@ -9,8 +12,10 @@ import (
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
+// Role identifies who produced a transcript entry; it selects the label and color.
 type Role string
 
+// The transcript roles. RoleTool entries carry ToolProgress instead of text.
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
@@ -19,14 +24,18 @@ const (
 	RoleTool      Role = "tool"
 )
 
+// ToolStatus is a tool call's lifecycle state as shown in the transcript.
 type ToolStatus string
 
+// The tool lifecycle states.
 const (
 	ToolStatusRunning   ToolStatus = "running"
 	ToolStatusCompleted ToolStatus = "completed"
 	ToolStatusFailed    ToolStatus = "failed"
 )
 
+// ChatMessage is one transcript entry. A tool entry holds either a single Tool or
+// a batch of Tools (consecutive calls fold into one entry).
 type ChatMessage struct {
 	Role      Role
 	Text      string
@@ -35,16 +44,23 @@ type ChatMessage struct {
 	Tools     []*ToolProgress
 }
 
+// ToolFileReference is a workspace-relative file a tool touched, with how it was
+// used (read/write/matched).
 type ToolFileReference struct {
 	Path string
 	Kind string
 }
 
+// ToolOutputLine is one captured output line and the stream it came from
+// (stdout/stderr/diff_*), which selects its color.
 type ToolOutputLine struct {
 	Stream string
 	Text   string
 }
 
+// ToolProgress accumulates everything shown for one tool call. Totals may exceed
+// the retained slices: storage is capped (see tool_events.go) while the totals
+// keep reporting the true count.
 type ToolProgress struct {
 	ToolName        string
 	ToolUseID       string
@@ -99,16 +115,8 @@ type compactErrorMsg struct {
 	Err error
 }
 
-type closedMsg struct{}
-
-type closeErrorMsg struct {
-	Err error
-}
-
-type eventMsg struct {
-	Msg any
-}
-
+// ToolEvent wraps an engine tool event as a model message, for callers pushing
+// into Model.Events.
 func ToolEvent(event tool.Event) tea.Msg {
 	return toolEventMsg{Event: event}
 }
