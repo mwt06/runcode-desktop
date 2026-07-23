@@ -38,3 +38,24 @@
 - **仅 Go 侧快速编译检查**（不打包、不重建前端）：`go -C cmd/runcode-desktop build ./...`。
 - 跨平台：Wails **不能交叉编译**（各 OS WebView 不同——Windows WebView2 / Linux WebKitGTK / macOS WKWebView），需在目标平台原生构建；CI 见 `.github/workflows/desktop.yml`（Linux 加 `-tags webkit2_41 -clean`）。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
+
+#### 前端目录（`cmd/runcode-desktop/frontend/src`）
+
+跨目录一律用 `@/` 别名（`vite.config.ts` 的 `resolve.alias` + `tsconfig.json` 的 `paths`），同目录内保持 `./` 相对路径——这样挪文件不牵动导入方。分层自下而上，依赖只朝下：
+
+| 目录 | 职责 |
+| --- | --- |
+| `core/` | 后端通道与领域纯逻辑：`bridge`、生成的 `protocol/`、`paths`、`format`、`tool-catalog`（内置工具中文目录）、`custom-models`、`passport-account` |
+| `ui/` | 与业务无关的通用件：`tokens`（BTN/DRAG 等类名常量）、`icons`、`markdown`、`popover`、`fields`、`model-picker`、`badges`、`glyphs`、`toggle`、`confirm-dialog`… |
+| `hooks/` | 跨模块通用钩子：`use-stick-to-bottom`、`use-persistent-state` |
+| `chat/` | 对话渲染层：`blocks`（分组/合并纯逻辑）、`tool-text`（工具事件→中文，纯函数）+ 各类卡片组件 |
+| `preview/` | 预览：`classify`/`tabs`（纯逻辑）、`file-panel`/`diff-panel`/`pane`/`file-browser`，Office 查看器在 `viewers/` |
+| `composer/` | 输入区：`mention`（触发解析与候选排序，纯函数）、`mention-picker`、`toolbar`、`index` |
+| `pages/` | 整页：`plugins/`、`permissions`、`mcp`、`memory`、`start/`、`settings/` |
+| `session/` | 应用状态与副作用钩子：`use-conversation`（引擎事件订阅在此）、`use-session`、`use-permission-queue`、`use-preview-panel`、`use-workspace-files`、`use-auto-preview`、`use-toast` |
+| `shell/` | 外壳组件：`title-bar`、`status-bar`、`chat-pane`、`preview-side`、`permission-modal`、`sidebar` |
+| `dev/` | 样式预览页（`?preview=tools` / `?preview=thinking`），不进正常流程 |
+
+`App.tsx` 只负责把上述钩子接起来并按视图摆放 shell 组件，不放具体逻辑。改行为找 `session/`，改样子找 `shell/` 或对应页面。
+
+前端自检（在 `frontend/` 下）：`npm run typecheck`、`npx vitest run`、`npm run build`。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`preview/classify`、`preview/tabs`、`composer/mention`、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`）都有单测，新增纯函数请一并补测。
