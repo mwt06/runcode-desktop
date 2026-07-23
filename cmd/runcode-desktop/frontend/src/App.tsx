@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { Icon, Logo } from './icons'
+import { Icon, Logo } from '@/ui/icons'
 import {
   Events,
   onEvent,
@@ -32,7 +32,7 @@ import {
   type ToolEvent,
   type PlanSnapshot,
   errText,
-} from './bridge'
+} from '@/core/bridge'
 import {
   finalizeStreaming,
   finalizeTools,
@@ -42,33 +42,28 @@ import {
   resumedMatchedFiles,
   type Block,
   type AgentNested,
-} from './chat'
-import { BTN, BTN_PRIMARY, BTN_DANGER, DRAG, NO_DRAG } from './ui'
-import {
-  AskCard,
-  AgentTaskGroup,
-  AnalyzeCard,
-  BlockView,
-  BotRow,
-  ContextMeter,
-  ExecutionCard,
-  PlanChoiceCard,
-  PlanPill,
-  ReplyArtifacts,
-  diffStats,
-  hasDiff,
-  toolTargetPath,
-} from './chat-view'
-import { type ModelOption } from './components'
+} from '@/chat/blocks'
+import { BTN, BTN_PRIMARY, BTN_DANGER, DRAG, NO_DRAG } from '@/ui/tokens'
+import { diffStats, hasDiff, toolTargetPath } from '@/chat/tool-text'
+import { AgentTaskGroup } from '@/chat/agent-task'
+import { AnalyzeCard } from '@/chat/analyze-card'
+import { AskCard, PlanChoiceCard } from '@/chat/ask-card'
+import { BlockView } from '@/chat/block-view'
+import { BotRow } from '@/chat/bot-row'
+import { ContextMeter } from '@/chat/context-meter'
+import { ExecutionCard } from '@/chat/execution-card'
+import { PlanPill } from '@/chat/plan-pill'
+import { ReplyArtifacts } from '@/chat/reply-artifacts'
+import { type ModelOption } from '@/ui/model-picker'
 import { PluginsPage, PermissionsPage, MemoryPage, StartForm } from './pages'
 import { SettingsPage } from './settings-page'
 import { Sidebar } from './sidebar'
 import { Composer } from './composer'
-import { PreviewPane, FileBrowser } from './preview-panel'
-import { EditedCards } from './edited-card'
-import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath } from './preview'
-import { openTab, closeTab, type PreviewTab } from './preview-tabs'
-import { basename, shortenPath } from './paths'
+import { PreviewPane, FileBrowser } from '@/preview/panel'
+import { EditedCards } from '@/chat/edited-card'
+import { isPreviewable, toWorkspaceRel, clampPreviewWidth, lastPreviewablePath } from '@/preview/classify'
+import { openTab, closeTab, type PreviewTab } from '@/preview/tabs'
+import { basename, shortenPath } from '@/core/paths'
 
 let seq = 0
 const nextID = () => `b${++seq}`
@@ -929,7 +924,7 @@ export default function App() {
                 <div key={g.block.id}>
                   <BlockView block={g.block} onOpenFile={openArtifact} resolveFile={resolveWsFile} />
                   {g.block.kind === 'assistant' && (
-                    <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} cwd={info?.cwd ?? ''} onOpen={openArtifact} />
+                    <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} onOpen={openArtifact} />
                   )}
                 </div>
               ),

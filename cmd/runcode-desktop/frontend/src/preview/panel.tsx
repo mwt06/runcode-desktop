@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Markdown } from './markdown'
-import { readArtifact, readArtifactBytes, openExternal, resolveArtifactPath, copyText, reviewEdit, errText, type EditDiff } from './bridge'
-import { Icon } from './icons'
-import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, fileColor, filterFiles, buildFileTree, normalizeSheetGrid, type FileNode } from './preview'
-import { type PreviewTab, tabKey } from './preview-tabs'
-import { basename } from './paths'
+import { Markdown } from '@/ui/markdown'
+import { readArtifact, readArtifactBytes, openExternal, resolveArtifactPath, copyText, reviewEdit, errText, type EditDiff } from '@/core/bridge'
+import { Icon } from '@/ui/icons'
+import { classifyPreview, previewSrc, artifactKindLabel, kindIcon, fileColor, filterFiles, buildFileTree, normalizeSheetGrid, type FileNode } from './classify'
+import { type PreviewTab, tabKey } from './tabs'
+import { basename } from '@/core/paths'
 
 // fencedCode wraps source in a Markdown code fence long enough to survive any run
 // of backticks in the source, so the shared Markdown renderer (rehype-highlight)

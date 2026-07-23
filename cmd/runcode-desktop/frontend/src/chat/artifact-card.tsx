@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Icon } from './icons'
-import { classifyPreview, artifactKindLabel, kindIcon } from './preview'
-import { openExternal, revealInFolder, resolveArtifactPath, copyText } from './bridge'
-import { basename } from './paths'
-import { DiffStat, Popover } from './components'
+import { Icon } from '@/ui/icons'
+import { classifyPreview, artifactKindLabel, kindIcon } from '@/preview/classify'
+import { openExternal, revealInFolder, resolveArtifactPath, copyText } from '@/core/bridge'
+import { basename } from '@/core/paths'
+import { DiffStat } from '@/ui/badges'
+import { Popover } from '@/ui/popover'
 
 async function copyArtifactPath(relPath: string) {
   try {

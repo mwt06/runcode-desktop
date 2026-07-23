@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Icon } from './icons'
-import type { EditRecord } from './bridge'
-import { CollapsibleGroup, DiffStat } from './components'
-import { basename } from './paths'
+import { Icon } from '@/ui/icons'
+import type { EditRecord } from '@/core/bridge'
+import { CollapsibleGroup } from '@/ui/collapsible-group'
+import { DiffStat } from '@/ui/badges'
+import { basename } from '@/core/paths'
 
 // EditedCard is the "已编辑" card for one edited file: an edit icon, the filename,
 // the accurate +N -N, and 撤销 / 审核 actions. Undo uses an inline confirm (no

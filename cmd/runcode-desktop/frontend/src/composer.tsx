@@ -3,7 +3,7 @@
 // 选择器与附件等 UI 状态全部内化；会话状态的变更（切模式/切模型/发送/停止）一律
 // 经 on* 回调交还 App——本组件从不直接改会话状态。从 App.tsx 搬出，行为不变。
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { Icon } from './icons'
+import { Icon } from '@/ui/icons'
 import {
   listAgents,
   listCustomModels,
@@ -13,12 +13,14 @@ import {
   type AgentInfo,
   type SessionInfo,
   type SkillInfo,
-} from './bridge'
-import { ModelPickerPopover, Popover, SourceBadge, type ModelOption } from './components'
-import { GhostBtn } from './chat-view'
-import { classifyPreview, fileColor, kindIcon } from './preview'
-import { basename } from './paths'
-import { customModelOptionSub } from './custom-models'
+} from '@/core/bridge'
+import { ModelPickerPopover, type ModelOption } from '@/ui/model-picker'
+import { Popover } from '@/ui/popover'
+import { SourceBadge } from '@/ui/badges'
+import { GhostBtn } from '@/ui/ghost-btn'
+import { classifyPreview, fileColor, kindIcon } from '@/preview/classify'
+import { basename } from '@/core/paths'
+import { customModelOptionSub } from '@/core/custom-models'
 
 const MODE_LABEL: Record<string, string> = { safe: '安全模式', interactive: '交互模式', judge: '智能模式', flight: '飞行模式' }
 // "Thinking model" options for the in-conversation picker.

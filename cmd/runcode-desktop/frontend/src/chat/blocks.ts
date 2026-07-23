@@ -1,8 +1,8 @@
 // Pure conversation-model logic for the chat UI: the block/group data model and the
 // reducers that fold streaming tool events into it. Kept free of React so it can be
 // unit-tested directly (see chat.test.ts).
-import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord } from './bridge'
-import { isEditRecord } from './bridge'
+import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord } from '@/core/bridge'
+import { isEditRecord } from '@/core/bridge'
 
 // AgentNested holds a sub-agent's live activity, shown nested inside its Task card:
 // the streamed assistant text and the child tool events (merged by tool-use id).

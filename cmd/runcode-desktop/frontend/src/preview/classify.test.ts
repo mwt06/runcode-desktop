@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './preview'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './classify'
 
 describe('normalizeSheetGrid', () => {
   it('pads ragged rows to the widest row and coerces cells to strings', () => {

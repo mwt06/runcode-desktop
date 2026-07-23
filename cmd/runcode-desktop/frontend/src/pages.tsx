@@ -1,20 +1,23 @@
 // Full-screen pages rendered by the app shell: the skills / agents / settings
 // managers and the initial start form. Extracted from App.tsx to keep it focused.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Icon, Logo, TOOL_ICON } from './icons'
+import { Icon, Logo, TOOL_ICON } from '@/ui/icons'
 import loginBg from './assets/login-bg.jpg'
 import loginMascot from './assets/login-mascot.svg'
-import { Markdown } from './markdown'
-import { BTN, BTN_PRIMARY, BTN_DANGER } from './ui'
-import { FIELD_CLS, LABEL_CLS, ModelPickerPopover, ModelSelect, Popover, sourceLabel, type ModelOption } from './components'
-import { shortenPath } from './paths'
-import { customModelProviderLabel } from './custom-models'
+import { Markdown } from '@/ui/markdown'
+import { BTN, BTN_PRIMARY, BTN_DANGER } from '@/ui/tokens'
+import { FIELD_CLS, LABEL_CLS } from '@/ui/fields'
+import { ModelPickerPopover, ModelSelect, type ModelOption } from '@/ui/model-picker'
+import { Popover } from '@/ui/popover'
+import { sourceLabel } from '@/ui/badges'
+import { shortenPath } from '@/core/paths'
+import { customModelProviderLabel } from '@/core/custom-models'
 import {
   canAutoStartPassport,
   createPassportAccountCoordinator,
   initialPassportAccountSnapshot,
   type PassportAccountCoordinator,
-} from './passport-account'
+} from '@/core/passport-account'
 import { CustomModelsSection } from './settings-page'
 import {
   listSkills, saveSkill, deleteSkill, importSkill,
@@ -33,7 +36,7 @@ import {
   type StartSessionRequest,
   type PassportTenant, type CustomModel,
   errText,
-} from './bridge'
+} from '@/core/bridge'
 
 // 内置工具/子代理的中文显示映射。仅用于界面展示——发送给模型的工具定义、
 // 子代理名称与描述、以及 prompt 全部保持原样(英文),所以模型的工具调用与

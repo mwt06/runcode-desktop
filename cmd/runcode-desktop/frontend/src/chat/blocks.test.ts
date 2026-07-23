@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { mergeTool, groupBlocks, parsePlan, finalizeTools, resumedMatchedFiles, type Block } from './chat'
-import type { EditRecord, ToolEvent } from './bridge'
+import { mergeTool, groupBlocks, parsePlan, finalizeTools, resumedMatchedFiles, type Block } from './blocks'
+import type { EditRecord, ToolEvent } from '@/core/bridge'
 
 const ev = (o: Partial<ToolEvent>): ToolEvent => ({ type: 'started', ...o })
 const line = (text: string) => ({ stream: 'stdout', text })

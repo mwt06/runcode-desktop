@@ -4,9 +4,10 @@
 // 内化，只把共享数据（平台模型、自定义模型列表，二者合成模型候选）回流给父级。
 // 从 pages.tsx 搬出重组，行为不变。
 import { useEffect, useRef, useState } from 'react'
-import { Icon } from './icons'
-import { BTN, BTN_PRIMARY } from './ui'
-import { FIELD_CLS, LABEL_CLS, ModelSelect, SelectField, type ModelOption } from './components'
+import { Icon } from '@/ui/icons'
+import { BTN, BTN_PRIMARY } from '@/ui/tokens'
+import { FIELD_CLS, LABEL_CLS, SelectField } from '@/ui/fields'
+import { ModelSelect, type ModelOption } from '@/ui/model-picker'
 import {
   customModelDraftForEdit,
   emptyCustomModelDraft,
@@ -14,12 +15,12 @@ import {
   customModelProviderLabel,
   toCustomModelSaveRequest,
   type CustomModelDraft,
-} from './custom-models'
+} from '@/core/custom-models'
 import {
   createPassportAccountCoordinator,
   initialPassportAccountSnapshot,
   type PassportAccountCoordinator,
-} from './passport-account'
+} from '@/core/passport-account'
 import {
   saveSettings,
   passportStatus, passportLogin, passportCancelLogin, passportLogout, passportModels, passportTenants,
@@ -30,7 +31,7 @@ import {
   type SessionInfo, type StartSessionRequest,
   type PassportModel, type CustomModel,
   errText,
-} from './bridge'
+} from '@/core/bridge'
 
 // 统一的小节卡片外壳，保持原有视觉不变。
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {

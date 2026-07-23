@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { openTab, closeTab, tabKey, type PreviewTab } from './preview-tabs'
+import { openTab, closeTab, tabKey, type PreviewTab } from './tabs'
 
 const file = (relPath: string): PreviewTab => ({ kind: 'file', relPath })
 const diff = (snapshotId: string, relPath: string): PreviewTab => ({ kind: 'diff', snapshotId, relPath })

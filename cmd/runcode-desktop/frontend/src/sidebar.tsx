@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Icon } from './icons'
-import { ConfirmDialog, Popover } from './components'
-import { type SessionSummary } from './bridge'
+import { Icon } from '@/ui/icons'
+import { ConfirmDialog } from '@/ui/confirm-dialog'
+import { Popover } from '@/ui/popover'
+import { type SessionSummary } from '@/core/bridge'
 
 // Sidebar 是主界面左栏：新建对话、页面导航、最近对话列表与工作区切换器。
 // 全部数据与动作经 props 注入（自身只持有弹层/确认框的局部状态），与 App 的
