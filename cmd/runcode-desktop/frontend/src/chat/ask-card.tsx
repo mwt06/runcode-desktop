@@ -2,6 +2,7 @@
 // 「怎么继续」选择卡。都是对话流里就地交互，答完即定格。
 import { useState } from 'react'
 import { Icon } from '@/ui/icons'
+import { isComposingKey } from '@/ui/keys'
 import { type ToolEvent } from '@/core/bridge'
 import { askPayload } from './tool-text'
 
@@ -48,6 +49,8 @@ export function AskCard({ tool, busy, onAnswer }: { tool: ToolEvent; busy: boole
                 value={custom}
                 onChange={(e) => setCustom(e.target.value)}
                 onKeyDown={(e) => {
+                  // 输入法上屏用的 Enter 不是提交（见 ui/keys）。
+                  if (isComposingKey(e)) return
                   if (e.key === 'Enter') answer(custom)
                 }}
                 placeholder="或输入你的回答…"

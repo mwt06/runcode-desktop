@@ -4,6 +4,7 @@
 // 改会话状态。
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Icon } from '@/ui/icons'
+import { isComposingKey } from '@/ui/keys'
 import { basename } from '@/core/paths'
 import { pickImageAttachment, listAgents, listSkills, type AgentInfo, type SessionInfo, type SkillInfo } from '@/core/bridge'
 import { type ModelOption } from '@/ui/model-picker'
@@ -205,6 +206,9 @@ export function Composer({
           }
         }}
         onKeyDown={(e) => {
+          // 组字中的按键属于输入法，这里一律不拦：Enter 是上屏候选词而不是发送，
+          // 上下键是翻候选页而不是选 mention 候选项。
+          if (isComposingKey(e)) return
           if (mention && mentionCount > 0) {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
