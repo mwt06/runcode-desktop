@@ -4,10 +4,10 @@
 // 改会话状态。
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Icon } from '@/ui/icons'
-import { isComposingKey } from '@/ui/keys'
 import { basename } from '@/core/paths'
 import { pickImageAttachment, listAgents, listSkills, type AgentInfo, type SessionInfo, type SkillInfo } from '@/core/bridge'
 import { type ModelOption } from '@/ui/model-picker'
+import { composerKeyAction } from './keymap'
 import { applyMention, computeMention, matchByNameOrDesc, rankFileMatches, type MentionTrigger } from './mention'
 import { AgentPicker, FilePicker, SkillPicker } from './mention-picker'
 import { ComposerToolbar } from './toolbar'
@@ -194,7 +194,7 @@ export function Composer({
         ref={taRef}
         className="block w-full resize-none min-h-[46px] max-h-[200px] bg-surface text-ink border border-line2 border-b-0 rounded-t-[14px] px-4 py-3.5 outline-none placeholder:text-faint"
         value={input}
-        placeholder="继续对话，@ 技能，/ 子代理，# 文件，按 Enter 发送"
+        placeholder="继续对话，@ 技能，/ 子代理，# 文件；Enter 发送，Shift+Enter 换行"
         onChange={(e) => {
           onInputChange(e.target.value)
           syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
@@ -206,34 +206,24 @@ export function Composer({
           }
         }}
         onKeyDown={(e) => {
-          // 组字中的按键属于输入法，这里一律不拦：Enter 是上屏候选词而不是发送，
-          // 上下键是翻候选页而不是选 mention 候选项。
-          if (isComposingKey(e)) return
-          if (mention && mentionCount > 0) {
-            if (e.key === 'ArrowDown') {
-              e.preventDefault()
-              setMention((m) => (m ? { ...m, sel: Math.min(m.sel + 1, mentionCount - 1) } : m))
-              return
-            }
-            if (e.key === 'ArrowUp') {
-              e.preventDefault()
-              setMention((m) => (m ? { ...m, sel: Math.max(m.sel - 1, 0) } : m))
-              return
-            }
-            if (e.key === 'Enter' || e.key === 'Tab') {
-              e.preventDefault()
-              pickHighlighted(mention.sel)
-              return
-            }
-            if (e.key === 'Escape') {
-              e.preventDefault()
+          // 按键归属见 keymap（纯函数，含输入法与 Shift+Enter 的用例）。'default'
+          // 就是不拦，换行、光标移动等原生行为都走这条路。
+          const action = composerKeyAction(e, !!mention && mentionCount > 0)
+          if (action.kind === 'default') return
+          e.preventDefault()
+          switch (action.kind) {
+            case 'movePicker':
+              setMention((m) => (m ? { ...m, sel: Math.min(Math.max(m.sel + action.delta, 0), mentionCount - 1) } : m))
+              break
+            case 'pickHighlighted':
+              if (mention) pickHighlighted(mention.sel)
+              break
+            case 'closePicker':
               setMention(null)
-              return
-            }
-          }
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSend()
+              break
+            case 'send':
+              handleSend()
+              break
           }
         }}
       />
