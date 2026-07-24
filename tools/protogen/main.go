@@ -36,7 +36,9 @@ const (
 )
 
 // outRelDir is where the generated TypeScript lands, relative to the module root.
-var outRelDir = filepath.Join("cmd", "runcode-desktop", "frontend", "src", "protocol")
+// 前端按分层重组后,生成物随 bridge 一起归入 core/ —— 改前端目录时务必同步这里,
+// 否则 --check 门禁会对着一个不存在的旧路径报"漂移"。
+var outRelDir = filepath.Join("cmd", "runcode-desktop", "frontend", "src", "core", "protocol")
 
 func main() {
 	check := flag.Bool("check", false, "compare generated output with the files on disk; exit 1 on drift instead of writing")

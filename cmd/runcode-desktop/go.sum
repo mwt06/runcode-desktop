@@ -106,6 +106,8 @@ github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0 h1:p8Jov3dcCeuX5hYpLQR4kH16ptH7/grZGrPh5YWaXF8=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
+gitlab.ouc-online.com.cn/aibase/agentloop v0.4.0 h1:nHE5mLbYbVsR3YyNkLzwMkID2eJIAydwaGYheADQdgA=
+gitlab.ouc-online.com.cn/aibase/agentloop v0.4.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
 golang.org/x/crypto v0.48.0 h1:/VRzVqiRSggnhY7gNRxPauEQ5Drw9haKdM0jqfcCFts=
 golang.org/x/crypto v0.48.0/go.mod h1:r0kV5h3qnFPlQnBSrULhlsRfryS2pmewsg+XfMgkVos=
 golang.org/x/mod v0.33.0 h1:tHFzIWbBifEmbwtGz65eaWyGiGZatSrT9prnU8DbVL8=
