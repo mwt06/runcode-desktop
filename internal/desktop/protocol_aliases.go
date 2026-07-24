@@ -1,12 +1,21 @@
 package desktop
 
-import "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+import (
+	"github.com/wt68/runcode/internal/protocol"
+	hostproto "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+)
 
 // The desktop wire types — the request/response/event payloads serialized to
-// the frontend — live in engine/protocol, the single source of truth for the
-// two-end protocol. This file re-exports them under their original names so
-// the rest of this package, its tests, and the Wails bindings stay unchanged.
-// See the protocol package for each identifier's documentation.
+// the frontend — are defined in two packages, and this file re-exports both
+// under their original names so the rest of this package, its tests, and the
+// Wails bindings stay unchanged. See those packages for each identifier's
+// documentation.
+//
+// The split is by ownership: hostproto (the engine's protocol package) owns what
+// the engine's host package produces or consumes while a turn runs, and is
+// shared with cmd/runcode-server; internal/protocol owns what this shell invents
+// for its own features. Adding a settings form or a manager page belongs on the
+// left of that line, and must not require an engine release.
 //
 // The three payloads that embed engine types cross the wire as protocol DTOs
 // via the explicit conversions in protocol_convert.go: PermissionRequest
@@ -15,27 +24,34 @@ import "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 
 // Event names emitted to the frontend.
 const (
-	EventAssistantDelta    = protocol.EventAssistantDelta
-	EventAssistantThinking = protocol.EventAssistantThinking
-	EventToolEvent         = protocol.EventToolEvent
-	EventPermissionRequest = protocol.EventPermissionRequest
-	EventTurnEnd           = protocol.EventTurnEnd
-	EventTurnError         = protocol.EventTurnError
-	EventWarning           = protocol.EventWarning
+	EventAssistantDelta    = hostproto.EventAssistantDelta
+	EventAssistantThinking = hostproto.EventAssistantThinking
+	EventToolEvent         = hostproto.EventToolEvent
+	EventPermissionRequest = hostproto.EventPermissionRequest
+	EventTurnEnd           = hostproto.EventTurnEnd
+	EventTurnError         = hostproto.EventTurnError
+	EventWarning           = hostproto.EventWarning
 	EventSessionRenamed    = protocol.EventSessionRenamed
 	EventHarmAutoAllow     = protocol.EventHarmAutoAllow
 	EventPassportChanged   = protocol.EventPassportChanged
 )
 
-// Wire payload types, aliased from engine/protocol. 块内的注释是分组标签,不是
-// 各别名的 godoc —— 每个标识符的文档在 protocol 包里,这里逐个复述只会造成两处
-// 各自漂移的说明。故对本块豁免 revive 的 exported 规则。
+// Wire payload types. 块内的注释是分组标签,不是各别名的 godoc —— 每个标识符的
+// 文档在定义它的 protocol 包里,这里逐个复述只会造成两处各自漂移的说明。故对本块
+// 豁免 revive 的 exported 规则。
 //
-//nolint:revive // 再导出别名:文档以 protocol 包为准(见上)
+//nolint:revive // 再导出别名:文档以定义方的 protocol 包为准(见上)
 type (
-	// Session lifecycle (was types.go / sessions.go).
+	// Turn stream, session state and approval — the engine host's contract.
+	SessionInfo       = hostproto.SessionInfo
+	AssistantDelta    = hostproto.AssistantDelta
+	Warning           = hostproto.Warning
+	TurnError         = hostproto.TurnError
+	TurnEnd           = hostproto.TurnEnd
+	PermissionRequest = hostproto.PermissionRequest
+
+	// Session lifecycle beyond the host's own state.
 	StartSessionRequest = protocol.StartSessionRequest
-	SessionInfo         = protocol.SessionInfo
 	SessionRenamed      = protocol.SessionRenamed
 	CompactResult       = protocol.CompactResult
 	SessionSummary      = protocol.SessionSummary
@@ -43,51 +59,42 @@ type (
 	ResumedTool         = protocol.ResumedTool
 	ResumedSession      = protocol.ResumedSession
 
-	// Turn stream (was types.go).
-	AssistantDelta = protocol.AssistantDelta
-	Warning        = protocol.Warning
-	TurnError      = protocol.TurnError
-	TurnEnd        = protocol.TurnEnd
-
-	// Harm gate audit (was types.go).
+	// Harm gate audit.
 	HarmAutoAllow = protocol.HarmAutoAllow
 
-	// Tool catalog (was sessions.go).
+	// Tool catalog.
 	ToolInfo = protocol.ToolInfo
 
-	// MCP management (was mcp.go).
+	// MCP management.
 	MCPServerInfo  = protocol.MCPServerInfo
 	MCPServerInput = protocol.MCPServerInput
 
-	// Skill manager (was skills.go).
+	// Skill manager.
 	SkillInfo        = protocol.SkillInfo
 	SkillProblem     = protocol.SkillProblem
 	SkillList        = protocol.SkillList
 	SkillSaveRequest = protocol.SkillSaveRequest
 
-	// Sub-agent manager (was agents.go).
+	// Sub-agent manager.
 	AgentInfo        = protocol.AgentInfo
 	AgentProblem     = protocol.AgentProblem
 	AgentList        = protocol.AgentList
 	AgentSaveRequest = protocol.AgentSaveRequest
 
-	// Passport login (was passport.go).
+	// Passport login.
 	PassportStatus = protocol.PassportStatus
 	PassportModel  = protocol.PassportModel
 	PassportTenant = protocol.PassportTenant
 
-	// Custom direct-connection models (was custommodels.go).
+	// Custom direct-connection models.
 	CustomModel            = protocol.CustomModel
 	SaveCustomModelRequest = protocol.SaveCustomModelRequest
 
-	// Interactive approval (was types.go); the summary crosses as a wire DTO.
-	PermissionRequest = protocol.PermissionRequest
-
-	// Edit undo/review (was editstore.go).
+	// Edit undo/review.
 	EditRecord = protocol.EditRecord
 	EditDiff   = protocol.EditDiff
 
-	// Project context & memory (was context.go).
+	// Project context & memory.
 	ProjectContextInfo = protocol.ProjectContextInfo
 	MemoryInfo         = protocol.MemoryInfo
 )

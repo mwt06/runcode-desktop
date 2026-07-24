@@ -1,9 +1,14 @@
 // Command protogen generates the desktop frontend's TypeScript protocol layer
-// from the Go single sources of truth:
+// from the Go single sources of truth. The wire contract is split across two Go
+// packages by ownership — agentloop's protocol package (what the engine's host
+// produces or consumes during a turn, shared with cmd/runcode-server) and
+// internal/protocol (what this shell invents for its own features) — and they
+// are read here as one contract, sorted by name, so moving a type between them
+// leaves the generated output unchanged:
 //
-//   - agentloop's protocol package → types.ts (interfaces for every wire
-//     struct, plus the constant groups as const objects and literal-union types)
-//   - agentloop protocol's Event* constants → events.ts (the EventMap and typed
+//   - both protocol packages → types.ts (interfaces for every wire struct, plus
+//     the constant groups as const objects and literal-union types)
+//   - both packages' Event* constants → events.ts (the EventMap and typed
 //     subscription helpers over the Wails runtime event bus)
 //   - internal/desktop's App exported methods → commands.ts (typed wrappers
 //     for the Wails bindings, annotated with each command's CommandKind)
@@ -14,8 +19,9 @@
 //
 // Generation fails loudly when the sources drift from their metadata: an App
 // method absent from protocol.CommandKinds (or a stale map entry), an Event*
-// constant missing from the event→payload table, or an App signature that
-// leaks a non-protocol type onto the wire.
+// constant missing from the event→payload table, an App signature that leaks a
+// non-protocol type onto the wire, or the same exported name declared by both
+// protocol packages.
 package main
 
 import (
@@ -30,10 +36,18 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-const (
-	protocolPkgPath = "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
-	desktopPkgPath  = "github.com/wt68/runcode/internal/desktop"
-)
+// The wire contract is defined by two packages, generated as one: the engine's
+// protocol package owns what the host produces or consumes while a turn runs
+// (and is shared with cmd/runcode-server), and internal/protocol owns what the
+// desktop shell invents for its own features. Order matters only for error
+// messages; the emitted TypeScript is sorted by name, so a type moving between
+// the two packages does not move in the output.
+var protocolPkgPaths = []string{
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol",
+	"github.com/wt68/runcode/internal/protocol",
+}
+
+const desktopPkgPath = "github.com/wt68/runcode/internal/desktop"
 
 // outRelDir is where the generated TypeScript lands, relative to the module root.
 // 前端按分层重组后,生成物随 bridge 一起归入 core/ —— 改前端目录时务必同步这里,
@@ -55,28 +69,32 @@ func run(check bool) error {
 			packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo |
 			packages.NeedModule,
 	}
-	pkgs, err := packages.Load(cfg, protocolPkgPath, desktopPkgPath)
+	pkgs, err := packages.Load(cfg, append(append([]string{}, protocolPkgPaths...), desktopPkgPath)...)
 	if err != nil {
 		return fmt.Errorf("load packages: %w", err)
 	}
-	var protoPkg, deskPkg *packages.Package
+	byPath := map[string]*packages.Package{}
 	var loadErrs []string
 	for _, p := range pkgs {
 		for _, e := range p.Errors {
 			loadErrs = append(loadErrs, e.Error())
 		}
-		switch p.PkgPath {
-		case protocolPkgPath:
-			protoPkg = p
-		case desktopPkgPath:
-			deskPkg = p
-		}
+		byPath[p.PkgPath] = p
 	}
 	if len(loadErrs) > 0 {
 		return fmt.Errorf("packages failed to load:\n  %s", strings.Join(loadErrs, "\n  "))
 	}
-	if protoPkg == nil || deskPkg == nil {
-		return fmt.Errorf("load result is missing %s or %s", protocolPkgPath, desktopPkgPath)
+	protoPkgs := make([]*packages.Package, 0, len(protocolPkgPaths))
+	for _, path := range protocolPkgPaths {
+		p := byPath[path]
+		if p == nil {
+			return fmt.Errorf("load result is missing %s", path)
+		}
+		protoPkgs = append(protoPkgs, p)
+	}
+	deskPkg := byPath[desktopPkgPath]
+	if deskPkg == nil {
+		return fmt.Errorf("load result is missing %s", desktopPkgPath)
 	}
 	// The output anchors on the desktop package's module (the repo root, where
 	// the frontend lives) — NOT the protocol package's module, which is the
@@ -85,7 +103,7 @@ func run(check bool) error {
 		return fmt.Errorf("no module information for %s (protogen must run inside the runcode repo)", desktopPkgPath)
 	}
 
-	m, err := extract(protoPkg, deskPkg)
+	m, err := extract(protoPkgs, deskPkg)
 	if err != nil {
 		return err
 	}

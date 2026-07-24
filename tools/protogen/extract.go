@@ -14,9 +14,9 @@ import (
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
-// eventPayloads is the explicit event→payload table: each protocol Event*
-// constant mapped to the protocol type name of its payload. Adding an event
-// constant to agentloop's protocol without adding it here fails generation, so the
+// eventPayloads is the explicit event→payload table: each Event* constant of
+// either protocol package mapped to the protocol type name of its payload.
+// Adding an event constant without adding it here fails generation, so the
 // EventMap can never silently miss an event (and vice versa for stale rows).
 var eventPayloads = map[string]string{
 	"EventAssistantDelta":    "AssistantDelta",
@@ -158,41 +158,62 @@ type paramDef struct {
 	tsType string
 }
 
-func extract(protoPkg, deskPkg *packages.Package) (*model, error) {
+// extract builds the emit model from the wire-contract packages plus the App.
+// The protocol packages are read as one contract: their declarations are merged
+// and re-sorted by name, so which of the two a type lives in never shows up in
+// the generated TypeScript. A name declared in both is a conflict, not a merge.
+func extract(protoPkgs []*packages.Package, deskPkg *packages.Package) (*model, error) {
 	m := &model{}
-	docs := collectDocs(protoPkg)
-	mapper := &typeMapper{protocolPath: protoPkg.PkgPath}
-
-	scope := protoPkg.Types.Scope()
-	structNames := map[string]bool{}
-
-	// Structs → TS interfaces (scope names are already sorted).
-	for _, name := range scope.Names() {
-		obj := scope.Lookup(name)
-		tn, ok := obj.(*types.TypeName)
-		if !ok || !tn.Exported() || tn.IsAlias() {
-			continue
+	docs := map[string]string{}
+	mapper := &typeMapper{protocolPaths: map[string]bool{}}
+	for _, p := range protoPkgs {
+		mapper.protocolPaths[p.PkgPath] = true
+		for name, doc := range collectDocs(p) {
+			docs[name] = doc
 		}
-		st, ok := tn.Type().Underlying().(*types.Struct)
-		if !ok {
-			continue // non-struct named types (e.g. CommandKind) have no wire shape
-		}
-		def, err := extractStruct(name, st, docs[name], mapper)
-		if err != nil {
-			return nil, err
-		}
-		m.structs = append(m.structs, def)
-		structNames[name] = true
 	}
+	if err := checkNoDuplicateNames(protoPkgs); err != nil {
+		return nil, err
+	}
+
+	structNames := map[string]bool{}
+	consts := map[string]*types.Const{}
+	var constNames []string
+	for _, p := range protoPkgs {
+		scope := p.Types.Scope()
+		for _, name := range scope.Names() {
+			switch obj := scope.Lookup(name).(type) {
+			case *types.TypeName:
+				if !obj.Exported() || obj.IsAlias() {
+					continue
+				}
+				st, ok := obj.Type().Underlying().(*types.Struct)
+				if !ok {
+					continue // non-struct named types (e.g. CommandKind) have no wire shape
+				}
+				def, err := extractStruct(name, st, docs[name], mapper)
+				if err != nil {
+					return nil, err
+				}
+				m.structs = append(m.structs, def)
+				structNames[name] = true
+			case *types.Const:
+				if !obj.Exported() {
+					continue
+				}
+				consts[name] = obj
+				constNames = append(constNames, name)
+			}
+		}
+	}
+	sort.Slice(m.structs, func(i, j int) bool { return m.structs[i].name < m.structs[j].name })
+	sort.Strings(constNames)
 
 	// Constants → const groups (+ protocol.Version).
 	var eventConsts []string
 	var ungrouped []string
-	for _, name := range scope.Names() {
-		c, ok := scope.Lookup(name).(*types.Const)
-		if !ok || !c.Exported() {
-			continue
-		}
+	for _, name := range constNames {
+		c := consts[name]
 		if name == "Version" {
 			v, ok := constant.Int64Val(c.Val())
 			if !ok {
@@ -247,7 +268,7 @@ func extract(protoPkg, deskPkg *packages.Package) (*model, error) {
 	}
 
 	// Events: the explicit table must exactly cover the Event* constants.
-	events, err := extractEvents(scope, eventConsts, structNames)
+	events, err := extractEvents(consts, eventConsts, structNames)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +281,34 @@ func extract(protoPkg, deskPkg *packages.Package) (*model, error) {
 	}
 	m.commands = cmds
 	return m, nil
+}
+
+// checkNoDuplicateNames rejects an exported name declared by more than one
+// protocol package. The two are emitted into a single TypeScript module, so a
+// collision would silently drop one declaration; it also means a type was moved
+// between the packages without deleting the original.
+func checkNoDuplicateNames(protoPkgs []*packages.Package) error {
+	owner := map[string]string{}
+	var dups []string
+	for _, p := range protoPkgs {
+		scope := p.Types.Scope()
+		for _, name := range scope.Names() {
+			if obj := scope.Lookup(name); obj == nil || !obj.Exported() {
+				continue
+			}
+			if first, seen := owner[name]; seen {
+				dups = append(dups, fmt.Sprintf("%s (in %s and %s)", name, first, p.PkgPath))
+				continue
+			}
+			owner[name] = p.PkgPath
+		}
+	}
+	if len(dups) > 0 {
+		sort.Strings(dups)
+		return fmt.Errorf("the protocol packages declare the same exported name twice; they are emitted as one TypeScript module, so each name may only be defined once:\n  %s",
+			strings.Join(dups, "\n  "))
+	}
+	return nil
 }
 
 func groupOrder(prefix string) int {
@@ -373,7 +422,7 @@ func isStringEncodable(t types.Type) bool {
 	return b.Info()&(types.IsString|types.IsBoolean|types.IsInteger|types.IsFloat) != 0
 }
 
-func extractEvents(scope *types.Scope, eventConsts []string, structNames map[string]bool) ([]eventDef, error) {
+func extractEvents(consts map[string]*types.Const, eventConsts []string, structNames map[string]bool) ([]eventDef, error) {
 	constSet := map[string]bool{}
 	for _, n := range eventConsts {
 		constSet[n] = true
@@ -409,8 +458,7 @@ func extractEvents(scope *types.Scope, eventConsts []string, structNames map[str
 		if !structNames[payload] {
 			return nil, fmt.Errorf("event table maps %s to unknown protocol type %s", n, payload)
 		}
-		c := scope.Lookup(n).(*types.Const)
-		events = append(events, eventDef{wire: constant.StringVal(c.Val()), payload: payload})
+		events = append(events, eventDef{wire: constant.StringVal(consts[n].Val()), payload: payload})
 	}
 	sort.Slice(events, func(i, j int) bool { return events[i].wire < events[j].wire })
 	return events, nil
@@ -550,7 +598,9 @@ func isErrorType(t types.Type) bool {
 // slices/maps/pointers carry `| null` (true for host→client values, where Go
 // nil serializes as JSON null).
 type typeMapper struct {
-	protocolPath string
+	// protocolPaths is the set of packages whose types are wire types. Anything
+	// outside it on a wire signature is a leak and fails generation.
+	protocolPaths map[string]bool
 }
 
 func (m *typeMapper) ts(t types.Type, nullable bool) (string, error) {
@@ -560,7 +610,7 @@ func (m *typeMapper) ts(t types.Type, nullable bool) (string, error) {
 		if obj.Pkg() == nil {
 			return "", fmt.Errorf("universe type %s is not a wire type", obj.Name())
 		}
-		if obj.Pkg().Path() == m.protocolPath {
+		if m.protocolPaths[obj.Pkg().Path()] {
 			if _, ok := tt.Underlying().(*types.Struct); ok {
 				return obj.Name(), nil
 			}

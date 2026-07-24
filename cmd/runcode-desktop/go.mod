@@ -52,7 +52,7 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	gitlab.ouc-online.com.cn/aibase/agentloop v0.5.0 // indirect
+	gitlab.ouc-online.com.cn/aibase/agentloop v0.6.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
