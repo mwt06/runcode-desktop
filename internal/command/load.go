@@ -117,7 +117,7 @@ func loadCommand(root, path, fileName string, source Source, maxBody int) (Comma
 	if err != nil {
 		return Command{}, &Problem{Path: path, Reason: "cannot open command file"}
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(file, int64(maxBody)+1))
 	if err != nil {

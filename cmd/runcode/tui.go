@@ -67,7 +67,7 @@ func pickSessionForTUI(cfg chatConfig) (chosenID string, cancelled bool, err err
 	if err != nil {
 		return "", false, err
 	}
-	defer backend.Close(context.Background())
+	defer func() { _ = backend.Close(context.Background()) }()
 	infos, err := backend.List(context.Background())
 	if err != nil {
 		return "", false, err
@@ -100,7 +100,7 @@ func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
 	if err != nil {
 		return err
 	}
-	defer service.Close(ctx)
+	defer func() { _ = service.Close(ctx) }()
 
 	customCommands, commandProblems := loadCustomCommands(cfg.CWD, userConfigDir())
 	reportCommandProblems(os.Stderr, commandProblems)

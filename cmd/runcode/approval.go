@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -34,7 +35,7 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 			}
 		}
 		line, err := p.readLine(ctx)
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return permissions.ApprovalResponse{}, err
 		}
 		answer := strings.ToLower(strings.TrimSpace(line))
@@ -50,7 +51,7 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 		if answer == "" || answer == "n" || answer == "no" || answer == "deny" {
 			return permissions.ApprovalResponse{Effect: permissions.EffectDeny, Reason: permissions.ReasonApprovalDenied}, nil
 		}
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return permissions.ApprovalResponse{Effect: permissions.EffectDeny, Reason: permissions.ReasonApprovalDenied}, nil
 		}
 	}
@@ -79,17 +80,17 @@ func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 		strings.Join(summary.ResourceTypes, ","),
 		summary.ResourceScope,
 		summary.ResourceCount,
-		fallbackString(summary.MutationKind, "n/a"),
-		fallbackString(summary.ReadState, "n/a"),
+		orNA(summary.MutationKind),
+		orNA(summary.ReadState),
 		summary.TargetExists,
 	); err != nil {
 		return err
 	}
 	if summary.CommandSummary != "" {
 		if _, err := fmt.Fprintf(p.err, "Command category: %s\nCommand capabilities: %s\nCommand risk reasons: %s\nCommand summary: %s\n",
-			fallbackString(summary.CommandCategory, "n/a"),
-			fallbackString(strings.Join(summary.CommandCapabilities, ","), "n/a"),
-			fallbackString(strings.Join(summary.CommandRiskReasons, ","), "n/a"),
+			orNA(summary.CommandCategory),
+			orNA(strings.Join(summary.CommandCapabilities, ",")),
+			orNA(strings.Join(summary.CommandRiskReasons, ",")),
 			summary.CommandSummary,
 		); err != nil {
 			return err
@@ -99,9 +100,10 @@ func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 	return err
 }
 
-func fallbackString(value string, fallback string) string {
+// orNA 把空字段显示成 n/a —— 审批摘要里所有可缺字段共用这一个占位符。
+func orNA(value string) string {
 	if value == "" {
-		return fallback
+		return "n/a"
 	}
 	return value
 }

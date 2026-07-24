@@ -90,7 +90,7 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 	if err != nil {
 		return nil, wireError(err)
 	}
-	defer backend.Close(context.Background())
+	defer func() { _ = backend.Close(context.Background()) }()
 	infos, err := backend.List(context.Background())
 	if err != nil {
 		return nil, wireError(err)
@@ -124,7 +124,7 @@ func (a *App) DeleteSession(id string) error {
 	if err != nil {
 		return wireError(err)
 	}
-	defer backend.Close(context.Background())
+	defer func() { _ = backend.Close(context.Background()) }()
 	deleter, ok := backend.(sessions.Deleter)
 	if !ok {
 		return wireError(errors.New("当前会话存储不支持删除"))

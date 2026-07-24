@@ -117,7 +117,7 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
-	sessionID, err := stringFlagOrEnv(cmd, "session-id", "RUNCODE_SESSION_ID", "")
+	sessionID, err := stringFlagOrEnv(cmd, "session-id", "RUNCODE_SESSION_ID")
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
@@ -137,11 +137,11 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	if !ok {
 		return chatConfig{}, empty, fmt.Errorf("unsupported thinking effort %q (want off, low, medium, or high)", thinkingStr)
 	}
-	systemPrompt, err := stringFlagOrEnv(cmd, "system-prompt", "RUNCODE_SYSTEM_PROMPT", "")
+	systemPrompt, err := stringFlagOrEnv(cmd, "system-prompt", "RUNCODE_SYSTEM_PROMPT")
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
-	appendSystemPrompt, err := stringFlagOrEnv(cmd, "append-system-prompt", "RUNCODE_APPEND_SYSTEM_PROMPT", "")
+	appendSystemPrompt, err := stringFlagOrEnv(cmd, "append-system-prompt", "RUNCODE_APPEND_SYSTEM_PROMPT")
 	if err != nil {
 		return chatConfig{}, empty, err
 	}
@@ -237,14 +237,16 @@ func resolveChatConfig(cmd *cobra.Command) (chatConfig, settings.Resolved, error
 	}, resolved, nil
 }
 
-func stringFlagOrEnv(cmd *cobra.Command, name string, env string, fallback string) (string, error) {
+// stringFlagOrEnv resolves a string with precedence flag > env, defaulting to
+// empty. Values with a config-file layer go through stringFlagEnvFile instead.
+func stringFlagOrEnv(cmd *cobra.Command, name string, env string) (string, error) {
 	if cmd.Flags().Changed(name) {
 		return cmd.Flags().GetString(name)
 	}
 	if value := os.Getenv(env); value != "" {
 		return value, nil
 	}
-	return fallback, nil
+	return "", nil
 }
 
 // stringFlagEnvFile resolves a string with precedence flag > env > config file > default.
@@ -363,7 +365,7 @@ func credentialConfig(cmd *cobra.Command, fileAPIKey string, fileAuthToken strin
 }
 
 func cwdConfig(cmd *cobra.Command) (string, error) {
-	cwd, err := stringFlagOrEnv(cmd, "cwd", "RUNCODE_CWD", "")
+	cwd, err := stringFlagOrEnv(cmd, "cwd", "RUNCODE_CWD")
 	if err != nil {
 		return "", err
 	}

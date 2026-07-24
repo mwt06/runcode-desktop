@@ -8,7 +8,7 @@ import (
 	"context"
 	"sync"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/turn"

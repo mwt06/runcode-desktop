@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 

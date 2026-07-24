@@ -72,11 +72,13 @@ func openCommand(path string) *exec.Cmd {
 // shell-free (explorer/open/xdg-open invoked directly).
 func revealCommand(path string) *exec.Cmd {
 	switch runtime.GOOS {
+	// G204 在这里是误报,原因见上:二进制名是常量、不经 shell、path 已过
+	// resolveWithinWorkspace,拼进 argv 的都是惰性元素而非可解释的命令串。
 	case "windows":
-		return exec.Command("explorer", "/select,"+path)
+		return exec.Command("explorer", "/select,"+path) //nolint:gosec // G204
 	case "darwin":
-		return exec.Command("open", "-R", path)
+		return exec.Command("open", "-R", path) //nolint:gosec // G204
 	default:
-		return exec.Command("xdg-open", filepath.Dir(path))
+		return exec.Command("xdg-open", filepath.Dir(path)) //nolint:gosec // G204
 	}
 }

@@ -65,9 +65,9 @@ func reportCommandProblems(w io.Writer, problems []command.Problem) {
 	}
 	for _, p := range problems {
 		if p.Path == "" {
-			fmt.Fprintf(w, "warning: command loading: %s\n", p.Reason)
+			_, _ = fmt.Fprintf(w, "warning: command loading: %s\n", p.Reason)
 			continue
 		}
-		fmt.Fprintf(w, "warning: command %q skipped: %s\n", filepath.Base(p.Path), p.Reason)
+		_, _ = fmt.Fprintf(w, "warning: command %q skipped: %s\n", filepath.Base(p.Path), p.Reason)
 	}
 }

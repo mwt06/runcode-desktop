@@ -140,7 +140,7 @@ func referencedTypes(c commandDef) []string {
 	set := map[string]bool{}
 	collect := func(tsType string) {
 		for _, tok := range strings.FieldsFunc(tsType, func(r rune) bool {
-			return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+			return r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
 		}) {
 			switch tok {
 			case "string", "number", "boolean", "void", "null", "unknown", "Record":

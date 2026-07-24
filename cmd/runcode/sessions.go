@@ -96,7 +96,7 @@ func sessionsShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer backend.Close(context.Background())
+			defer func() { _ = backend.Close(context.Background()) }()
 			id, err := resolveSessionRef(cmd.Context(), backend, args[0])
 			if err != nil {
 				return err
@@ -119,15 +119,15 @@ func runSessionsList(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	defer backend.Close(context.Background())
+	defer func() { _ = backend.Close(context.Background()) }()
 	infos, err := backend.List(cmd.Context())
 	if err != nil {
 		return err
 	}
 	out := cmd.OutOrStdout()
 	if len(infos) == 0 {
-		fmt.Fprintln(out, "No saved sessions in this workspace.")
-		fmt.Fprintln(out, "Sessions are saved automatically; start one with `runcode chat` or `runcode tui`.")
+		_, _ = fmt.Fprintln(out, "No saved sessions in this workspace.")
+		_, _ = fmt.Fprintln(out, "Sessions are saved automatically; start one with `runcode chat` or `runcode tui`.")
 		return nil
 	}
 	for i, info := range infos {
@@ -138,10 +138,10 @@ func runSessionsList(cmd *cobra.Command) error {
 		if preview == "" {
 			preview = "(no user text)"
 		}
-		fmt.Fprintf(out, "[%d] %-22s %-9s %3d turn%s  %s\n",
+		_, _ = fmt.Fprintf(out, "[%d] %-22s %-9s %3d turn%s  %s\n",
 			i+1, info.ID, humanizeSince(time.Since(info.ModTime)), info.Turns, plural(info.Turns), preview)
 	}
-	fmt.Fprintln(out, "\nResume with `runcode chat --resume <id>` or `runcode tui --resume <id>`.")
+	_, _ = fmt.Fprintln(out, "\nResume with `runcode chat --resume <id>` or `runcode tui --resume <id>`.")
 	return nil
 }
 
@@ -173,37 +173,37 @@ func resolveSessionRef(ctx context.Context, backend sessions.Backend, ref string
 // and assistant text, tool calls noted by name, and tool results as a short
 // snippet. It is for human inspection, not a loss-less dump.
 func renderSessionHistory(w io.Writer, id string, history []llm.Message) {
-	fmt.Fprintf(w, "session %s — %d messages\n", id, len(history))
+	_, _ = fmt.Fprintf(w, "session %s — %d messages\n", id, len(history))
 	for _, m := range history {
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 		switch m.Role {
 		case llm.RoleUser:
 			text := strings.TrimSpace(llm.TextContent(m))
 			switch {
 			case text != "":
-				fmt.Fprintf(w, "user:\n%s\n", truncateRunes(text, showMaxTextRunes))
+				_, _ = fmt.Fprintf(w, "user:\n%s\n", truncateRunes(text, showMaxTextRunes))
 			case hasBlock(m, llm.ContentBlockTypeToolResult):
-				fmt.Fprintf(w, "user (tool results): %s\n", toolResultsSummary(m))
+				_, _ = fmt.Fprintf(w, "user (tool results): %s\n", toolResultsSummary(m))
 			case hasBlock(m, llm.ContentBlockTypeImage):
-				fmt.Fprintln(w, "user: (image)")
+				_, _ = fmt.Fprintln(w, "user: (image)")
 			default:
-				fmt.Fprintln(w, "user:")
+				_, _ = fmt.Fprintln(w, "user:")
 			}
 		case llm.RoleAssistant:
 			text := strings.TrimSpace(llm.TextContent(m))
 			if text != "" {
-				fmt.Fprintf(w, "assistant:\n%s\n", truncateRunes(text, showMaxTextRunes))
+				_, _ = fmt.Fprintf(w, "assistant:\n%s\n", truncateRunes(text, showMaxTextRunes))
 			}
 			for _, block := range m.Content {
 				if block.Type == llm.ContentBlockTypeToolUse {
-					fmt.Fprintf(w, "  → tool %s\n", block.Name)
+					_, _ = fmt.Fprintf(w, "  → tool %s\n", block.Name)
 				}
 			}
 			if text == "" && !hasBlock(m, llm.ContentBlockTypeToolUse) {
-				fmt.Fprintln(w, "assistant:")
+				_, _ = fmt.Fprintln(w, "assistant:")
 			}
 		case llm.RoleTool:
-			fmt.Fprintf(w, "tool result: %s\n", toolResultsSummary(m))
+			_, _ = fmt.Fprintf(w, "tool result: %s\n", toolResultsSummary(m))
 		default:
 			// system or other roles are not part of a saved conversation; skip.
 		}

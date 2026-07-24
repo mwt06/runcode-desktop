@@ -445,7 +445,7 @@ func extractCommands(deskPkg *packages.Package, mapper *typeMapper) ([]commandDe
 	}
 	if len(violations) > 0 {
 		sort.Strings(violations)
-		return nil, fmt.Errorf("App methods with signatures that cannot cross the wire (only protocol and basic types may appear):\n  %s",
+		return nil, fmt.Errorf("app methods with signatures that cannot cross the wire (only protocol and basic types may appear):\n  %s",
 			strings.Join(violations, "\n  "))
 	}
 

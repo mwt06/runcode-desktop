@@ -9,6 +9,7 @@ package main
 //     ——零第三方依赖（engine 自身的第三方依赖不在此列，它们随 engine 而来）。
 
 import (
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -24,7 +25,8 @@ func goList(t *testing.T, args ...string) []string {
 	cmd := exec.Command("go", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, ee.Stderr)
 		}
 		t.Fatalf("go %s: %v", strings.Join(args, " "), err)

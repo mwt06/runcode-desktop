@@ -6,6 +6,29 @@ run:
 
 linters:
   default: standard
+  settings:
+    gosec:
+      excludes:
+        - G104 # unhandled errors — duplicate of errcheck, which owns that check
+        # 变量路径开文件正是本仓外壳的产品形态:技能/子代理的 .md、工作区产物
+        # 预览、图片附件、会话记录,路径天然来自用户与模型。边界不靠"别用变量
+        # 路径"来守,而是在各自入口守住:工作区内的读写走
+        # workspacepath.go 的 resolveWithinWorkspace,资源名走 validResourceName
+        # (禁分隔符与点),会话 id 走 transcript.ValidateSessionID,其余落在引擎
+        # 自有的工作区或用户配置目录下。
+        - G304
+        # 目录建为 0755:技能/子代理/会话目录要允许用户自己用编辑器和文件管理器
+        # 进出(这是桌面应用的工作区,不是服务端私有状态);文件本身仍是 0600。
+        - G301
+  exclusions:
+    rules:
+      # 测试里的未查错(httptest handler 写响应、清理调用)与安全类告警(临时目录
+      # 权限、fixture 路径)属于可接受噪音;errcheck/gosec 的价值在生产路径。
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - bodyclose
   enable:
     - bodyclose
     - copyloopvar

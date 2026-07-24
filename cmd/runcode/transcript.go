@@ -76,8 +76,8 @@ func openTranscriptReader(cmd *cobra.Command) (reader transcript.Reader, ok bool
 }
 
 func transcriptHint(w io.Writer) {
-	fmt.Fprintln(w, "No SQLite transcript in this workspace.")
-	fmt.Fprintln(w, "Record one by running with `--transcript sqlite` (or set RUNCODE_TRANSCRIPT=sqlite / transcript=\"sqlite\" in config).")
+	_, _ = fmt.Fprintln(w, "No SQLite transcript in this workspace.")
+	_, _ = fmt.Fprintln(w, "Record one by running with `--transcript sqlite` (or set RUNCODE_TRANSCRIPT=sqlite / transcript=\"sqlite\" in config).")
 }
 
 func runTranscriptList(cmd *cobra.Command) error {
@@ -90,14 +90,14 @@ func runTranscriptList(cmd *cobra.Command) error {
 		transcriptHint(out)
 		return nil
 	}
-	defer rec.Close(context.Background())
+	defer func() { _ = rec.Close(context.Background()) }()
 
 	digests, err := rec.ListSessions()
 	if err != nil {
 		return err
 	}
 	if len(digests) == 0 {
-		fmt.Fprintln(out, "No turns recorded yet.")
+		_, _ = fmt.Fprintln(out, "No turns recorded yet.")
 		return nil
 	}
 	for _, d := range digests {
@@ -105,7 +105,7 @@ func runTranscriptList(cmd *cobra.Command) error {
 		if model == "" {
 			model = "?"
 		}
-		fmt.Fprintf(out, "%-22s %-9s %3d turn%s  %s\n",
+		_, _ = fmt.Fprintf(out, "%-22s %-9s %3d turn%s  %s\n",
 			d.SessionID, humanizeSince(time.Since(d.Last)), d.Turns, plural(d.Turns), model)
 	}
 	return nil
@@ -121,7 +121,7 @@ func runTranscriptSearch(cmd *cobra.Command, query string) error {
 		transcriptHint(out)
 		return nil
 	}
-	defer rec.Close(context.Background())
+	defer func() { _ = rec.Close(context.Background()) }()
 
 	session, _ := cmd.Flags().GetString("session")
 	limit, _ := cmd.Flags().GetInt("limit")
@@ -136,22 +136,22 @@ func runTranscriptSearch(cmd *cobra.Command, query string) error {
 		return err
 	}
 	if len(hits) == 0 {
-		fmt.Fprintf(out, "No turns match %q.\n", query)
+		_, _ = fmt.Fprintf(out, "No turns match %q.\n", query)
 		return nil
 	}
 	for _, h := range hits {
-		fmt.Fprintf(out, "%s  %s\n", h.SessionID, humanizeSince(time.Since(h.Time)))
+		_, _ = fmt.Fprintf(out, "%s  %s\n", h.SessionID, humanizeSince(time.Since(h.Time)))
 		if toolOnly {
 			// A tool search matched a command/name, so lead with the tool text.
 			if tl := previewLine(h.ToolText); tl != "" {
-				fmt.Fprintf(out, "  tool: %s\n", tl)
+				_, _ = fmt.Fprintf(out, "  tool: %s\n", tl)
 			}
 		}
 		if u := previewLine(h.UserText); u != "" {
-			fmt.Fprintf(out, "  user: %s\n", u)
+			_, _ = fmt.Fprintf(out, "  user: %s\n", u)
 		}
 		if a := previewLine(h.AssistantText); a != "" {
-			fmt.Fprintf(out, "  asst: %s\n", a)
+			_, _ = fmt.Fprintf(out, "  asst: %s\n", a)
 		}
 	}
 	return nil

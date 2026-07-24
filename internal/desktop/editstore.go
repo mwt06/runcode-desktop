@@ -252,11 +252,15 @@ func (s *editStore) appendIndexLocked(rec EditRecord) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	row := indexRow{rec.SnapshotID, rec.ToolUseID, rec.RelPath, rec.Added, rec.Removed, rec.Created, false}
 	b, _ := json.Marshal(row)
-	_, err = f.Write(append(b, '\n'))
-	return err
+	// 写路径:Close 的错误必须上报,不能由 defer 吞掉。落盘失败却报成功的话,
+	// "已编辑"卡片会引用一条并未持久化的索引行,重开会话后撤销/审核就找不到它。
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func (s *editStore) loadIndexLocked() {
@@ -264,7 +268,7 @@ func (s *editStore) loadIndexLocked() {
 	if err != nil {
 		return // no prior edits
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // 只读路径:关闭失败无可处置
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	// 已用过的最大数字 id;下一个 id 从它 +1 开始。命名避开内建的 max。
@@ -332,17 +336,19 @@ func writeFileAtomic(dir, name string, data []byte) error {
 		return err
 	}
 	tmpName := tmp.Name()
+	// 失败路径的清理一律显式丢弃:此时已有更根本的错误要上报,清理本身再失败
+	// 也无从处置。成功路径的 Close 错误则必须返回(见下)。
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := os.Rename(tmpName, filepath.Join(dir, name)); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return nil

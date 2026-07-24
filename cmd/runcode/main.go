@@ -38,7 +38,7 @@ This is the v0.1 alpha scaffold.`,
 	root.AddCommand(transcriptCmd())
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
@@ -48,7 +48,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintf(cmd.OutOrStdout(),
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"runcode %s\n  commit: %s\n  built:  %s\n  go:     %s/%s %s\n",
 				version, commit, buildDate,
 				runtime.GOOS, runtime.GOARCH, runtime.Version(),

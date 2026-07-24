@@ -39,7 +39,7 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*engine.
 	// shell-friendly chat path); otherwise Run returns the final text.
 	if runtime.Out != nil {
 		out := runtime.Out
-		opts.StreamDelta = func(delta string) { fmt.Fprint(out, delta) }
+		opts.StreamDelta = func(delta string) { _, _ = fmt.Fprint(out, delta) }
 	}
 	// Interactive mode prompts for approval on stderr via the shared line reader.
 	if cfg.PermissionMode == "interactive" {
@@ -53,6 +53,10 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*engine.
 	return session, nil
 }
 
+// Reset 实现 resettableChatRunner。当前实现不会失败,但签名由接口决定,
+// 不能因"眼下恒返回 nil"就去掉 error。
+//
+//nolint:unparam // 接口约束
 func (r *defaultChatRunner) Reset(context.Context) error {
 	if r.session == nil {
 		return nil

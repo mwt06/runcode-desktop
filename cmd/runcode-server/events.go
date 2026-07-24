@@ -146,8 +146,9 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	header.Set("X-Accel-Buffering", "no") // 反向代理（nginx 等）不得缓冲事件流
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
-	// 先发一条 SSE 注释帧，把响应头连同订阅确认立刻推给客户端。
-	fmt.Fprintf(w, ": subscribed sessionId=%s replay=none (docs/protocol.md §3)\n\n", id)
+	// 先发一条 SSE 注释帧，把响应头连同订阅确认立刻推给客户端。写失败无需在此
+	// 处置：紧接着的 Flush 会把同一个断连报出来并结束这次订阅。
+	_, _ = fmt.Fprintf(w, ": subscribed sessionId=%s replay=none (docs/protocol.md §3)\n\n", id)
 	if err := rc.Flush(); err != nil {
 		return
 	}

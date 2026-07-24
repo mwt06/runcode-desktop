@@ -105,7 +105,7 @@ func postTokenForm(ctx context.Context, hc *http.Client, tokenURL string, form u
 	if err != nil {
 		return tokenSet{}, fmt.Errorf("请求令牌端点失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return tokenSet{}, fmt.Errorf("令牌端点返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))

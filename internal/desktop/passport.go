@@ -353,7 +353,7 @@ func (a *App) bridgeGetStatus(path string) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, wireError(fmt.Errorf("访问中间服务失败: %w", err))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
 		return body, resp.StatusCode, wireError(fmt.Errorf("中间服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))

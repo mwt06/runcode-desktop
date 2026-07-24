@@ -42,6 +42,9 @@ func (a *App) SaveProjectContext(content string) error {
 	if info.Path == "" {
 		return wireError(errors.New("没有活动工作区"))
 	}
+	// 0644 而非 0600 是有意的:项目指令(CLAUDE.md / RUNCODE.md)是用户仓库里的
+	// 普通源文件,要能被编辑器、git 和协作者正常读取——这不是应用私有状态。
+	//nolint:gosec // G306
 	return wireError(os.WriteFile(info.Path, []byte(content), 0o644))
 }
 

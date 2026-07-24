@@ -73,9 +73,9 @@ func permissionsDenyCmd() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if changed {
-				fmt.Fprintf(out, "denied %s for %s\n", args[0], tool)
+				_, _ = fmt.Fprintf(out, "denied %s for %s\n", args[0], tool)
 			} else {
-				fmt.Fprintf(out, "already denied: %s for %s\n", args[0], tool)
+				_, _ = fmt.Fprintf(out, "already denied: %s for %s\n", args[0], tool)
 			}
 			return nil
 		},
@@ -106,7 +106,7 @@ func permissionsAllowCmd() *cobra.Command {
 			if err := store.RememberPersistent(key); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "allowed %s for %s\n", args[0], tool)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "allowed %s for %s\n", args[0], tool)
 			return nil
 		},
 	}
@@ -141,7 +141,7 @@ func permissionsRemoveCmd() *cobra.Command {
 			if !removed {
 				return fmt.Errorf("rule %d was already gone", n)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed [%d] %s\n", n, formatRule(entry))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed [%d] %s\n", n, formatRule(entry))
 			return nil
 		},
 	}
@@ -167,7 +167,7 @@ func permissionsClearCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "cleared %d rule(s)\n", removed)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "cleared %d rule(s)\n", removed)
 			return nil
 		},
 	}
@@ -231,12 +231,12 @@ func runPermissionsList(cmd *cobra.Command) error {
 	out := cmd.OutOrStdout()
 	entries := orderedRules(store)
 	if len(entries) == 0 {
-		fmt.Fprintln(out, "No persisted permission rules.")
-		fmt.Fprintln(out, "Add one with `runcode permissions deny <host>` or grant \"allow for project\" in the TUI.")
+		_, _ = fmt.Fprintln(out, "No persisted permission rules.")
+		_, _ = fmt.Fprintln(out, "Add one with `runcode permissions deny <host>` or grant \"allow for project\" in the TUI.")
 		return nil
 	}
 	for i, entry := range entries {
-		fmt.Fprintf(out, "[%d] %s\n", i+1, formatRule(entry))
+		_, _ = fmt.Fprintf(out, "[%d] %s\n", i+1, formatRule(entry))
 	}
 	return nil
 }

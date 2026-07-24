@@ -103,7 +103,7 @@ func TestTokenConcurrentCallersSingleRefresh(t *testing.T) {
 			defer wg.Done()
 			tok, err := tm.Token()
 			if err != nil || tok != "AT2" {
-				errs <- fmt.Errorf("tok=%q err=%v", tok, err)
+				errs <- fmt.Errorf("tok=%q err=%w", tok, err)
 				return
 			}
 			errs <- nil

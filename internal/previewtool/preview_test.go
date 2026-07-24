@@ -10,7 +10,7 @@ import (
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
-func run(t *testing.T, ws, path string) (tool.Result, error, []tool.Event) {
+func run(t *testing.T, ws, path string) (tool.Result, []tool.Event, error) {
 	t.Helper()
 	out := make(chan tool.Event, 4)
 	tctx := &tool.Context{WorkingDirectory: ws}
@@ -21,7 +21,7 @@ func run(t *testing.T, ws, path string) (tool.Result, error, []tool.Event) {
 	for e := range out {
 		evs = append(evs, e)
 	}
-	return res, err, evs
+	return res, evs, err
 }
 
 func TestOpenPreviewEmitsForWorkspaceFile(t *testing.T) {
@@ -29,7 +29,7 @@ func TestOpenPreviewEmitsForWorkspaceFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "site.html"), []byte("<h1>hi</h1>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res, err, evs := run(t, ws, "site.html")
+	res, evs, err := run(t, ws, "site.html")
 	if err != nil || res.IsError {
 		t.Fatalf("expected success, got err=%v res=%+v", err, res)
 	}
@@ -44,10 +44,10 @@ func TestOpenPreviewEmitsForWorkspaceFile(t *testing.T) {
 
 func TestOpenPreviewRejectsEscapeAndMissing(t *testing.T) {
 	ws := t.TempDir()
-	if _, err, evs := run(t, ws, "../../secret.txt"); err == nil || len(evs) != 0 {
+	if _, evs, err := run(t, ws, "../../secret.txt"); err == nil || len(evs) != 0 {
 		t.Fatal("escape should error with no event")
 	}
-	if _, err, evs := run(t, ws, "nope.md"); err == nil || len(evs) != 0 {
+	if _, evs, err := run(t, ws, "nope.md"); err == nil || len(evs) != 0 {
 		t.Fatal("missing file should error with no event")
 	}
 }

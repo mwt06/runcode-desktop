@@ -61,7 +61,7 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer closeChatRunner(cmd.Context(), runner)
+			defer func() { _ = closeChatRunner(cmd.Context(), runner) }()
 			loop, err := cmd.Flags().GetBool("loop")
 			if err != nil {
 				return err

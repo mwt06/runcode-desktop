@@ -595,6 +595,9 @@ func (r *fakeChatRunner) Run(_ context.Context, cfg chatConfig, runtime chatIO, 
 	return r.text, r.err
 }
 
+// Reset 实现 resettableChatRunner —— error 由接口要求,假实现不会失败。
+//
+//nolint:unparam // 接口约束
 func (r *fakeChatRunner) Reset(context.Context) error {
 	r.resetCount++
 	return nil
