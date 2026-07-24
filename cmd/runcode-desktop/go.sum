@@ -104,12 +104,6 @@ github.com/wailsapp/wails/v2 v2.12.0 h1:BHO/kLNWFHYjCzucxbzAYZWUjub1Tvb4cSguQozH
 github.com/wailsapp/wails/v2 v2.12.0/go.mod h1:mo1bzK1DEJrobt7YrBjgxvb5Sihb1mhAY09hppbibQg=
 github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
-gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0 h1:p8Jov3dcCeuX5hYpLQR4kH16ptH7/grZGrPh5YWaXF8=
-gitlab.ouc-online.com.cn/aibase/agentloop v0.3.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
-gitlab.ouc-online.com.cn/aibase/agentloop v0.4.0 h1:nHE5mLbYbVsR3YyNkLzwMkID2eJIAydwaGYheADQdgA=
-gitlab.ouc-online.com.cn/aibase/agentloop v0.4.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
-gitlab.ouc-online.com.cn/aibase/agentloop v0.5.0 h1:dQskFEXtwXLY9taJc1U5PQWXarSgKTk9jdA6zRe6jdE=
-gitlab.ouc-online.com.cn/aibase/agentloop v0.5.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.6.0 h1:ZdcnIn29nZuMk+9bDddnMIdIuc8X77DG4jA70p1gBiQ=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.6.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
 golang.org/x/crypto v0.48.0 h1:/VRzVqiRSggnhY7gNRxPauEQ5Drw9haKdM0jqfcCFts=
