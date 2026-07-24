@@ -110,15 +110,23 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 }
 
 // DeleteSession permanently removes a saved session (history + title/meta
-// sidecars) from the workspace store. It does not touch the live in-memory
-// session; deleting the one you are currently in just makes it unresumable.
+// sidecars) from the workspace store.
+//
+// 活动会话不可删除。它此前被允许("只是让它不可恢复"),但那个说法已不成立:
+// 引擎的 JSONLStore 按批 open/append/close 且带 O_CREATE,所以删掉文件后的下一个
+// 回合会把它重新创建出来——留下一个只含删除后内容、历史却已丢失的僵尸会话,反而
+// 比不删更糟。要删就先新建或切到别的会话。
 func (a *App) DeleteSession(id string) error {
 	a.mu.Lock()
 	ws := a.workspace
+	current := a.currentID
 	a.mu.Unlock()
 	id = strings.TrimSpace(id)
 	if ws == "" || id == "" {
 		return wireError(errors.New("无效的会话"))
+	}
+	if current != "" && id == current {
+		return wireError(errors.New("不能删除当前正在进行的会话；请先新建或切换到其它会话再删除"))
 	}
 	backend, err := sessions.OpenBackend(ws, sessions.BackendJSONL)
 	if err != nil {

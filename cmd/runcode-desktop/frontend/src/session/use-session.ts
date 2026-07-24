@@ -29,7 +29,7 @@ const MODE_ORDER = ['safe', 'interactive', 'judge', 'flight']
 
 export type Session = ReturnType<typeof useSession>
 
-export function useSession({ busy, conversation, showToast, onEnterChat }: {
+export function useSession({ busy, conversation, showToast, onEnterChat, onWorkspaceChanged }: {
   busy: boolean
   conversation: {
     reset: () => void
@@ -38,6 +38,10 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
   }
   showToast: (text: string) => void
   onEnterChat: () => void
+  // 工作区被换掉时调用。预览标签是"工作区"生命周期的(存的是工作区相对路径 +
+  // 编辑快照 id),换工作区后这些引用全部失效——不清掉的话,同名文件会在旧标签里
+  // 静默显示成新工作区的内容。新建/恢复会话不触发:那是同一个工作区。
+  onWorkspaceChanged: () => void
 }) {
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [started, setStarted] = useState(false)
@@ -129,6 +133,7 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
       if (isStale()) return
       setInfo(i)
       conversation.reset()
+      onWorkspaceChanged()
       onEnterChat()
       void refreshRecents()
       // refresh recent-workspace MRU

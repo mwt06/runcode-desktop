@@ -122,8 +122,11 @@ jobs:
       - name: Generated protocol is fresh
         run: go run ./tools/protogen --check
 
-      - name: Frontend typecheck
+      - name: Frontend typecheck, lint and tests
         working-directory: cmd/runcode-desktop/frontend
         run: |
           npm ci
           npm run typecheck
+          # eslint 在这里管 tsc 看不见的事:React hook 的依赖数组。
+          npm run lint
+          npm test

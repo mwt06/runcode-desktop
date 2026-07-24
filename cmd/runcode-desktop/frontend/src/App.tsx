@@ -58,16 +58,20 @@ export default function App() {
     conversation,
     showToast: toast.show,
     onEnterChat: () => setView('chat'),
+    // 换工作区 → 关掉所有预览标签(旧工作区的相对路径与编辑快照都失效了)。
+    onWorkspaceChanged: preview.closeAll,
   })
   useEffect(() => {
     infoRef.current = session.info
   }, [session.info])
 
   // Workspace file list for the composer picker (#), the file browser, and reply
-  // artifact matching — reloaded per session.
+  // artifact matching — reloaded per session。把 reload 解出来做依赖:它是
+  // useCallback([]) 的稳定引用,而 workspace 对象每次渲染都是新的。
+  const reloadFiles = workspace.reload
   useEffect(() => {
-    if (session.started) workspace.reload()
-  }, [session.started, session.info?.sessionId])
+    if (session.started) reloadFiles()
+  }, [session.started, session.info?.sessionId, reloadFiles])
 
   useAutoPreview({
     busy: conversation.busy,

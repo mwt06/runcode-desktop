@@ -67,4 +67,4 @@
 
 `App.tsx` 只负责把上述钩子接起来并按视图摆放 shell 组件，不放具体逻辑。改行为找 `session/`，改样子找 `shell/` 或对应页面。
 
-前端自检（在 `frontend/` 下）：`npm run typecheck`、`npx vitest run`、`npm run build`。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`preview/classify`、`preview/tabs`、`composer/mention`、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`）都有单测，新增纯函数请一并补测。
+前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`preview/classify`、`preview/tabs`、`composer/mention`、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`）都有单测，新增纯函数请一并补测。

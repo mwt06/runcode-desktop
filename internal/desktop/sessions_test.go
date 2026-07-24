@@ -2,10 +2,37 @@ package desktop
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
+
+// 删除活动会话必须被拒绝。放行的话,引擎的 JSONLStore 会在下一个回合用 O_CREATE
+// 把文件重建出来,留下一个只含删除后内容的僵尸会话——历史丢了,条目还在。
+func TestDeleteSessionRefusesActiveSession(t *testing.T) {
+	t.Parallel()
+
+	a := &App{workspace: t.TempDir(), currentID: "sess-live"}
+	err := a.DeleteSession("sess-live")
+	if err == nil {
+		t.Fatal("deleting the active session must be refused")
+	}
+	if !strings.Contains(err.Error(), "当前正在进行的会话") {
+		t.Fatalf("err = %v, want it to name the active-session reason", err)
+	}
+}
+
+// 非活动会话照常可删:守卫只针对当前会话,不能把整个删除功能挡死。
+// (这里只验证守卫放行——真正的删除由引擎的 backend 负责,其自身有测试。)
+func TestDeleteSessionAllowsOtherSessions(t *testing.T) {
+	t.Parallel()
+
+	a := &App{workspace: t.TempDir(), currentID: "sess-live"}
+	if err := a.DeleteSession("sess-other"); err != nil {
+		t.Fatalf("deleting a non-active session must pass the guard, got %v", err)
+	}
+}
 
 func TestToResumedBlocksReconstructsToolSteps(t *testing.T) {
 	t.Parallel()

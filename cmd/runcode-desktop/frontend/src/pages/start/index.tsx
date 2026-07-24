@@ -171,6 +171,10 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     autoStarted.current = true
     setAutoEntering(true)
     onStart(req)
+    // 自动进入只在首个完整 ready 快照后评估一次(autoStartEvaluated 守住)。
+    // buildRequest/initial/onStart 每次渲染都是新引用,列进依赖只会让这个"一次性"
+    // 判定被反复重跑,而守卫 ref 又会立刻把它挡掉——徒增噪音,不改变行为。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, passport.loggedIn, starting, error])
 
   // 启动校验中：转圈的加载门，验完持久化 token 再决定进登录还是表单。

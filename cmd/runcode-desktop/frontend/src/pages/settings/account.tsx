@@ -56,6 +56,10 @@ export function AccountSection({ onAccount, onBusy }: {
       coordinatorRef.current = null
       onBusy(false)
     }
+    // 只挂载时建一次协调器:onAccount/onBusy 由父级内联定义,每次渲染都是新引用,
+    // 列进依赖会导致通行证协调器被反复销毁重建(重发 /api/me 与租户请求)。二者都
+    // 只是 setState 的包装,不持有需要刷新的状态。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const doAcctLogin = async (scheme: string) => {

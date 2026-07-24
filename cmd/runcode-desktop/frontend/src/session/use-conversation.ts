@@ -245,7 +245,9 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
       }),
     ]
     return () => offs.forEach((off) => off && off())
-  }, [])
+    // 只订阅一次:引擎事件是进程级的,重订阅会漏事件也会重复处理。infoRef 是稳定的
+    // ref 引用,列进依赖不改变行为;其余外部回调经上面的 cb ref 取最新值。
+  }, [infoRef])
 
   // Pin the conversation to the bottom while output streams, but only if the user
   // is already at (or near) the bottom — once they scroll up to read, streaming
