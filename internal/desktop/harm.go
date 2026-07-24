@@ -43,12 +43,20 @@ type modelHarmJudge struct {
 // Assess describes the action in plain language and asks the model to judge it.
 // A missing session or model error is returned as an error so the authorizer
 // fails safe (falls through to prompting the user).
+//
+// For a shell command that runs a local script file, the script's contents are
+// folded into the untrusted half so the judge assesses the code the agent is
+// about to execute — not just an opaque `python foo.py` line, where the harm
+// would sit inside foo.py, unseen. See harmScriptAddendum for the conditions.
 func (j modelHarmJudge) Assess(ctx context.Context, action permissions.Action) (permissions.HarmVerdict, error) {
 	session, err := j.app.engineSession()
 	if err != nil {
 		return permissions.HarmVerdict{}, errNoSession
 	}
 	facts, untrusted := describeAction(action)
+	if action.Operation == permissions.OperationExecute {
+		untrusted += j.app.harmScriptAddendum(resourcePath(action, permissions.ResourceCommand))
+	}
 	risk, reason, err := session.AssessHarm(ctx, facts, untrusted)
 	if err != nil {
 		return permissions.HarmVerdict{}, err
