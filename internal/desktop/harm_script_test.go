@@ -90,9 +90,19 @@ func TestHarmScriptAddendumRefusesOutsideWorkspace(t *testing.T) {
 	t.Parallel()
 	ws := t.TempDir()
 	app := &App{workspace: ws}
-	// A path escaping the workspace must not be read, whatever the command claims.
+	// A relative path escaping the workspace must not be read.
 	if add := app.harmScriptAddendum("python ../../secrets.py"); add != "" {
 		t.Fatalf("read a script outside the workspace: %q", add)
+	}
+	// An ABSOLUTE path outside the workspace must not be read either. This is the
+	// case that must stay fail-closed while the in-workspace absolute case (below)
+	// is allowed.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "evil.py"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if add := app.harmScriptAddendum("python " + filepath.Join(outside, "evil.py")); add != "" {
+		t.Fatalf("read an absolute script outside the workspace: %q", add)
 	}
 	// Missing file: nothing to add, no error surfaced.
 	if add := app.harmScriptAddendum("python nope.py"); add != "" {
@@ -101,6 +111,23 @@ func TestHarmScriptAddendumRefusesOutsideWorkspace(t *testing.T) {
 	// No workspace at all.
 	if add := (&App{}).harmScriptAddendum("python build.py"); add != "" {
 		t.Fatalf("addendum without a workspace should be empty: %q", add)
+	}
+}
+
+// A script named by an absolute path that lands INSIDE the workspace is a
+// perfectly normal command (the agent runs `python <abs>/app.py`), and its
+// contents must reach the judge — the naive workspace-join would have skipped it.
+func TestHarmScriptAddendumReadsAbsolutePathInsideWorkspace(t *testing.T) {
+	t.Parallel()
+	ws := t.TempDir()
+	body := "print('from an absolute path')\n"
+	if err := os.WriteFile(filepath.Join(ws, "app.py"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{workspace: ws}
+	add := app.harmScriptAddendum("python " + filepath.Join(ws, "app.py"))
+	if !strings.Contains(add, body) {
+		t.Fatalf("in-workspace absolute script not read: %q", add)
 	}
 }
 

@@ -78,6 +78,26 @@ func scriptInvocation(command string) (script string, ok bool) {
 	return "", false
 }
 
+// resolveScriptWithinWorkspace 是这条路径专用的边界关卡:唯一越界读取的防线。
+//
+// 它不能直接用 resolveWithinWorkspace,因为那个函数的契约是"传入工作区相对路径"
+// (前端调用方给的都是相对路径),而这里的脚本路径来自命令行,可能是绝对路径。命令
+// 以工作区为工作目录运行,所以相对路径就是工作区相对;绝对路径先换算成工作区相对
+// 再交给同一套包含性校验——`python D:\ws\app.py`(工作区内的绝对写法)本该能读,不
+// 该因为 Join 拼出垃圾路径而被漏掉。换算不出(如 Windows 上跨盘符)或换算后越界的,
+// 一律拒。工作区外的绝对路径到这里会得到 `..\..\x` 形式,被 resolveWithinWorkspace
+// 的词法检查挡下,fail-closed 不变。
+func resolveScriptWithinWorkspace(ws, script string) (string, error) {
+	if filepath.IsAbs(script) {
+		rel, err := filepath.Rel(ws, script)
+		if err != nil {
+			return "", err
+		}
+		script = rel
+	}
+	return resolveWithinWorkspace(ws, script)
+}
+
 // interpreterName 取命令首词的程序名:去目录、去 .exe、转小写,好让 `/usr/bin/python3`
 // 和 `C:\Python\python.exe` 都归到 "python3" / "python"。
 func interpreterName(tok string) string {
@@ -138,10 +158,7 @@ func (a *App) harmScriptAddendum(command string) string {
 	if ws == "" {
 		return ""
 	}
-	// resolveWithinWorkspace 是唯一的边界关卡:越界路径、软链逃逸、不存在都在这里
-	// fail-closed,越界脚本读不到——既防路径穿越读到工作区外的文件,也顺带处理了
-	// 命令里给的是绝对路径的情形(拼接后越界即被拒)。
-	full, err := resolveWithinWorkspace(ws, rel)
+	full, err := resolveScriptWithinWorkspace(ws, rel)
 	if err != nil {
 		return ""
 	}
