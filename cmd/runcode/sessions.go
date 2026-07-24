@@ -241,12 +241,13 @@ func hasBlock(m llm.Message, t llm.ContentBlockType) bool {
 	return false
 }
 
-func truncateRunes(s string, max int) string {
+// truncateRunes 按字符数(而非字节)截断,超出部分用省略号收尾。参数名避开内建 max。
+func truncateRunes(s string, limit int) string {
 	runes := []rune(s)
-	if len(runes) <= max {
+	if len(runes) <= limit {
 		return s
 	}
-	return string(runes[:max]) + "…"
+	return string(runes[:limit]) + "…"
 }
 
 func plural(n int) string {

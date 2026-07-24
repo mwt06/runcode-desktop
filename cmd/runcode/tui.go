@@ -2,19 +2,18 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	"github.com/wt68/runcode/internal/ui"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
-	"github.com/wt68/runcode/internal/ui"
 )
 
 type tuiRunner interface {
@@ -270,11 +269,4 @@ func usageOutputTokens(usages []*llm.Usage) int {
 		}
 	}
 	return total
-}
-
-func formatTuiTurnSummary(result ui.TurnResult) string {
-	if result.Iterations <= 1 && result.ToolResultCount == 0 {
-		return ""
-	}
-	return fmt.Sprintf("done · %d iterations · %d tool results", result.Iterations, result.ToolResultCount)
 }

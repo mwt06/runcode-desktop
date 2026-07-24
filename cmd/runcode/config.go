@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/agent"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/hooks"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"

@@ -4,7 +4,7 @@ Thanks for your interest! `runcode` is in **alpha** — we welcome bug reports, 
 
 ## Status disclaimer
 
-- The project is pre-1.0. The `pkg/` API is **not stable** and may break in any minor release until v1.0.
+- The project is pre-1.0. This repository ships applications, not a library: every package is under `internal/`, so nothing here is an importable API. The engine's public surface lives in the **agentloop** repository and is versioned there.
 - Large feature PRs without prior discussion are likely to be redirected. Please open an issue first.
 - We follow the milestone roadmap in [README.md](./README.md). Work that doesn't fit the current milestone may be parked.
 
@@ -30,7 +30,7 @@ Required:
 
 - Follow `gofmt` / `goimports` (CI enforces).
 - Pass `go vet` and `golangci-lint run`.
-- All public types in `pkg/` need doc comments (`// TypeName ...`).
+- Exported types need doc comments (`// TypeName ...`), including inside `internal/` — `revive`'s `exported` rule is on.
 - Tests live next to the code: `foo.go` ↔ `foo_test.go`. Aim for `-race` clean.
 - Errors: wrap with `fmt.Errorf("context: %w", err)`. No naked `panic` in non-test code.
 - Concurrency: prefer channels and `errgroup` over manual `sync` primitives where reasonable.

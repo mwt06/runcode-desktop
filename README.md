@@ -103,8 +103,8 @@ cmd/runcode-desktop/     nested Go module: Wails desktop shell + React frontend 
 cmd/runcode-server/      nested Go module: server skeleton (HTTP/SSE, engine public surface only)
 internal/desktop/        desktop core (host.Manager adapter, events, approver; no Wails dependency)
 internal/ui/             Bubble Tea TUI: views, slash-command registry, session picker, approval bridge
-pkg/command/             custom slash commands (*.md discovery)
-tools/preview/           desktop artifact-preview tool (injected via ExtraTools)
+internal/command/        custom slash commands (*.md discovery)
+internal/previewtool/    desktop artifact-preview tool (injected via ExtraTools)
 tools/protogen/          protocol TS code generator (reads agentloop/protocol, writes frontend src/protocol/)
 ```
 

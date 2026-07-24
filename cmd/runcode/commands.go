@@ -5,9 +5,9 @@ import (
 	"io"
 	"path/filepath"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
+	"github.com/wt68/runcode/internal/command"
 	"github.com/wt68/runcode/internal/ui"
-	"github.com/wt68/runcode/pkg/command"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 // commandsDirName is the per-source subdirectory holding custom command files.

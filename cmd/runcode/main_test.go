@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop"
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 )
 
 func TestVersionCommandOutput(t *testing.T) {

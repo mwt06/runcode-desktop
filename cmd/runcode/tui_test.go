@@ -9,8 +9,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 	"github.com/wt68/runcode/internal/ui"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 )
 
 type fakeTuiRunner struct {

@@ -1,4 +1,4 @@
-package preview
+package previewtool
 
 import (
 	"context"

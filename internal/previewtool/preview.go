@@ -1,8 +1,11 @@
-// Package preview implements the open_preview tool: the model asks the desktop to
-// open a workspace file in its preview panel. It validates the path is inside the
+// Package previewtool implements the open_preview tool: the model asks the desktop
+// to open a workspace file in its preview panel. It validates the path is inside the
 // workspace and exists, then emits a structured event the desktop UI acts on. It is
 // registered only in the desktop (via engine.Options.ExtraTools), never the CLI.
-package preview
+//
+// 名字带 tool 后缀是为了与 internal/desktop 自己的 preview.go(工作区静态预览
+// 服务器)区分:那是"预览服务",这里是"给模型用的预览工具"。
+package previewtool
 
 import (
 	"context"
@@ -33,14 +36,17 @@ type Tool struct{}
 // New returns the open_preview tool.
 func New() tool.Tool { return Tool{} }
 
+// Name is the tool name the model calls.
 func (Tool) Name() string { return "open_preview" }
 
+// Description tells the model when to reach for this tool.
 func (Tool) Description() string {
 	return "Open a workspace file in the user's desktop preview panel. Call this after you " +
 		"produce a document or a website/H5 (e.g. an .html, .md, or image) so the user sees it " +
 		"immediately. The path is a workspace-relative file path."
 }
 
+// InputSchema declares the single workspace-relative "path" argument.
 func (Tool) InputSchema() tool.Schema {
 	return tool.Schema{
 		Type: tool.SchemaTypeObject,
@@ -52,8 +58,11 @@ func (Tool) InputSchema() tool.Schema {
 	}
 }
 
+// IsConcurrencySafe reports true: opening a preview only reads and emits an event.
 func (Tool) IsConcurrencySafe() bool { return true }
 
+// Run validates the path stays inside the workspace and exists, then emits the
+// event the desktop acts on.
 func (Tool) Run(_ context.Context, raw json.RawMessage, tctx *tool.Context, out chan<- tool.Event) (tool.Result, error) {
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wt68/runcode/tools/preview"
+	"github.com/wt68/runcode/internal/previewtool"
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
@@ -237,7 +237,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 			Audit:   harmAuditFunc(sctx.Emit),
 		},
 	})
-	opts.ExtraTools = append(opts.ExtraTools, preview.New())
+	opts.ExtraTools = append(opts.ExtraTools, previewtool.New())
 
 	// Fresh edit store per session ("已编辑" undo/review), bound to the
 	// session's edit directory before the first tool can run.

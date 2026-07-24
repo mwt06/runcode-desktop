@@ -103,8 +103,8 @@ cmd/runcode-desktop/     嵌套 Go module:Wails 桌面外壳 + React 前端(XRUN
 cmd/runcode-server/      嵌套 Go module:服务端骨架(HTTP/SSE,只依赖引擎公开面)
 internal/desktop/        桌面核心(host.Manager 适配层、事件、审批器;不依赖 Wails)
 internal/ui/             Bubble Tea TUI:视图、slash 命令注册表、会话选择器、审批桥
-pkg/command/             自定义 slash 命令(*.md 发现)
-tools/preview/           桌面产物预览工具(经 ExtraTools 注入)
+internal/command/        自定义 slash 命令(*.md 发现)
+internal/previewtool/    桌面产物预览工具(经 ExtraTools 注入)
 tools/protogen/          协议 TS 代码生成器(读 agentloop/protocol,写前端 src/protocol/)
 ```
 

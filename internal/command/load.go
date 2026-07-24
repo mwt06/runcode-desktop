@@ -147,13 +147,13 @@ func loadCommand(root, path, fileName string, source Source, maxBody int) (Comma
 	}, nil
 }
 
-// truncateUTF8 trims data to at most max bytes without splitting a multi-byte
-// rune at the boundary.
-func truncateUTF8(data []byte, max int) []byte {
-	if len(data) <= max {
+// truncateUTF8 trims data to at most limit bytes without splitting a multi-byte
+// rune at the boundary. The parameter avoids the built-in name max.
+func truncateUTF8(data []byte, limit int) []byte {
+	if len(data) <= limit {
 		return data
 	}
-	end := max
+	end := limit
 	for end > 0 && data[end]&0xC0 == 0x80 { // mid-rune continuation byte
 		end--
 	}
