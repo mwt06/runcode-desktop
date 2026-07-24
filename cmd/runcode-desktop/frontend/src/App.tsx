@@ -12,6 +12,7 @@ import { usePreviewPanel } from '@/session/use-preview-panel'
 import { useConversation } from '@/session/use-conversation'
 import { useAutoPreview } from '@/session/use-auto-preview'
 import { useSession } from '@/session/use-session'
+import { usePassportName } from '@/session/use-passport-name'
 import { TitleBar } from '@/shell/title-bar'
 import { StatusBar } from '@/shell/status-bar'
 import { ChatPane } from '@/shell/chat-pane'
@@ -43,6 +44,8 @@ export default function App() {
   const permissions = usePermissionQueue()
   const workspace = useWorkspaceFiles()
   const preview = usePreviewPanel()
+  // 登录用户名，供欢迎语称呼（未登录为空串）。
+  const userName = usePassportName()
 
   const conversation = useConversation({
     infoRef,
@@ -182,6 +185,7 @@ export default function App() {
                 blocks={conversation.blocks}
                 busy={conversation.busy}
                 cwd={session.info?.cwd}
+                userName={userName}
                 plan={conversation.plan}
                 planOpen={conversation.planOpen}
                 onPlanToggle={conversation.setPlanOpen}

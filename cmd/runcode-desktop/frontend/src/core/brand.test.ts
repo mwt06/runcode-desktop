@@ -18,14 +18,16 @@ describe('selectBrand', () => {
     expect(selectBrand(' zhikai ').name).toBe('智开')
   })
 
-  it('每套品牌都自带匹配的标记与文案', () => {
+  it('每套品牌都自带匹配的标记、文案与欢迎语形态', () => {
     const zhikai = selectBrand('zhikai')
     expect(zhikai.logo.kind).toBe('image')
     expect(zhikai.tagline).toContain('办公')
     expect(zhikai.loginHeadline).toContain('办公')
+    expect(zhikai.greeting).toBe('welcome')
 
     const runcode = selectBrand('runcode')
     expect(runcode.logo.kind).toBe('mark')
     expect(runcode.tagline).toContain('编程')
+    expect(runcode.greeting).toBe('explore')
   })
 })

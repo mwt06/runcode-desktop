@@ -32,6 +32,14 @@ export type PassportAccountCoordinator = {
   dispose: () => void
 }
 
+// passportDisplayName 取登录用户的展示名,给问候语等处用。未登录返回空串,让调用方
+// 自行降级(不带名字的问候)。优先真实姓名 > 昵称 > 账号名 > 用户 ID,与账号页
+// "已登录：<名字>" 的取值口径一致。
+export function passportDisplayName(status: PassportStatus | null | undefined): string {
+  if (!status || !status.loggedIn) return ''
+  return (status.name || status.nickname || status.userName || status.userId || '').trim()
+}
+
 export function initialPassportAccountSnapshot(): PassportAccountSnapshot {
   return {
     phase: 'idle',

@@ -12,6 +12,11 @@ import zhikaiLogo from '@/assets/zhikai-logo.png'
 // 'image' 用一张位图(如智开的 logo.png,构建时打包进产物,运行期不联网)。
 export type BrandLogo = { kind: 'mark' } | { kind: 'image'; src: string; alt: string }
 
+// GreetingStyle 决定空对话时的欢迎语形态,由 chat-pane 按此渲染:
+//   'explore' —— 面向编程:让 <助手> 在 <工作区> 中探索、修改或运行点什么。
+//   'welcome' —— 面向办公:<登录用户名>老师您好,今天有什么可以帮您?
+export type GreetingStyle = 'explore' | 'welcome'
+
 export type Brand = {
   key: string
   // name 是文字标:标题栏、起始页大标题、对话中对助手的称呼都用它。
@@ -20,6 +25,8 @@ export type Brand = {
   tagline: string
   // loginHeadline 是通行证登录门的大标语。
   loginHeadline: string
+  // greeting 是空对话时的欢迎语形态。
+  greeting: GreetingStyle
   logo: BrandLogo
 }
 
@@ -32,6 +39,7 @@ const BRANDS: Record<string, Brand> = {
     name: 'XRUN',
     tagline: '你的 AI 编程伙伴 · 打开一个工作区开始会话',
     loginHeadline: 'XRUN，您的 AI 编程助手',
+    greeting: 'explore',
     logo: { kind: 'mark' },
   },
   zhikai: {
@@ -39,6 +47,7 @@ const BRANDS: Record<string, Brand> = {
     name: '智开',
     tagline: '你的 AI 办公助手 · 打开一个工作区开始会话',
     loginHeadline: '智开AI，您的AI办公助手',
+    greeting: 'welcome',
     logo: { kind: 'image', src: zhikaiLogo, alt: '智开' },
   },
 }

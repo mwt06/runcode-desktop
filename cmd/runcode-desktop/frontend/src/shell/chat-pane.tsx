@@ -18,7 +18,7 @@ import { type PreviewTab } from '@/preview/tabs'
 import { type PlanSnapshot } from '@/core/bridge'
 
 export function ChatPane({
-  blocks, busy, cwd, plan, planOpen, onPlanToggle,
+  blocks, busy, cwd, userName, plan, planOpen, onPlanToggle,
   harmAllows, revertedEdits, files, tabs,
   scrollRef, onScroll,
   onAnswer, onExecutePlan, onDismissPlan, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
@@ -26,6 +26,7 @@ export function ChatPane({
   blocks: Block[]
   busy: boolean
   cwd?: string
+  userName?: string
   plan: PlanSnapshot | null
   planOpen: boolean
   onPlanToggle: (open: boolean) => void
@@ -77,7 +78,12 @@ export function ChatPane({
           {blocks.length === 0 && (
             <div className="mt-[16vh] text-center text-faint">
               <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
-              <p>让 {BRAND.name} 在 <code className="font-mono bg-surface border border-line2 px-2 py-0.5 rounded-md text-muted">{shortenPath(cwd)}</code> 中探索、修改或运行点什么。</p>
+              {BRAND.greeting === 'welcome' ? (
+                // 未登录(本地自定义模型)时没有用户名,退成不带称呼的问候。
+                <p>{userName ? `${userName}老师您好，今天有什么可以帮您？` : '老师您好，今天有什么可以帮您？'}</p>
+              ) : (
+                <p>让 {BRAND.name} 在 <code className="font-mono bg-surface border border-line2 px-2 py-0.5 rounded-md text-muted">{shortenPath(cwd)}</code> 中探索、修改或运行点什么。</p>
+              )}
             </div>
           )}
           {groups.map((g) =>

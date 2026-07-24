@@ -4,11 +4,31 @@ import {
   createPassportAccountCoordinator,
   eligibleLeafTenants,
   initialPassportAccountSnapshot,
+  passportDisplayName,
   resolveEligibleTenant,
   type PassportAccountDependencies,
   type PassportAccountSnapshot,
 } from './passport-account'
 import type { PassportStatus, PassportTenant } from './bridge'
+
+describe('passportDisplayName', () => {
+  it('未登录或缺状态返回空串,让调用方降级', () => {
+    expect(passportDisplayName(null)).toBe('')
+    expect(passportDisplayName(undefined)).toBe('')
+    expect(passportDisplayName({ loggedIn: false, name: '张三' })).toBe('')
+  })
+
+  it('按 姓名 > 昵称 > 账号名 > 用户ID 取名', () => {
+    expect(passportDisplayName({ loggedIn: true, name: '张三', nickname: 'zzz', userName: 'z', userId: 'u1' })).toBe('张三')
+    expect(passportDisplayName({ loggedIn: true, nickname: '小张', userName: 'z', userId: 'u1' })).toBe('小张')
+    expect(passportDisplayName({ loggedIn: true, userName: 'zhang', userId: 'u1' })).toBe('zhang')
+    expect(passportDisplayName({ loggedIn: true, userId: 'u1' })).toBe('u1')
+  })
+
+  it('去掉首尾空白', () => {
+    expect(passportDisplayName({ loggedIn: true, name: '  李四  ' })).toBe('李四')
+  })
+})
 
 const loggedIn: PassportStatus = { loggedIn: true, userId: 'user-1' }
 const tenant = (id: string, parentId?: string): PassportTenant => ({ id, name: id, parentId })
