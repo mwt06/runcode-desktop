@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CUSTOM_MODEL_PROVIDERS,
+  customModelBaseURLHint,
   customModelDraftForEdit,
   customModelOptionSub,
   customModelProvider,
@@ -30,6 +32,29 @@ describe('custom model providers', () => {
     expect(customModelProviderLabel('anthropic')).toBe('Anthropic')
     expect(customModelProviderLabel()).toBe('OpenAI 兼容')
     expect(customModelOptionSub({ name: 'n', provider: 'anthropic', model: 'claude', baseURL: '' })).toBe('Anthropic · claude')
+  })
+
+  it('keeps OpenAI 的两套协议 as distinct ids', () => {
+    expect(customModelProvider(' OpenAI-Responses ')).toBe('openai-responses')
+    expect(customModelProviderLabel('openai-responses')).toBe('OpenAI Responses')
+    expect(customModelOptionSub({ name: 'n', provider: 'openai-responses', model: 'gpt-5', baseURL: '' }))
+      .toBe('OpenAI Responses · gpt-5')
+    // 近似拼写不能被静默当成有效 id：后端只认注册表里的名字。
+    expect(customModelProvider('openai_responses')).toBe('openai')
+    expect(customModelProvider('responses')).toBe('openai')
+  })
+
+  it('offers exactly the ids the engine registry accepts', () => {
+    expect(CUSTOM_MODEL_PROVIDERS).toEqual(['openai', 'openai-responses', 'anthropic'])
+    for (const id of CUSTOM_MODEL_PROVIDERS) {
+      expect(customModelProvider(id)).toBe(id)
+    }
+  })
+
+  it('hints a Base URL is optional for every provider', () => {
+    expect(customModelBaseURLHint('anthropic')).toContain('留空')
+    expect(customModelBaseURLHint('openai')).toContain('/v1')
+    expect(customModelBaseURLHint('openai-responses')).toContain('/v1')
   })
 })
 

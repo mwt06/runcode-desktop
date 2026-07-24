@@ -7,8 +7,56 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
+
+// TestCustomModelResponsesProvider covers OpenAI's second wire protocol end to
+// end through the desktop: the form value survives the save/list round trip and
+// expands into the engine request. It also pins the gate to the engine registry
+// — what this package accepts must be exactly what BuildProvider can construct,
+// not a list of strings that can drift from it.
+func TestCustomModelResponsesProvider(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+
+	list, err := app.SaveCustomModel(SaveCustomModelRequest{
+		Name: "GPT-5", Provider: " OpenAI-Responses ", Model: "gpt-5", BaseURL: "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if len(list) != 1 || list[0].Provider != "openai-responses" {
+		t.Fatalf("list = %+v", list)
+	}
+
+	req, err := app.resolveCustomModelRequest(StartSessionRequest{CWD: "workspace", CustomModelName: "GPT-5"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if req.Provider != "openai-responses" || req.Model != "gpt-5" || req.BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("resolved request = %+v", req)
+	}
+	if !llm.IsRegistered(req.Provider) {
+		t.Fatalf("%q is not an engine provider; registered = %v", req.Provider, llm.Registered())
+	}
+}
+
+// TestUnsupportedProviderErrorNamesAlternatives keeps the rejection actionable:
+// a typo should tell the user what the valid ids actually are.
+func TestUnsupportedProviderErrorNamesAlternatives(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	_, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "n", Provider: "openai-response", Model: "m"})
+	if err == nil {
+		t.Fatal("want a near-miss provider id rejected")
+	}
+	for _, want := range []string{"openai-responses", "anthropic"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q should list %q", err.Error(), want)
+		}
+	}
+}
 
 func TestCustomModelsCRUDRoundTrip(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())

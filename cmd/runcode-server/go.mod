@@ -9,7 +9,7 @@ module github.com/wt68/runcode/cmd/runcode-server
 
 go 1.26
 
-require gitlab.ouc-online.com.cn/aibase/agentloop v0.4.0
+require gitlab.ouc-online.com.cn/aibase/agentloop v0.5.0
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.45.0 // indirect

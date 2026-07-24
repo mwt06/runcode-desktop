@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { BTN } from '@/ui/tokens'
 import { FIELD_CLS, SelectField } from '@/ui/fields'
 import {
+  CUSTOM_MODEL_PROVIDERS,
+  customModelBaseURLHint,
   customModelDraftForEdit,
   customModelProvider,
   customModelProviderLabel,
@@ -49,6 +51,9 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
   return (
     <Section title="自定义模型" hint="直连接入点，开始页可选">
       <p className="text-[12px] text-muted -mt-1.5">除通行证平台模型外，可添加 OpenAI 兼容或 Anthropic 接入点（各自带 Base URL 与密钥）。</p>
+      <p className="text-[12px] text-faint -mt-1">
+        OpenAI 有两套协议：绝大多数网关走「OpenAI 兼容」（<span className="font-mono">/chat/completions</span>），少数端点和较新的推理模型只提供「OpenAI Responses」（<span className="font-mono">/responses</span>）。若报 404 或提示模型不支持，换另一个试试。
+      </p>
       {models.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {models.map((m) => (
@@ -82,13 +87,12 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
         <div className="grid grid-cols-2 gap-2">
           <input className={FIELD_CLS} placeholder="显示名称（如 本地 Ollama）" value={draft.name} onChange={(e) => patchDraft({ name: e.target.value })} />
           <SelectField value={draft.provider} onChange={(v) => patchDraft({ provider: customModelProvider(v) })}>
-            <option value="openai">OpenAI 兼容</option>
-            <option value="anthropic">Anthropic</option>
+            {CUSTOM_MODEL_PROVIDERS.map((p) => <option key={p} value={p}>{customModelProviderLabel(p)}</option>)}
           </SelectField>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <input className={FIELD_CLS} placeholder="模型 ID" value={draft.model} onChange={(e) => patchDraft({ model: e.target.value })} />
-          <input className={FIELD_CLS} placeholder={draft.provider === 'anthropic' ? 'Base URL（留空使用默认）' : 'Base URL（.../v1）'} value={draft.baseURL} onChange={(e) => patchDraft({ baseURL: e.target.value })} />
+          <input className={FIELD_CLS} placeholder={customModelBaseURLHint(draft.provider)} value={draft.baseURL} onChange={(e) => patchDraft({ baseURL: e.target.value })} />
         </div>
         <input
           className={FIELD_CLS}

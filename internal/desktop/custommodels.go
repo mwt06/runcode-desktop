@@ -4,7 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 )
+
+// supportedCustomModelProvider gates a saved profile's provider against the
+// engine's own registry instead of a list copied here: desktop passes the value
+// straight through to engine.Config.Provider, so the registry is the only
+// authority on what will actually build. A provider added engine-side becomes
+// usable without a second list to update.
+func supportedCustomModelProvider(provider string) bool {
+	return llm.IsRegistered(provider)
+}
+
+// unsupportedProviderError names what is actually available rather than leaving
+// the user to guess the spelling.
+func unsupportedProviderError(provider string) error {
+	return fmt.Errorf("不支持的服务商 %q（可选：%s）", provider, strings.Join(llm.Registered(), "、"))
+}
 
 // ListCustomModels 返回脱敏后的自定义模型列表。连接密钥只在后端解析会话时
 // 解密，前端仅知道是否已配置，不能读取明文或落盘密文。
@@ -33,8 +50,8 @@ func (a *App) resolveCustomModel(name string) (CustomModel, error) {
 			continue
 		}
 		m.Provider = normalizeCustomModelProvider(m.Provider)
-		if m.Provider != "openai" && m.Provider != "anthropic" {
-			return CustomModel{}, fmt.Errorf("自定义模型 %q 使用了不支持的服务商 %q", name, m.Provider)
+		if !supportedCustomModelProvider(m.Provider) {
+			return CustomModel{}, fmt.Errorf("自定义模型 %q：%w", name, unsupportedProviderError(m.Provider))
 		}
 		if m.APIKeyProtected != "" {
 			key, ok := unprotectSecret(m.APIKeyProtected)
@@ -103,8 +120,8 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	if req.Model == "" {
 		return nil, wireError(errors.New("模型 ID 不能为空"))
 	}
-	if req.Provider != "openai" && req.Provider != "anthropic" {
-		return nil, wireError(fmt.Errorf("不支持的服务商 %q", req.Provider))
+	if !supportedCustomModelProvider(req.Provider) {
+		return nil, wireError(unsupportedProviderError(req.Provider))
 	}
 	if req.ClearAPIKey && req.APIKey != "" {
 		return nil, wireError(errors.New("不能同时替换和清除 API 密钥"))
@@ -176,6 +193,9 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	return result, nil
 }
 
+// normalizeCustomModelProvider canonicalizes the stored provider id. The desktop
+// form offers openai（Chat Completions）、openai-responses（Responses API）和
+// anthropic；whatever it stores must match an engine registry name verbatim.
 func normalizeCustomModelProvider(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
