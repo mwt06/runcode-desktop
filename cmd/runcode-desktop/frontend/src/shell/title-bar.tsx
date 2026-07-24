@@ -1,14 +1,16 @@
 import { Icon, Logo } from '@/ui/icons'
+import { BRAND } from '@/core/brand'
 import { DRAG, NO_DRAG } from '@/ui/tokens'
 
-// TitleBar is the full-width top row (the frameless-window drag region): the XRUN
-// wordmark on the left, an empty drag middle, and the window controls at the right.
+// TitleBar is the full-width top row (the frameless-window drag region): the
+// brand wordmark on the left, an empty drag middle, and the window controls at
+// the right.
 export function TitleBar() {
   return (
     <div className="h-[38px] flex-none flex items-center pl-3.5 bg-surface border-b border-line2 select-none" style={DRAG}>
       <span className="flex items-center gap-2 font-semibold text-[13.5px] tracking-tight">
         <span className="w-[20px] h-[20px] inline-flex items-center justify-center"><Logo size={18} /></span>
-        XRUN
+        {BRAND.name}
       </span>
       <div className="flex-1" />
       <WindowControls />

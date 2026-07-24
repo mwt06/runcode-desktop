@@ -1,6 +1,7 @@
 // 登录门：未登录且本地没有自定义直连模型时的整屏入口——两种登录方式，外加一个
 // 内嵌的自定义模型小节，让没有通行证的用户也能先配一个直连接入点直接开工。
 import { passportCancelLogin, type CustomModel } from '@/core/bridge'
+import { BRAND } from '@/core/brand'
 import { CustomModelsSection } from '../settings/custom-models'
 import { loginBg, loginMascot } from './splash'
 
@@ -19,7 +20,7 @@ export function LoginGate({ loggingIn, error, customModels, onLogin, onCustomMod
       <div className="mx-auto flex w-full max-w-[640px] flex-col items-center">
         <img src={loginMascot} alt="" draggable={false} className="w-[190px] h-auto select-none pointer-events-none" />
         <h1 className="mt-7 mb-10 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
-          智开AI，您的AI办公助手
+          {BRAND.loginHeadline}
         </h1>
         <div className="flex items-stretch gap-4">
           <button

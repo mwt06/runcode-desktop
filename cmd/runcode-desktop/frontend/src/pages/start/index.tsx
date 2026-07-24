@@ -6,6 +6,7 @@ import { Icon, Logo } from '@/ui/icons'
 import { BTN, BTN_PRIMARY } from '@/ui/tokens'
 import { FIELD_CLS, LABEL_CLS } from '@/ui/fields'
 import { shortenPath } from '@/core/paths'
+import { BRAND } from '@/core/brand'
 import { customModelProviderLabel } from '@/core/custom-models'
 import {
   canAutoStartPassport,
@@ -216,8 +217,8 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
         <div className="flex items-center gap-3.5 mb-1">
           <span className="w-[48px] h-[48px] rounded-[13px] inline-flex items-center justify-center bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
           <div>
-            <h1 className="m-0 text-[22px] font-bold tracking-tight">XRUN</h1>
-            <p className="mt-[3px] text-muted text-[13px]">你的 AI 编程伙伴 · 打开一个工作区开始会话</p>
+            <h1 className="m-0 text-[22px] font-bold tracking-tight">{BRAND.name}</h1>
+            <p className="mt-[3px] text-muted text-[13px]">{BRAND.tagline}</p>
           </div>
         </div>
         {passport.loggedIn ? (

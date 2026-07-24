@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { BRAND } from '@/core/brand'
 
 // Inline SVG icons (stroke = currentColor) so they always render in WebView2 —
 // no icon font or network needed. Line style to match the product look.
@@ -20,9 +21,30 @@ export const TOOL_ICON: Record<string, string> = {
 }
 export const toolIcon = (name?: string) => TOOL_ICON[name || ''] || 'grid'
 
-// Logo is the XRUN mark: an "X" of two crossing strokes, blue and violet. Used
-// for the app brand and the assistant avatar.
+// Logo is the active brand's mark, used for the app brand and the assistant
+// avatar. It renders whatever the built brand declares — the original X vector
+// mark, or a bitmap logo (bundled at build time; no network at runtime). Which
+// brand is active is a build-time config; see core/brand.
 export function Logo({ size = 24 }: { size?: number }) {
+  if (BRAND.logo.kind === 'image') {
+    return (
+      <img
+        src={BRAND.logo.src}
+        alt={BRAND.logo.alt}
+        width={size}
+        height={size}
+        draggable={false}
+        className="object-contain select-none"
+        style={{ width: size, height: size }}
+      />
+    )
+  }
+  return <LogoMark size={size} />
+}
+
+// LogoMark is the original XRUN mark: an "X" of two crossing strokes, blue and
+// violet. It is the 'mark' brand's logo, kept as the default brand's identity.
+function LogoMark({ size = 24 }: { size?: number }) {
   const a = useId()
   const b = useId()
   return (

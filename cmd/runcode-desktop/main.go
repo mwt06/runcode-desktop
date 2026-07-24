@@ -21,6 +21,16 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// brandTitle is the OS window title (taskbar / alt-tab; the frameless window has
+// no visible title bar — the frontend draws its own brand). It defaults to the
+// original and is overridden at build time to match the frontend brand, e.g.:
+//
+//	wails build -ldflags "-X main.brandTitle=智开"
+//
+// alongside VITE_BRAND=zhikai for the frontend. See frontend/src/core/brand.ts,
+// which is the source of truth for the in-app brand.
+var brandTitle = "XRUN"
+
 // eventSink forwards desktop events to the Wails frontend. The runtime context is
 // only available from OnStartup; emits before then are dropped (no events fire
 // that early).
@@ -100,7 +110,7 @@ func main() {
 	app.SetDialoger(dlg)
 
 	err := wails.Run(&options.App{
-		Title: "XRUN",
+		Title: brandTitle,
 		// Roomier default so the chat column stays comfortable with both the session
 		// sidebar and the task-progress rail open; MinWidth keeps it usable if resized
 		// down.

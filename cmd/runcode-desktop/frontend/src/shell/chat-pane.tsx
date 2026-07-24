@@ -1,6 +1,7 @@
 // ChatPane 是对话流本身：顶部的计划进度胶囊、可滚动的消息区（把 groupBlocks 分好
 // 的组映射成各类卡片）、空态与"思考中"指示。纯展示——所有交互都经 props 回调。
 import { Logo } from '@/ui/icons'
+import { BRAND } from '@/core/brand'
 import { shortenPath } from '@/core/paths'
 import { groupBlocks, type Block } from '@/chat/blocks'
 import { diffStats, hasDiff } from '@/chat/tool-text'
@@ -76,7 +77,7 @@ export function ChatPane({
           {blocks.length === 0 && (
             <div className="mt-[16vh] text-center text-faint">
               <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
-              <p>让 XRUN 在 <code className="font-mono bg-surface border border-line2 px-2 py-0.5 rounded-md text-muted">{shortenPath(cwd)}</code> 中探索、修改或运行点什么。</p>
+              <p>让 {BRAND.name} 在 <code className="font-mono bg-surface border border-line2 px-2 py-0.5 rounded-md text-muted">{shortenPath(cwd)}</code> 中探索、修改或运行点什么。</p>
             </div>
           )}
           {groups.map((g) =>
