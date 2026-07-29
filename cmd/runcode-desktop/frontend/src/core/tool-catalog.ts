@@ -28,8 +28,15 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   // AskUser 有意不给 verb：它的工具行以原名显示（提问本身由 AskCard 呈现）。
   AskUser: { label: '询问用户', desc: '向用户提问并停下等待回复，用于需要用户决策或缺少关键信息时。' },
   open_preview: { verb: '预览', label: '预览产物', desc: '在桌面预览面板打开工作区文件(仅桌面版)。' },
+  ReadOffice: { verb: '读取文档', label: '读取 Office 文档', desc: '把 .docx/.xlsx/.pptx 读成结构化文本(文字、字体、格式、版式)，按页返回，长文档可续读(仅桌面版)。' },
   Task: { verb: '委派子代理', label: '委派子代理', desc: '把一个自包含的子任务委派给子代理独立执行。' },
   Skill: { verb: '加载技能', label: '加载技能', desc: '加载并执行一个已定义的技能。' },
+  // 以下四个由引擎的 mcp 包提供，配了 MCP 服务器时才出现在工具集里。它们不带
+  // mcp__ 前缀，所以走的是这张内置表而不是下面的 MCP_TOOLS。
+  ListMcpResources: { verb: '列出资源', label: '列出 MCP 资源', desc: '列出 MCP 服务器暴露的资源。' },
+  ReadMcpResource: { verb: '读取资源', label: '读取 MCP 资源', desc: '按 URI 读取一个 MCP 资源的内容。' },
+  ListMcpPrompts: { verb: '列出提示词', label: '列出 MCP 提示词', desc: '列出 MCP 服务器提供的提示词。' },
+  GetMcpPrompt: { verb: '取提示词', label: '获取 MCP 提示词', desc: '取出一个 MCP 提示词的内容。' },
 }
 
 // 基座自建 MCP 服务器的工具中文短名，按「服务器 → 工具」两级。模型看到的仍是原始
