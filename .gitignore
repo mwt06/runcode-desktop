@@ -5,8 +5,9 @@
 /dist/
 /bin/
 
-# Stray root-level screenshots / scratch images (dev artifacts, not repo content)
+# Stray root-level screenshots / scratch pages (dev artifacts, not repo content)
 /*.png
+/*.html
 
 # Test artifacts
 *.test
@@ -37,6 +38,11 @@ vendor/
 /.runcode/*
 !/.runcode/skills/
 !/.runcode/agents/
+# 拿本仓库当工作区自测时，会话落盘文件会散在被打开的那个目录里（根目录、
+# tools/protogen/…），同样是运行时数据。
+sess_*.jsonl
+sess_*.title
+sess_*.meta.json
 
 # Runtime data
 *.db
