@@ -7,7 +7,7 @@ import { BTN, BTN_PRIMARY } from '@/ui/tokens'
 import { Popover } from '@/ui/popover'
 import { Toggle } from '@/ui/toggle'
 import { sourceLabel } from '@/ui/badges'
-import { BUILTIN_TOOLS } from '@/core/tool-catalog'
+import { BUILTIN_TOOLS, toolLabel } from '@/core/tool-catalog'
 import {
   errText,
   importAgent, importSkill,
@@ -76,7 +76,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   const inScope = (source: string) => scope === 'project' || source !== 'project'
   const scopedAgents = agentList.filter((a) => a.source !== 'builtin' && inScope(a.source))
   const scopedSkills = skillList.filter((s) => inScope(s.source))
-  const shownTools = toolList.filter((t) => t.toggleable && t.source !== 'builtin').filter((t) => { const z = BUILTIN_TOOLS[t.name]; return hit(z?.label ?? '', z?.desc ?? t.description, t.name) })
+  const shownTools = toolList.filter((t) => t.toggleable && t.source !== 'builtin').filter((t) => { const z = BUILTIN_TOOLS[t.name]; return hit(toolLabel(t.name), z?.desc ?? t.description, t.name) })
   const shownAgents = scopedAgents.filter((a) => hit('', a.description, a.name))
   const shownSkills = scopedSkills.filter((s) => hit(s.name, s.description, s.name))
 
@@ -185,7 +185,9 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
           <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
             {tab === 'tools' && shownTools.map((t) => {
               const z = BUILTIN_TOOLS[t.name]
-              return card('t/' + t.name, TOOL_ICON[t.name] ?? 'grid', z?.label ?? t.name, z ? t.name : '', t.source === 'mcp' ? (t.server ?? 'MCP') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t.name, n))
+              // 有中文名时把原始工具名放到副标题(MCP 工具同理),便于对照模型看到的名字。
+              const label = toolLabel(t.name)
+              return card('t/' + t.name, TOOL_ICON[t.name] ?? 'grid', label, label !== t.name ? t.name : '', t.source === 'mcp' ? (t.server ?? 'MCP') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t.name, n))
             })}
             {tab === 'agents' && shownAgents.map((a) => {
               const z = a.source === 'builtin' ? BUILTIN_AGENTS[a.name] : undefined

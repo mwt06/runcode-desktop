@@ -4,7 +4,7 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
-import type { AgentList, AgentSaveRequest, CompactResult, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
+import type { AgentList, AgentSaveRequest, CompactResult, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
 
 // app resolves the Wails binding for desktop.App lazily, so importing this
 // module before the runtime injects window.go is safe.
@@ -76,6 +76,18 @@ export function importSkill(scope: string): Promise<SkillList> {
   return app().ImportSkill(scope);
 }
 
+// InjectMessage delivers text into the in-flight turn as mid-turn steering: the engine splices it into the running turn so the model sees it at the next iteration boundary (after the current tool round), instead of only next turn.
+// kind: trigger
+export function injectMessage(text: string): Promise<boolean> {
+  return app().InjectMessage(text);
+}
+
+// InjectMessageWithImages is InjectMessage for a message carrying image attachments: it injects into the in-flight turn as mid-turn steering, falling back to a fresh turn if none is running (returning startedTurn=true).
+// kind: trigger
+export function injectMessageWithImages(text: string, paths: string[]): Promise<boolean> {
+  return app().InjectMessageWithImages(text, paths);
+}
+
 // Interrupt cancels the in-flight turn and denies any pending approval prompts.
 // kind: trigger
 export function interrupt(): Promise<void> {
@@ -134,6 +146,12 @@ export function listTools(): Promise<ToolInfo[] | null> {
 // kind: query
 export function loadConfig(): Promise<StartSessionRequest> {
   return app().LoadConfig();
+}
+
+// McpMarket returns the platform MCP market (installable servers) from the bridge's GET /api/mcp/market.
+// kind: query
+export function mcpMarket(): Promise<McpMarketEntry[] | null> {
+  return app().McpMarket();
 }
 
 // NewSession opens a fresh session in the same workspace (a new id, empty history), reusing the active session's provider/model/credentials.
@@ -224,6 +242,12 @@ export function readMemory(): Promise<MemoryInfo> {
 // kind: query
 export function readProjectContext(): Promise<ProjectContextInfo> {
   return app().ReadProjectContext();
+}
+
+// ReloadMCPServers applies MCP config changes to the running session right away, by rebuilding it on its own id so the conversation is restored from the store and every server reconnects from the current config.toml.
+// kind: trigger
+export function reloadMCPServers(): Promise<boolean> {
+  return app().ReloadMCPServers();
 }
 
 // Reset clears the in-memory working history (the on-disk log is untouched).

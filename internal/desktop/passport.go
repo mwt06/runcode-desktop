@@ -158,6 +158,8 @@ func (a *App) PassportLogin(scheme string) (PassportStatus, error) {
 	}
 	// 失败：返回临时占位（LoggedIn=true 无档案），不缓存 —— 下次调用会重试 fetchMe
 	a.sink.Emit(EventPassportChanged, st)
+	// 首次登录（冷启动时无令牌，启动那次同步取不到）在此补上，之后本次运行不再拉。
+	go a.syncMarketOnce()
 	return st, nil
 }
 
@@ -337,12 +339,19 @@ func (a *App) bridgeGet(path string) ([]byte, error) {
 
 // bridgeGetStatus is bridgeGet plus the HTTP status code (0 before a response).
 func (a *App) bridgeGetStatus(path string) ([]byte, int, error) {
+	return a.bridgeGetStatusTimeout(path, 30*time.Second)
+}
+
+// bridgeGetStatusTimeout is bridgeGetStatus with an explicit deadline, for callers
+// on a latency-sensitive path (session startup) that must not stall on a slow or
+// unreachable bridge.
+func (a *App) bridgeGetStatusTimeout(path string, timeout time.Duration) ([]byte, int, error) {
 	tok, err := a.tokens.Token()
 	if err != nil {
 		return nil, 0, wireError(err)
 	}
 	cfg := passportConfig()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BridgeBaseURL+path, nil)
 	if err != nil {

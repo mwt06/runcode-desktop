@@ -58,8 +58,12 @@ describe('toolVerbTarget', () => {
     expect(toolVerbTarget(ev({ toolName: 'Read', input: { path: 'x/y.ts' } })).target).toBe('y.ts')
   })
   it('keeps an unmapped tool name as its own verb', () => {
-    expect(toolVerbTarget(ev({ toolName: 'mcp__x__y' })).verb).toBe('mcp__x__y')
+    expect(toolVerbTarget(ev({ toolName: 'CustomTool' })).verb).toBe('CustomTool')
     expect(toolVerbTarget(ev({})).verb).toBe('工具')
+  })
+  it('shows an MCP tool by its Chinese name, or at least without the mcp__ plumbing', () => {
+    expect(toolVerbTarget(ev({ toolName: 'mcp__oa__my_todo' })).verb).toBe('待办事项')
+    expect(toolVerbTarget(ev({ toolName: 'mcp__x__y' })).verb).toBe('y')
   })
 })
 

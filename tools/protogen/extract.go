@@ -36,6 +36,7 @@ var eventPayloads = map[string]string{
 // excludedMethods are App methods that are shell wiring, not wire commands.
 var excludedMethods = map[string]bool{
 	"SetDialoger": true, // installs the native file-dialog provider; called by the Wails shell, never the frontend
+	"Startup":     true, // once-per-run background work; called by the Wails shell from OnStartup, never the frontend
 }
 
 // genericStructs declares protocol structs emitted as generic TS interfaces,

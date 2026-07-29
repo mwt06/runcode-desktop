@@ -211,9 +211,11 @@ export interface MCPServerInfo {
   dir?: string;
   url?: string;
   headers?: Record<string, string> | null;
+  passport: boolean;
   enabled: boolean;
   connected: boolean;
   toolCount: number;
+  tools?: MCPToolBrief[] | null;
 }
 
 // Mirrors protocol.MCPServerInput. MCPServerInput is the payload for creating or updating a server.
@@ -227,7 +229,25 @@ export interface MCPServerInput {
   dir: string;
   url: string;
   headers: Record<string, string> | null;
+  passport: boolean;
   enabled: boolean;
+}
+
+// Mirrors protocol.MCPToolBrief. MCPToolBrief is one tool a connected MCP server exposes, for listing a server's capabilities on the MCP page.
+export interface MCPToolBrief {
+  name: string;
+  description?: string;
+}
+
+// Mirrors protocol.McpMarketEntry. McpMarketEntry is one installable MCP server from the platform market (bridge GET /api/mcp/market).
+export interface McpMarketEntry {
+  id: string;
+  name: string;
+  description?: string;
+  transport: string;
+  url: string;
+  passport: boolean;
+  official: boolean;
 }
 
 // Mirrors protocol.MemoryInfo. MemoryInfo is the agent's persistent memory, split by scope.
@@ -421,6 +441,7 @@ export interface StartSessionRequest {
   recentWorkspaces?: string[] | null;
   customModels?: CustomModel[] | null;
   webProxy?: string;
+  skipLogin?: boolean;
 }
 
 // Mirrors protocol.ToolEvent. ToolEvent is the wire form of one tool-lifecycle update.

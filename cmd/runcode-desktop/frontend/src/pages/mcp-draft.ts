@@ -12,6 +12,7 @@ export type MCPDraft = {
   dir: string
   url: string
   headersText: string
+  passport: boolean
   enabled: boolean
 }
 
@@ -49,6 +50,7 @@ export function draftFrom(s?: MCPServerInfo): MCPDraft {
     dir: s?.dir ?? '',
     url: s?.url ?? '',
     headersText: kvToText(s?.headers),
+    passport: s?.passport ?? false,
     enabled: s?.enabled ?? true,
   }
 }
@@ -66,6 +68,7 @@ export function toServerInput(draft: MCPDraft): MCPServerInput {
     dir: draft.dir.trim(),
     url: draft.url.trim(),
     headers: textToKV(draft.headersText),
+    passport: draft.passport,
     enabled: draft.enabled,
   }
 }

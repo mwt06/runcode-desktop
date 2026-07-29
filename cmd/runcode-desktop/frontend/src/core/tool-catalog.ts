@@ -32,8 +32,66 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   Skill: { verb: '加载技能', label: '加载技能', desc: '加载并执行一个已定义的技能。' },
 }
 
-// toolVerb is the短动词 for a tool row; unmapped tools (MCP, custom) keep their
-// own name, and a nameless event falls back to a generic label.
+// 基座自建 MCP 服务器的工具中文短名，按「服务器 → 工具」两级。模型看到的仍是原始
+// 工具名(mcp__oa__my_todo)，这里只影响界面呈现。
+//
+// 为什么内置一张表而不是直接用服务端给的描述：MCP 的 description 是给模型看的整句
+// (如「查看某流程的发起人/审批过程/当前节点」)，放进工具行太长；短名要另配。表里
+// 没有的 MCP 工具不会显示成 mcp__x__y，而是退到裸工具名(见 toolVerb)。
+export const MCP_TOOLS: Record<string, Record<string, string>> = {
+  oa: {
+    my_todo: '待办事项',
+    my_done: '已办事项',
+    my_created: '我发起的流程',
+    my_toread: '待阅事项',
+    my_processed: '已办结流程',
+    request_detail: '流程详情',
+    request_content: '流程表单内容',
+    my_profile: '我的名片',
+    colleague_contact: '同事联系方式',
+    team_contacts: '部门通讯录',
+    search_people: '搜索全校人员',
+    search_docs: '搜索文档',
+    doc_content: '读取文档正文',
+    browse_docs: '浏览文档栏目',
+    my_messages: '消息提醒',
+  },
+}
+
+// parseMcpToolName splits the mcp__<server>__<tool> convention. Returns null for
+// anything else, so built-in and custom tools fall through untouched.
+export function parseMcpToolName(full: string): { server: string; tool: string } | null {
+  const rest = full.startsWith('mcp__') ? full.slice(5) : null
+  if (rest === null) return null
+  const i = rest.indexOf('__')
+  if (i <= 0) return null
+  const server = rest.slice(0, i)
+  const tool = rest.slice(i + 2)
+  return server && tool ? { server, tool } : null
+}
+
+// toolVerb is the短动词 for a tool row. Built-ins come from the catalog above; an
+// MCP tool uses its server's Chinese name, falling back to the bare tool name so a
+// row never shows the mcp__server__tool plumbing. A nameless event gets a generic
+// label.
 export function toolVerb(name?: string): string {
-  return BUILTIN_TOOLS[name || '']?.verb || name || '工具'
+  const builtin = BUILTIN_TOOLS[name || '']?.verb
+  if (builtin) return builtin
+  return mcpOrOwnName(name)
+}
+
+// toolLabel is the full name for a management row (plugins page), following the
+// same rules as toolVerb but using the catalog's label field.
+export function toolLabel(name?: string): string {
+  const builtin = BUILTIN_TOOLS[name || '']?.label
+  if (builtin) return builtin
+  return mcpOrOwnName(name)
+}
+
+// mcpOrOwnName resolves a non-built-in tool: an MCP tool gets its server's
+// Chinese name (or its bare tool name), anything else keeps its own name.
+function mcpOrOwnName(name?: string): string {
+  const mcp = name ? parseMcpToolName(name) : null
+  if (mcp) return MCP_TOOLS[mcp.server]?.[mcp.tool] || mcp.tool
+  return name || '工具'
 }

@@ -68,6 +68,8 @@ type (
 	// MCP management.
 	MCPServerInfo  = protocol.MCPServerInfo
 	MCPServerInput = protocol.MCPServerInput
+	MCPToolBrief   = protocol.MCPToolBrief
+	McpMarketEntry = protocol.McpMarketEntry
 
 	// Skill manager.
 	SkillInfo        = protocol.SkillInfo

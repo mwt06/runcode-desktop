@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wt68/runcode/internal/officetool"
 	"github.com/wt68/runcode/internal/previewtool"
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
@@ -117,6 +118,10 @@ type App struct {
 	// passportTenant is the tenant selected for the active passport session, so the
 	// in-chat model picker can list that tenant's models.
 	passportTenant string
+	// marketSynced records that the platform MCP market was fetched successfully
+	// this run, so the sync happens once (startup or first login) instead of on
+	// every session open. Guarded by mu.
+	marketSynced bool
 }
 
 // New returns an App that emits events to sink. Session events are enveloped
@@ -147,6 +152,17 @@ func New(sink EventSink) *App {
 	return a
 }
 
+// Startup runs the app's once-per-run background work; the Wails shell calls it
+// from OnStartup. It is deliberately not part of New so constructing an App
+// (tests, tooling) performs no I/O.
+func (a *App) Startup() {
+	// Refresh the platform's MCP market once per run, off the session path: it
+	// decides which servers carry the user's identity, and opening a session must
+	// not pay a network round-trip to find out. A cold start with no stored login
+	// is a no-op — PassportLogin syncs once the token arrives.
+	go a.syncMarketOnce()
+}
+
 // hostSinkAdapter forwards host envelopes to the shell sink under the
 // (event name, envelope) shape the frontend has always consumed. On the way
 // through it lets the App observe turn completion (both turn:end and
@@ -159,6 +175,9 @@ func (s hostSinkAdapter) Emit(env protocol.Envelope) {
 	case EventTurnEnd, EventTurnError:
 		s.app.noteTurnDone(env.SessionID)
 	}
+	// Record the turn lifecycle to the diagnostic log before forwarding, so a turn
+	// that fails or ends empty is traceable even when nothing renders in the UI.
+	logEnvelope(env)
 	s.app.out.Emit(env.Event, env)
 }
 
@@ -220,7 +239,12 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// Always mode-aware (interactive authorizer installed even in safe mode) so
 	// the UI can switch modes at runtime.
 	opts.Permissions = permissions.NewService(permissions.Options{
-		Mode:              cfg.PermissionMode,
+		Mode: cfg.PermissionMode,
+		// Installing our own service means the engine's default policy wiring is
+		// bypassed, so the host-vouched MCP servers must be declared here too —
+		// otherwise a platform server (the OA MCP) prompts for approval on every
+		// call despite being marked Trusted.
+		Policy:            permissions.DefaultPolicy{TrustedMCPServers: engine.TrustedMCPServers(cfg.MCPServers)},
 		ApprovalAvailable: true,
 		InteractiveAuthorizer: permissions.InteractiveAuthorizer{
 			Approver: sctx.Approver,
@@ -237,7 +261,10 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 			Audit:   harmAuditFunc(sctx.Emit),
 		},
 	})
-	opts.ExtraTools = append(opts.ExtraTools, previewtool.New())
+	// open_preview lets the model surface a produced file in the preview panel;
+	// ReadOffice lets it read .docx/.xlsx/.pptx as structured text (fonts,
+	// formatting, layout) instead of the raw ZIP bytes plain Read would dump.
+	opts.ExtraTools = append(opts.ExtraTools, previewtool.New(), officetool.New())
 
 	// Fresh edit store per session ("已编辑" undo/review), bound to the
 	// session's edit directory before the first tool can run.
@@ -304,6 +331,15 @@ func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, te
 	// Refresh the web-tool proxy from the persisted setting so "生效于下个会话"
 	// holds even when cfg is a reused a.config snapshot from an earlier build.
 	cfg.WebProxy = loadRawConfig().WebProxy
+	// Same for the MCP servers: New/Resume/SwitchWorkspace all reuse the a.config
+	// snapshot taken at startup, so without this an installed or edited server
+	// would not connect until the app was restarted — contradicting the MCP page's
+	// "更改在下次新建会话时生效". Re-reading here (the one place every session is
+	// opened) makes that promise true on all paths, and re-attaches the Passport
+	// identity to the servers that the platform market marked as its own.
+	//
+	cfg.MCPServers, cfg.AllowMCPSampling = loadDesktopMCP(cfg.CWD)
+	a.attachMCPPassport(cfg.MCPServers)
 
 	id, st, err := a.mgr.Create(context.Background(), cfg)
 	a.mu.Lock()
