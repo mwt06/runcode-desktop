@@ -61,7 +61,7 @@ func (a *App) ListMCPServers() ([]MCPServerInfo, error) {
 			Dir:       raw.Dir,
 			URL:       raw.URL,
 			Headers:   raw.Headers,
-			Passport:  raw.Passport != nil && *raw.Passport,
+			Passport:  mcpPassportEnabled(raw),
 			Enabled:   raw.Enabled == nil || *raw.Enabled,
 			Connected: connected,
 			ToolCount: st.ToolCount,
@@ -89,9 +89,9 @@ func (a *App) SaveMCPServer(in MCPServerInput) error {
 		Dir:       strings.TrimSpace(in.Dir),
 		URL:       strings.TrimSpace(in.URL),
 		Headers:   nonEmptyMap(in.Headers),
-		Passport:  boolPointer(in.Passport),
 		Enabled:   boolPointer(in.Enabled),
 	}
+	cfg = withMCPPassport(cfg, in.Passport)
 
 	// Validate the entry as if enabled, so required fields are checked even when the
 	// user saves it disabled.

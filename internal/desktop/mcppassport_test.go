@@ -13,6 +13,7 @@ import (
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/settings"
 )
 
 // TestPassportInjectionEndToEndFromConfig walks the exact chain that decides
@@ -85,13 +86,10 @@ func TestApplyMCPPassportOnlyTouchesNamedServers(t *testing.T) {
 	if servers[1].HeaderSource != nil {
 		t.Fatal("third-party must not get a HeaderSource (the token must not leak to it)")
 	}
-	// The same fact (platform-built) also waives the per-call approval prompt.
-	if !servers[0].Trusted {
-		t.Fatal("oa should be Trusted so its tool calls do not prompt for approval")
-	}
-	if servers[1].Trusted {
-		t.Fatal("a third-party server must never be trusted (its calls must still prompt)")
-	}
+	// The other half of opting in — waiving the per-call approval prompt — is no
+	// longer a field on ServerConfig: configureSession derives it from the same
+	// passportMCPNames set when it builds the permission policy. Keeping both halves
+	// on one name set is what stops them from disagreeing.
 	got, err := servers[0].HeaderSource()
 	if err != nil || got["X"] != "1" {
 		t.Fatalf("HeaderSource() = %v, %v; want the sentinel headers", got, err)
@@ -154,7 +152,7 @@ func TestMarketInstallPersistsPassportFlag(t *testing.T) {
 	if !ok {
 		t.Fatal("oa was not written to config.toml")
 	}
-	if oa.Passport == nil || !*oa.Passport {
+	if !mcpPassportEnabled(oa) {
 		t.Fatal("install did not persist passport=true — the server would stay anonymous (401)")
 	}
 
@@ -165,7 +163,7 @@ func TestMarketInstallPersistsPassportFlag(t *testing.T) {
 		t.Fatalf("SaveMCPServer(third): %v", err)
 	}
 	servers, _ = app.loadMCPServers()
-	if p := servers["third"].Passport; p != nil && *p {
+	if mcpPassportEnabled(servers["third"]) {
 		t.Fatal("a non-platform server must not be marked for token injection")
 	}
 }
@@ -191,17 +189,39 @@ func TestSyncMarketOnceSkipsWhenLoggedOutOrAlreadySynced(t *testing.T) {
 }
 
 // TestConfigureSessionTrustsPlatformMCPServers pins the wiring that actually
-// decides whether the OA server prompts. The desktop installs its own
-// permissions.Service (to add the harm judge), which bypasses the engine's
-// default policy wiring — so the trusted-server set must be declared here as
-// well. Miss it and every platform MCP call prompts for approval even though the
-// server is marked Trusted, which is invisible in the per-layer tests.
+// decides whether the OA server prompts. Two things make this easy to get wrong:
+// the desktop installs its own permissions.Service (to add the harm judge), which
+// bypasses the engine's default policy wiring; and the engine no longer carries
+// any notion of a trusted server, so the set must be derived here — from the same
+// config.toml opt-in that grants the identity headers. Miss it and every platform
+// MCP call prompts for approval, which is invisible in the per-layer tests.
 func TestConfigureSessionTrustsPlatformMCPServers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("APPDATA", home) // os.UserConfigDir() on Windows
+	t.Setenv("XDG_CONFIG_HOME", home)
+	cfgDir := filepath.Join(home, "runcode")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const conf = `
+[mcp.servers.oa]
+transport = 'http'
+url = 'http://oa/mcp'
+passport = true
+
+[mcp.servers.third]
+transport = 'http'
+url = 'http://third/mcp'
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	app := &App{}
 	cfg := engine.Config{
 		PermissionMode: "safe", // the strictest mode: nothing interactive can rescue a wrong policy
 		MCPServers: []mcp.ServerConfig{
-			{Name: "oa", Transport: mcp.TransportHTTP, URL: "http://oa/mcp", Trusted: true},
+			{Name: "oa", Transport: mcp.TransportHTTP, URL: "http://oa/mcp"},
 			{Name: "third", Transport: mcp.TransportHTTP, URL: "http://third/mcp"},
 		},
 	}
@@ -245,5 +265,42 @@ func TestReloadMCPServersGuards(t *testing.T) {
 	reloaded, err = busy.ReloadMCPServers()
 	if reloaded || err == nil {
 		t.Fatalf("busy session: got (%v, %v), want (false, error explaining the wait)", reloaded, err)
+	}
+}
+
+// TestMCPPassportExtraRoundTrip pins the storage side of the opt-in: the flag now
+// lives in the engine's untyped Extra map (the engine no longer has a passport
+// field), so reading and writing it is entirely ours to get right.
+func TestMCPPassportExtraRoundTrip(t *testing.T) {
+	// A server with no extras is not opted in.
+	if mcpPassportEnabled(settings.MCPServerConfig{}) {
+		t.Error("a server with no extras must not be treated as ours")
+	}
+
+	// Only a real bool true counts: a stray string must not grant the token.
+	if mcpPassportEnabled(settings.MCPServerConfig{Extra: map[string]any{"passport": "true"}}) {
+		t.Error(`Extra["passport"] = "true" (a string) must not opt a server in`)
+	}
+
+	on := withMCPPassport(settings.MCPServerConfig{}, true)
+	if !mcpPassportEnabled(on) {
+		t.Fatalf("opt-in did not round-trip: %#v", on.Extra)
+	}
+	off := withMCPPassport(on, false)
+	if mcpPassportEnabled(off) {
+		t.Fatalf("opt-out did not round-trip: %#v", off.Extra)
+	}
+
+	// Other host keys in Extra must survive: the market sync rewrites this flag on
+	// every run, and clobbering neighbouring keys would quietly drop them.
+	withOthers := settings.MCPServerConfig{Extra: map[string]any{"tenant_scope": "school"}}
+	kept := withMCPPassport(withOthers, true)
+	if kept.Extra["tenant_scope"] != "school" {
+		t.Errorf("neighbouring extension lost: %#v", kept.Extra)
+	}
+	// The source map must not be mutated in place — callers hold copies of the
+	// loaded config and compare old against new to decide whether to write.
+	if _, leaked := withOthers.Extra["passport"]; leaked {
+		t.Error("withMCPPassport mutated its input instead of copying")
 	}
 }

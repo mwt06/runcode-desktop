@@ -91,9 +91,8 @@ func (a *App) syncMarketPassport(entries []McpMarketEntry) {
 		if !ok {
 			continue // not a market server — leave it alone
 		}
-		if cur := s.Passport != nil && *s.Passport; cur != w {
-			s.Passport = boolPointer(w)
-			servers[name] = s
+		if mcpPassportEnabled(s) != w {
+			servers[name] = withMCPPassport(s, w)
 			changed = true
 		}
 	}

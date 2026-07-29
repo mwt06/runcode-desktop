@@ -240,11 +240,11 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// the UI can switch modes at runtime.
 	opts.Permissions = permissions.NewService(permissions.Options{
 		Mode: cfg.PermissionMode,
-		// Installing our own service means the engine's default policy wiring is
-		// bypassed, so the host-vouched MCP servers must be declared here too —
-		// otherwise a platform server (the OA MCP) prompts for approval on every
-		// call despite being marked Trusted.
-		Policy:            permissions.DefaultPolicy{TrustedMCPServers: engine.TrustedMCPServers(cfg.MCPServers)},
+		// Which servers we vouch for is ours to know, not the engine's: the same
+		// opt-in that earns a server the user's identity headers also lets its calls
+		// skip the per-call approval an arbitrary external endpoint always needs.
+		// Both read the one name set (passportMCPNames), so they cannot disagree.
+		Policy:            permissions.DefaultPolicy{TrustedMCPServers: passportMCPNames()},
 		ApprovalAvailable: true,
 		InteractiveAuthorizer: permissions.InteractiveAuthorizer{
 			Approver: sctx.Approver,
