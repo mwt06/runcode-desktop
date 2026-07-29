@@ -6,6 +6,8 @@ import {
   compact as compactSession,
   Events,
   errText,
+  injectMessage,
+  injectMessageWithImages,
   interrupt,
   listEdits,
   onEvent,
@@ -24,6 +26,8 @@ import {
   mergeTool,
   parsePlan,
   resumedMatchedFiles,
+  turnErrorText,
+  turnProducedText,
   type AgentNested,
   type Block,
 } from '@/chat/blocks'
@@ -67,6 +71,13 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
 
   const push = (b: Block) => setBlocks((prev) => [...prev, b])
   const pushError = (text: string) => push({ kind: 'error', id: nextID(), text })
+
+  // userStopped marks that the current turn's forthcoming cancellation was the user
+  // pressing 停止, so its "context canceled" turn:error is swallowed rather than shown
+  // as a failure. Only a genuine user stop sets it; an upstream/network cancellation
+  // leaves it false so the reason still surfaces. A ref (not state) because the
+  // once-registered event handlers must read the latest value without re-subscribing.
+  const userStopped = useRef(false)
 
   // 事件订阅只注册一次(空依赖)，所以回调经 ref 取最新值，避免闭包里拿到旧的
   // onFilesChanged / onOpenPreview / permissions。
@@ -161,6 +172,7 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
       }),
       onEvent(Events.TurnEnd, (end) => {
         setBusy(false)
+        userStopped.current = false
         cb.current.onFilesChanged()
         // The turn is over; any still-queued prompts were denied on the backend
         // (context cancel / DenyAll), so drop stale modals.
@@ -171,8 +183,10 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
         }
         setBlocks((prev) => {
           let next = finalizeTools(finalizeStreaming(prev))
-          const hadAssistant = next.some((b) => b.kind === 'assistant')
-          if (!hadAssistant && end.text.trim()) {
+          // Did THIS turn produce assistant text? Scoped to the current turn so an
+          // earlier reply can't mask an empty one (see turnProducedText).
+          const producedText = turnProducedText(next)
+          if (!producedText && end.text.trim()) {
             next = [...next, { kind: 'assistant', id: nextID(), text: end.text, streaming: false, ts: now() }]
           }
           // The turn halted. For a user-denied tool, show a clear "stopped" notice.
@@ -188,8 +202,7 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
           // attached image, or the reply was cut off). Surface it so silence is not
           // confusing.
           const emptyResponse =
-            end.text.trim() === '' && end.toolResultCount === 0 && !end.stopped && !isAsk &&
-            !next.some((b) => b.kind === 'assistant' && b.text.trim() !== '')
+            end.text.trim() === '' && end.toolResultCount === 0 && !end.stopped && !isAsk && !producedText
           if (emptyResponse) {
             const lastUser = [...next].reverse().find((b) => b.kind === 'user') as Extract<Block, { kind: 'user' }> | undefined
             const hadImage = (lastUser?.attachments?.length ?? 0) > 0
@@ -197,7 +210,7 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
               kind: 'notice', id: nextID(),
               text: hadImage
                 ? '模型返回了空内容 —— 当前模型/接口可能不支持图片输入。可在「设置」换用支持视觉的模型。'
-                : '模型返回了空内容(可能被截断或触发了内容限制)。',
+                : '模型返回了空内容(可能被截断、触发内容限制,或当前模型/接口不兼容)。',
             }]
           }
           // Close the reply with this turn's own token spend (a faint footer). It
@@ -218,12 +231,14 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
       onEvent(Events.TurnError, ({ error }) => {
         setBusy(false)
         cb.current.permissions.clear()
-        // 用户中断/取消回合会以 "context canceled" 抵达——那是停止，不是失败，
-        // 别渲染成红色报错块（否则点停止看起来像“出错了”而非“已停止”）。
-        const cancelled = /cancel(?:l)?ed/i.test(error)
+        // 只有用户确实点了「停止」,取消才当作停止吞掉(乐观停止已把界面收成「已停止」)。
+        // 上游/网络/超时导致的取消不是用户意图,必须显示——否则就成了"错误了却看不到
+        // 原因"。turnErrorText 兜住这层判断并给空原因兜底。
+        const text = turnErrorText(error, userStopped.current)
+        userStopped.current = false
         setBlocks((prev) => {
           const base = finalizeTools(finalizeStreaming(prev))
-          return cancelled ? base : [...base, { kind: 'error', id: nextID(), text: error }]
+          return text === null ? base : [...base, { kind: 'error', id: nextID(), text }]
         })
       }),
       onEvent(Events.PermissionRequest, (req) => cb.current.permissions.enqueue(req)),
@@ -265,8 +280,13 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
   }, [blocks, permissions.pending])
 
   async function send(text: string, attach: string[] = []) {
-    if ((!text && attach.length === 0) || busy) return
+    if (!text && attach.length === 0) return
+    // 回合进行中:改为"中途插入"——把消息交给引擎,在下一个工具回合边界喂给模型
+    // (mid-turn steering),而不是被丢弃或干等整轮结束。见 supplement。
+    if (busy) { void supplement(text, attach); return }
     const names = attach.map((p) => basename(p))
+    // A fresh turn is not a stop: any cancellation from here on must surface.
+    userStopped.current = false
     chatStick.current = true
     push({ kind: 'user', id: nextID(), text, ts: now(), attachments: names.length ? names : undefined })
     setBusy(true)
@@ -279,10 +299,34 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     }
   }
 
+  // supplement 是"补充/中途插入":回合进行中把消息插进正在跑的回合。引擎在下一次
+  // 模型调用前(当前工具回合结束时)把它喂进上下文,模型随即就能看到,无需等整轮跑完。
+  // 消息先乐观入流(用户能立刻看到自己插了什么);若插入时回合恰好已结束(竞态),引擎
+  // 退化为新起一轮并回传 startedTurn=true,这里据此把 busy 重新置起。
+  async function supplement(text: string, attach: string[] = []) {
+    if (!text && attach.length === 0) return
+    const names = attach.map((p) => basename(p))
+    chatStick.current = true
+    push({ kind: 'user', id: nextID(), text, ts: now(), attachments: names.length ? names : undefined })
+    try {
+      const startedTurn = attach.length ? await injectMessageWithImages(text, attach) : await injectMessage(text)
+      // 竞态:插入时回合刚结束,引擎改起新一轮——补上 busy(当前回合的 turn:end 已把它置回 false)。
+      if (startedTurn) {
+        userStopped.current = false
+        setBusy(true)
+      }
+    } catch (e) {
+      pushError(errText(e))
+    }
+  }
+
   // 乐观停止：立即取消引擎回合，并即刻收尾 UI（清 busy、结束流式渲染）。
   // 不等 turn:end 事件——事件延迟或漏收都不会让停止“看起来没反应”；真在跑的
   // 回合由 interrupt() 取消，其后续事件到达时 busy 已为 false，幂等无副作用。
   function stop() {
+    // Mark the stop as user-initiated so the resulting "context canceled" turn:error
+    // is swallowed (this optimistic finalize is the visible outcome), not shown red.
+    userStopped.current = true
     void interrupt()
     setBusy(false)
     setBlocks((prev) => finalizeTools(finalizeStreaming(prev)))

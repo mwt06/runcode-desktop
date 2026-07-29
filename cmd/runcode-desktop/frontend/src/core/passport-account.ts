@@ -89,6 +89,17 @@ export function canAutoStartPassport(
   return account.models.some((model) => model.id === initial.model)
 }
 
+// shouldShowLoginGate decides whether the start flow shows the full-screen login
+// page rather than the tenant/model form. Login is mandatory: an unauthenticated
+// user always sees the login page — including after a logout or an expired login —
+// UNLESS the 免登录 (skip-login) option is enabled in settings, which lets them
+// proceed to the form (e.g. to use a local custom model). A logged-in user never
+// sees the gate. skipLogin is a settings option on purpose (not a one-click bypass
+// on the login page), so a locked-down deployment cannot be trivially bypassed.
+export function shouldShowLoginGate(loggedIn: boolean, skipLogin: boolean): boolean {
+  return !loggedIn && !skipLogin
+}
+
 // Serializes account refreshes and tenant switches. Every request advances a
 // revision; an older operation may finish its current bridge call, but it cannot
 // publish stale state or continue into later side effects. Queued obsolete work

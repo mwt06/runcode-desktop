@@ -5,7 +5,7 @@ import { Icon } from '@/ui/icons'
 import { Markdown } from '@/ui/markdown'
 import { fmtDuration, fmtTokens } from '@/core/format'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
-import { type Block } from './blocks'
+import { type Block, retryReasonLabel } from './blocks'
 import { BotRow } from './bot-row'
 import { ThinkingPanel } from './thinking-panel'
 import { AgentTaskCard } from './agent-task'
@@ -99,10 +99,10 @@ export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; on
       )
     case 'retry':
       return (
-        <div className="flex items-center gap-3 my-1 anim-rise select-none" title="模型请求连接中断，正在自动重试（磁盘记录不受影响）">
+        <div className="flex items-center gap-3 my-1 anim-rise select-none" title="模型请求中断，正在自动重试（磁盘记录不受影响）">
           <div className="flex-1 h-px bg-[#f0c98a]" />
           <span className="text-[11.5px] text-[#9a6b12] whitespace-nowrap">
-            连接中断：{block.reason} · 重试 {block.attempt}/{block.maxAttempts}
+            {retryReasonLabel(block.reason)} · 重试 {block.attempt}/{block.maxAttempts}
           </span>
           <div className="flex-1 h-px bg-[#f0c98a]" />
         </div>

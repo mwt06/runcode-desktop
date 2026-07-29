@@ -144,9 +144,11 @@ export function Composer({
     }
   }
 
+  // 忙时不再拦截:onSend 会把消息排进补充队列(回合结束后自动发)。所以这里发/排队
+  // 走同一条路,由下游按 busy 决定,组件不必自己分叉。
   function handleSend() {
     const text = input.trim()
-    if ((!text && attachments.length === 0) || busy) return
+    if (!text && attachments.length === 0) return
     const attach = attachments
     onInputChange('')
     setAttachments([])
@@ -194,7 +196,7 @@ export function Composer({
         ref={taRef}
         className="block w-full resize-none min-h-[46px] max-h-[200px] bg-surface text-ink border border-line2 border-b-0 rounded-t-[14px] px-4 py-3.5 outline-none placeholder:text-faint"
         value={input}
-        placeholder="继续对话，@ 技能，/ 子代理，# 文件；Enter 发送，Shift+Enter 换行"
+        placeholder={busy ? '回合进行中——输入后 Enter 立即补充，模型会在当前步骤结束后看到' : '继续对话，@ 技能，/ 子代理，# 文件；Enter 发送，Shift+Enter 换行'}
         onChange={(e) => {
           onInputChange(e.target.value)
           syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)

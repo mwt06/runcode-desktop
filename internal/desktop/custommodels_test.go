@@ -343,6 +343,56 @@ func TestSwitchModelGuards(t *testing.T) {
 	wantNoSession(err, "SwitchModel custom without session")
 }
 
+// TestSaveCustomModelReappliesLiveConnection covers the fix: editing the custom
+// model the live session is currently running must rebuild that session against
+// the new connection immediately, so the change takes effect without a manual
+// re-select in the model picker.
+func TestSaveCustomModelReappliesLiveConnection(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{
+		Name: "M", Provider: "openai", Model: "old-model", BaseURL: "http://old.invalid/v1",
+	}); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	if _, err := app.StartSession(StartSessionRequest{CWD: t.TempDir(), CustomModelName: "M"}); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	defer app.CloseSession()
+
+	app.mu.Lock()
+	live := app.liveConfig
+	passport := app.livePassport
+	app.mu.Unlock()
+	if passport || live.Model != "old-model" || live.BaseURL != "http://old.invalid/v1" {
+		t.Fatalf("precondition: live custom connection = %+v passport=%v", live, passport)
+	}
+
+	// Edit the same model's connection; the live session must adopt it right away.
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{
+		OriginalName: "M", Name: "M", Provider: "openai", Model: "new-model", BaseURL: "http://new.invalid/v1",
+	}); err != nil {
+		t.Fatalf("edit save: %v", err)
+	}
+	app.mu.Lock()
+	live = app.liveConfig
+	app.mu.Unlock()
+	if live.Model != "new-model" || live.BaseURL != "http://new.invalid/v1" {
+		t.Fatalf("live connection not re-applied after edit: model=%q url=%q", live.Model, live.BaseURL)
+	}
+}
+
+// TestSaveCustomModelNoLiveSessionDoesNotRebuild guards the guard: with no live
+// session, saving must simply persist (never reach the no-session rebuild path).
+func TestSaveCustomModelNoLiveSessionDoesNotRebuild(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	app := New(&recordingSink{})
+	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "M", Model: "m"}); err != nil {
+		t.Fatalf("save without session: %v", err)
+	}
+}
+
 func TestCustomModelStoredJSONShape(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	app := New(&recordingSink{})

@@ -4,11 +4,12 @@
 // 模型、自定义模型列表，二者合成模型候选）回流给父级。
 import { useEffect, useState } from 'react'
 import { BTN, BTN_PRIMARY } from '@/ui/tokens'
-import { type ModelOption } from '@/ui/model-picker'
+import { toModelOptions, type ModelOption } from '@/ui/model-picker'
 import {
   errText, listCustomModels, saveSettings,
   type CustomModel, type PassportModel, type SessionInfo, type StartSessionRequest,
 } from '@/core/bridge'
+import { Toggle } from '@/ui/toggle'
 import { Section } from './section'
 import { AccountSection } from './account'
 import { SessionSection } from './session'
@@ -16,16 +17,26 @@ import { CustomModelsSection } from './custom-models'
 import { ProxySection } from './proxy'
 import { ContextSection } from './context'
 
-export function SettingsPage({ initial, info, onSaved }: { initial: Partial<StartSessionRequest>; info: SessionInfo | null; onSaved: (info: SessionInfo) => void }) {
-  // Model and permission mode prefer the live session (they can change at runtime);
-  // connection settings come from the saved config.
-  const [model, setModel] = useState(info?.model || initial.model || '')
+export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
+  initial: Partial<StartSessionRequest>
+  info: SessionInfo | null
+  busy: boolean
+  onSaved: (info: SessionInfo) => void
+  // Switch the live session's model/connection in place (platform ↔ custom), the same
+  // path the composer's in-chat picker uses — no new session, history preserved.
+  onSwitchModel: (choice: ModelOption) => void
+}) {
+  // The session's model is now switched live (see 模型 field below), so it is read
+  // straight from the running session, not a form field. Permission mode still prefers
+  // the live session; connection settings come from the saved config.
   const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
   const [harmJudgeVotes, setHarmJudgeVotes] = useState(initial.harmJudgeVotes ?? 1)
   const [permissionMode, setPermissionMode] = useState(info?.permissionMode || initial.permissionMode || 'interactive')
   const [maxTokens, setMaxTokens] = useState(initial.maxTokens ? String(initial.maxTokens) : '')
   const [maxContextTokens, setMaxContextTokens] = useState(initial.maxContextTokens ?? 128000)
   const [maxHistoryMessages, setMaxHistoryMessages] = useState(initial.maxHistoryMessages ? String(initial.maxHistoryMessages) : '')
+  // 免登录:关闭(默认)时启动强制走登录页;开启后未登录也可直接进表单用本地自定义模型。
+  const [skipLogin, setSkipLogin] = useState(initial.skipLogin ?? false)
   const [saving, setSaving] = useState(false)
   const [accountBusy, setAccountBusy] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -39,10 +50,11 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
   useEffect(() => {
     listCustomModels().then((l) => setCustomModels(l ?? [])).catch(() => {})
   }, [])
-  // This form's model fields are plain IDs on the current connection. A custom
-  // profile also owns provider/Base URL/credentials, so treating it as only m.model
-  // would route requests through the wrong endpoint. Custom profiles stay in the
-  // start page and in-chat SwitchModel picker, both of which switch the connection.
+  // switchOpts drives the live 模型 switcher: platform + custom together, since
+  // picking either now switches the connection in place (via SwitchModel). modelOpts
+  // stays platform-only for the harm-judge field, which takes a bare model id the
+  // engine resolves — a custom profile's display name is not such an id.
+  const switchOpts = toModelOptions(platformModels, customModels)
   const modelOpts: ModelOption[] = platformModels.map((m): ModelOption => ({ id: m.id, label: m.id, sub: m.ownedBy, kind: 'platform' }))
   async function save() {
     setSaving(true)
@@ -51,7 +63,10 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
     try {
       const i = await saveSettings({
         cwd: info?.cwd ?? '',
-        model,
+        // The model/connection is switched live via onSwitchModel and persisted
+        // backend-side; echo the current live model so saving other settings neither
+        // clobbers nor reverts it (SaveSettings sees the same connection).
+        model: info?.model ?? '',
         // provider/baseURL/apiKey 不在设置里编辑（通行证会话自动接线、自定义模型
         // 各自带连接）；原样透传避免保存设置时改动会话接线。
         provider: initial.provider ?? '',
@@ -63,6 +78,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
         maxHistoryMessages: maxHistoryMessages.trim() ? parseInt(maxHistoryMessages, 10) || 0 : 0,
         harmJudgeModel,
         harmJudgeVotes,
+        skipLogin,
         // Preserved (edited via the in-conversation picker, not this form) so saving
         // connection settings does not silently reset the reasoning strength.
         thinkingEffort: initial.thinkingEffort ?? '',
@@ -98,15 +114,23 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
             setActiveTenantId(tenantId)
             setPlatformModels(models)
             setAccountReady(ready)
-            if (ready) {
-              setModel((current) => models.some((candidate) => candidate.id === current) ? current : '')
-            }
           }}
           onBusy={setAccountBusy}
         />
+        <Section title="登录" hint="保存后于下次启动/登出时生效">
+          <label className="flex items-center justify-between gap-3 cursor-pointer">
+            <span className="min-w-0">
+              <span className="text-[13px]">免登录</span>
+              <span className="block text-[12px] text-muted mt-0.5">关闭（默认）时启动强制登录通行证；开启后未登录也可直接进入并使用本地自定义模型。</span>
+            </span>
+            <Toggle on={skipLogin} onChange={setSkipLogin} />
+          </label>
+        </Section>
         <SessionSection
-          model={model}
-          onModel={setModel}
+          currentModel={info?.model ?? ''}
+          switchOpts={switchOpts}
+          onSwitchModel={onSwitchModel}
+          busy={busy}
           permissionMode={permissionMode}
           onPermissionMode={setPermissionMode}
           harmJudgeModel={harmJudgeModel}
@@ -132,7 +156,7 @@ export function SettingsPage({ initial, info, onSaved }: { initial: Partial<Star
 
         {error && <div className="text-red text-[13px]">{error}</div>}
         <div className="flex items-center gap-3 pb-2">
-          <button className={`${BTN} ${BTN_PRIMARY} px-7 py-2.5`} disabled={saving || accountBusy || (!!activeTenantId && (!accountReady || !model))} onClick={save}>{saving ? '保存中…' : accountBusy ? '正在同步租户…' : '保存设置'}</button>
+          <button className={`${BTN} ${BTN_PRIMARY} px-7 py-2.5`} disabled={saving || accountBusy || (!!activeTenantId && !accountReady)} onClick={save}>{saving ? '保存中…' : accountBusy ? '正在同步租户…' : '保存设置'}</button>
           {saved && <span className="text-green text-[13px]">✓ 已保存</span>}
         </div>
       </div>

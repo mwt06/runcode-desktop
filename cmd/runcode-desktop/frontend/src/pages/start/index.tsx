@@ -12,6 +12,7 @@ import {
   canAutoStartPassport,
   createPassportAccountCoordinator,
   initialPassportAccountSnapshot,
+  shouldShowLoginGate,
   type PassportAccountCoordinator,
 } from '@/core/passport-account'
 import {
@@ -36,6 +37,8 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [loggingIn, setLoggingIn] = useState(false)
   const [passportError, setPassportError] = useState('')
+  // Login is mandatory unless 免登录 is enabled in settings (see shouldShowLoginGate).
+  const skipLogin = initial.skipLogin ?? false
   // validating gates the whole form on a one-time startup token check: the
   // persisted token is verified against the server before we decide login vs
   // form, so an expired/revoked token lands on the login screen, not a broken form.
@@ -188,16 +191,14 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     )
   }
 
-  // 未登录且没有本地自定义模型时显示登录门；已有直连配置不依赖 Passport，
-  // 可以继续进入工作区表单并直接启动。
-  if (!passport.loggedIn && customModels.length === 0) {
+  // 登录门:登录是强制的——未登录一律回登录页(含退出登录/登录失效),除非设置里
+  // 开启了"免登录"(skipLogin),才放行到工作区/模型表单。已登录不显示登录门。
+  if (shouldShowLoginGate(passport.loggedIn, skipLogin)) {
     return (
       <LoginGate
         loggingIn={loggingIn}
         error={passportError}
-        customModels={customModels}
         onLogin={(scheme) => void doLogin(scheme)}
-        onCustomModelsChanged={setCustomModels}
       />
     )
   }

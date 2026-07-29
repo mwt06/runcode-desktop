@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/ui/icons'
 import { GhostBtn } from '@/ui/ghost-btn'
 import { Popover } from '@/ui/popover'
-import { ModelPickerPopover, type ModelOption } from '@/ui/model-picker'
-import { customModelOptionSub } from '@/core/custom-models'
+import { ModelPickerPopover, toModelOptions, type ModelOption } from '@/ui/model-picker'
 import { listCustomModels, sessionModels, type SessionInfo } from '@/core/bridge'
 
 const MODE_LABEL: Record<string, string> = { safe: '安全模式', interactive: '交互模式', judge: '智能模式', flight: '飞行模式' }
@@ -83,12 +82,8 @@ export function ComposerToolbar({
         sessionModels().catch(() => null),
         listCustomModels().catch(() => null),
       ])
-      // id 即 SwitchModel 的入参——平台模型传模型 id，自定义模型传其显示名；
-      // modelId 标记当前选中项(自定义模型落在 info.model 里的是底层模型 id)。
-      setModelOptions([
-        ...(platform ?? []).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy })),
-        ...(custom ?? []).map((c): ModelOption => ({ kind: 'custom', id: c.name, label: c.name, sub: customModelOptionSub(c), modelId: c.model })),
-      ])
+      // 平台模型 + 自定义模型合并成同一份候选(与设置页共用 toModelOptions)。
+      setModelOptions(toModelOptions(platform ?? [], custom ?? []))
     } catch { setModelOptions([]) }
   }
   // 菜单先收起再回调上层——与拆分前 chooseReasoning/chooseThinking 的时序一致。
@@ -235,7 +230,20 @@ export function ComposerToolbar({
           />
         </div>
         {busy ? (
-          <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(224,86,74,0.3)] hover:brightness-105" onClick={onStop} title="停止"><Icon name="stop" size={16} /></button>
+          <div className="flex items-center gap-2 flex-none">
+            {/* 补充按钮:回合进行中把已输入的内容插进正在跑的回合(中途插入),模型会在
+                当前步骤结束后看到。描边样式区别于实心红色的停止,避免误当作"立即回复"。 */}
+            {canSend && (
+              <button
+                className="w-10 h-10 rounded-[11px] flex-none border border-primary text-primary bg-transparent inline-flex items-center justify-center cursor-pointer hover:bg-primarysoft transition"
+                onClick={onSend}
+                title="补充：插入正在进行的回合，模型会在当前步骤结束后看到"
+              >
+                <Icon name="send" size={16} />
+              </button>
+            )}
+            <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(224,86,74,0.3)] hover:brightness-105" onClick={onStop} title="停止"><Icon name="stop" size={16} /></button>
+          </div>
         ) : (
           <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-primary text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(91,108,240,0.32)] hover:brightness-105 disabled:opacity-40 disabled:shadow-none disabled:cursor-default" onClick={onSend} disabled={!canSend} title="发送"><Icon name="send" size={17} /></button>
         )}

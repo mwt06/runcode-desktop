@@ -55,6 +55,23 @@ func (a *App) SendMessageWithImages(text string, paths []string) error {
 	return wireError(a.sendUserTurn(text, images, true))
 }
 
+// InjectMessageWithImages is InjectMessage for a message carrying image
+// attachments: it injects into the in-flight turn as mid-turn steering, falling
+// back to a fresh turn if none is running (returning startedTurn=true). With no
+// paths it degrades to a plain text injection. Image read failures surface as a
+// turn:error event, mirroring SendMessageWithImages.
+func (a *App) InjectMessageWithImages(text string, paths []string) (bool, error) {
+	if len(paths) == 0 {
+		return a.InjectMessage(text)
+	}
+	images, err := loadImages(paths)
+	if err != nil {
+		a.emitSessionEvent(EventTurnError, TurnError{Error: err.Error()})
+		return false, nil
+	}
+	return a.injectOrSend(text, images, true)
+}
+
 // loadImages reads each path into a neutral llm.ImageSource, inferring the media
 // type from the extension and rejecting oversized files.
 func loadImages(paths []string) ([]llm.ImageSource, error) {

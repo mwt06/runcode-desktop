@@ -6,10 +6,26 @@ import {
   initialPassportAccountSnapshot,
   passportDisplayName,
   resolveEligibleTenant,
+  shouldShowLoginGate,
   type PassportAccountDependencies,
   type PassportAccountSnapshot,
 } from './passport-account'
 import type { PassportStatus, PassportTenant } from './bridge'
+
+describe('shouldShowLoginGate', () => {
+  it('已登录：永远进表单，不显示登录门', () => {
+    expect(shouldShowLoginGate(true, false)).toBe(false)
+    expect(shouldShowLoginGate(true, true)).toBe(false)
+  })
+
+  it('未登录 + 未开启免登录：强制显示登录门（含退出登录/登录失效）', () => {
+    expect(shouldShowLoginGate(false, false)).toBe(true)
+  })
+
+  it('未登录 + 已开启免登录：放行到表单', () => {
+    expect(shouldShowLoginGate(false, true)).toBe(false)
+  })
+})
 
 describe('passportDisplayName', () => {
   it('未登录或缺状态返回空串,让调用方降级', () => {

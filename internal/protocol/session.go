@@ -62,6 +62,12 @@ type StartSessionRequest struct {
 	// it is maintained backend-side (SetWebProxy); values sent by the frontend are
 	// ignored, so the start form — which has no such field — cannot blank it.
 	WebProxy string `json:"webProxy,omitempty"`
+	// SkipLogin makes the start flow bypass the mandatory login page: by default the
+	// login page is required, and only when this is on may an unauthenticated user
+	// proceed straight to the workspace/model form (e.g. to use a local custom model).
+	// It is backend-owned like WebProxy — carried forward by saveConfig and changed
+	// only through SaveSettings — so an ordinary session start cannot blank it.
+	SkipLogin bool `json:"skipLogin,omitempty"`
 }
 
 // SessionRenamed announces a session's freshly generated title.

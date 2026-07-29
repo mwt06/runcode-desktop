@@ -1,6 +1,65 @@
 import { describe, it, expect } from 'vitest'
-import { mergeTool, groupBlocks, parsePlan, finalizeTools, resumedMatchedFiles, type Block } from './blocks'
+import { mergeTool, groupBlocks, parsePlan, finalizeTools, resumedMatchedFiles, turnErrorText, turnProducedText, retryReasonLabel, type Block } from './blocks'
 import type { EditRecord, ToolEvent } from '@/core/bridge'
+
+describe('turnProducedText', () => {
+  const user = (text: string): Block => ({ kind: 'user', id: text, text, ts: '' })
+  const asst = (text: string): Block => ({ kind: 'assistant', id: text, text, streaming: false, ts: '' })
+
+  it('只看最后一个 user 之后的块——上一轮的回复不算这一轮', () => {
+    // 平台模型答过一次,切本地模型后再问却空返回:本轮没有助手文本。
+    const blocks = [user('你好'), asst('我是 DeepSeek…'), user('你好')]
+    expect(turnProducedText(blocks)).toBe(false)
+  })
+
+  it('本轮确有助手文本时为真', () => {
+    expect(turnProducedText([user('你好'), asst('我是 DeepSeek…'), user('你好'), asst('你好呀')])).toBe(true)
+  })
+
+  it('本轮助手块只有空白不算产出', () => {
+    expect(turnProducedText([user('hi'), asst('   ')])).toBe(false)
+  })
+})
+
+describe('turnErrorText', () => {
+  it('只在用户点了停止时吞掉取消类错误', () => {
+    expect(turnErrorText('context canceled', true)).toBeNull()
+    expect(turnErrorText('request cancelled', true)).toBeNull()
+  })
+
+  it('非用户主动的取消必须显示(否则错误了却看不到原因)', () => {
+    expect(turnErrorText('context canceled', false)).toBe('context canceled')
+    expect(turnErrorText('upstream canceled the request', false)).toBe('upstream canceled the request')
+  })
+
+  it('真正的报错无论是否停止都原样显示', () => {
+    expect(turnErrorText('openai: 429 rate limited', true)).toBe('openai: 429 rate limited')
+    expect(turnErrorText('dial tcp: connection refused', false)).toBe('dial tcp: connection refused')
+  })
+
+  it('空原因兜底成可读文案,不渲染空红块', () => {
+    expect(turnErrorText('', false)).toBe('回合失败（未返回具体原因）')
+    expect(turnErrorText('   ', true)).toBe('回合失败（未返回具体原因）')
+  })
+})
+
+describe('retryReasonLabel', () => {
+  it('把裸错误类翻成中文', () => {
+    expect(retryReasonLabel('transport')).toBe('连接中断')
+    expect(retryReasonLabel('server')).toBe('服务端错误')
+    expect(retryReasonLabel('rate_limited')).toBe('请求过于频繁')
+  })
+
+  it('保留 (HTTP nnn) 后缀', () => {
+    expect(retryReasonLabel('server (HTTP 503)')).toBe('服务端错误 (HTTP 503)')
+    expect(retryReasonLabel('rate_limited (HTTP 429)')).toBe('请求过于频繁 (HTTP 429)')
+  })
+
+  it('未知或已本地化的原因原样透传', () => {
+    expect(retryReasonLabel('连接中断')).toBe('连接中断')
+    expect(retryReasonLabel('something else')).toBe('something else')
+  })
+})
 
 const ev = (o: Partial<ToolEvent>): ToolEvent => ({ type: 'started', ...o })
 const line = (text: string) => ({ stream: 'stdout', text })

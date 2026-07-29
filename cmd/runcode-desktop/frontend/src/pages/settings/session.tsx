@@ -1,12 +1,18 @@
-// 会话：模型/权限模式/判定模型/判定表决——全部进 saveSettings() 载荷，受控于父级。
+// 会话：模型 / 权限模式 / 判定模型 / 判定表决。
+// 模型字段是「就地切换」——选中即刻切换当前会话的连接(平台↔本地)并保留对话历史,
+// 走的是与输入框内模型选择器同一条 SwitchModel 路径,不需要新建会话;其余字段仍随
+// 「保存设置」一起落盘。判定模型只列平台模型:它是交给引擎的模型 id,自定义档名引擎
+// 认不出。
 import { Icon } from '@/ui/icons'
 import { LABEL_CLS, SelectField } from '@/ui/fields'
 import { ModelSelect, type ModelOption } from '@/ui/model-picker'
 import { Section } from './section'
 
-export function SessionSection({ model, onModel, permissionMode, onPermissionMode, harmJudgeModel, onHarmJudgeModel, harmJudgeVotes, onHarmJudgeVotes, modelOpts }: {
-  model: string
-  onModel: (v: string) => void
+export function SessionSection({ currentModel, switchOpts, onSwitchModel, busy, permissionMode, onPermissionMode, harmJudgeModel, onHarmJudgeModel, harmJudgeVotes, onHarmJudgeVotes, modelOpts }: {
+  currentModel: string
+  switchOpts: ModelOption[]
+  onSwitchModel: (choice: ModelOption) => void
+  busy: boolean
   permissionMode: string
   onPermissionMode: (v: string) => void
   harmJudgeModel: string
@@ -17,8 +23,15 @@ export function SessionSection({ model, onModel, permissionMode, onPermissionMod
 }) {
   return (
     <Section title="会话">
-      <div className={LABEL_CLS}>模型
-        <ModelSelect value={model} options={modelOpts} onPick={onModel} placeholder="选择或搜索模型…" allowCustom />
+      <div className={LABEL_CLS}>模型（切换即刻生效，保留当前对话，无需新建会话）
+        <ModelSelect
+          value={currentModel}
+          options={switchOpts}
+          onPick={(_, option) => { if (option) onSwitchModel(option) }}
+          placeholder="选择平台或本地模型…"
+          disabled={busy}
+        />
+        {busy && <span className="text-[12px] text-muted">对话进行中，暂不能切换模型。</span>}
       </div>
       <label className={LABEL_CLS}>权限模式
         <SelectField value={permissionMode} onChange={onPermissionMode}>

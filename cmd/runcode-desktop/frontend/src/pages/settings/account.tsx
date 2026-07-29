@@ -89,7 +89,7 @@ export function AccountSection({ onAccount, onBusy }: {
         </div>
       )}
       {passport.loggedIn && account.eligibleTenants.length > 0 && (
-        <label className={LABEL_CLS}>租户(切换后下次新建会话生效)
+        <label className={LABEL_CLS}>租户(切换后在下方重新选择模型即切到该租户,无需新建会话)
           <SelectField value={account.tenantId} disabled={account.phase === 'resolving'} onChange={(v) => void onSwitchTenant(v)}>
             {!account.tenantId && account.eligibleTenants.length > 1 && <option value="">请选择末级租户</option>}
             {account.eligibleTenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}（{tenant.id}）</option>)}

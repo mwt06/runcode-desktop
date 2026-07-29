@@ -19,6 +19,41 @@ func (a *App) SendMessage(text string) error {
 	return wireError(a.sendUserTurn(text, nil, false))
 }
 
+// InjectMessage delivers text into the in-flight turn as mid-turn steering: the
+// engine splices it into the running turn so the model sees it at the next
+// iteration boundary (after the current tool round), instead of only next turn. If
+// no turn is running (it just ended in the race window), it falls back to starting
+// a fresh turn and returns startedTurn=true so the frontend can flip its busy
+// state; a successful mid-turn injection returns false (the running turn's
+// lifecycle already drives busy).
+func (a *App) InjectMessage(text string) (bool, error) {
+	return a.injectOrSend(text, nil, false)
+}
+
+// injectOrSend tries to inject into the live turn and, on ErrNoActiveTurn, sends
+// the message as a fresh turn instead. Shared by InjectMessage and
+// InjectMessageWithImages.
+func (a *App) injectOrSend(text string, images []llm.ImageSource, withImages bool) (bool, error) {
+	a.mu.Lock()
+	id := a.currentID
+	a.mu.Unlock()
+	if id == "" {
+		return false, wireError(errNoSession)
+	}
+	err := a.mgr.Inject(id, text, images)
+	if err == nil {
+		return false, nil // spliced into the running turn
+	}
+	if errors.Is(err, host.ErrNoActiveTurn) {
+		// The turn ended before the injection landed; send it as a new turn.
+		if serr := a.sendUserTurn(text, images, withImages); serr != nil {
+			return false, wireError(serr)
+		}
+		return true, nil
+	}
+	return false, wireError(err)
+}
+
 // sendUserTurn submits one user turn to the active session via the manager,
 // maintaining the desktop-side turn bookkeeping: the in-flight mirror, the
 // auto-title text, and the per-turn edit baseline reset.
@@ -26,6 +61,8 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 	a.mu.Lock()
 	id := a.currentID
 	edits := a.edits
+	provider, model := a.liveConfig.Provider, a.liveConfig.Model
+	livePassport := a.livePassport
 	a.mu.Unlock()
 	if id == "" {
 		return errNoSession
@@ -37,6 +74,7 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 	a.turnActive = true
 	a.mu.Unlock()
 
+	debugLog("turn submit: provider=%s model=%s passport=%v withImages=%v textLen=%d", provider, model, livePassport, withImages, len(text))
 	var err error
 	if withImages {
 		err = a.mgr.SendMessageWithImages(id, text, images)
@@ -50,6 +88,7 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 		// failure means nothing is in flight.
 		a.turnActive = errors.Is(err, host.ErrBusy)
 		a.mu.Unlock()
+		debugLog("turn submit rejected: %v", err)
 		return err
 	}
 	// Reset the per-turn edit baselines. This runs just after the turn

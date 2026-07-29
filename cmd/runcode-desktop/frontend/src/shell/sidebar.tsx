@@ -20,6 +20,9 @@ export function Sidebar({
   onNav,
   onNew,
   onResume,
+  userName,
+  avatar,
+  onLogout,
 }: {
   collapsed: boolean
   recents: SessionSummary[]
@@ -33,10 +36,16 @@ export function Sidebar({
   onNav: (v: 'chat' | 'settings' | 'plugins' | 'permissions' | 'memory') => void
   onNew: () => void
   onResume: (id: string) => void
+  // 已登录用户的展示名与头像(未登录为空——此时不渲染用户区,也就没有退出登录)。
+  userName?: string
+  avatar?: string
+  onLogout: () => void
 }) {
   // Workspace switcher popover: search + recent-workspace list + browse.
   const [wsOpen, setWsOpen] = useState(false)
   const [wsQuery, setWsQuery] = useState('')
+  // 用户区菜单(退出登录)的开合。
+  const [profileOpen, setProfileOpen] = useState(false)
   // 待确认删除的会话（打开自定义确认弹窗，替代原生 window.confirm）。
   const [confirmDel, setConfirmDel] = useState<SessionSummary | null>(null)
   const wsq = wsQuery.trim().toLowerCase()
@@ -174,6 +183,44 @@ export function Sidebar({
           </div>
         </Popover>
       </div>
+      {/* 用户区:工作区切换器下方——头像 + 用户名,点开菜单退出登录。仅登录后显示
+          (免登录进来的本地会话没有通行证用户,也就不需要退出)。 */}
+      {userName && (
+        <div className="relative mt-2 flex-none">
+          <button
+            type="button"
+            onClick={() => setProfileOpen((o) => !o)}
+            title={collapsed ? userName : undefined}
+            className={`w-full flex items-center py-2 rounded-[10px] hover:bg-surface2 text-muted hover:text-ink transition ${
+              collapsed ? 'justify-center' : 'gap-2.5 px-[9px]'
+            }`}
+          >
+            <Avatar name={userName} avatar={avatar} />
+            {!collapsed && (
+              <>
+                <span className="flex-1 min-w-0 truncate text-left text-[13px] text-ink">{userName}</span>
+                <Icon name="more" size={16} className="text-faint" />
+              </>
+            )}
+          </button>
+          <Popover
+            open={profileOpen}
+            onClose={() => setProfileOpen(false)}
+            placement={collapsed ? 'up-left' : 'up-full'}
+            variant="menu"
+            className={collapsed ? 'w-[152px]' : undefined}
+          >
+            <button
+              type="button"
+              onClick={() => { setProfileOpen(false); onLogout() }}
+              className="w-full text-left px-3.5 py-2 flex items-center gap-2.5 text-[13px] text-ink hover:bg-surface2 hover:text-red"
+            >
+              <Icon name="logout" size={15} />
+              退出登录
+            </button>
+          </Popover>
+        </div>
+      )}
       {confirmDel && (
         <ConfirmDialog
           title="删除会话"
@@ -184,5 +231,28 @@ export function Sidebar({
         />
       )}
     </aside>
+  )
+}
+
+// Avatar 优先渲染通行证头像;缺失或加载失败(外链取不到)回落到用户名首字的色块,
+// 保证离线/无头像时也有稳定的占位,不会出现裂图。
+function Avatar({ name, avatar }: { name: string; avatar?: string }) {
+  const [broken, setBroken] = useState(false)
+  const initial = name.trim().slice(0, 1).toUpperCase() || '?'
+  if (avatar && !broken) {
+    return (
+      <img
+        src={avatar}
+        alt=""
+        draggable={false}
+        onError={() => setBroken(true)}
+        className="w-7 h-7 rounded-full object-cover flex-none select-none bg-surface2"
+      />
+    )
+  }
+  return (
+    <span className="w-7 h-7 rounded-full bg-primary text-white text-[13px] font-semibold inline-flex items-center justify-center flex-none select-none">
+      {initial}
+    </span>
   )
 }

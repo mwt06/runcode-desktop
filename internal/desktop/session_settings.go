@@ -65,6 +65,15 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 	}
 	saveConfig(customModelPersistenceRequest(req, resolvedReq))
 
+	// SkipLogin is backend-owned (saveConfig carries it forward, so the line above
+	// preserved the old value). SaveSettings is its sole setter: apply the form's
+	// choice explicitly so the login-page requirement can be toggled from Settings
+	// without adding a dedicated Wails command.
+	_ = updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.SkipLogin = req.SkipLogin
+		return nil
+	})
+
 	// Rebuild the stored engine config so a subsequent New/Resume session adopts the
 	// new connection settings; the workspace stays put. Resolve a custom profile in
 	// the backend first, mirroring StartSession, so saving unrelated settings cannot
@@ -138,6 +147,7 @@ func (a *App) SetModel(model string) error {
 func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 	kind = strings.TrimSpace(kind)
 	name = strings.TrimSpace(name)
+	debugLog("SwitchModel kind=%q name=%q", kind, name)
 	if name == "" {
 		return SessionInfo{}, wireError(errors.New("模型为空"))
 	}
@@ -173,25 +183,33 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 		cfg.TokenSource = nil
 		cfg.OnUnauthorized = nil
 		cfg.Model = cm.Model
-		return a.rebuildResumingWithConnectionHeld(cfg, id, false, "")
+		info, err := a.rebuildResumingWithConnectionHeld(cfg, id, false, "")
+		if err != nil {
+			return SessionInfo{}, err
+		}
+		persistConnectionChoice(cfg.Provider, cm.Model, name, "")
+		return info, nil
 	}
 
-	// Platform (passport) model. Staying on the current live Passport connection is
-	// just a model-id swap; no rebuild, no history reload.
-	if livePassport {
+	// Platform (passport) model. Staying on the current live Passport connection and
+	// tenant is just a model-id swap: no rebuild, no history reload. Any other case —
+	// coming from a custom-model session, or a different tenant selected in Settings —
+	// rebuilds against the target Bridge connection and resumes history.
+	if livePassport && nextTenant == liveTenant {
 		if err := a.mgr.SetModel(id, name); err != nil {
 			return SessionInfo{}, wireError(err)
 		}
 		a.mu.Lock()
 		a.liveConfig.Model = name
-		if a.configPassport && nextTenant == liveTenant {
+		if a.configPassport {
 			a.config.Model = name
 		}
 		a.mu.Unlock()
+		persistConnectionChoice("passport", name, "", liveTenant)
 		return a.Status()
 	}
-	// Coming from a custom-model session: rebuild as a passport/bridge session,
-	// re-wiring the token source (mirrors applyPassport, which reads the request).
+	// Rebuild as a passport/bridge session on the target tenant, re-wiring the token
+	// source (mirrors applyPassport, which reads the request).
 	if !a.tokens.LoggedIn() {
 		return SessionInfo{}, wireError(errors.New("未登录通行证，无法切换到平台模型"))
 	}
@@ -205,7 +223,35 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 	cfg.TokenSource = a.tokens.Token
 	cfg.OnUnauthorized = a.tokens.ForceRefresh
 	cfg.Model = name
-	return a.rebuildResumingWithConnectionHeld(cfg, id, true, nextTenant)
+	info, err := a.rebuildResumingWithConnectionHeld(cfg, id, true, nextTenant)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	persistConnectionChoice("passport", name, "", nextTenant)
+	return info, nil
+}
+
+// persistConnectionChoice records the connection a live SwitchModel settled on, so
+// it survives a restart and — crucially — so a later SaveSettings of unrelated
+// fields reads this connection through its persisted-profile override instead of
+// rebuilding the session back onto the pre-switch one. It writes only the identity
+// fields and clears every credential column: a passport connection carries no key,
+// and a custom profile keeps its endpoint/key in its own CustomModels record,
+// re-resolved by name. Persistence failures are non-fatal (the live switch already
+// took effect); the choice simply reverts to the stored one on the next restart.
+func persistConnectionChoice(provider, model, customModelName, tenantID string) {
+	_ = updateRawConfig(func(cfg *StartSessionRequest) error {
+		cfg.Provider = provider
+		cfg.Model = model
+		cfg.CustomModelName = customModelName
+		cfg.TenantID = tenantID
+		cfg.BaseURL = ""
+		cfg.APIKey = ""
+		cfg.AuthToken = ""
+		cfg.APIKeyProtected = ""
+		cfg.AuthTokenProtected = ""
+		return nil
+	})
 }
 
 // rebuildResumingWithConnectionHeld rebuilds the session from cfg while

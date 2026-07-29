@@ -3,7 +3,8 @@
 // session/ 下对应的 hook，需要改样子去 shell/ 或各页面。
 import { useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
-import { loadConfig, type SessionInfo } from '@/core/bridge'
+import { loadConfig, passportLogout, type SessionInfo } from '@/core/bridge'
+import { passportDisplayName } from '@/core/passport-account'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
 import { usePermissionQueue } from '@/session/use-permission-queue'
@@ -12,7 +13,7 @@ import { usePreviewPanel } from '@/session/use-preview-panel'
 import { useConversation } from '@/session/use-conversation'
 import { useAutoPreview } from '@/session/use-auto-preview'
 import { useSession } from '@/session/use-session'
-import { usePassportName } from '@/session/use-passport-name'
+import { usePassportStatus } from '@/session/use-passport'
 import { TitleBar } from '@/shell/title-bar'
 import { StatusBar } from '@/shell/status-bar'
 import { ChatPane } from '@/shell/chat-pane'
@@ -44,8 +45,10 @@ export default function App() {
   const permissions = usePermissionQueue()
   const workspace = useWorkspaceFiles()
   const preview = usePreviewPanel()
-  // 登录用户名，供欢迎语称呼（未登录为空串）。
-  const userName = usePassportName()
+  // 登录用户的通行证状态：欢迎语称呼（经 passportDisplayName）与侧栏用户区
+  // （头像/用户名/退出登录）共用同一份订阅。未登录时名字为空串、头像为 undefined。
+  const passport = usePassportStatus()
+  const userName = passportDisplayName(passport)
 
   const conversation = useConversation({
     infoRef,
@@ -83,6 +86,14 @@ export default function App() {
     enabled: preview.autoOpen,
     open: preview.openFile,
   })
+
+  // 退出登录：先清本地通行证令牌，再把界面退回首屏。登出后 StartForm 重新校验登录态,
+  // 自然落到登录门(除非开了免登录)——满足"退出登录须回登录页"。清令牌失败也照样
+  // 退回首屏,由登录门给出下一步。
+  const logout = async () => {
+    try { await passportLogout() } catch { /* 清令牌失败也退回首屏,登录门兜底 */ }
+    session.returnToStart()
+  }
 
   // executePlanAs 离开计划模式、切到选定的权限模式，再让模型按方案执行——
   // 唯一同时牵动会话与对话的动作，所以留在这里编排。
@@ -134,6 +145,9 @@ export default function App() {
             setView('chat')
             void session.openRecent(id)
           }}
+          userName={userName}
+          avatar={passport?.avatar}
+          onLogout={() => void logout()}
         />
 
         <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface">
@@ -157,6 +171,8 @@ export default function App() {
             <SettingsPage
               initial={session.initialReq ?? {}}
               info={session.info}
+              busy={conversation.busy}
+              onSwitchModel={session.pickModel}
               onSaved={(i) => {
                 session.setInfo(i)
                 loadConfig().then((c) => session.setInitialReq(c ?? {})).catch(() => {})

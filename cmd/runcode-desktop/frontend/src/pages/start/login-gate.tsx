@@ -1,23 +1,23 @@
-// 登录门：未登录且本地没有自定义直连模型时的整屏入口——两种登录方式，外加一个
-// 内嵌的自定义模型小节，让没有通行证的用户也能先配一个直连接入点直接开工。
-import { passportCancelLogin, type CustomModel } from '@/core/bridge'
+// 登录门：强制登录的整屏入口——只提供两种登录方式。登录是强制的（除非部署在
+// desktop.json 里开了 skipLogin），所以这里不再内嵌自定义模型配置——自定义模型
+// 在设置页管理，避免登录页上出现一个配了也无法继续的入口。
+import { passportCancelLogin } from '@/core/bridge'
 import { BRAND } from '@/core/brand'
-import { CustomModelsSection } from '../settings/custom-models'
 import { loginBg, loginMascot } from './splash'
 
-export function LoginGate({ loggingIn, error, customModels, onLogin, onCustomModelsChanged }: {
+export function LoginGate({ loggingIn, error, onLogin }: {
   loggingIn: boolean
   error: string
-  customModels: CustomModel[]
   onLogin: (scheme: string) => void
-  onCustomModelsChanged: (list: CustomModel[]) => void
 }) {
   return (
     <div
-      className="relative flex-1 min-h-0 overflow-y-auto bg-cover bg-center px-6 py-10"
+      className="relative flex-1 min-h-0 overflow-y-auto bg-cover bg-center"
       style={{ backgroundImage: `url(${loginBg})` }}
     >
-      <div className="mx-auto flex w-full max-w-[640px] flex-col items-center">
+      {/* min-h-full + justify-center vertically centers the login content, yet lets it
+          scroll (rather than clip) on a window too short to fit it. */}
+      <div className="mx-auto flex min-h-full w-full max-w-[640px] flex-col items-center justify-center px-6 py-10">
         <img src={loginMascot} alt="" draggable={false} className="w-[190px] h-auto select-none pointer-events-none" />
         <h1 className="mt-7 mb-10 text-[26px] font-bold tracking-[0.06em]" style={{ color: '#1d55c4' }}>
           {BRAND.loginHeadline}
@@ -48,9 +48,6 @@ export function LoginGate({ loggingIn, error, customModels, onLogin, onCustomMod
           </button>
         )}
         {error && <div className="mt-4 max-w-[420px] text-center text-red text-[13px]">{error}</div>}
-        <div className="mt-8 w-full">
-          <CustomModelsSection models={customModels} onChanged={onCustomModelsChanged} />
-        </div>
       </div>
     </div>
   )

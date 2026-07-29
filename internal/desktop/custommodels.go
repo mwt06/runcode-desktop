@@ -190,6 +190,28 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	if err != nil {
 		return nil, wireError(err)
 	}
+
+	// If the live session is running the model just edited, its open connection is
+	// still the pre-edit one — rebuild it against the new config so the change takes
+	// effect immediately instead of forcing a manual re-select. Only a custom
+	// (non-passport) connection can be the edited model; the write above already
+	// tracked any rename into CustomModelName, so a match there identifies the live
+	// model. A connection change can't be applied mid-turn (the rebuild would discard
+	// the running turn), so a busy session keeps the saved edit for the next switch.
+	a.mu.Lock()
+	id := a.currentID
+	livePassport := a.livePassport
+	busy := a.turnActive
+	a.mu.Unlock()
+	liveIsEdited := id != "" && !livePassport && strings.TrimSpace(loadRawConfig().CustomModelName) == req.Name
+	if liveIsEdited && !busy {
+		if _, err := a.SwitchModel("custom", req.Name); err != nil {
+			// Best-effort: the edit is already saved. If the live rebuild fails, fall
+			// back to the prior behavior — the change applies on the next manual
+			// re-select — rather than failing the save itself.
+			debugLog("SaveCustomModel live re-apply failed for %q: %v", req.Name, err)
+		}
+	}
 	return result, nil
 }
 

@@ -67,8 +67,12 @@ func TestConfigureSessionWiresOptions(t *testing.T) {
 	if opts.Permissions == nil {
 		t.Fatal("configureSession did not install a permission service")
 	}
-	if len(opts.ExtraTools) != 1 || opts.ExtraTools[0].Name() != "open_preview" {
-		t.Fatalf("ExtraTools = %v, want exactly the open_preview tool", opts.ExtraTools)
+	toolNames := make([]string, len(opts.ExtraTools))
+	for i, tl := range opts.ExtraTools {
+		toolNames[i] = tl.Name()
+	}
+	if len(toolNames) != 2 || toolNames[0] != "open_preview" || toolNames[1] != "ReadOffice" {
+		t.Fatalf("ExtraTools = %v, want [open_preview ReadOffice]", toolNames)
 	}
 	es, ok := opts.EditRecorder.(*editStore)
 	if !ok || es == nil {

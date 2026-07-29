@@ -45,6 +45,53 @@ export function finalizeStreaming(blocks: Block[]): Block[] {
   return blocks.map((b) => (b.kind === 'assistant' && b.streaming ? { ...b, streaming: false } : b))
 }
 
+// turnProducedText reports whether the just-ended turn produced any assistant text.
+// Only the blocks after the last user message count — those belong to this turn.
+// Scanning the whole conversation would let an earlier turn's reply mask an empty
+// one: switch models mid-chat, ask again, get nothing back, and the "empty content"
+// notice would wrongly stay hidden because a prior answer still sits in the history.
+export function turnProducedText(blocks: Block[]): boolean {
+  const lastUser = blocks.map((b) => b.kind).lastIndexOf('user')
+  return blocks.slice(lastUser + 1).some((b) => b.kind === 'assistant' && b.text.trim() !== '')
+}
+
+// turnErrorText decides how a turn:error is surfaced. A cancellation is swallowed
+// ONLY when the user actually pressed stop — that path is already finalized as
+// "已停止" by the optimistic stop, so a red error would be wrong. Every other
+// failure must be shown, including a cancellation the user did not ask for
+// (upstream/network/timeout), which previously matched the same regex and vanished
+// silently — "错误了却看不到原因". The empty fallback keeps a blank reason from
+// rendering as an unexplained empty red box. Returns null to suppress.
+export function turnErrorText(error: string, userStopped: boolean): string | null {
+  if (userStopped && /cancel(?:l)?ed/i.test(error)) return null
+  return error.trim() || '回合失败（未返回具体原因）'
+}
+
+// RETRY_KIND_ZH maps the engine's neutral error-kind tokens (llm.ErrorKind) to a
+// Chinese label. The retry reason arrives as a bare kind ("transport") or a kind
+// with a status ("server (HTTP 503)"), so retryReasonLabel translates the kind and
+// keeps any "(HTTP nnn)" suffix — otherwise the divider leaks raw English like
+// "transport" into the 中文 UI.
+const RETRY_KIND_ZH: Record<string, string> = {
+  transport: '连接中断',
+  server: '服务端错误',
+  rate_limited: '请求过于频繁',
+  overloaded: '服务过载',
+  auth: '鉴权失败',
+  invalid_request: '请求无效',
+  unknown: '未知错误',
+}
+
+// retryReasonLabel renders an engine retry reason as a Chinese label. Unknown or
+// already-localized reasons (e.g. the "连接中断" fallback) pass through unchanged.
+export function retryReasonLabel(reason: string): string {
+  const m = /^([a-z_]+)(\s*\(HTTP \d+\))?$/.exec(reason.trim())
+  if (!m) return reason
+  const zh = RETRY_KIND_ZH[m[1]]
+  if (!zh) return reason
+  return m[2] ? `${zh}${m[2]}` : zh
+}
+
 // endTool marks a tool event that never reached a terminal state as cancelled, so a
 // turn that ends or is interrupted mid-tool-call doesn't leave a spinning card.
 export function endTool(t: ToolEvent): ToolEvent {

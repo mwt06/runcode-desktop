@@ -107,11 +107,26 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
       setInfo(i)
       setInitialReq(req)
       setStarted(true)
+      // 回读配置:最近工作区(MRU)是后端在保存本次请求时合并出来的,表单里的 req 不含
+      // 刚打开的这个目录。不回读,侧栏的「历史工作区」会一直停在启动前的那份。
+      loadConfig().then((c) => { if (c) setInitialReq(c) }).catch(() => {})
     } catch (e) {
       setStartError(errText(e))
     } finally {
       setStarting(false)
     }
+  }
+
+  // returnToStart 把界面退回首屏(登录门 / 工作区选择)。退出登录后调用:清空当前会话
+  // 的显示与 started 标志,让 App 重新渲染 StartForm,由它按新的登录态决定进登录门还是
+  // 表单——登出后自然落到登录门(除非开了免登录)。后端会话不显式关闭(下次启动会新建
+  // 或恢复),这里只重置外壳状态,并刷新预填值(登出后连接/模型可能已变)。
+  function returnToStart() {
+    setStarted(false)
+    setInfo(null)
+    setStartError('')
+    conversation.reset()
+    loadConfig().then((c) => setInitialReq(c ?? {})).catch(() => {})
   }
 
   const newChat = () =>
@@ -217,7 +232,16 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
       // keeps loading the dead port and shows “拒绝连接”.
       const st = await switchModel(choice.kind, choice.id)
       setInfo((prev) => (st ? { ...prev, ...st } : prev))
-    } catch { /* 切换失败保持原样 */ }
+      // The backend persists the switched connection; refresh the cached start-form
+      // values so the Settings page (and start page) reflect the new connection
+      // instead of the pre-switch one they were opened with.
+      loadConfig().then((c) => setInitialReq(c ?? {})).catch(() => {})
+    } catch (e) {
+      // A cross-connection switch can legitimately fail (not logged in, a turn in
+      // flight): say so instead of silently doing nothing, which reads as "I can't
+      // switch here, I must start a new session".
+      showToast(`切换模型失败：${errText(e)}`)
+    }
   }
 
   // executePlanAs 退出计划模式、切到选定的权限模式，随后由调用方发出执行指令。
@@ -237,7 +261,7 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
 
   return {
     info, setInfo, started, starting, startError, recents, initialReq, setInitialReq, switching,
-    start, newChat, openRecent, switchToWorkspace, pickWorkspaceAndSwitch, deleteRecent,
+    start, newChat, openRecent, switchToWorkspace, pickWorkspaceAndSwitch, deleteRecent, returnToStart,
     togglePlan, chooseReasoning, chooseThinking, pickMode, toggleMode, pickModel, leavePlanMode,
   }
 }

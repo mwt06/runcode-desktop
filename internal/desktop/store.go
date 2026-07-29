@@ -104,6 +104,7 @@ func saveConfigHeld(req StartSessionRequest) {
 	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
 	req.CustomModels = prev.CustomModels
 	req.WebProxy = prev.WebProxy
+	req.SkipLogin = prev.SkipLogin
 	req = protectRequestSecrets(req)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {

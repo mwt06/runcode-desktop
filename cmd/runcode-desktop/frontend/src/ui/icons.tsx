@@ -434,6 +434,14 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M4 12h11a5 5 0 0 1 0 10h-1" />
         </svg>
       )
+    // 退出登录：门框（右侧开口）+ 向外的箭头。
+    case 'logout':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M15 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H15" />
+          <path d="M12 12h9m0 0-3.2-3.2M21 12l-3.2 3.2" />
+        </svg>
+      )
     default:
       return null
   }

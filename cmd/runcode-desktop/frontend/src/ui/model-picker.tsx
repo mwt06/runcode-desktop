@@ -5,12 +5,27 @@ import { useEffect, useState } from 'react'
 import { Icon } from './icons'
 import { Popover, type PopoverPlacement } from './popover'
 import { FIELD_CLS } from './fields'
+import { customModelOptionSub } from '@/core/custom-models'
+import { type CustomModel, type PassportModel } from '@/core/bridge'
 
 // ModelOption is one row in the shared model picker. `id` is what picking it
 // submits (a platform model id, or a custom connection's name/model id depending
 // on the caller); `modelId` is the session-model id it maps to when that differs
 // (custom connections), used only to mark the current selection.
 export type ModelOption = { id: string; label: string; sub?: string; kind: 'platform' | 'custom'; modelId?: string }
+
+// toModelOptions merges the platform (passport) and local custom models into the one
+// option list every model switcher shows — the composer's in-chat picker and the
+// Settings connection field alike. Platform ids come first, then custom profiles
+// (tagged 自定义). `id` is exactly what SwitchModel receives: a platform model id, or
+// a custom profile's name; `modelId` carries the custom profile's underlying model id
+// so the current live model (which reports the id, not the profile name) still marks.
+export function toModelOptions(platform: PassportModel[], custom: CustomModel[]): ModelOption[] {
+  return [
+    ...platform.map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy })),
+    ...custom.map((c): ModelOption => ({ kind: 'custom', id: c.name, label: c.name, sub: customModelOptionSub(c), modelId: c.model })),
+  ]
+}
 
 // ModelPickerPopover is the dropdown itself: a search box over platform + custom
 // options with the standard row look (mono label, 自定义 pill, current ✓). It
@@ -91,7 +106,9 @@ export function ModelPickerPopover({ open, onClose, placement, className, option
 export function ModelSelect({ value, options, onPick, placeholder, allowCustom, clearLabel, disabled }: {
   value: string
   options: ModelOption[]
-  onPick: (id: string) => void
+  // The picked option is forwarded so callers that need its kind (e.g. a live
+  // connection switch: platform vs custom) can read it; string-only callers ignore it.
+  onPick: (id: string, option?: ModelOption) => void
   placeholder: string
   allowCustom?: boolean
   clearLabel?: string
