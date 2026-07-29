@@ -127,6 +127,7 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			sink.setContext(ctx)
 			dlg.setContext(ctx)
+			app.Startup()
 		},
 		OnShutdown: func(context.Context) {
 			_ = app.CloseSession()
