@@ -8,9 +8,14 @@ import (
 )
 
 const (
-	maxXlsxRows     = 300 // per sheet
-	maxXlsxCols     = 60  // per sheet
-	maxXlsxFmtNotes = 200 // per sheet
+	maxXlsxCols = 60 // per sheet
+	// maxXlsxFmtScanRows bounds the formatting scan only: it asks the style of
+	// every non-empty cell, which is one excelize call per cell, so a huge sheet
+	// would spend most of the call on notes rather than data. Data rows have no
+	// such cap — they are bounded by the caller's line window, so a long sheet is
+	// read page by page instead of silently ending at a fixed row.
+	maxXlsxFmtScanRows = 300 // per sheet
+	maxXlsxFmtNotes    = 200 // per sheet
 )
 
 // extractXlsx renders a .xlsx as line-numbered structured text: per sheet, the
@@ -18,25 +23,24 @@ const (
 // column letter, and a formatting section listing cells whose font/fill/number
 // format is non-default. Values are the formatted (display) values, so dates and
 // number formats read as they appear in Excel.
-func extractXlsx(path string) (*capBuf, error) {
+func extractXlsx(path string, cb *capBuf) error {
 	f, err := excelize.OpenFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open xlsx: %w", err)
+		return fmt.Errorf("open xlsx: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
-	cb := newCapBuf()
 	sheets := f.GetSheetList()
 	cb.writef("[xlsx] 工作表 %d 个：%s\n", len(sheets), strings.Join(sheets, "、"))
 
 	styleCache := map[int]string{}
 	for _, sheet := range sheets {
-		if cb.truncated() {
+		if cb.full() {
 			break
 		}
 		renderSheet(cb, f, sheet, styleCache)
 	}
-	return cb, nil
+	return nil
 }
 
 func renderSheet(cb *capBuf, f *excelize.File, sheet string, styleCache map[int]string) {
@@ -79,11 +83,9 @@ func renderSheet(cb *capBuf, f *excelize.File, sheet string, styleCache map[int]
 		}
 		cb.writeString("列: " + strings.Join(header, " | ") + "\n")
 	}
+	// Every row is emitted; the line window decides which ones are kept, so a sheet
+	// longer than one page continues on the next call instead of being cut off.
 	for ri, row := range rows {
-		if ri >= maxXlsxRows {
-			cb.writef("…（省略 %d 行）\n", len(rows)-maxXlsxRows)
-			break
-		}
 		cells := make([]string, maxCols)
 		for c := 0; c < maxCols; c++ {
 			if c < len(row) {
@@ -91,7 +93,7 @@ func renderSheet(cb *capBuf, f *excelize.File, sheet string, styleCache map[int]
 			}
 		}
 		cb.writef("r%d: %s\n", ri+1, strings.Join(cells, " | "))
-		if cb.truncated() {
+		if cb.full() {
 			return
 		}
 	}
@@ -103,9 +105,12 @@ func renderSheet(cb *capBuf, f *excelize.File, sheet string, styleCache map[int]
 // (font, fill, bold/italic, alignment, or a custom number format), capped so a
 // heavily-styled sheet cannot flood the output.
 func renderSheetFormats(cb *capBuf, f *excelize.File, sheet string, rows [][]string, maxCols int, styleCache map[int]string) {
+	if cb.full() {
+		return
+	}
 	var notes []string
 	count := 0
-	for ri := 0; ri < len(rows) && ri < maxXlsxRows; ri++ {
+	for ri := 0; ri < len(rows) && ri < maxXlsxFmtScanRows; ri++ {
 		for ci := 0; ci < len(rows[ri]) && ci < maxCols; ci++ {
 			if strings.TrimSpace(rows[ri][ci]) == "" {
 				continue
@@ -138,7 +143,7 @@ func renderSheetFormats(cb *capBuf, f *excelize.File, sheet string, rows [][]str
 	cb.writeString("格式:\n")
 	for _, n := range notes {
 		cb.writeString("  " + n + "\n")
-		if cb.truncated() {
+		if cb.full() {
 			return
 		}
 	}

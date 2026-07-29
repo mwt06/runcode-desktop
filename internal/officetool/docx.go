@@ -15,21 +15,20 @@ import (
 // segmented by run-level formatting (font/size/bold/italic/underline/color), and
 // tables as pipe-delimited rows. Order is preserved so line numbers map to the
 // document's actual reading order.
-func extractDocx(path string) (*capBuf, error) {
+func extractDocx(path string, cb *capBuf) error {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
-		return nil, fmt.Errorf("open docx: %w", err)
+		return fmt.Errorf("open docx: %w", err)
 	}
 	defer func() { _ = zr.Close() }()
 
 	styles := loadDocxStyles(zr) // styleId -> human name
 	doc := openZipEntry(zr, "word/document.xml")
 	if doc == nil {
-		return nil, fmt.Errorf("not a valid docx: word/document.xml missing")
+		return fmt.Errorf("not a valid docx: word/document.xml missing")
 	}
 	defer func() { _ = doc.Close() }()
 
-	cb := newCapBuf()
 	dec := xml.NewDecoder(doc)
 	inBody := false
 	para := 0
@@ -40,7 +39,7 @@ func extractDocx(path string) (*capBuf, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("parse document.xml: %w", err)
+			return fmt.Errorf("parse document.xml: %w", err)
 		}
 		se, ok := tok.(xml.StartElement)
 		if !ok {
@@ -57,7 +56,7 @@ func extractDocx(path string) (*capBuf, error) {
 		case "p":
 			var p docxPara
 			if err := dec.DecodeElement(&p, &se); err != nil {
-				return nil, fmt.Errorf("decode paragraph: %w", err)
+				return fmt.Errorf("decode paragraph: %w", err)
 			}
 			para++
 			cb.writeString(renderDocxPara(para, p, styles))
@@ -65,18 +64,18 @@ func extractDocx(path string) (*capBuf, error) {
 		case "tbl":
 			var t docxTable
 			if err := dec.DecodeElement(&t, &se); err != nil {
-				return nil, fmt.Errorf("decode table: %w", err)
+				return fmt.Errorf("decode table: %w", err)
 			}
 			table++
 			renderDocxTable(cb, table, t)
 		default:
 			_ = dec.Skip()
 		}
-		if cb.truncated() {
+		if cb.full() {
 			break
 		}
 	}
-	return cb, nil
+	return nil
 }
 
 // --- OOXML WordprocessingML subset (matched by local element name) ---
@@ -309,7 +308,7 @@ func renderDocxTable(cb *capBuf, idx int, t docxTable) {
 			cells = append(cells, cellText(c))
 		}
 		cb.writeString("| " + strings.Join(cells, " | ") + " |\n")
-		if cb.truncated() {
+		if cb.full() {
 			return
 		}
 	}

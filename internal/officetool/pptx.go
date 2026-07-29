@@ -16,14 +16,13 @@ import (
 // its text segmented by paragraph with font info where present. Positions come
 // from the slide's own a:xfrm; shapes that inherit geometry from the layout are
 // marked as such.
-func extractPptx(path string) (*capBuf, error) {
+func extractPptx(path string, cb *capBuf) error {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
-		return nil, fmt.Errorf("open pptx: %w", err)
+		return fmt.Errorf("open pptx: %w", err)
 	}
 	defer func() { _ = zr.Close() }()
 
-	cb := newCapBuf()
 	sw, sh := pptSlideSize(zr)
 	slides := pptSlideNames(zr)
 	cb.writef("[pptx] 幻灯片 %d 页", len(slides))
@@ -33,7 +32,7 @@ func extractPptx(path string) (*capBuf, error) {
 	cb.writeString("\n")
 
 	for i, name := range slides {
-		if cb.truncated() {
+		if cb.full() {
 			break
 		}
 		cb.writef("\n### 幻灯片 %d\n", i+1)
@@ -41,7 +40,7 @@ func extractPptx(path string) (*capBuf, error) {
 			cb.writef("（解析失败：%v）\n", err)
 		}
 	}
-	return cb, nil
+	return nil
 }
 
 func renderSlide(cb *capBuf, zr *zip.ReadCloser, entry string) error {
@@ -99,7 +98,7 @@ func renderSlide(cb *capBuf, zr *zip.ReadCloser, entry string) error {
 		default:
 			_ = dec.Skip()
 		}
-		if cb.truncated() {
+		if cb.full() {
 			return nil
 		}
 	}
@@ -114,7 +113,7 @@ func renderShape(cb *capBuf, kind, name string, xfrm *pptXfrm, paras []pptRender
 	cb.writef("- %s %s\n", label, pptGeom(xfrm))
 	for _, p := range paras {
 		cb.writeString("    " + p.text + "\n")
-		if cb.truncated() {
+		if cb.full() {
 			return
 		}
 	}
