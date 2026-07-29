@@ -7,10 +7,17 @@
 //   2. 把下面的 DEFAULT_BRAND 改成 'zhikai'(改一行,提交即生效)。
 // 拼错或未知的值一律回落 DEFAULT_BRAND,绝不因为一个笔误就静默换掉品牌。
 import zhikaiLogo from '@/assets/zhikai-logo.png'
+import zhikaiMascot from '@/assets/zhikai-mascot.gif'
 
 // BrandLogo 决定品牌标记怎么画:'mark' 用内置的 X 双笔画 SVG(原品牌矢量标),
 // 'image' 用一张位图(如智开的 logo.png,构建时打包进产物,运行期不联网)。
 export type BrandLogo = { kind: 'mark' } | { kind: 'image'; src: string; alt: string }
+
+// GreetingMark 是空对话问候语上方的插画(如智开的吉祥物动图)。它与 logo 是两回事:
+// logo 是小尺寸品牌标记,统一套在圆角方框里(标题栏/起始页/问候语共用);插画自带
+// 形状与背景,按原图放大直出、不套框,否则会双重描边且细节糊成一团。不设的品牌
+// 沿用带框的 logo。
+export type GreetingMark = { src: string; alt: string; size: number }
 
 // GreetingStyle 决定空对话时的欢迎语形态,由 chat-pane 按此渲染:
 //   'explore' —— 面向编程:让 <助手> 在 <工作区> 中探索、修改或运行点什么。
@@ -28,6 +35,8 @@ export type Brand = {
   // greeting 是空对话时的欢迎语形态。
   greeting: GreetingStyle
   logo: BrandLogo
+  // greetingMark 覆盖空对话问候语上方的标记;不设则用带框的 logo。
+  greetingMark?: GreetingMark
 }
 
 // 想换品牌:改这里,或设 VITE_BRAND。
@@ -49,6 +58,7 @@ const BRANDS: Record<string, Brand> = {
     loginHeadline: '智开AI，您的AI办公助手',
     greeting: 'welcome',
     logo: { kind: 'image', src: zhikaiLogo, alt: '智开' },
+    greetingMark: { src: zhikaiMascot, alt: '智开', size: 96 },
   },
 }
 

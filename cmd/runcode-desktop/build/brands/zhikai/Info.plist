@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  智开品牌的 macOS 应用清单。与 build/darwin/Info.plist 的唯一实质差别是
+  CFBundleIdentifier —— 它必须与 XRUN 不同,否则两个品牌在系统看来是同一个应用
+  (偏好设置、通知授权、Gatekeeper 记录会互相覆盖)。显示名走 {{.Info.ProductName}},
+  由 scripts/build-desktop.sh 在打包时写进 wails.json。
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleName</key>
+    <string>{{.Info.ProductName}}</string>
+    <key>CFBundleExecutable</key>
+    <string>{{.Name}}</string>
+    <key>CFBundleIdentifier</key>
+    <string>cn.ouconline.ai.zhikai</string>
+    <key>CFBundleVersion</key>
+    <string>{{.Info.ProductVersion}}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{{.Info.ProductVersion}}</string>
+    <key>CFBundleGetInfoString</key>
+    <string>{{.Info.Comments}}</string>
+    <key>CFBundleIconFile</key>
+    <string>iconfile</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>{{.Info.Copyright}}</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>需要访问你选择的工作区目录，以便读取与修改其中的文件。</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>需要访问你选择的工作区目录，以便读取与修改其中的文件。</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>需要访问你选择的工作区目录，以便读取与修改其中的文件。</string>
+</dict>
+</plist>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  `wails dev` 用的清单:与 Info.plist 同内容,额外允许连接本地开发服务器
+  (dev 模式前端跑在 http://localhost,ATS 默认会拦明文 HTTP)。发布包用
+  Info.plist,不含这条豁免。
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleName</key>
+    <string>{{.Info.ProductName}}</string>
+    <key>CFBundleExecutable</key>
+    <string>{{.Name}}</string>
+    <key>CFBundleIdentifier</key>
+    <string>cn.ouconline.ai.xrun</string>
+    <key>CFBundleVersion</key>
+    <string>{{.Info.ProductVersion}}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{{.Info.ProductVersion}}</string>
+    <key>CFBundleGetInfoString</key>
+    <string>{{.Info.Comments}}</string>
+    <key>CFBundleIconFile</key>
+    <string>iconfile</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>{{.Info.Copyright}}</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

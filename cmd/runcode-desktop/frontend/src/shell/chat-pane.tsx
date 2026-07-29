@@ -77,7 +77,20 @@ export function ChatPane({
         <div className="mx-auto max-w-[1200px] flex flex-col gap-6">
           {blocks.length === 0 && (
             <div className="mt-[16vh] text-center text-faint">
-              <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
+              {BRAND.greetingMark ? (
+                // 插画自带形状与背景,直出不套框(见 core/brand 的 GreetingMark)。
+                <img
+                  src={BRAND.greetingMark.src}
+                  alt={BRAND.greetingMark.alt}
+                  width={BRAND.greetingMark.size}
+                  height={BRAND.greetingMark.size}
+                  draggable={false}
+                  className="mx-auto mb-3 object-contain select-none"
+                  style={{ width: BRAND.greetingMark.size, height: BRAND.greetingMark.size }}
+                />
+              ) : (
+                <span className="inline-flex items-center justify-center w-[52px] h-[52px] rounded-[15px] mb-3.5 bg-surface border border-line2 shadow-xs"><Logo size={34} /></span>
+              )}
               {BRAND.greeting === 'welcome' ? (
                 // 未登录(本地自定义模型)时没有用户名,退成不带称呼的问候。
                 <p>{userName ? `${userName}老师您好，今天有什么可以帮您？` : '老师您好，今天有什么可以帮您？'}</p>

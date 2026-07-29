@@ -13,7 +13,7 @@
 
 本仓库含**三个 Go module**（依赖方向：外壳 → agentloop，反向不存在）：
 
-1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`internal/command`）+ 桌面核心（`internal/desktop`、`internal/protocol`）+ `internal/previewtool`、`tools/protogen`。
+1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`internal/command`）+ 桌面核心（`internal/desktop`、`internal/protocol`）+ 桌面专属 host 工具（`internal/previewtool` = `open_preview`、`internal/officetool` = `ReadOffice`，均经 `engine.Options.ExtraTools` 只在桌面注册）+ `tools/protogen`。
 2. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
 3. **服务端骨架（`cmd/runcode-server`，嵌套 module）**——独立仓库服务端的可跑参考实现。
 
@@ -48,6 +48,19 @@
 - **仅 Go 侧快速编译检查**（不打包、不重建前端）：`go -C cmd/runcode-desktop build ./...`。
 - 跨平台：Wails **不能交叉编译**（各 OS WebView 不同——Windows WebView2 / Linux WebKitGTK / macOS WKWebView），需在目标平台原生构建；CI 见 `.github/workflows/desktop.yml`（Linux 加 `-tags webkit2_41 -clean`）。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
+- **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的四处开关——前端 `VITE_BRAND`、Go 窗口标题 `-ldflags`、`wails.json` 的应用名/产物名、`build/` 下的图标与 macOS `Info.plist`——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails build` 只会改到前两处，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
+  ```bash
+  ./scripts/build-desktop.sh --brand zhikai              # 当前平台
+  ./scripts/build-desktop.sh --brand zhikai --universal --zip   # macOS 通用二进制 + 可分发 zip
+  ```
+
+##### macOS 打包
+
+必须在 Mac 上构建（同上，不能交叉编译）。`build/darwin/Info.plist` 是默认品牌的包清单；`build/brands/<品牌>/Info.plist` 覆盖它——**每个品牌的 `CFBundleIdentifier` 必须不同**（XRUN 是 `cn.ouconline.ai.xrun`，智开是 `cn.ouconline.ai.zhikai`），否则 macOS 把两个品牌当成同一个应用，偏好设置、通知授权与 Gatekeeper 记录会互相覆盖。品牌若没有 `build/brands/<品牌>/appicon.png` 就沿用 `build/appicon.png`，三平台同一张图标（智开当前如此）。
+
+分发给他人需签名+公证，否则 Gatekeeper 拦截（自用可右键「打开」绕过）：设 `APPLE_SIGN_ID`（签名）与 `APPLE_KEYCHAIN_PROFILE`（公证）后脚本自动执行。`.app` 压缩必须用 `ditto -c -k --keepParent`，`zip` 不保留符号链接与权限位、会破坏签名。
+
+**已知差异：macOS 上通行证令牌不落盘，每次启动都要重新登录。** 令牌加密存储只实现了 Windows 的 DPAPI（`internal/desktop/secret_windows.go`）；非 Windows 的 `secret_other.go` 返回 `ok=false`，`persistTokens` 因此不写文件——宁可不存，也不明文落盘。要消除这个差异得接 macOS Keychain。
 
 #### 品牌（白标，`frontend/src/core/brand.ts`）
 
@@ -74,4 +87,4 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 
 `App.tsx` 只负责把上述钩子接起来并按视图摆放 shell 组件，不放具体逻辑。改行为找 `session/`，改样子找 `shell/` 或对应页面。
 
-前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`preview/classify`、`preview/tabs`、`composer/mention`、`composer/keymap`、`ui/keys`、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`、`core/brand`）都有单测，新增纯函数请一并补测。
+前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`preview/classify`、`preview/tabs`、`composer/mention`、`composer/keymap`、`ui/keys`、`ui/model-picker`（`toModelOptions`：平台+自定义候选合并，输入框与设置页共用）、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`、`core/brand`）都有单测，新增纯函数请一并补测。

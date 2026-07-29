@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS 应用包(.app)的元数据模板。Wails 打包时按 wails.json 的 info 段渲染
+  {{.Info.*}} / {{.Name}}。本文件是「默认品牌」(XRUN)的清单;打其它品牌时由
+  scripts/build-desktop.sh 用 build/brands/<品牌>/Info.plist 临时覆盖后再还原,
+  因为 bundle 标识符与显示名必须随品牌走(同一台 Mac 上要能并存、且 Launchpad/
+  访达显示各自的名字)。
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleName</key>
+    <string>{{.Info.ProductName}}</string>
+    <key>CFBundleExecutable</key>
+    <string>{{.Name}}</string>
+    <!-- 反写域名唯一标识本应用:换品牌必须换它,否则两个品牌在系统里被当成同一个
+         应用(偏好、通知、Gatekeeper 记录都会串)。 -->
+    <key>CFBundleIdentifier</key>
+    <string>cn.ouconline.ai.xrun</string>
+    <key>CFBundleVersion</key>
+    <string>{{.Info.ProductVersion}}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{{.Info.ProductVersion}}</string>
+    <key>CFBundleGetInfoString</key>
+    <string>{{.Info.Comments}}</string>
+    <key>CFBundleIconFile</key>
+    <string>iconfile</string>
+    <!-- 简体中文优先:菜单栏与系统弹窗(如目录选择授权)按此选择语言。 -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <!-- 通用二进制含 arm64,Apple Silicon 自 11.0 起;低于此版本装不了也跑不了。 -->
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>{{.Info.Copyright}}</string>
+    <!-- 无边框窗口自绘标题栏,仍需系统按普通应用对待(有 Dock 图标、可激活)。 -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <!-- 用户选工作区目录时,macOS 会就下面这条理由向用户申请访问权限。 -->
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>需要访问你选择的工作区目录，以便读取与修改其中的文件。</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>需要访问你选择的工作区目录，以便读取与修改其中的文件。</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>需要访问你选择的工作区目录，以便读取与修改其中的文件。</string>
+</dict>
+</plist>
