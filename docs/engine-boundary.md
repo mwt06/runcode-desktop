@@ -1,6 +1,6 @@
 # 引擎与外壳的边界调整方案（以 MCP 为切口）
 
-状态：已确认（2026-07-29），批次 0 完成 | 分支：`refactor/engine-shell-boundary` | 引擎：`../agentloop`
+状态：已确认（2026-07-29）｜批次 0 已收尾，下一步批次 1 | 分支：`refactor/engine-shell-boundary` | 引擎：`../agentloop`
 
 ## 0. 判据
 
@@ -224,7 +224,7 @@ type Diagnoser interface{ Diagnostics() string }
 
 | 批次 | 内容 | 产物 |
 | --- | --- | --- |
-| 0 | 引擎积压落地（§3） | ✅ 引擎 `v0.7.0` 已打 tag（`71ce978`，待推送）；本仓升 require 待推送后进行 |
+| 0 | 引擎积压落地（§3） | ✅ 已完成：引擎 `v0.7.0` 已推送；本仓 require 已升；`GOWORK=off` 恢复可构建可测 |
 | 1 | A1 + A2（§4） | 引擎 `v0.8.0`（破坏性）；本仓适配 |
 | 2 | A+ 端口 + 契约单测（§5） | 与批次 1 同一 tag |
 | 3 | `CommandKinds` 回迁（§7） | 并入 `v0.8.0` |
@@ -246,3 +246,8 @@ type Diagnoser interface{ Diagnostics() string }
 验证：`go build ./...` 通过；`golangci-lint run ./...` 0 issues；`go test -race ./...` 除
 `tools/bash` 一条环境敏感用例外全过——该用例在 `v0.6.0` 上以同样方式失败，与本批无关
 （`ShellName()` 直接返回 `$SHELL`，Git Bash 下是完整路径，而测试只设了 `RUNCODE_SHELL`）。
+
+收尾（本仓 `83ba0ef`）：`v0.7.0` 已推送内网 GitLab，两个模块 require 升到 v0.7.0，
+`go.sum` 里 v0.3.0~v0.6.0 的死校验和一并 tidy 掉。**`GOWORK=off` 下根模块与桌面模块
+均编译通过、`go test -race` 通过**，`go.work` 联动模式不受影响，`protogen --check` 无漂移。
+批次 1 起改引擎，从此有可验证的基线。
