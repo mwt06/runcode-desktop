@@ -49,6 +49,8 @@ github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.8.0 h1:TNYxu4KPnZRFowFrOxcYEKarWylIQcA2Snq8baafHvI=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.8.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
+gitlab.ouc-online.com.cn/aibase/agentloop v0.9.0 h1:V0Zg/u48bNSQzR8h5m7FJ4czmgQzCqwFdX5L3FKJbqY=
+gitlab.ouc-online.com.cn/aibase/agentloop v0.9.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
 golang.org/x/mod v0.33.0 h1:tHFzIWbBifEmbwtGz65eaWyGiGZatSrT9prnU8DbVL8=
 golang.org/x/mod v0.33.0/go.mod h1:swjeQEj+6r7fODbD2cqrnje9PnziFuw4bmLbBZFrQ5w=
 golang.org/x/net v0.41.0 h1:vBTly1HeNPEn3wtREYfy4GZ/NECgw2Cnl+nK6Nz3uvw=
