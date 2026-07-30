@@ -99,4 +99,7 @@ type (
 	// Project context & memory.
 	ProjectContextInfo = protocol.ProjectContextInfo
 	MemoryInfo         = protocol.MemoryInfo
+
+	// Context audit (测试版专属).
+	ContextAuditInfo = protocol.ContextAuditInfo
 )

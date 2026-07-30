@@ -122,6 +122,9 @@ type App struct {
 	// this run, so the sync happens once (startup or first login) instead of on
 	// every session open. Guarded by mu.
 	marketSynced bool
+	// audit is the 上下文审核 runtime (store + viewer server + atomic switch),
+	// active only in test builds; see contextaudit.go. Always non-nil.
+	audit *contextAuditManager
 }
 
 // New returns an App that emits events to sink. Session events are enveloped
@@ -133,6 +136,7 @@ func New(sink EventSink) *App {
 		sink:           newEnvelopeSink(sink),
 		edits:          newEditStore(),
 		passportTenant: strings.TrimSpace(loadRawConfig().TenantID),
+		audit:          newContextAuditManager(),
 	}
 	a.mgr = host.NewManager(host.Options{
 		Build:     host.DefaultBuild,
@@ -161,6 +165,13 @@ func (a *App) Startup() {
 	// not pay a network round-trip to find out. A cold start with no stored login
 	// is a no-op — PassportLogin syncs once the token arrives.
 	go a.syncMarketOnce()
+	// 上下文审核开关跨重启保持:测试版且上次开着,则恢复运行态(建目录、起查看
+	// 服务器)。失败只记诊断日志——设置页再开一次会把错误如实报出来。
+	if IsTestBuild() && loadRawConfig().ContextAudit {
+		if _, err := a.audit.enable(); err != nil {
+			debugLog("context audit restore: %v", err)
+		}
+	}
 }
 
 // hostSinkAdapter forwards host envelopes to the shell sink under the
@@ -265,6 +276,12 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// ReadOffice lets it read .docx/.xlsx/.pptx as structured text (fonts,
 	// formatting, layout) instead of the raw ZIP bytes plain Read would dump.
 	opts.ExtraTools = append(opts.ExtraTools, previewtool.New(), officetool.New())
+
+	// 上下文审核观测器只在测试版接线;正式版连回调都不装,功能整体不存在。
+	// 回调内部查原子开关,所以运行中切换立即对当前会话生效,无需重建。
+	if IsTestBuild() {
+		opts.LLMRequestObserver = a.audit.observer(sctx.ID)
+	}
 
 	// Fresh edit store per session ("已编辑" undo/review), bound to the
 	// session's edit directory before the first tool can run.

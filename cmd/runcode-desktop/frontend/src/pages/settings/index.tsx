@@ -16,6 +16,7 @@ import { SessionSection } from './session'
 import { CustomModelsSection } from './custom-models'
 import { ProxySection } from './proxy'
 import { ContextSection } from './context'
+import { ContextAuditSection } from './context-audit'
 
 export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
   initial: Partial<StartSessionRequest>
@@ -149,6 +150,8 @@ export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
           maxHistoryMessages={maxHistoryMessages}
           onMaxHistoryMessages={setMaxHistoryMessages}
         />
+
+        <ContextAuditSection />
 
         <Section title="工作区">
           <div className="font-mono text-[12.5px] text-muted break-all">{info?.cwd || '—'}</div>

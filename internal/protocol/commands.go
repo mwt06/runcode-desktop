@@ -19,6 +19,7 @@ import hostproto "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 var CommandKinds = map[string]hostproto.CommandKind{
 	// Queries (read-only, safely retriable).
 	"ActiveTenant":       hostproto.CommandQuery,
+	"ContextAuditStatus": hostproto.CommandQuery,
 	"GetProtocolInfo":    hostproto.CommandQuery,
 	"ListAgents":         hostproto.CommandQuery,
 	"ListCustomModels":   hostproto.CommandQuery,
@@ -57,6 +58,7 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"SaveSkill":            hostproto.CommandIdempotentSet,
 	"SetActiveTenant":      hostproto.CommandIdempotentSet,
 	"SetAgentEnabled":      hostproto.CommandIdempotentSet,
+	"SetContextAudit":      hostproto.CommandIdempotentSet,
 	"SetMCPServerEnabled":  hostproto.CommandIdempotentSet,
 	"SetModel":             hostproto.CommandIdempotentSet,
 	"SetPermissionMode":    hostproto.CommandIdempotentSet,

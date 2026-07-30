@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上下文审核</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f4;
+    --border: #dde1e8;
+    --ink: #1c2026;
+    --ink-2: #5b6472;
+    --ink-3: #8b93a1;
+    --accent: #3b62c9;
+    --accent-soft: #e8edfa;
+    --role-user-bg: #e7eefb;      --role-user-ink: #2b55b4;
+    --role-assistant-bg: #e4f3ea; --role-assistant-ink: #1f7a4d;
+    --role-tooluse-bg: #faf0dc;   --role-tooluse-ink: #8a6116;
+    --role-toolresult-bg: #eceef2;--role-toolresult-ink: #4d5766;
+    --role-thinking-bg: #f0eaf8;  --role-thinking-ink: #6b46a8;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171c;
+      --surface: #1d2026;
+      --surface-2: #262a32;
+      --border: #333844;
+      --ink: #e4e7ec;
+      --ink-2: #9aa3b2;
+      --ink-3: #6d7583;
+      --accent: #7d9ce8;
+      --accent-soft: #263250;
+      --role-user-bg: #223050;      --role-user-ink: #93b0ef;
+      --role-assistant-bg: #1e3329; --role-assistant-ink: #6cc397;
+      --role-tooluse-bg: #3a3020;   --role-tooluse-ink: #d3ab55;
+      --role-toolresult-bg: #282d36;--role-toolresult-ink: #a3adbd;
+      --role-thinking-bg: #2e2540;  --role-thinking-ink: #b494e8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 13px; line-height: 1.55;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+  header .dir { color: var(--ink-3); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  header button {
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
+    border-radius: 6px; padding: 3px 12px; font-size: 12px; cursor: pointer; font-family: var(--sans);
+  }
+  header button:hover { border-color: var(--accent); color: var(--accent); }
+  header button:focus-visible, .req-head:focus-visible, .sess:focus-visible, .fold-head:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  main { display: flex; height: calc(100% - 42px); }
+  /* 左栏:会话列表 */
+  #sessions {
+    width: 264px; flex: none; overflow-y: auto;
+    border-right: 1px solid var(--border); background: var(--surface); padding: 8px;
+  }
+  .sess {
+    display: block; width: 100%; text-align: left; border: 1px solid transparent;
+    background: none; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+    color: inherit; font: inherit; margin-bottom: 2px;
+  }
+  .sess:hover { background: var(--surface-2); }
+  .sess.active { background: var(--accent-soft); border-color: var(--accent); }
+  .sess .id { font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+  .sess .meta { color: var(--ink-3); font-size: 11.5px; margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+  /* 右栏:请求列表 */
+  #detail { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 18px 40px; }
+  .empty { color: var(--ink-3); padding: 48px 0; text-align: center; }
+  .req { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-bottom: 10px; overflow: hidden; }
+  .req-head {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 8px 12px; cursor: pointer; background: none; border: none;
+    color: inherit; font: inherit; text-align: left;
+  }
+  .req-head:hover { background: var(--surface-2); }
+  .req-head .n { color: var(--ink-3); font-family: var(--mono); font-size: 11.5px; width: 34px; flex: none; }
+  .req-head .time { color: var(--ink-2); font-family: var(--mono); font-size: 11.5px; flex: none; }
+  .req-head .model { color: var(--ink-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .req-head .counts { margin-left: auto; color: var(--ink-3); font-size: 11.5px; flex: none; font-variant-numeric: tabular-nums; }
+  .chip {
+    flex: none; border-radius: 999px; padding: 1px 9px; font-size: 11px;
+    background: var(--surface-2); color: var(--ink-2);
+  }
+  .chip.assistant { background: var(--accent-soft); color: var(--accent); }
+  .req-body { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  /* 折叠小节(系统提示词/工具) */
+  .fold { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .fold-head {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px;
+    background: var(--surface-2); border: none; color: var(--ink-2); font: inherit;
+    font-size: 12px; cursor: pointer; text-align: left;
+  }
+  .fold-head .count { margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .fold-body { padding: 8px 10px; display: none; }
+  .fold.open .fold-body { display: block; }
+  .fold-head .arrow { transition: transform .12s; }
+  .fold.open .arrow { transform: rotate(90deg); }
+  /* 消息卡 */
+  .msg { border-left: 3px solid var(--border); padding: 4px 0 4px 10px; margin: 8px 0; }
+  .msg .role {
+    display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px;
+    font-weight: 600; margin-bottom: 4px;
+    background: var(--surface-2); color: var(--ink-2); /* 未定义角色的兜底 */
+  }
+  .role-user       { background: var(--role-user-bg); color: var(--role-user-ink); }
+  .role-assistant  { background: var(--role-assistant-bg); color: var(--role-assistant-ink); }
+  .role-tool_use   { background: var(--role-tooluse-bg); color: var(--role-tooluse-ink); }
+  .role-tool_result{ background: var(--role-toolresult-bg); color: var(--role-toolresult-ink); }
+  .role-thinking   { background: var(--role-thinking-bg); color: var(--role-thinking-ink); }
+  .msg.b-user        { border-left-color: var(--role-user-ink); }
+  .msg.b-assistant   { border-left-color: var(--role-assistant-ink); }
+  .block { margin: 4px 0; }
+  .block .tag { color: var(--ink-3); font-size: 11px; margin-right: 6px; }
+  pre.txt {
+    margin: 2px 0; padding: 8px 10px; background: var(--surface-2); border-radius: 6px;
+    font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
+    max-height: 300px; overflow: hidden; position: relative;
+  }
+  pre.txt.expanded { max-height: none; }
+  .more {
+    border: none; background: none; color: var(--accent); font-size: 11.5px;
+    cursor: pointer; padding: 1px 0; font-family: var(--sans);
+  }
+  .tools-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .tools-table td { padding: 3px 8px 3px 0; vertical-align: top; border-top: 1px solid var(--border); }
+  .tools-table td:first-child { font-family: var(--mono); white-space: nowrap; color: var(--ink-2); }
+  .tools-table td:last-child { color: var(--ink-3); }
+  .err-flag { color: #c0392b; font-size: 11px; font-weight: 600; margin-left: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>上下文审核</h1>
+  <span class="dir" id="dir" title=""></span>
+  <button id="refresh" type="button">刷新</button>
+</header>
+<main>
+  <nav id="sessions" aria-label="会话列表"></nav>
+  <section id="detail"><div class="empty">选择左侧的会话查看每次发往模型的完整上下文。</div></section>
+</main>
+<script>
+'use strict';
+/* 所有动态内容一律 textContent 注入 —— 记录里是模型与用户的原文,属不可信文本。 */
+const $ = (id) => document.getElementById(id);
+let currentID = '';
+
+const PURPOSES = {
+  assistant: '回合请求',
+  session_title: '自动标题',
+  harm_check: '安全判定',
+  compaction_summary: '历史压缩',
+  reasoning_classification: '思考分类',
+  reasoning_analysis: '思考分析',
+};
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso || '';
+  const p = (x) => String(x).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+async function loadSessions() {
+  const res = await fetch('/api/sessions');
+  if (!res.ok) throw new Error('加载会话列表失败(' + res.status + ')');
+  const data = await res.json();
+  $('dir').textContent = data.dir || '';
+  $('dir').title = data.dir || '';
+  const nav = $('sessions');
+  nav.replaceChildren();
+  const sessions = data.sessions || [];
+  if (!sessions.length) {
+    nav.append(el('div', 'empty', '尚无记录。开启开关后进行一次对话,这里就会出现会话。'));
+    return;
+  }
+  for (const s of sessions) {
+    const b = el('button', 'sess' + (s.id === currentID ? ' active' : ''));
+    b.type = 'button';
+    b.append(el('div', 'id', s.id));
+    const meta = el('div', 'meta');
+    meta.append(el('span', '', s.requests + ' 次请求'));
+    meta.append(el('span', '', fmtBytes(s.bytes)));
+    meta.append(el('span', '', fmtTime(s.lastTime)));
+    if (s.model) meta.append(el('span', '', s.model));
+    b.append(meta);
+    b.addEventListener('click', () => { currentID = s.id; loadSessions().catch(showErr); loadDetail(s.id).catch(showErr); });
+    nav.append(b);
+  }
+}
+
+async function loadDetail(id) {
+  const res = await fetch('/api/session?id=' + encodeURIComponent(id));
+  if (!res.ok) throw new Error('加载会话记录失败(' + res.status + ')');
+  const data = await res.json();
+  const detail = $('detail');
+  detail.replaceChildren();
+  const records = data.records || [];
+  if (!records.length) {
+    detail.append(el('div', 'empty', '该会话暂无记录。'));
+    return;
+  }
+  records.forEach((rec, i) => detail.append(renderRequest(rec, i)));
+}
+
+function renderRequest(rec, i) {
+  const wrap = el('article', 'req');
+  const head = el('button', 'req-head');
+  head.type = 'button';
+  head.append(el('span', 'n', '#' + (i + 1)));
+  head.append(el('span', 'time', fmtTime(rec.time)));
+  const purpose = rec.purpose || '';
+  head.append(el('span', 'chip' + (purpose === 'assistant' ? ' assistant' : ''), PURPOSES[purpose] || purpose));
+  head.append(el('span', 'model', rec.model || ''));
+  const msgs = rec.messages || [];
+  const tools = rec.tools || [];
+  head.append(el('span', 'counts', msgs.length + ' 条消息 · ' + tools.length + ' 个工具'));
+  wrap.append(head);
+  let body = null;
+  head.addEventListener('click', () => {
+    if (body) { body.remove(); body = null; return; }
+    body = renderRequestBody(rec); /* 懒渲染:大会话逐条展开,避免一次建几万节点 */
+    wrap.append(body);
+  });
+  return wrap;
+}
+
+function renderRequestBody(rec) {
+  const body = el('div', 'req-body');
+  const sys = rec.system || [];
+  if (sys.length) {
+    const totalChars = sys.reduce((n, b) => n + (b.text || '').length, 0);
+    body.append(fold('系统提示词', sys.length + ' 段 · ' + totalChars.toLocaleString() + ' 字符', () => {
+      const box = el('div');
+      for (const b of sys) box.append(textBlock(b.text || '', b.cache ? '缓存标记:' + b.cache : ''));
+      return box;
+    }));
+  }
+  const tools = rec.tools || [];
+  if (tools.length) {
+    body.append(fold('工具清单', String(tools.length), () => {
+      const t = el('table', 'tools-table');
+      for (const tl of tools) {
+        const tr = el('tr');
+        tr.append(el('td', '', tl.name || ''));
+        tr.append(el('td', '', (tl.description || '').slice(0, 200)));
+        t.append(tr);
+      }
+      return t;
+    }));
+  }
+  const msgs = rec.messages || [];
+  const msgBox = el('div');
+  for (const m of msgs) msgBox.append(renderMessage(m));
+  body.append(msgBox);
+  return body;
+}
+
+function fold(title, count, build) {
+  const box = el('div', 'fold');
+  const head = el('button', 'fold-head');
+  head.type = 'button';
+  head.append(el('span', 'arrow', '▸'));
+  head.append(el('span', '', title));
+  head.append(el('span', 'count', count));
+  const bodyEl = el('div', 'fold-body');
+  let built = false;
+  head.addEventListener('click', () => {
+    if (!built) { bodyEl.append(build()); built = true; }
+    box.classList.toggle('open');
+  });
+  box.append(head, bodyEl);
+  return box;
+}
+
+function renderMessage(m) {
+  const role = m.role || '';
+  const box = el('div', 'msg b-' + role);
+  for (const b of m.content || []) box.append(renderBlock(b, role));
+  if (!(m.content || []).length) box.append(el('span', 'role role-' + role, role));
+  return box;
+}
+
+function renderBlock(b, role) {
+  const wrap = el('div', 'block');
+  const type = b.type || 'text';
+  /* 角色徽记:text 显示消息角色,工具/思考块显示块类型。 */
+  const label = type === 'text' ? role : type;
+  const chip = el('span', 'role role-' + (type === 'text' ? role : type), labelText(label, b));
+  wrap.append(chip);
+  if (b.isError) wrap.append(el('span', 'err-flag', '错误'));
+  if (type === 'tool_use') {
+    wrap.append(textBlock(b.input || '', ''));
+  } else if (type === 'tool_result') {
+    const parts = [];
+    if (b.text) parts.push(b.text);
+    for (const c of b.content || []) if (c.text) parts.push(c.text);
+    wrap.append(textBlock(parts.join('\n'), ''));
+  } else {
+    wrap.append(textBlock(b.text || '', ''));
+  }
+  return wrap;
+}
+
+function labelText(label, b) {
+  const names = { user: '用户', assistant: '助手', system: '系统', tool: '工具', thinking: '思考', tool_use: '调用 ' + (b.name || ''), tool_result: '工具结果', image: '图片' };
+  return names[label] || label;
+}
+
+/* 长文本折叠:超过 300px 的块出现"展开全部"。 */
+function textBlock(text, hint) {
+  const box = el('div');
+  if (hint) box.append(el('div', 'tag', hint));
+  const pre = el('pre', 'txt', text);
+  box.append(pre);
+  requestAnimationFrame(() => {
+    if (pre.scrollHeight > pre.clientHeight + 4) {
+      const btn = el('button', 'more', '展开全部(' + text.length.toLocaleString() + ' 字符)');
+      btn.type = 'button';
+      btn.addEventListener('click', () => {
+        pre.classList.toggle('expanded');
+        btn.textContent = pre.classList.contains('expanded') ? '收起' : '展开全部(' + text.length.toLocaleString() + ' 字符)';
+      });
+      box.append(btn);
+    }
+  });
+  return box;
+}
+
+function showErr(e) {
+  $('detail').replaceChildren(el('div', 'empty', String(e && e.message || e)));
+}
+
+$('refresh').addEventListener('click', () => {
+  loadSessions().catch(showErr);
+  if (currentID) loadDetail(currentID).catch(showErr);
+});
+loadSessions().catch(showErr);
+</script>
+</body>
+</html>

@@ -68,6 +68,10 @@ type StartSessionRequest struct {
 	// It is backend-owned like WebProxy — carried forward by saveConfig and changed
 	// only through SaveSettings — so an ordinary session start cannot blank it.
 	SkipLogin bool `json:"skipLogin,omitempty"`
+	// ContextAudit 持久化"上下文审核"开关（仅测试版构建有效）。后端所有,与
+	// WebProxy 同规则:saveConfig 原样带过,只有 SetContextAudit 能改;正式版构建
+	// 即使文件里是 true 也不生效(功能门在 IsTestBuild)。
+	ContextAudit bool `json:"contextAudit,omitempty"`
 }
 
 // SessionRenamed announces a session's freshly generated title.

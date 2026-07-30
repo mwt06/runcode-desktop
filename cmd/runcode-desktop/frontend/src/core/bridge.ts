@@ -18,6 +18,7 @@ export type {
   ApprovalSummary,
   AssistantDelta,
   CompactResult,
+  ContextAuditInfo,
   CustomModel,
   Decision,
   EditDiff,
@@ -73,6 +74,7 @@ export type { EventMap } from './protocol/events'
 export {
   activeTenant,
   compact,
+  contextAuditStatus,
   deleteAgent,
   deleteCustomModel,
   deleteMCPServer,
@@ -127,6 +129,7 @@ export {
   sessionModels,
   setActiveTenant,
   setAgentEnabled,
+  setContextAudit,
   setMCPServerEnabled,
   setModel,
   setPermissionMode,
@@ -180,6 +183,12 @@ export function errText(e: unknown): string {
     /* not a structured error */
   }
   return s
+}
+
+// openInBrowser opens an absolute URL in the system browser via the Wails
+// runtime (in-app anchors would navigate the webview itself).
+export function openInBrowser(url: string): void {
+  window.runtime.BrowserOpenURL(url)
 }
 
 // copyText writes to the clipboard via the Wails runtime, falling back to the

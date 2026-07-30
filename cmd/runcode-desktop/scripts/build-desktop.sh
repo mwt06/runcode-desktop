@@ -10,6 +10,11 @@
 #   ./scripts/build-desktop.sh --brand zhikai           # 智开,当前平台
 #   ./scripts/build-desktop.sh --brand zhikai --universal   # 智开,macOS 通用二进制(Intel+ARM)
 #   ./scripts/build-desktop.sh --brand zhikai --zip     # 打完再压成可分发的 zip(macOS)
+#   ./scripts/build-desktop.sh --test                   # 测试版:内含"上下文审核"等仅测试版功能
+#
+# --test 注入 internal/desktop.testBuild 标记(见 internal/desktop/testbuild.go):
+# 设置页出现"上下文审核"开关,可落盘并查看每次发给模型的完整上下文。正式分发包
+# 一律不带 --test。
 #
 # 环境变量(可选,仅 macOS 分发需要):
 #   APPLE_SIGN_ID    代码签名身份,如 "Developer ID Application: Foo (TEAMID)";设了才签名
@@ -25,6 +30,7 @@ BRAND=runcode
 PLATFORM=""
 DO_ZIP=0
 EXTRA=""
+TEST_BUILD=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,7 +39,8 @@ while [ $# -gt 0 ]; do
     --universal) PLATFORM="darwin/universal"; shift ;;
     --zip) DO_ZIP=1; shift ;;
     --clean) EXTRA="$EXTRA -clean"; shift ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    --test) TEST_BUILD=1; shift ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "未知参数: $1(用 --help 看用法)" >&2; exit 2 ;;
   esac
 done
@@ -124,10 +131,16 @@ if [ -f "$BRAND_DIR/Info.plist" ]; then
 fi
 
 # ---- 构建 ---------------------------------------------------------------------
-echo "▶ 品牌=$BRAND  应用名=$APP_NAME  平台=${PLATFORM:-$HOST}"
+LDFLAGS="-X main.brandTitle=$WIN_TITLE"
+TEST_LABEL=""
+if [ "$TEST_BUILD" = 1 ]; then
+  LDFLAGS="$LDFLAGS -X github.com/wt68/runcode/internal/desktop.testBuild=1"
+  TEST_LABEL="  [测试版]"
+fi
+echo "▶ 品牌=$BRAND  应用名=$APP_NAME  平台=${PLATFORM:-$HOST}$TEST_LABEL"
 export VITE_BRAND="$VITE_BRAND_VALUE"
 # shellcheck disable=SC2086 # EXTRA 是有意按空格拆成多个参数的
-wails build $EXTRA -ldflags "-X main.brandTitle=$WIN_TITLE" -o "$OUT_FILE"
+wails build $EXTRA -ldflags "$LDFLAGS" -o "$OUT_FILE"
 
 # ---- macOS:签名与公证(都可选,未配置则跳过) ----------------------------------
 APP_PATH="build/bin/$OUT_NAME.app"

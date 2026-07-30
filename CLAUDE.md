@@ -52,7 +52,9 @@
   ```bash
   ./scripts/build-desktop.sh --brand zhikai              # 当前平台
   ./scripts/build-desktop.sh --brand zhikai --universal --zip   # macOS 通用二进制 + 可分发 zip
+  ./scripts/build-desktop.sh --test                      # 测试版（含上下文审核）
   ```
+- **测试版构建（`--test`）**：注入 `internal/desktop.testBuild` 标记（`internal/desktop/testbuild.go`），解锁仅测试版的"上下文审核"——设置页多一个开关，开启后引擎每次发给模型的完整请求上下文（系统提示词、消息历史、工具清单）按会话落 JSONL 到 `<UserConfigDir>/runcode/context-audit/`，并起一个仅监听 127.0.0.1 的查看页（`internal/desktop/contextaudit*.go`，数据链路是引擎 `Options.LLMRequestObserver`）。前端不用 VITE 开关：设置区块按后端 `ContextAuditStatus().supported` 决定渲染，单一事实来源。正式分发包一律不带 `--test`，此时功能整体不存在（命令拒绝开启、观测器不接线）。
 
 ##### macOS 打包
 

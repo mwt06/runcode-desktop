@@ -105,6 +105,7 @@ func saveConfigHeld(req StartSessionRequest) {
 	req.CustomModels = prev.CustomModels
 	req.WebProxy = prev.WebProxy
 	req.SkipLogin = prev.SkipLogin
+	req.ContextAudit = prev.ContextAudit
 	req = protectRequestSecrets(req)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {

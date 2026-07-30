@@ -4,7 +4,7 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
-import type { AgentList, AgentSaveRequest, CompactResult, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
+import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
 
 // app resolves the Wails binding for desktop.App lazily, so importing this
 // module before the runtime injects window.go is safe.
@@ -26,6 +26,12 @@ export function closeSession(): Promise<void> {
 // kind: trigger
 export function compact(): Promise<CompactResult> {
   return app().Compact();
+}
+
+// ContextAuditStatus 报告上下文审核的当前状态（是否测试版、开关、查看地址、目录）。
+// kind: query
+export function contextAuditStatus(): Promise<ContextAuditInfo> {
+  return app().ContextAuditStatus();
 }
 
 // DeleteAgent removes a sub-agent file in the given scope and returns the list.
@@ -356,6 +362,12 @@ export function setActiveTenant(tenantID: string): Promise<void> {
 // kind: idempotent-set
 export function setAgentEnabled(name: string, scope: string, enabled: boolean): Promise<void> {
   return app().SetAgentEnabled(name, scope, enabled);
+}
+
+// SetContextAudit 开关上下文审核并持久化。仅测试版构建允许开启；关闭总是允许 （正式版里它本来就不可能开着）。运行态先行、持久化随后：持久化失败会回滚刚 打开的运行态，保证界面所见与重启后的行为一致。
+// kind: idempotent-set
+export function setContextAudit(enabled: boolean): Promise<ContextAuditInfo> {
+  return app().SetContextAudit(enabled);
 }
 
 // SetMCPServerEnabled toggles a server on or off without touching its other fields.
