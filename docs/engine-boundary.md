@@ -1,6 +1,6 @@
 # 引擎与外壳的边界调整方案（以 MCP 为切口）
 
-状态：已确认（2026-07-29）｜批次 0 已收尾，下一步批次 1 | 分支：`refactor/engine-shell-boundary` | 引擎：`../agentloop`
+状态：**四个批次全部完成**（2026-07-30，引擎 `v0.8.0`）| 分支：`refactor/engine-shell-boundary` | 引擎：`../agentloop`
 
 ## 0. 判据
 
@@ -224,12 +224,41 @@ type Diagnoser interface{ Diagnostics() string }
 
 | 批次 | 内容 | 产物 |
 | --- | --- | --- |
-| 0 | 引擎积压落地（§3） | ✅ 已完成：引擎 `v0.7.0` 已推送；本仓 require 已升；`GOWORK=off` 恢复可构建可测 |
-| 1 | A1 + A2（§4） | 引擎 `v0.8.0`（破坏性）；本仓适配 |
-| 2 | A+ 端口 + 契约单测（§5） | 与批次 1 同一 tag |
-| 3 | `CommandKinds` 回迁（§7） | 并入 `v0.8.0` |
+| 0 | 引擎积压落地（§3） | ✅ 引擎 `v0.7.0`；`GOWORK=off` 恢复可构建可测 |
+| 1 | A1 + A2（§4） | ✅ 引擎 `d7cdc77` / `bcf9d00`；本仓 `5dd1743` |
+| 2 | A+ 端口 + 契约单测（§5） | ✅ 引擎 `2c717e5` |
+| 3 | `CommandKinds` 回迁（§7） | ✅ 引擎 `fd1b3e8`；本仓 `50b4d6f` |
+| — | 收口 | ✅ 引擎 `v0.8.0` 已推送；三模块 require 已升（本仓 `beaf4da`） |
 
 批次 1、2、3 都改引擎 API，合并成一个 tag 发布——一次破坏性变更好过三次。
+
+### 完成后的状态
+
+引擎对 MCP 只剩机制：它是一种工具来源、调用归 `OperationExternal`、传输是 stdio 或
+http。`passport`、"可信服务器"、命令清单这些产品概念一个不剩。
+
+| 原问题 | 现在 |
+| --- | --- |
+| `settings.MCPServerConfig.Passport` | 删除；改用通用 `Extra map[string]any`，引擎只保证 round-trip |
+| `mcp.ServerConfig.Trusted` + `engine.TrustedMCPServers()` | 删除；host 装配 Policy 时自己给集合（与身份注入同一个名字集合） |
+| `protocol.CommandKinds` | 删除；引擎只留 `CommandKind` 词汇，桌面与服务端骨架各自声明清单 |
+| stdio 无法在沙盒执行 | `mcp.Launcher` + `engine.Options.MCPLauncher`（纯加法，与 `ToolRuntime` 同构） |
+
+**一处偏离本方案 §7 的决定**：原文写服务端骨架从本仓 `internal/protocol` 取清单。
+技术上可行（`internal` 规则按导入路径判定），但 `cmd/runcode-server/go.mod` 的头注释
+承诺它"只依赖引擎公开面、拷到独立仓库零改动即可编译"，引用本仓 `internal` 会当场
+破坏该契约。改为**三方各持自己的清单**——而这更正确：骨架只实现 8 条会话级命令，
+共用一张表会迫使它认识 `PassportLogin`、`ReviewEdit` 这些与它无关的名字。
+
+**明确没做**：沙盒 launcher 的实现（服务端沙盒尚无形态）、把 mcp 包搬到客户端（§6）。
+
+### 遗留
+
+- 引擎 `docs/architecture.md` 仍未覆盖 v0.7.0 的四项新能力（中途插话、每请求凭据、
+  可信 MCP 服务器、Read 二进制防护）；`engine-api.md` 缺 `Session.Inject`。本轮只改了
+  因边界调整而变错的 `CommandKinds` 相关段落。
+- 引擎 `tools/bash/shell_test.go` 在 Git Bash 下必然失败（`ShellName()` 直接返回
+  `$SHELL`，测试只设了 `RUNCODE_SHELL`），v0.6.0 起如此，与本轮无关。
 
 ### 批次 0 已完成的内容
 
