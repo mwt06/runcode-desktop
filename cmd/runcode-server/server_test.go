@@ -273,11 +273,11 @@ func TestBusyMapsTo409(t *testing.T) {
 func TestErrorMapping(t *testing.T) {
 	ts := newTestServer(t, newFakeBuilder(), nil)
 
-	// 不在 CommandKinds 里的命令名 → 404 not_found。
+	// 不在 commandKinds 里的命令名 → 404 not_found。
 	status, body := rpc(t, ts, "NoSuchCommand", "{}")
 	wantErrorCode(t, status, body, http.StatusNotFound, protocol.ErrCodeNotFound)
 
-	// 在 CommandKinds 里但骨架未实现 → 501 unavailable。
+	// 在 commandKinds 里已登记但骨架未实现 → 501 unavailable。
 	status, body = rpc(t, ts, "Compact", "{}")
 	wantErrorCode(t, status, body, http.StatusNotImplemented, protocol.ErrCodeUnavailable)
 	if pe := decodeAs[protocol.Error](t, body); !strings.Contains(pe.Message, "not implemented in the skeleton") {
@@ -356,8 +356,9 @@ func TestBearerAuth(t *testing.T) {
 	}
 }
 
-// TestDispatchTableMatchesCommandKinds 是分发表完备性单测：实现的每个命令都
-// 必须登记在 protocol.CommandKinds（协议对命令名与幂等类别的单一事实源）。
+// TestDispatchTableMatchesCommandKinds 是分发表完备性单测：实现的每个命令都必须
+// 登记在 commandKinds——本服务端自己的命令面契约（命令清单归客户端，不再共用引擎
+// 里的一张表，见 commands.go）。
 func TestDispatchTableMatchesCommandKinds(t *testing.T) {
 	h := newHub(nil)
 	mgr := host.NewManager(host.Options{Build: newFakeBuilder().build, Sink: h})
@@ -368,8 +369,8 @@ func TestDispatchTableMatchesCommandKinds(t *testing.T) {
 		t.Fatal("empty dispatch table")
 	}
 	for name := range srv.routes {
-		if _, ok := protocol.CommandKinds[name]; !ok {
-			t.Errorf("route %q is not a protocol.CommandKinds command", name)
+		if _, ok := commandKinds[name]; !ok {
+			t.Errorf("route %q is not registered in commandKinds", name)
 		}
 	}
 	// 核心子集必须在场——防止手滑删表项而测试仍绿。

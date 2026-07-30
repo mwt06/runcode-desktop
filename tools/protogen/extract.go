@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+	deskproto "github.com/wt68/runcode/internal/protocol"
 )
 
 // eventPayloads is the explicit event→payload table: each Event* constant of
@@ -498,15 +498,15 @@ func extractCommands(deskPkg *packages.Package, mapper *typeMapper) ([]commandDe
 			strings.Join(violations, "\n  "))
 	}
 
-	// Cross-check against protocol.CommandKinds (imported directly, so it can
+	// Cross-check against the shell's own internal/protocol.CommandKinds (imported directly, so it can
 	// never skew from the sources protogen was built against).
 	var unclassified, orphaned []string
 	for name := range methodSet {
-		if _, ok := protocol.CommandKinds[name]; !ok {
+		if _, ok := deskproto.CommandKinds[name]; !ok {
 			unclassified = append(unclassified, name)
 		}
 	}
-	for name := range protocol.CommandKinds {
+	for name := range deskproto.CommandKinds {
 		if !methodSet[name] {
 			orphaned = append(orphaned, name)
 		}
@@ -515,7 +515,7 @@ func extractCommands(deskPkg *packages.Package, mapper *typeMapper) ([]commandDe
 	sort.Strings(orphaned)
 	if len(unclassified) > 0 || len(orphaned) > 0 {
 		var b strings.Builder
-		b.WriteString("protocol.CommandKinds is out of sync with desktop.App's exported methods:")
+		b.WriteString("internal/protocol.CommandKinds is out of sync with desktop.App's exported methods:")
 		if len(unclassified) > 0 {
 			fmt.Fprintf(&b, "\n  methods missing a CommandKinds entry: %s", strings.Join(unclassified, ", "))
 		}
@@ -526,7 +526,7 @@ func extractCommands(deskPkg *packages.Package, mapper *typeMapper) ([]commandDe
 	}
 
 	for i := range cmds {
-		cmds[i].kind = string(protocol.CommandKinds[cmds[i].goName])
+		cmds[i].kind = string(deskproto.CommandKinds[cmds[i].goName])
 	}
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].tsName < cmds[j].tsName })
 	return cmds, nil

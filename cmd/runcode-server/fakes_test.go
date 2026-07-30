@@ -52,6 +52,11 @@ func (f *fakeSession) RunTurnWithImages(ctx context.Context, text string, _ []ll
 	return f.RunTurn(ctx, text)
 }
 
+// Inject satisfies host.Session's mid-turn steering entry point. The skeleton has
+// no command for it yet, so the fake reports that nothing is accepting steering —
+// the same answer a real session gives between turns.
+func (f *fakeSession) Inject(string, []llm.ImageSource) error { return engine.ErrNoActiveTurn }
+
 func (f *fakeSession) SessionID() string { return f.id }
 
 func (f *fakeSession) Status() engine.Status {

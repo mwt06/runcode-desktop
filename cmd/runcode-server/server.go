@@ -20,7 +20,7 @@ type server struct {
 	mgr *host.Manager
 	hub *hub
 	log *log.Logger
-	// routes 是 RPC 分发表；键必须存在于 protocol.CommandKinds
+	// routes 是 RPC 分发表；键必须存在于 commandKinds
 	// （TestDispatchTableMatchesCommandKinds 把关）。
 	routes map[string]rpcHandler
 }

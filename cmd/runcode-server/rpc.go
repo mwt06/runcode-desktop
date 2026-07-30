@@ -27,8 +27,8 @@ type rpcResponse struct {
 
 type rpcHandler func(ctx context.Context, body []byte) (rpcResponse, error)
 
-// commandRoutes 是 RPC 分发表。键必须是 protocol.CommandKinds 中登记过的命令名
-// （TestDispatchTableMatchesCommandKinds 把关）；在 CommandKinds 里但不在本表的
+// commandRoutes 是 RPC 分发表。键必须是 commandKinds 中登记过的命令名
+// （TestDispatchTableMatchesCommandKinds 把关）；在 commandKinds 里但不在本表的
 // 命令，由 handleRPC 统一回 501 unavailable（"not implemented in the skeleton"）。
 func (s *server) commandRoutes() map[string]rpcHandler {
 	return map[string]rpcHandler{
@@ -47,7 +47,7 @@ func (s *server) commandRoutes() map[string]rpcHandler {
 // kind==query 的命令同时允许 GET（幂等只读，参数可放 query string）。
 func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("command")
-	kind, known := protocol.CommandKinds[name]
+	kind, known := commandKinds[name]
 	if !known {
 		s.fail(w, &protocol.Error{Code: protocol.ErrCodeNotFound, Message: fmt.Sprintf("unknown command %q", name)})
 		return
