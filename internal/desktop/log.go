@@ -76,6 +76,11 @@ func logEnvelope(env protocol.Envelope) {
 		debugLog("turn:queued seq=%d", env.Seq)
 	case protocol.EventRetry:
 		debugLog("llm:retry seq=%d: %+v", env.Seq, env.Payload)
+	case protocol.EventContextUsage:
+		// One line per model round-trip. Chattier than the others, and worth it: this
+		// is the record of how context grew across a turn and whether automatic control
+		// acted, which is exactly what a runaway-context report needs.
+		debugLog("context:usage seq=%d: %+v", env.Seq, env.Payload)
 	case protocol.EventWarning:
 		debugLog("warning seq=%d: %+v", env.Seq, env.Payload)
 	}
