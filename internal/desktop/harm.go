@@ -130,6 +130,12 @@ func describeAction(action permissions.Action) (facts string, untrusted string) 
 		untrusted = "edit file: " + resourcePath(action, permissions.ResourceFile)
 	case permissions.OperationDelete:
 		untrusted = "delete file or directory: " + resourcePath(action, permissions.ResourceFile)
+	case permissions.OperationRead:
+		// Reads only reach the judge when they leave the workspace (in-project reads
+		// are allowed outright), and then the path *is* the question: "read the folder
+		// next door" and "read the browser's cookie store" are the same operation and
+		// differ only here.
+		untrusted = "read file or directory: " + resourcePath(action, permissions.ResourceFile)
 	case permissions.OperationNetwork:
 		untrusted = "network request to host: " + metaString(action, permissions.MetadataNetworkHost)
 	case permissions.OperationExternal:
