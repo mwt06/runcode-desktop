@@ -87,7 +87,7 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 		// default truncates a large file mid-arguments (the tool call's JSON never
 		// closes → "invalid input"), so default to a generous budget; an explicit
 		// request value still wins.
-		MaxTokens:         maxTokensOrDefault(req.MaxTokens),
+		MaxTokens:         maxTokensOrDefault(provider, req.MaxTokens),
 		Thinking:          llm.ThinkingConfig{Effort: effort},
 		ReasoningScenario: strings.TrimSpace(req.ReasoningScenario),
 		// Context control: MaxContextTokens arms automatic compaction (summarize old
@@ -148,15 +148,36 @@ func loadDesktopMCP(cwd string) ([]mcp.ServerConfig, bool) {
 	return servers, sampling
 }
 
-// desktopDefaultMaxTokens is the output-token budget used when the request does
-// not set one. It is well above the provider's 4096 fallback so a single Write of
-// a sizable file (plus a reasoning model's thinking tokens) completes instead of
-// being truncated mid-tool-call.
-const desktopDefaultMaxTokens = 16384
+// Output-token budgets used when the request does not set one. Both are well above
+// the provider's own 4096 fallback: a coding agent writes whole files in one tool
+// call, and a truncated call is not a shortened answer — the arguments are cut
+// mid-JSON, so the call is unusable and the work of that turn is wasted.
+//
+// The number has to differ by provider because the ceiling does, and overshooting
+// is a hard 400 rather than a clamp:
+//
+//   - Anthropic bills thinking against the same budget, and this engine *adds* the
+//     thinking budget on top of MaxTokens (see the provider's buildMessageParams).
+//     With thinking on high (16384) a 32768 default asks for 49152, inside current
+//     Claude models' 64k output ceiling — while 65536 would ask for 81920 and be
+//     rejected outright. So 32768 is the largest safe default here, not a timid one.
+//   - Everything else keeps 16384, which is exactly the hard cap of a large class
+//     of OpenAI-compatible endpoints (GPT-4o's max_completion_tokens among them).
+//     Raising it there would turn a working setup into a 400 on every request.
+//
+// A model with a lower ceiling than its provider's default needs an explicit value
+// in the start form, which always wins.
+const (
+	desktopDefaultMaxTokens          = 16384
+	desktopAnthropicDefaultMaxTokens = 32768
+)
 
-func maxTokensOrDefault(requested int) int {
+func maxTokensOrDefault(provider string, requested int) int {
 	if requested > 0 {
 		return requested
+	}
+	if strings.EqualFold(strings.TrimSpace(provider), "anthropic") {
+		return desktopAnthropicDefaultMaxTokens
 	}
 	return desktopDefaultMaxTokens
 }

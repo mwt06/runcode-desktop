@@ -23,13 +23,21 @@ func TestBuildConfigRequiresModel(t *testing.T) {
 func TestBuildConfigMaxTokensDefaultsGenerously(t *testing.T) {
 	t.Parallel()
 	// No requested value → a generous default so large file writes are not
-	// truncated; an explicit value wins.
+	// truncated; an explicit value wins. The default follows the provider, and an
+	// unset provider resolves to anthropic (see buildConfig).
 	cfg, err := buildConfig(StartSessionRequest{CWD: t.TempDir(), Model: "m"})
 	if err != nil {
 		t.Fatalf("buildConfig: %v", err)
 	}
+	if cfg.MaxTokens != desktopAnthropicDefaultMaxTokens {
+		t.Fatalf("MaxTokens = %d, want anthropic default %d", cfg.MaxTokens, desktopAnthropicDefaultMaxTokens)
+	}
+	cfg, err = buildConfig(StartSessionRequest{CWD: t.TempDir(), Model: "m", Provider: "openai"})
+	if err != nil {
+		t.Fatalf("buildConfig: %v", err)
+	}
 	if cfg.MaxTokens != desktopDefaultMaxTokens {
-		t.Fatalf("MaxTokens = %d, want default %d", cfg.MaxTokens, desktopDefaultMaxTokens)
+		t.Fatalf("openai MaxTokens = %d, want %d — endpoints capped there reject more", cfg.MaxTokens, desktopDefaultMaxTokens)
 	}
 	cfg, err = buildConfig(StartSessionRequest{CWD: t.TempDir(), Model: "m", MaxTokens: 2048})
 	if err != nil {
@@ -147,5 +155,31 @@ func TestBuildConfigRequestOverridesEnv(t *testing.T) {
 	}
 	if cfg.PermissionMode != "interactive" {
 		t.Fatalf("mode = %q, want interactive", cfg.PermissionMode)
+	}
+}
+
+// The output budget has to differ by provider because the ceiling does, and
+// overshooting is a hard 400 rather than a clamp. Anthropic adds the thinking
+// budget on top of this number, so 32768 + a 16384 thinking budget still fits under
+// current models' 64k ceiling; everything else stays at 16384, the hard cap of a
+// large class of OpenAI-compatible endpoints.
+func TestMaxTokensDefaultsByProvider(t *testing.T) {
+	t.Parallel()
+
+	if got := maxTokensOrDefault("anthropic", 0); got != 32768 {
+		t.Fatalf("anthropic default = %d, want 32768", got)
+	}
+	if got := maxTokensOrDefault("Anthropic", 0); got != 32768 {
+		t.Fatalf("provider match must be case-insensitive, got %d", got)
+	}
+	for _, provider := range []string{"openai", "passport", "", "custom"} {
+		if got := maxTokensOrDefault(provider, 0); got != 16384 {
+			t.Fatalf("%q default = %d, want 16384 (a higher value 400s on endpoints capped there)", provider, got)
+		}
+	}
+	// An explicit value always wins, including one below the default: a model with a
+	// lower ceiling than its provider's default has no other way to be usable.
+	if got := maxTokensOrDefault("anthropic", 4096); got != 4096 {
+		t.Fatalf("explicit request = %d, want it honored", got)
 	}
 }
