@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"unicode/utf8"
+
+	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // maxArtifactBytes caps how large a text artifact ReadArtifact returns, so a giant
@@ -32,19 +34,53 @@ func (a *App) ReadArtifact(relPath string) (string, error) {
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return "", wireError(err)
+		return "", wireError(artifactFSError(relPath, err))
 	}
 	if info.Size() > maxArtifactBytes {
 		return "", wireError(errors.New("file too large to preview"))
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		return "", wireError(err)
+		return "", wireError(artifactFSError(relPath, err))
 	}
 	if !utf8.Valid(data) {
 		return "", wireError(errors.New("file is not text"))
 	}
 	return string(data), nil
+}
+
+// artifactFSError turns a filesystem failure on an artifact into something the
+// user can act on.
+//
+// A preview is opened from a card in the conversation, so its path is a claim
+// made when the reply was written and may have gone stale since — a later step
+// (or the user) moves, renames or deletes the file, and the card still points at
+// where it used to be. That is the common case here and deserves to say so.
+//
+// The raw error must not reach the UI: os.Stat on Windows reports the syscall it
+// used, so a missing file surfaced as "GetFileAttributesEx D:\...\x.md: The system
+// cannot find the file specified" — an absolute path plus the name of an API the
+// user never called, to describe "that file isn't there any more". The path is
+// echoed back in the workspace-relative form the card showed, not the resolved
+// one, so it matches what the user is looking at.
+func artifactFSError(relPath string, err error) error {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// Coded, not just worded: a card pointing at a file that is gone is the one
+		// case the UI wants to handle by *not* opening a tab at all, rather than by
+		// showing text. Everything else stays a message, because there is something
+		// for the user to react to.
+		return &protocol.Error{
+			Code:    protocol.ErrCodeNotFound,
+			Message: fmt.Sprintf("文件不存在，可能已被移动、重命名或删除：%s", relPath),
+		}
+	case errors.Is(err, os.ErrPermission):
+		return fmt.Errorf("没有读取权限：%s", relPath)
+	default:
+		// Cause unknown (locked file, I/O error, unreadable mount): name the file in
+		// the user's terms and keep the underlying error, which is all we have.
+		return fmt.Errorf("读取文件失败：%s（%w）", relPath, err)
+	}
 }
 
 // ReadArtifactBytes returns a workspace file's raw bytes as base64, for previews
@@ -68,7 +104,7 @@ func (a *App) ReadArtifactBytes(relPath string) (string, error) {
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return "", wireError(err)
+		return "", wireError(artifactFSError(relPath, err))
 	}
 	if info.IsDir() {
 		return "", wireError(errors.New("path is a directory"))
@@ -78,7 +114,7 @@ func (a *App) ReadArtifactBytes(relPath string) (string, error) {
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		return "", wireError(err)
+		return "", wireError(artifactFSError(relPath, err))
 	}
 	return base64.StdEncoding.EncodeToString(data), nil
 }
