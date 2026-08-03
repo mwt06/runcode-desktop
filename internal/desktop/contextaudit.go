@@ -33,9 +33,48 @@ type auditRecord struct {
 	Model     string         `json:"model"`
 	MaxTokens int            `json:"maxTokens,omitempty"`
 	Thinking  string         `json:"thinking,omitempty"`
+	Breakdown auditBreakdown `json:"breakdown"`
 	System    []auditBlock   `json:"system,omitempty"`
 	Messages  []auditMessage `json:"messages,omitempty"`
 	Tools     []auditTool    `json:"tools,omitempty"`
+}
+
+// auditBreakdown 是一条记录的体积构成。
+//
+// 诊断上下文膨胀时第一个要问的不是"总共多少 token"，而是"这些 token 是谁占的" ——
+// 是系统提示词、工具清单，还是某几条工具结果。没有这份拆分，一份 20MB 的落盘只能
+// 靠临时脚本去分析；有了它，同样的结论一眼可见。
+//
+// token 数走 llm.EstimateRequestTokens 同一套启发式，与引擎里真正触发压缩的判据
+// 完全一致 —— 另写一份近似会让这里显示的数字和实际行为脱节，那比不显示更糟。
+type auditBreakdown struct {
+	// EstTokens 是整条请求的估算 token 数（含系统提示词与工具 schema）。
+	EstTokens int `json:"estTokens"`
+	// 按来源拆分。SystemTokens 与 ToolsTokens 是每轮固定开销，压缩动不了它们；
+	// 其余四项来自对话历史，是压缩与脱水能影响的部分。
+	SystemTokens     int `json:"systemTokens"`
+	ToolsTokens      int `json:"toolsTokens"`
+	ToolResultTokens int `json:"toolResultTokens"`
+	ToolUseTokens    int `json:"toolUseTokens"`
+	ThinkingTokens   int `json:"thinkingTokens"`
+	TextTokens       int `json:"textTokens"`
+	Messages         int `json:"messages"`
+	// UserMessages 是真实对话轮数。它与 Messages 的比例是"回合内膨胀"的直接信号：
+	// 两三条用户消息配上一百多条消息，说明单个回合跑了几十轮工具。
+	UserMessages int `json:"userMessages"`
+	// Largest 是最占体积的若干条负载，直接指向该处理哪里。
+	Largest []auditLargest `json:"largest,omitempty"`
+}
+
+// auditLargest 定位一条大负载。
+type auditLargest struct {
+	Kind         string `json:"kind"`
+	Tool         string `json:"tool,omitempty"`
+	MessageIndex int    `json:"messageIndex"`
+	EstTokens    int    `json:"estTokens"`
+	// Age 是这条负载之后还有多少条消息。年龄越大越该被脱水，所以它是判断
+	// "该不该被处理掉却还留着"的关键一列。
+	Age int `json:"age"`
 }
 
 type auditMessage struct {
@@ -83,6 +122,7 @@ func buildAuditRecord(sessionID, purpose, turnID string, req llm.Request) auditR
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
 		Thinking:  string(req.Thinking.Effort),
+		Breakdown: buildAuditBreakdown(req),
 		System:    auditBlocks(req.System),
 	}
 	rec.Messages = make([]auditMessage, 0, len(req.Messages))
