@@ -51,6 +51,15 @@ func (m Model) approvalDetailLines() []string {
 	summary := m.approval.summary
 	width := maxZero(m.width - 3)
 	lines := []string{}
+	// Leaving the project is the headline of this prompt, so it goes first and in
+	// full: the external paths, then a note that allowing remembers the directory.
+	for i, target := range m.approval.externalTargets {
+		if i >= approvalMaxTargets {
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("   +%d more", len(m.approval.externalTargets)-approvalMaxTargets)))
+			break
+		}
+		lines = append(lines, approvalWarnStyle.Render(" ⚠ outside workspace: ")+truncate(target, maxZero(width-22)))
+	}
 	for i, target := range m.approval.targets {
 		if i >= approvalMaxTargets {
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("   +%d more", len(m.approval.targets)-approvalMaxTargets)))
@@ -85,6 +94,19 @@ func (m Model) approvalDetailLines() []string {
 // 让会话级放行的范围在按下前就是明确的。
 func (m Model) approvalSessionScopeHint() string {
 	summary := m.approval.summary
+	// An out-of-workspace allow is remembered per directory, not per file — say so,
+	// since that is a wider grant than the single path the prompt is showing.
+	if len(m.approval.externalRoots) > 0 {
+		verb := "reads under"
+		switch summary.Operation {
+		case "write", "edit", "delete":
+			verb = "changes under"
+		}
+		if len(m.approval.externalRoots) > 1 {
+			return fmt.Sprintf("%s %s (+%d more dirs)", verb, m.approval.externalRoots[0], len(m.approval.externalRoots)-1)
+		}
+		return verb + " " + m.approval.externalRoots[0]
+	}
 	if category := strings.TrimSpace(summary.CommandCategory); category != "" {
 		return category + " commands"
 	}

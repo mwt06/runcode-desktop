@@ -89,8 +89,13 @@ type toolEventMsg struct {
 type approvalRequestMsg struct {
 	Summary permissions.ApprovalSummary
 	Targets []string
-	Command string
-	Reply   chan permissions.ApprovalResponse
+	// ExternalTargets are the affected paths outside the workspace, absolute and
+	// shown in full — the modal must never hide where an out-of-project action lands.
+	// ExternalRoots are the directories an allow-session/allow-project would remember.
+	ExternalTargets []string
+	ExternalRoots   []string
+	Command         string
+	Reply           chan permissions.ApprovalResponse
 }
 
 type turnDoneMsg struct {

@@ -57,10 +57,12 @@ func (a *Approver) Prompt(ctx context.Context, req permissions.ApprovalRequest) 
 	}
 	reply := make(chan permissions.ApprovalResponse, 1)
 	msg := approvalRequestMsg{
-		Summary: req.Summary,
-		Targets: a.relativeTargets(req.Targets),
-		Command: req.Command,
-		Reply:   reply,
+		Summary:         req.Summary,
+		Targets:         a.relativeTargets(req.Targets),
+		ExternalTargets: externalTargetLabels(req.ExternalTargets),
+		ExternalRoots:   externalTargetLabels(req.ExternalRoots),
+		Command:         req.Command,
+		Reply:           reply,
 	}
 	select {
 	case events <- msg:
@@ -75,8 +77,30 @@ func (a *Approver) Prompt(ctx context.Context, req permissions.ApprovalRequest) 
 	}
 }
 
+// externalTargetLabels normalizes the out-of-workspace paths for display. They
+// are shown in full, unlike relativeTargets' workspace-relative labels: when the
+// request is "touch this file outside the project", the path is the question, and
+// hiding it would leave the user approving something they cannot see.
+func externalTargetLabels(targets []string) []string {
+	out := make([]string, 0, len(targets))
+	seen := map[string]struct{}{}
+	for _, target := range targets {
+		label := filepath.ToSlash(strings.TrimSpace(target))
+		if label == "" {
+			continue
+		}
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
+	}
+	return out
+}
+
 // relativeTargets converts absolute resource paths to sanitized,
-// workspace-relative labels, dropping anything that escapes the workspace.
+// workspace-relative labels, dropping anything that escapes the workspace
+// (those are shown as ExternalTargets instead).
 func (a *Approver) relativeTargets(targets []string) []string {
 	out := make([]string, 0, len(targets))
 	seen := map[string]struct{}{}
@@ -115,15 +139,27 @@ func workspaceRelativeLabel(workspace string, target string) (string, bool) {
 
 // pendingApproval is the in-flight modal state for one authorization request.
 type pendingApproval struct {
-	summary  permissions.ApprovalSummary
-	targets  []string
-	command  string
-	reply    chan permissions.ApprovalResponse
-	selected int
+	summary permissions.ApprovalSummary
+	targets []string
+	// externalTargets are the absolute paths outside the workspace this request
+	// would touch; empty for the ordinary in-project case. externalRoots are the
+	// directories an allow-session/allow-project answer would remember for them.
+	externalTargets []string
+	externalRoots   []string
+	command         string
+	reply           chan permissions.ApprovalResponse
+	selected        int
 }
 
 func (m *Model) enqueueApproval(msg approvalRequestMsg) {
-	pending := &pendingApproval{summary: msg.Summary, targets: msg.Targets, command: msg.Command, reply: msg.Reply}
+	pending := &pendingApproval{
+		summary:         msg.Summary,
+		targets:         msg.Targets,
+		externalTargets: msg.ExternalTargets,
+		externalRoots:   msg.ExternalRoots,
+		command:         msg.Command,
+		reply:           msg.Reply,
+	}
 	if m.approval == nil {
 		m.approval = pending
 		return

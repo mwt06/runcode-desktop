@@ -22,6 +22,7 @@ var (
 	errorStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	mutedStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	approvalTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	approvalWarnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	approvalSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
 	approvalOptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 	diffAddStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
