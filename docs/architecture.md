@@ -38,13 +38,14 @@ internal/desktop/        桌面版传输无关核心(根模块内,不依赖 Wail
 internal/ui/             Bubble Tea TUI:视图、slash 命令注册表、会话选择器、审批桥
 internal/command/        自定义 slash 命令(*.md 发现)
 internal/previewtool/    桌面产物预览工具(经 ExtraTools 注入,仅桌面用)
+internal/skilltool/      桌面版 Skill 工具(经 Options.SkillTool 替换内置;披露不变,额外发技能卡片事件)
 tools/protogen/          协议 TS 代码生成器(读 agentloop/protocol,写前端 src/protocol/)
 ```
 
 ## 外壳如何消费引擎
 
 - **CLI(`cmd/runcode` chat)**:`resolveChatConfig` 把 flag/env/TOML 解析为 `engine.Config`,`engine.Build` 后注入 `StreamDelta`(stdout 流式)与非交互/交互审批器;`sessions`/`transcript`/`config`/`permissions` 子命令直接调用引擎的 `sessions`、`transcript`、`settings`、`permissions` 公开包。
-- **TUI(`cmd/runcode` tui + `internal/ui`)**:同一条 config 解析链;Bubble Tea 模型消费 `StreamDelta`/`StreamThinking`/`ToolEvents`,`internal/ui/approval.go` 把 `permissions` 审批请求桥接为模态框;slash 命令注册表(`/help`、`/clear`、`/compact`、`/status`、`/mode`、`/model`、`/cost`、`/exit`)合并 `internal/command` 发现的自定义 `*.md` 命令。
+- **TUI(`cmd/runcode` tui + `internal/ui`)**:同一条 config 解析链;Bubble Tea 模型消费 `StreamDelta`/`StreamThinking`/`ToolEvents`,`internal/ui/approval.go` 把 `permissions` 审批请求桥接为模态框(工作区内路径脱敏成相对路径;越出工作区的路径按**绝对路径**整条展示,并注明"允许"记住的是哪个目录);slash 命令注册表(`/help`、`/clear`、`/compact`、`/status`、`/mode`、`/model`、`/cost`、`/exit`)合并 `internal/command` 发现的自定义 `*.md` 命令。
 - **桌面(`internal/desktop` + `cmd/runcode-desktop`)**:`desktop.App` 是 `host.Manager` 之上的薄适配层(`host.NewManager(host.Options{Build: host.DefaultBuild, ...})`,单用户外壳不设配额);命令/事件全部走 `agentloop/protocol` 的 wire 类型,harm judge、审批路由、会话恢复经 host 层。Wails 外壳只做事件桥、原生对话框与 `Bind(app)`。
 - **服务端骨架(`cmd/runcode-server`)**:同样架在 `host` + `protocol` 上的 HTTP/SSE 参考实现,演示"独立仓库服务端"的最小可跑形态;`deps_test.go` 强制它只 import 引擎公开面。
 
