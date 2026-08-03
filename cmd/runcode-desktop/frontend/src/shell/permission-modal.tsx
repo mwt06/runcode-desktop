@@ -1,12 +1,22 @@
 // 权限请求弹窗：把一次工具调用的动作、目标与风险摊开给用户判断，四个选项对应
 // 不同的记忆范围。并发请求排队时，右上角显示还剩几个，并给一个"全部拒绝"的出口。
+//
+// 越出工作区的请求单独强调：外部路径按绝对路径整条展示（相对路径要么看不见、要么
+// 是一串 ../），并明说"记住"记的是**目录**——授权的宽度必须在按下之前就看得见。
 import { Icon } from '@/ui/icons'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from '@/ui/tokens'
 import { type PermissionRequest } from '@/core/bridge'
 
+// 越界授权的动词：写/改/删记的是"改动"，其余记的是"读取"。
+function externalGrantVerb(operation?: string) {
+  return operation === 'write' || operation === 'edit' || operation === 'delete' ? '写入 / 修改' : '读取'
+}
+
 export function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { req: PermissionRequest; onDecide: (decision: string) => void; remaining?: number; onDenyRest?: () => void }) {
   const s = req.summary
   const td = 'py-[7px] px-1.5 align-top border-t border-line'
+  const external = req.externalTargets ?? []
+  const externalRoots = req.externalRoots ?? []
   return (
     <div className="fixed inset-0 bg-[rgba(30,33,50,0.32)] backdrop-blur-[2px] flex items-center justify-center z-20 anim-rise">
       <div className="w-[560px] max-w-[92vw] bg-surface rounded-[16px] p-[22px] shadow-[0_30px_70px_rgba(30,35,60,0.28)]">
@@ -28,6 +38,22 @@ export function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { 
           </div>
         ) : (
           <>
+            {external.length > 0 && (
+              <div className="mb-3 flex items-start gap-2 bg-amber/12 border border-amber/40 rounded-lg px-3 py-2.5">
+                <span className="text-amber flex-none mt-px"><Icon name="shield" size={16} /></span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12.5px] font-semibold text-amber">超出本项目范围</div>
+                  <div className="text-[12.5px] text-ink mt-0.5">
+                    将{externalGrantVerb(s.operation)}项目目录之外的路径：
+                  </div>
+                  <div className="mt-1.5 flex flex-col gap-1">
+                    {external.map((path) => (
+                      <code key={path} className="bg-inset px-1.5 py-1 rounded font-mono text-[12px] break-all">{path}</code>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {req.harmReason && (
               <div className="mb-3 flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5">
                 <span className="text-red flex-none mt-px"><Icon name="shield" size={16} /></span>
@@ -55,7 +81,17 @@ export function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { 
               </tbody>
             </table>
             <div className="mt-3.5 text-[12px] text-faint">
-              「本次会话」后，对本项目文件的增删改、或同类命令在本次会话内都不再询问（推荐）；「仅此一次」每次都会再问。
+              {externalRoots.length > 0 ? (
+                <>
+                  「本次会话」/「本项目」记住的是<b className="font-semibold text-muted">目录</b>——
+                  {externalRoots.map((root) => (
+                    <code key={root} className="bg-inset px-1 py-0.5 rounded mx-0.5 font-mono break-all">{root}</code>
+                  ))}
+                  及其子目录内的同类操作都不再询问；「仅此一次」只放行这一次。同一批并发的相同请求共用这次答复。
+                </>
+              ) : (
+                <>「本次会话」后，对本项目文件的增删改、或同类命令在本次会话内都不再询问（推荐）；「仅此一次」每次都会再问。同一批并发的相同请求共用这次答复。</>
+              )}
             </div>
           </>
         )}

@@ -7,21 +7,24 @@ import { groupBlocks, type Block } from '@/chat/blocks'
 import { diffStats, hasDiff } from '@/chat/tool-text'
 import { AgentTaskGroup } from '@/chat/agent-task'
 import { AnalyzeCard } from '@/chat/analyze-card'
-import { AskCard, PlanChoiceCard } from '@/chat/ask-card'
+import { SkillCard } from '@/chat/skill-card'
+import { AskCard } from '@/chat/ask-card'
 import { BlockView } from '@/chat/block-view'
 import { BotRow } from '@/chat/bot-row'
 import { EditedCards } from '@/chat/edited-card'
 import { ExecutionCard } from '@/chat/execution-card'
 import { PlanPill } from '@/chat/plan-pill'
+import { PlanBoard, PlanStageBar } from '@/chat/plan-board'
 import { ReplyArtifacts } from '@/chat/reply-artifacts'
 import { type PreviewTab } from '@/preview/tabs'
-import { type PlanSnapshot } from '@/core/bridge'
+import { PlanStates, type PlanSnapshot } from '@/core/bridge'
+import { type Plan } from '@/session/use-plan'
 
 export function ChatPane({
-  blocks, busy, cwd, userName, plan, planOpen, onPlanToggle,
+  blocks, busy, cwd, userName, plan, planOpen, onPlanToggle, planning,
   harmAllows, revertedEdits, files, tabs,
   scrollRef, onScroll,
-  onAnswer, onExecutePlan, onDismissPlan, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
+  onAnswer, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
 }: {
   blocks: Block[]
   busy: boolean
@@ -30,6 +33,9 @@ export function ChatPane({
   plan: PlanSnapshot | null
   planOpen: boolean
   onPlanToggle: (open: boolean) => void
+  // planning 是阶段化计划模式的那条流水线（与上面 TodoWrite 的进度胶囊无关）：
+  // 跑阶段时顶部出进度条，三个阶段跑完后输入区上方出审批板。
+  planning: Plan
   harmAllows: Record<string, string>
   revertedEdits: Set<string>
   files: string[]
@@ -37,8 +43,6 @@ export function ChatPane({
   scrollRef: React.RefObject<HTMLDivElement>
   onScroll: () => void
   onAnswer: (text: string) => void
-  onExecutePlan: (mode: string) => void
-  onDismissPlan: () => void
   onOpenFile: (relPath: string) => void
   onReviewEdit: (snapshotId: string, relPath: string) => void
   onUndoEdit: (snapshotId: string) => void
@@ -57,8 +61,20 @@ export function ChatPane({
     planDels += del
   }
 
+  const planState = planning.run.state
+  const showStageBar = planState === PlanStates.Planning || planState === PlanStates.AwaitingApproval
+  const showBoard = planState === PlanStates.AwaitingApproval
+
   return (
     <>
+      {showStageBar && (
+        <PlanStageBar
+          run={planning.run}
+          busy={busy}
+          onResume={planning.resume}
+          onCancel={() => void planning.cancel()}
+        />
+      )}
       {plan && (
         <div className="flex-none relative flex justify-center pt-3 pb-1 z-20">
           {planOpen && <div className="fixed inset-0 z-0" onClick={() => onPlanToggle(false)} />}
@@ -108,10 +124,10 @@ export function ChatPane({
               <BotRow key={g.id}><EditedCards edits={g.edits} reverted={revertedEdits} onReview={onReviewEdit} onUndo={onUndoEdit} /></BotRow>
             ) : g.kind === 'analyze' ? (
               <BotRow key={g.id}><AnalyzeCard tool={g.tool} /></BotRow>
+            ) : g.kind === 'skill' ? (
+              <BotRow key={g.id}><SkillCard tool={g.tool} /></BotRow>
             ) : g.kind === 'taskgroup' ? (
               <BotRow key={g.id}><AgentTaskGroup tasks={g.tasks} /></BotRow>
-            ) : g.block.kind === 'planchoice' ? (
-              <BotRow key={g.block.id}><PlanChoiceCard busy={busy} onExecute={onExecutePlan} onDismiss={onDismissPlan} /></BotRow>
             ) : (
               <div key={g.block.id}>
                 <BlockView block={g.block} onOpenFile={onOpenFile} resolveFile={resolveFile} />
@@ -131,6 +147,18 @@ export function ChatPane({
           )}
         </div>
       </div>
+      {/* 审批板钉在输入区上方，不随对话滚走：这是一道必须有人应答的闸门。 */}
+      {showBoard && (
+        <PlanBoard
+          run={planning.run}
+          draft={planning.draft}
+          approving={planning.approving}
+          busy={busy}
+          actions={planning.actions}
+          onApprove={(mode) => void planning.approve(mode)}
+          onCancel={() => void planning.cancel()}
+        />
+      )}
     </>
   )
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { mergeTool, groupBlocks, parsePlan, finalizeTools, resumedMatchedFiles, turnErrorText, turnProducedText, retryReasonLabel, type Block } from './blocks'
-import type { EditRecord, ToolEvent } from '@/core/bridge'
+import { mergeTool, groupBlocks, parsePlan, resumedPlan, finalizeTools, resumedMatchedFiles, turnErrorText, turnProducedText, retryReasonLabel, type Block } from './blocks'
+import type { EditRecord, ResumedBlock, ToolEvent } from '@/core/bridge'
 
 describe('turnProducedText', () => {
   const user = (text: string): Block => ({ kind: 'user', id: text, text, ts: '' })
@@ -117,6 +117,13 @@ describe('groupBlocks', () => {
     const exec = groups[0]
     expect(exec.kind === 'exec' && exec.tools.length).toBe(2)
   })
+
+  it('技能加载单独成卡,不被折进相邻的工具组', () => {
+    // 一次「加载技能」是对话的转折点(模型自此按那套流程走),压进 grep/read 的
+    // 折叠列表里就看不见了。
+    const groups = groupBlocks([toolB('1', 'Read'), toolB('2', 'Skill'), toolB('3', 'Grep')])
+    expect(groups.map((g) => g.kind)).toEqual(['exec', 'skill', 'exec'])
+  })
 })
 
 describe('groupBlocks taskgroup', () => {
@@ -163,6 +170,41 @@ describe('parsePlan', () => {
 
   it('returns null when there is no structured data (started/completed events)', () => {
     expect(parsePlan(ev({ toolName: 'TodoWrite' }))).toBeNull()
+  })
+})
+
+describe('resumedPlan', () => {
+  const todoBlock = (input: string): ResumedBlock => ({
+    kind: 'tool',
+    tool: { toolName: 'TodoWrite', toolUseId: 't1', input, isError: false },
+  })
+  const other: ResumedBlock = { kind: 'tool', tool: { toolName: 'Read', toolUseId: 'r1', isError: false } }
+
+  it('重建进度板:取最后一次 TodoWrite 的参数(每次调用都替换整张清单)', () => {
+    const older = todoBlock(JSON.stringify({ todos: [{ content: '旧清单', status: 'pending' }] }))
+    const latest = todoBlock(JSON.stringify({
+      todos: [
+        { content: '取素材', status: 'completed' },
+        { content: '画图', status: 'in_progress', activeForm: '正在画图' },
+        { content: '合稿', status: 'pending' },
+      ],
+    }))
+    const plan = resumedPlan([older, other, latest])
+    expect(plan).not.toBeNull()
+    expect(plan!.total).toBe(3)
+    expect(plan!.done).toBe(1)
+    expect(plan!.items[1].activeForm).toBe('正在画图')
+  })
+
+  it('没记过待办的会话不出胶囊', () => {
+    expect(resumedPlan([other])).toBeNull()
+    expect(resumedPlan([])).toBeNull()
+    expect(resumedPlan(null)).toBeNull()
+  })
+
+  it('参数损坏或清单为空时宁可不显示,也不显示一个错的板', () => {
+    expect(resumedPlan([todoBlock('{"todos":')])).toBeNull()
+    expect(resumedPlan([todoBlock(JSON.stringify({ todos: [] }))])).toBeNull()
   })
 })
 

@@ -3,15 +3,19 @@
 // strings and React's own text escaping — workbook content is untrusted, and
 // sheet_to_html output must never be injected raw (its escaping has known gaps for
 // rich-text cells, so that path is an XSS vector inside the privileged WebView).
-import { useEffect, useState } from 'react'
-import { errText, readArtifactBytes } from '@/core/bridge'
+import { useEffect, useRef, useState } from 'react'
+import { errCode, errText, readArtifactBytes } from '@/core/bridge'
 import { normalizeSheetGrid } from '../classify'
 import { ViewerError } from './viewer-error'
 
-export function XlsxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }) {
+// onMissing fires when the file is gone rather than unreadable, so the panel can
+// close the tab instead of showing an error for something the user cannot fix.
+export function XlsxView({ relPath, reloadKey, onMissing }: { relPath: string; reloadKey: number; onMissing?: () => void }) {
   const [sheets, setSheets] = useState<{ name: string; rows: string[][] }[] | null>(null)
   const [active, setActive] = useState(0)
   const [err, setErr] = useState('')
+  const onMissingRef = useRef(onMissing)
+  onMissingRef.current = onMissing
   useEffect(() => {
     let cancelled = false
     setSheets(null)
@@ -29,7 +33,10 @@ export function XlsxView({ relPath, reloadKey }: { relPath: string; reloadKey: n
         }))
         if (!cancelled) setSheets(out.length ? out : [{ name: 'Sheet1', rows: [] }])
       } catch (e) {
-        if (!cancelled) setErr(errText(e))
+        if (!cancelled) {
+          if (errCode(e) === 'not_found') { onMissingRef.current?.(); return }
+          setErr(errText(e))
+        }
       }
     })()
     return () => { cancelled = true }

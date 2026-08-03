@@ -37,6 +37,7 @@ internal/desktop/               根模块：传输无关的桌面核心（不依
 | 附件/文件 | `PickImageAttachment`、`ListFiles`（`#` 选择器，上限 4000，跳过 `.git`/`.runcode`/`node_modules` 等） |
 | Skills/Agents/MCP | `ListSkills`/`SaveSkill`/`DeleteSkill`/`ImportSkill`、`ListAgents`/…（内置只读）、`ListMCPServers`/`SaveMCPServer`/`DeleteMCPServer`/`SetMCPServerEnabled` |
 | 上下文/配置 | `ReadProjectContext`、`SaveProjectContext`、`ReadMemory`、`LoadConfig` |
+| 阶段化计划模式 | `PlanStatus`、`PlanUpdate(doc)`、`PlanApprove(doc, permissionMode)`、`PlanCancel` |
 
 Skills/Agents 编辑后经 `session.ReloadSkills()`/`ReloadAgents()` 热生效；MCP CRUD 写的是与 CLI 共享的用户级 `config.toml`，改动下个新会话生效。启动表单配置持久化在 `os.UserConfigDir()/runcode/desktop.json`（0600，可能含 API key），最近工作区列表由后端维护。
 
@@ -49,14 +50,15 @@ Skills/Agents 编辑后经 `session.ReloadSkills()`/`ReloadAgents()` 热生效�
 | `assistant:delta` | `AssistantDelta{text}` | 助手文本流 |
 | `assistant:thinking` | `AssistantDelta{text}` | 思考流 |
 | `tool:event` | `tool.Event`（原始引擎事件） | 工具生命周期泵 |
-| `permission:request` | `PermissionRequest{id, summary, targets, command, harmReason}` | 审批挂起 |
+| `permission:request` | `PermissionRequest{id, summary, targets, externalTargets, externalRoots, command, harmReason}` | 审批挂起 |
 | `turn:end` | `TurnEnd{text, stopReason, iterations, tokens…, stopped, durationMs}` | turn 完成 |
 | `turn:error` | `TurnError{error}` | turn 失败/中断 |
 | `warning` | `Warning{message}` | 引擎警告 |
 | `session:renamed` | `SessionRenamed{id, title}` | 每 turn 后自动生成标题（30s 超时，持久化并广播） |
 | `harm:autoallow` | `HarmAutoAllow{tool, operation, risk, reason, outcome, count}` | judge 模式智能放行/熔断审计 |
+| `plan:updated` | `PlanRun{state, stage, doc, edited, updatedAt}` | 计划模式的阶段推进、用户编辑、确认或取消 |
 
-`PermissionRequest.targets` 是工作区相对的脱敏路径（越界路径丢弃）；`command` 仅 Bash 原始命令行、进程内展示用；`harmReason` 仅在 harm judge 升级拦截时携带。
+`PermissionRequest.targets` 是工作区相对的脱敏路径；越出工作区的路径不再被丢弃，而是走 `externalTargets`（**绝对路径**，弹窗必须原样展示——用户被问的正是"要动项目外的哪个文件"），`externalRoots` 是选「本次会话 / 本项目」后真正记住的**目录**（含子目录），`summary.outsideWorkspace` 是这一事实的脱敏标记。`command` 仅 Bash 原始命令行、进程内展示用；`harmReason` 仅在 harm judge 升级拦截时携带。
 
 ### 异步权限审批（Approver）
 
@@ -71,6 +73,25 @@ harm judge 在 `buildAndSetLocked`（`internal/desktop/app.go`）接线：`permi
 - `HarmJudge: modelHarmJudge` —— 用当前会话模型判定动作是否有害（`internal/desktop/harm.go`）。`describeAction` 把动作拆成**可信分类事实**（operation、命令分类/能力/风险原因、目标 scope）与**不可信原文**（命令行/路径/host/MCP 工具名），由会话侧做注入防护围栏。
 - `Breaker: permissions.NewHarmBreaker(0)` —— 每会话自动放行预算/熔断器。
 - `Audit` —— 每次智能放行或熔断触发发 `harm:autoallow`（脱敏：无原始命令/路径）。
+
+### 阶段化计划模式（`internal/desktop/plan.go` + `internal/plantool`）
+
+计划模式是一条固定流水线，不是"让模型自由写一段方案"：**需求理解 → 方案设计 → 方案审查 → 用户审批**。前三个阶段由模型经桌面专属工具 `plan_write` 逐个记录，第四个阶段不发模型——用户在审批板上改写、增删、调整顺序，确认后才退出计划模式开始执行。
+
+- **阶段推进不靠外壳编排回合**：`plan_write` 每接受一个阶段，返回的结果文本就是下一阶段的指令，ReAct 循环自己在同一个回合里把三个阶段走完。顺序由工具把关（`planStore.RecordStage` 的闸门），跳阶段直接拒绝并告诉模型当前该做哪一阶段——"按步骤执行"因此是系统的性质，而不是对模型的期望。
+- **重录早先阶段是允许的**（审查发现问题要改设计），但会把运行状态退回 planning，新设计必须重新过审查。
+- **审批闸门**：三阶段跑完 → `awaiting_approval`，工具结果明确要求模型停下。用户点确认后 `PlanApprove` 一次做完三件事——存下用户这一版、退出计划模式并切到选定权限模式、拼出执行指令返回；指令由前端走普通 `send` 发出，于是 busy、用户气泡、回合生命周期全部复用既有链路。
+- **执行进度复用既有进度胶囊**：执行指令要求模型先用 `TodoWrite` 建立与清单一一对应的待办，不另造一套进度 UI。
+- **落盘**：`<工作区>/.runcode/plans/<sessionID>.json`，所以"等待审批"能跨重启活下来；恢复会话时 `PlanStatus` 把界面带回那道闸门。文件损坏一律当作没有计划，不影响开会话。
+- 前端：进度条与审批板在 `chat/plan-board.tsx`，清单增删/排序的纯逻辑在 `chat/plan-draft.ts`（有单测），状态在 `session/use-plan.ts`。
+
+### 桌面版 Skill 工具（`internal/skilltool`）
+
+`configureSession` 经 `engine.Options.SkillTool` 把内置 Skill 工具换成桌面版——注意它与 `open_preview`/`ReadOffice` 走的不是同一条路：那两个经 `ExtraTools` **追加**，而会话内工具名唯一，同名的 `Skill` 只能**替换**（追加会让装配直接报重名失败）。
+
+替换只接管"怎么披露"：内嵌引擎的 `*skill.Tool`，模型拿到的正文一字不差（含目录头、截断提示、大参考文档的委派建议、result retention 都是引擎的），只在成功加载后多发一条 progress 事件，`data` 是 `protocol.SkillLoad`（技能名/描述/来源 scope/技能目录/是否截断）。**有哪些技能仍归引擎**：发现、优先级、禁用名单、提示词目录、`ReloadSkills` 热更，都由引擎算好经 `SetSet` 下发（工具自己再存一份用于卡片查元数据，与内嵌工具同一个 set，否则卡片会描述另一个技能）。
+
+前端据此把 Skill 调用单独渲染成技能卡（`chat/skill-card.tsx`，纯逻辑在 `chat/tool-text.ts` 的 `skillLoad`）：没有这条事件时，一次技能加载在界面上只是一行没有目标的"加载技能"——调用入参只有 name，而结果正文（给模型看的指令）从不渲染。恢复出来的历史没有实时事件，卡片退化成只显示名字。
 
 ### 会话列表与恢复
 

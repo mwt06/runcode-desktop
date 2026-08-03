@@ -9,6 +9,7 @@ import {
   hasDiff,
   lineClass,
   parseToolInput,
+  skillLoad,
   taskActivity,
   taskMeta,
   toolLabel,
@@ -151,6 +152,43 @@ describe('taskMeta / taskActivity', () => {
     expect(taskActivity({ agent: 'a', text: 'first\nlast\n  \n', tools: [] })).toBe('last')
     expect(taskActivity({ agent: 'a', text: '', tools: [] })).toBe('')
     expect(taskActivity(undefined)).toBe('')
+  })
+})
+
+describe('skillLoad', () => {
+  it('reads the announced metadata off the event data', () => {
+    const loaded = ev({
+      toolName: 'Skill',
+      input: { name: 'dataviz' },
+      data: { name: 'dataviz', description: '图表与数据可视化', source: 'user', dir: 'D:/cfg/runcode/skills/dataviz', truncated: true },
+    })
+    expect(skillLoad(loaded)).toEqual({
+      name: 'dataviz',
+      description: '图表与数据可视化',
+      source: 'user',
+      dir: 'D:/cfg/runcode/skills/dataviz',
+      truncated: true,
+      running: false,
+      failed: false,
+    })
+  })
+
+  it('falls back to the requested name when no metadata arrived (resumed session)', () => {
+    // 恢复出来的历史没有实时事件，入参还是 JSON 字符串形态。
+    const resumed = skillLoad(ev({ toolName: 'Skill', input: '{"name":"deploy"}' }))
+    expect(resumed?.name).toBe('deploy')
+    expect(resumed?.description).toBe('')
+    expect(resumed?.truncated).toBe(false)
+  })
+
+  it('marks the running and failed states so the card can say which', () => {
+    expect(skillLoad(ev({ type: 'started', input: { name: 'x' } }))?.running).toBe(true)
+    expect(skillLoad(ev({ type: 'failed', input: { name: 'x' } }))?.failed).toBe(true)
+  })
+
+  it('yields nothing when there is not even a name', () => {
+    expect(skillLoad(ev({ toolName: 'Skill' }))).toBeNull()
+    expect(skillLoad(ev({ toolName: 'Skill', input: { name: '   ' } }))).toBeNull()
   })
 })
 

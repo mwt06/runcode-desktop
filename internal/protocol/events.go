@@ -14,4 +14,9 @@ const (
 	// EventPassportChanged carries a PassportStatus whenever login state changes
 	// (login success, logout, or refresh-token expiry forcing re-login).
 	EventPassportChanged = "passport:changed"
+	// EventPlanUpdated carries a PlanRun whenever the staged plan changes: a stage
+	// the model just recorded, the user's edits, approval, or cancellation. It is
+	// the single channel for plan state — the plan_write tool's own tool events are
+	// hidden in the chat, so nothing else describes the current plan.
+	EventPlanUpdated = "plan:updated"
 )

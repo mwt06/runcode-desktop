@@ -3,7 +3,7 @@
 // echarts)挡在主包之外——只有真的预览到这类文件时才下载。load 定义在模块级，
 // 保证跨渲染的引用稳定(它是 effect 依赖)。
 import { useEffect, useRef, useState } from 'react'
-import { errText, readArtifactBytes } from '@/core/bridge'
+import { errCode, errText, readArtifactBytes } from '@/core/bridge'
 import { ViewerError } from './viewer-error'
 
 export async function renderDocx(buf: ArrayBuffer, host: HTMLDivElement) {
@@ -23,15 +23,20 @@ export async function renderDocx(buf: ArrayBuffer, host: HTMLDivElement) {
 // that draws into a host node, owning the loading / error shell and an
 // open-externally fallback. It re-runs when the file or the refresh key changes and
 // cancels cleanly so a stale render never lands in the wrong file's host.
-export function ImperativeDocView({ relPath, reloadKey, load, busyHint }: {
+export function ImperativeDocView({ relPath, reloadKey, load, busyHint, onMissing }: {
   relPath: string
   reloadKey: number
   load: (buf: ArrayBuffer, host: HTMLDivElement) => Promise<void>
   busyHint: string
+  // onMissing fires when the file is gone rather than unreadable, so the panel can
+  // close the tab instead of showing an error for something the user cannot fix.
+  onMissing?: () => void
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [err, setErr] = useState('')
+  const onMissingRef = useRef(onMissing)
+  onMissingRef.current = onMissing
   useEffect(() => {
     let cancelled = false
     setState('loading')
@@ -46,6 +51,7 @@ export function ImperativeDocView({ relPath, reloadKey, load, busyHint }: {
         if (!cancelled) setState('ready')
       } catch (e) {
         if (!cancelled) {
+          if (errCode(e) === 'not_found') { onMissingRef.current?.(); return }
           setErr(errText(e))
           setState('error')
         }

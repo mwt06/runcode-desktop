@@ -21,10 +21,12 @@ import (
 var eventPayloads = map[string]string{
 	"EventAssistantDelta":    "AssistantDelta",
 	"EventAssistantThinking": "AssistantDelta",
+	"EventContextUsage":      "ContextUsage",
 	"EventHarmAutoAllow":     "HarmAutoAllow",
 	"EventPassportChanged":   "PassportStatus",
 	"EventRetry":             "RetryNotice",
 	"EventPermissionRequest": "PermissionRequest",
+	"EventPlanUpdated":       "PlanRun",
 	"EventSessionRenamed":    "SessionRenamed",
 	"EventToolEvent":         "ToolEvent",
 	"EventTurnEnd":           "TurnEnd",
@@ -55,6 +57,7 @@ var genericStructs = map[string]struct {
 var fieldTypeOverrides = map[string]map[string]string{
 	"ToolEvent": {"type": "ToolEventType"},
 	"Error":     {"code": "ErrCode"},
+	"PlanRun":   {"state": "PlanState", "stage": "PlanStage"},
 }
 
 // constGroupSpec describes one Go constant-prefix group emitted as a TS const
@@ -90,6 +93,16 @@ var constGroupSpecs = []constGroupSpec{
 		goPrefix: "ErrCode", constName: "ErrCodes", unionName: "ErrCode", open: true,
 		doc:      "Error codes carried by protocol.Error; clients switch on code.",
 		unionDoc: "ErrCode keeps unknown codes assignable so a newer host degrades gracefully.",
+	},
+	{
+		goPrefix: "PlanStage", constName: "PlanStages", unionName: "PlanStage", open: false,
+		doc:      "Stages of 计划模式's planning pipeline, in order; the values of plan_write's stage argument.",
+		unionDoc: "PlanStage is the closed set of planning stages — the shell's own pipeline, so an unknown value is a bug, not a newer peer.",
+	},
+	{
+		goPrefix: "PlanState", constName: "PlanStates", unionName: "PlanState", open: false,
+		doc:      "Lifecycle states of a planning run, carried by PlanRun.state.",
+		unionDoc: "PlanState is the closed set of planning-run states.",
 	},
 }
 

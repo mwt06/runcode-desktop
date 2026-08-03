@@ -61,6 +61,7 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 	a.mu.Lock()
 	id := a.currentID
 	edits := a.edits
+	plans := a.plans
 	provider, model := a.liveConfig.Provider, a.liveConfig.Model
 	livePassport := a.livePassport
 	a.mu.Unlock()
@@ -96,6 +97,12 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 	// first completes a model round-trip), so it is observably equivalent to
 	// the pre-host "BeginTurn before RunTurn".
 	edits.BeginTurn()
+	// Same window for 计划模式: a turn submitted while plan mode is on opens a fresh
+	// planning run (unless one is already planning or waiting for approval), so the
+	// board is live before plan_write's first stage lands.
+	if plans != nil {
+		plans.NoteUserTurn()
+	}
 	return nil
 }
 

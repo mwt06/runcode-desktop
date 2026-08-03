@@ -12,7 +12,9 @@ import (
 	"sync"
 
 	"github.com/wt68/runcode/internal/officetool"
+	"github.com/wt68/runcode/internal/plantool"
 	"github.com/wt68/runcode/internal/previewtool"
+	"github.com/wt68/runcode/internal/skilltool"
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
@@ -109,6 +111,12 @@ type App struct {
 	// flight. Never nil: before the first session it is an unbound store.
 	edits        *editStore
 	pendingEdits *editStore
+	// plans holds the session's staged planning run (计划模式): the document the
+	// plan_write tool fills stage by stage, the approval gate, and the persisted
+	// copy that lets a pending approval survive a restart. Same lifecycle as edits
+	// (created in configureSession, promoted on Create success); never nil.
+	plans        *planStore
+	pendingPlans *planStore
 	// tokens holds the Passport OAuth tokens (memory + DPAPI persistence); it is
 	// also the engine's TokenSource. passportUser caches /api/me for PassportStatus.
 	// loginCancel cancels an in-flight browser login wait.
@@ -135,6 +143,7 @@ func New(sink EventSink) *App {
 		out:            sink,
 		sink:           newEnvelopeSink(sink),
 		edits:          newEditStore(),
+		plans:          newPlanStore(),
 		passportTenant: strings.TrimSpace(loadRawConfig().TenantID),
 		audit:          newContextAuditManager(),
 	}
@@ -251,6 +260,9 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// the UI can switch modes at runtime.
 	opts.Permissions = permissions.NewService(permissions.Options{
 		Mode: cfg.PermissionMode,
+		// plan_write is this shell's own tool, so its classification is this shell's
+		// to state; everything else falls through to the engine (see planResolver).
+		Resolver: planResolver{inner: permissions.DefaultResolver{}},
 		// Which servers we vouch for is ours to know, not the engine's: the same
 		// opt-in that earns a server the user's identity headers also lets its calls
 		// skip the per-call approval an arbitrary external endpoint always needs.
@@ -272,10 +284,22 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 			Audit:   harmAuditFunc(sctx.Emit),
 		},
 	})
+	// Fresh planning run per session (阶段化计划模式), bound before the first tool
+	// can run so plan_write always has somewhere to write. It loads any plan left
+	// on disk, so reopening a session lands back on its approval gate.
+	plans := newPlanStore()
+	plans.BeginSession(cfg.CWD, sctx.ID, sctx.Emit, a.planModeOn)
+
 	// open_preview lets the model surface a produced file in the preview panel;
 	// ReadOffice lets it read .docx/.xlsx/.pptx as structured text (fonts,
-	// formatting, layout) instead of the raw ZIP bytes plain Read would dump.
-	opts.ExtraTools = append(opts.ExtraTools, previewtool.New(), officetool.New())
+	// formatting, layout) instead of the raw ZIP bytes plain Read would dump;
+	// plan_write records plan mode's staged output as an approvable checklist.
+	opts.ExtraTools = append(opts.ExtraTools, previewtool.New(), officetool.New(), plantool.New(plans))
+	// The desktop's Skill tool discloses exactly what the engine's does and
+	// additionally announces each load, so the chat can show which skill the model
+	// picked up and what it is for. Which skills exist stays the engine's business
+	// (discovery, precedence, the disabled list, ReloadSkills).
+	opts.SkillTool = skilltool.New()
 
 	// 上下文审核观测器只在测试版接线;正式版连回调都不装,功能整体不存在。
 	// 回调内部查原子开关,所以运行中切换立即对当前会话生效,无需重建。
@@ -290,6 +314,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	opts.EditRecorder = edits
 	a.mu.Lock()
 	a.pendingEdits = edits
+	a.pendingPlans = plans
 	a.pendingEmit = sctx.Emit
 	a.mu.Unlock()
 }
@@ -360,8 +385,8 @@ func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, te
 
 	id, st, err := a.mgr.Create(context.Background(), cfg)
 	a.mu.Lock()
-	pendingEdits, pendingEmit := a.pendingEdits, a.pendingEmit
-	a.pendingEdits, a.pendingEmit = nil, nil
+	pendingEdits, pendingPlans, pendingEmit := a.pendingEdits, a.pendingPlans, a.pendingEmit
+	a.pendingEdits, a.pendingPlans, a.pendingEmit = nil, nil, nil
 	if err != nil {
 		a.mu.Unlock()
 		return SessionInfo{}, err
@@ -383,6 +408,9 @@ func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, te
 	a.emit = pendingEmit
 	if pendingEdits != nil {
 		a.edits = pendingEdits
+	}
+	if pendingPlans != nil {
+		a.plans = pendingPlans
 	}
 	a.mu.Unlock()
 
@@ -459,6 +487,14 @@ func (a *App) Reset() error {
 		return wireError(err)
 	}
 	session.ResetHistory()
+	// A plan is a reading of a conversation that no longer exists; keeping it would
+	// leave the approval board pinned over an empty chat.
+	a.mu.Lock()
+	plans := a.plans
+	a.mu.Unlock()
+	if plans != nil {
+		plans.Clear()
+	}
 	return nil
 }
 

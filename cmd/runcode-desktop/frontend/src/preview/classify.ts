@@ -183,13 +183,43 @@ export function clampPreviewWidth(stored: number, windowWidth: number): number {
   return stored >= 360 && stored <= max ? stored : Math.min(Math.floor(windowWidth * 0.5), max)
 }
 
-// lastPreviewablePath returns the last (most-recently-written) previewable path from
-// an ordered list of workspace file paths, or null if none is previewable/empty.
-export function lastPreviewablePath(paths: string[]): string | null {
-  for (let i = paths.length - 1; i >= 0; i--) {
-    if (isPreviewable(paths[i])) return paths[i]
+// AUTO_PREVIEW_RANK orders what a turn produced by how likely it is to be *the
+// deliverable*, lowest number first. Recency alone picks wrong: a turn that builds
+// a deck writes the .pptx and then a build script or a note, so "the last file
+// written" is routinely a byproduct while the thing the user asked for scrolls
+// past unopened.
+//
+// 文档类 > h5 > md > 代码 is the user-facing order. Kinds outside it rank after
+// code: images and text files produced along the way are supporting material, not
+// what a turn is usually for.
+const AUTO_PREVIEW_RANK: Record<PreviewKind, number> = {
+  docx: 0, pptx: 0, xlsx: 0, pdf: 0,
+  html: 1,
+  markdown: 2,
+  code: 3,
+  image: 4, svg: 4,
+  text: 5,
+  unsupported: 99,
+}
+
+// pickAutoPreview chooses which of a turn's written files to open: the
+// highest-ranked kind (see AUTO_PREVIEW_RANK), and among equals the most recently
+// written — so a turn that rewrites the same deck twice opens the newer one, while
+// a turn that writes a deck *and* a helper script still opens the deck. Returns
+// null when nothing written is previewable.
+export function pickAutoPreview(paths: string[]): string | null {
+  let best: string | null = null
+  let bestRank = Number.POSITIVE_INFINITY
+  for (const path of paths) {
+    const rank = AUTO_PREVIEW_RANK[classifyPreview(path).kind]
+    if (rank >= 99) continue
+    // `<=` keeps the later file when ranks tie: paths arrive in write order.
+    if (rank <= bestRank) {
+      best = path
+      bestRank = rank
+    }
   }
-  return null
+  return best
 }
 
 // extractFilePaths pulls file-path-like tokens out of prose: word/path chars ending

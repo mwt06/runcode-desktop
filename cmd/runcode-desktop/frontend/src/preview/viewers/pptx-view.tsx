@@ -5,16 +5,20 @@
 // the host width, deriving the height from the deck's real aspect ratio itself.
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/ui/icons'
-import { errText, readArtifactBytes } from '@/core/bridge'
+import { errCode, errText, readArtifactBytes } from '@/core/bridge'
 import { ViewerError } from './viewer-error'
 
-export function PptxView({ relPath, reloadKey }: { relPath: string; reloadKey: number }) {
+// onMissing fires when the file is gone rather than unreadable, so the panel can
+// close the tab instead of showing an error for something the user cannot fix.
+export function PptxView({ relPath, reloadKey, onMissing }: { relPath: string; reloadKey: number; onMissing?: () => void }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const slidesRef = useRef<HTMLElement[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [err, setErr] = useState('')
   const [count, setCount] = useState(0)
   const [idx, setIdx] = useState(0)
+  const onMissingRef = useRef(onMissing)
+  onMissingRef.current = onMissing
 
   useEffect(() => {
     let cancelled = false
@@ -41,6 +45,7 @@ export function PptxView({ relPath, reloadKey }: { relPath: string; reloadKey: n
         setState('ready')
       } catch (e) {
         if (!cancelled) {
+          if (errCode(e) === 'not_found') { onMissingRef.current?.(); return }
           setErr(errText(e))
           setState('error')
         }

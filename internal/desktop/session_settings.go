@@ -280,6 +280,18 @@ func (a *App) SetPlanMode(on bool) (SessionInfo, error) {
 	if err := a.mgr.SetPlanMode(id, on); err != nil {
 		return SessionInfo{}, wireError(err)
 	}
+	// Leaving plan mode by the switch abandons any planning run: plan_write stops
+	// being usable, so a board left on screen would be a control that does nothing.
+	// Approval takes the other door (PlanApprove calls the manager directly), which
+	// is why its executing run is not affected here.
+	if !on {
+		a.mu.Lock()
+		plans := a.plans
+		a.mu.Unlock()
+		if plans != nil {
+			plans.CancelIfPlanning()
+		}
+	}
 	return a.Status()
 }
 

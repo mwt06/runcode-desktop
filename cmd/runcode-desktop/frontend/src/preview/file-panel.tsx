@@ -2,16 +2,45 @@
 // and images by the loopback static-server URL; Markdown/code/text by fetching the
 // text via ReadArtifact and rendering it in React; Office docs (docx/pptx/xlsx) via
 // lazy-loaded in-browser viewers; PDF by the WebView's native viewer.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Icon } from '@/ui/icons'
 import { Markdown } from '@/ui/markdown'
 import { basename } from '@/core/paths'
-import { copyText, errText, openExternal, readArtifact, resolveArtifactPath } from '@/core/bridge'
-import { artifactKindLabel, classifyPreview, fileColor, kindIcon, previewSrc } from './classify'
+import { copyText, errCode, errText, openExternal, readArtifact, renderOfficePDF, resolveArtifactPath } from '@/core/bridge'
+import { artifactKindLabel, classifyPreview, fileColor, kindIcon, previewSrc, type PreviewKind } from './classify'
 import { IconBtn } from './icon-btn'
 import { ImperativeDocView, renderDocx } from './viewers/doc-view'
 import { PptxView } from './viewers/pptx-view'
 import { XlsxView } from './viewers/xlsx-view'
+
+// OfficePDFState 是 Office 文档的三态：转换中、拿到 PDF、退回内嵌渲染器。
+type OfficePDFState = { state: 'converting'; pdfRel: '' } | { state: 'ready'; pdfRel: string } | { state: 'fallback'; pdfRel: '' }
+
+const isOfficeKind = (kind: PreviewKind) => kind === 'docx' || kind === 'pptx' || kind === 'xlsx'
+
+// useOfficePDF 请求本机 Office 把文档转成 PDF。非 Office 文档直接落 fallback（调用方
+// 本来就不会用到它）。任何失败都落 fallback，只有"文件不存在"特殊对待——那是陈旧的
+// 卡片指向了被移走的文件，静默关掉标签页，和文本预览一个规矩。
+function useOfficePDF(relPath: string, kind: PreviewKind, reloadKey: number, onMissing: RefObject<() => void>): OfficePDFState {
+  const isOffice = isOfficeKind(kind)
+  // 初值跟着类型走：非 Office 文档若从 'converting' 起步，会在 effect 跑之前先闪一行
+  // "正在生成高保真预览"——那是它永远不会用到的状态。
+  const [state, setState] = useState<OfficePDFState>(isOffice ? { state: 'converting', pdfRel: '' } : { state: 'fallback', pdfRel: '' })
+  useEffect(() => {
+    if (!isOffice) { setState({ state: 'fallback', pdfRel: '' }); return }
+    let ignore = false
+    setState({ state: 'converting', pdfRel: '' })
+    renderOfficePDF(relPath)
+      .then((pdfRel) => { if (!ignore) setState({ state: 'ready', pdfRel }) })
+      .catch((e) => {
+        if (ignore) return
+        if (errCode(e) === 'not_found') { onMissing.current?.(); return }
+        setState({ state: 'fallback', pdfRel: '' })
+      })
+    return () => { ignore = true }
+  }, [relPath, isOffice, reloadKey, onMissing])
+  return state
+}
 
 // fencedCode wraps source in a Markdown code fence long enough to survive any run
 // of backticks in the source, so the shared Markdown renderer (rehype-highlight)
@@ -28,6 +57,10 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
   const [text, setText] = useState<string | null>(null)
   const [err, setErr] = useState('')
   const name = basename(relPath)
+  // onClose is an escape hatch, not effect data: keep it in a ref so a re-render
+  // with a fresh arrow never re-triggers the read below.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   const textual = kind === 'markdown' || kind === 'code' || kind === 'text'
 
   useEffect(() => {
@@ -37,9 +70,22 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
     setErr('')
     readArtifact(relPath)
       .then((t) => { if (!ignore) setText(t) })
-      .catch((e) => { if (!ignore) setErr(errText(e)) })
+      .catch((e) => {
+        if (ignore) return
+        // The file is gone (a card in the conversation still points at where it used
+        // to be, or a later step moved it): close the tab instead of parking a red
+        // error where a preview should be. There is nothing for the user to do about
+        // it, and "预览" that only ever shows an error is worse than not opening.
+        if (errCode(e) === 'not_found') { onCloseRef.current(); return }
+        setErr(errText(e))
+      })
     return () => { ignore = true }
   }, [relPath, kind, bust, textual])
+
+  // Office 文档优先让本机装的 Office 转成 PDF 再看:内嵌的 JS 渲染器在文字度量与
+  // 字体回退上和真 Office 差得明显,而用户对照的正是 WPS/PowerPoint 里的样子。
+  // 转不了(没装 Office、非 Windows、调用失败)就退回内嵌渲染器——降级方向是安全的。
+  const office = useOfficePDF(relPath, kind, bust, onCloseRef)
 
   const copyPath = async () => {
     try { await copyText(await resolveArtifactPath(relPath)) } catch { /* non-fatal */ }
@@ -67,9 +113,17 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
         {kind === 'text' && text != null && (
           <pre className="m-0 p-4 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap break-words">{text}</pre>
         )}
-        {kind === 'docx' && <ImperativeDocView relPath={relPath} reloadKey={bust} load={renderDocx} busyHint=" Word" />}
-        {kind === 'pptx' && <PptxView relPath={relPath} reloadKey={bust} />}
-        {kind === 'xlsx' && <XlsxView relPath={relPath} reloadKey={bust} />}
+        {isOfficeKind(kind) && office.state === 'converting' && (
+          <div className="p-6 text-[13px] text-muted">正在用本机 Office 生成高保真预览…</div>
+        )}
+        {/* 转出来的 PDF 就放在工作区的 .runcode 下，走的仍是既有的 PDF 预览通路。 */}
+        {isOfficeKind(kind) && office.state === 'ready' && baseURL && (
+          <iframe title={name} src={previewSrc(baseURL, office.pdfRel, bust)} className="w-full h-full border-0 bg-white" />
+        )}
+        {isOfficeKind(kind) && office.state === 'ready' && !baseURL && <div className="p-6 text-[13px] text-muted">预览服务不可用。</div>}
+        {office.state === 'fallback' && kind === 'docx' && <ImperativeDocView relPath={relPath} reloadKey={bust} load={renderDocx} busyHint=" Word" onMissing={onClose} />}
+        {office.state === 'fallback' && kind === 'pptx' && <PptxView relPath={relPath} reloadKey={bust} onMissing={onClose} />}
+        {office.state === 'fallback' && kind === 'xlsx' && <XlsxView relPath={relPath} reloadKey={bust} onMissing={onClose} />}
         {kind === 'pdf' && baseURL && (
           <iframe title={name} src={previewSrc(baseURL, relPath, bust)} className="w-full h-full border-0 bg-white" />
         )}

@@ -17,7 +17,16 @@ export function usePreviewPanel() {
     clampPreviewWidth(stored, window.innerWidth),
   )
 
+  // opens counts every preview opened, from any source — the model's open_preview,
+  // an artifact card, the file browser. Auto-preview reads it to tell "nothing has
+  // been shown this turn" from "something already has", so it never yanks the panel
+  // away from what the user (or the model) deliberately put there. A ref, not
+  // state: the reader only samples it at turn boundaries, and a counter that
+  // re-rendered the whole app on every open would be pure cost.
+  const opens = useRef(0)
+
   const open = (tab: PreviewTab) => {
+    opens.current++
     const r = openTab(tabs, active, tab)
     setTabs(r.tabs)
     setActive(r.active)
@@ -57,7 +66,7 @@ export function usePreviewPanel() {
 
   return {
     tabs, active, setActive, browseOpen, setBrowseOpen,
-    autoOpen, toggleAutoOpen, width, dragHandlers,
+    autoOpen, toggleAutoOpen, width, dragHandlers, opens,
     openFile, openDiff, close, closeAll,
   }
 }

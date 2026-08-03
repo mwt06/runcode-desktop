@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, lastPreviewablePath, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './classify'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, pickAutoPreview, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './classify'
 
 describe('normalizeSheetGrid', () => {
   it('pads ragged rows to the widest row and coerces cells to strings', () => {
@@ -149,14 +149,25 @@ describe('filterFiles', () => {
   })
 })
 
-describe('lastPreviewablePath', () => {
-  it('returns the last previewable path (most recently written)', () => {
-    expect(lastPreviewablePath(['a.go', 'b.md', 'a.go'])).toBe('a.go') // last occurrence wins
-    expect(lastPreviewablePath(['a.md', 'b.zip'])).toBe('a.md') // skips a non-previewable last entry
+describe('pickAutoPreview', () => {
+  it('按产物价值排：文档 > h5 > md > 代码，与写入先后无关', () => {
+    // 做一套 PPT 的回合：先出 .pptx，再写生成脚本和说明。按时间取会开脚本。
+    expect(pickAutoPreview(['deck.pptx', 'build.py', 'README.md'])).toBe('deck.pptx')
+    expect(pickAutoPreview(['index.html', 'app.ts'])).toBe('index.html')
+    expect(pickAutoPreview(['notes.md', 'main.go'])).toBe('notes.md')
+    expect(pickAutoPreview(['main.go'])).toBe('main.go')
   })
-  it('returns null when none is previewable or the list is empty', () => {
-    expect(lastPreviewablePath(['x.zip', 'y.bin'])).toBe(null)
-    expect(lastPreviewablePath([])).toBe(null)
+  it('同级取写得更晚的那个（同一份文档改两次开新的）', () => {
+    expect(pickAutoPreview(['a.docx', 'b.pptx'])).toBe('b.pptx')
+    expect(pickAutoPreview(['a.go', 'b.md', 'a.go'])).toBe('b.md')
+  })
+  it('图片与纯文本排在代码之后——它们通常是过程产物,不是这一轮的交付物', () => {
+    expect(pickAutoPreview(['chart.png', 'main.go'])).toBe('main.go')
+    expect(pickAutoPreview(['out.log', 'chart.png'])).toBe('chart.png')
+  })
+  it('没有可预览的就返回 null', () => {
+    expect(pickAutoPreview(['x.zip', 'y.bin'])).toBe(null)
+    expect(pickAutoPreview([])).toBe(null)
   })
 })
 
@@ -181,5 +192,19 @@ describe('matchWorkspaceFiles', () => {
   })
   it('drops candidates that do not exist, dedups', () => {
     expect(matchWorkspaceFiles(['nope.md', 'README.md', 'README.md'], files)).toEqual(['README.md'])
+  })
+})
+
+describe('toWorkspaceRel 与行内路径可点击', () => {
+  // 模型在正文里几乎总写绝对路径（"已生成 D:\演示\projects\…\deck.pptx"），而文件
+  // 清单里存的是工作区相对路径。这一步换算是那行字能不能点开预览的分水岭。
+  it('把工作区下的绝对路径换算成清单里的相对路径（含中文目录、反斜杠）', () => {
+    const cwd = 'D:\\演示'
+    const abs = 'D:\\演示\\projects\\page-design-ppt_ppt169_20260731\\exports\\deck.pptx'
+    expect(toWorkspaceRel(abs, cwd)).toBe('projects/page-design-ppt_ppt169_20260731/exports/deck.pptx')
+  })
+
+  it('工作区之外的绝对路径原样保留，不会被误当成相对路径', () => {
+    expect(toWorkspaceRel('E:\\别处\\x.md', 'D:\\演示')).toBe('E:/别处/x.md')
   })
 })

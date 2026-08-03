@@ -26,8 +26,8 @@ function PermChip({ kind }: { kind: string }) {
 // its risk color. Together they read as a spectrum from safe/green to flight/red.
 const PERM_MODES = [
   { key: 'safe', zh: '安全', en: 'safe', level: 1, tone: 'bg-green', essence: '只放行绝对安全的,其余一律拒绝,从不打扰你。' },
-  { key: 'interactive', zh: '交互', en: 'interactive', level: 2, tone: 'bg-primary', essence: '读取自动放行,写改 / 命令 / 联网逐项当面问你。' },
-  { key: 'judge', zh: '智能', en: 'judge', level: 3, tone: 'bg-amber', essence: '工作区改动直接放行,命令与联网交模型审查。' },
+  { key: 'interactive', zh: '交互', en: 'interactive', level: 2, tone: 'bg-primary', essence: '项目内读取自动放行,写改 / 命令 / 联网 / 出项目逐项当面问你。' },
+  { key: 'judge', zh: '智能', en: 'judge', level: 3, tone: 'bg-amber', essence: '工作区改动直接放行,命令 / 联网 / 项目外读取交模型先审,项目外落盘仍要你点头。' },
   { key: 'flight', zh: '飞行', en: 'flight', level: 4, tone: 'bg-red', essence: '全部放行,连高危命令也不拦,不审计。' },
 ]
 
@@ -42,7 +42,9 @@ const PERM_ROWS: { op: string; q: string; cells: string[] }[] = [
   { op: '命令', q: 'Bash', cells: ['deny', 'ask', 'judge', 'allow'] },
   { op: '联网', q: 'WebFetch · WebSearch', cells: ['deny', 'ask', 'judge', 'allow'] },
   { op: 'MCP 外部工具', q: '独立进程', cells: ['deny', 'ask', 'judge', 'allow'] },
-  { op: '越出工作区 / 高危命令', q: '提权 · rm -rf · 毁灭性 git', cells: ['deny', 'deny', 'deny', 'allow'] },
+  { op: '越出工作区 · 读取', q: '项目外的文件 / 目录 / shell 读', cells: ['deny', 'ask', 'judge', 'allow'] },
+  { op: '越出工作区 · 写改删', q: '项目外落盘，智能模式也必问', cells: ['deny', 'ask', 'ask', 'allow'] },
+  { op: '高危命令', q: '提权 · rm -rf · 毁灭性 git', cells: ['deny', 'deny', 'deny', 'allow'] },
 ]
 
 const PERM_CHOICES: [string, string, boolean][] = [
@@ -55,7 +57,8 @@ const PERM_CHOICES: [string, string, boolean][] = [
 const PERM_RULES: [string, string, string][] = [
   ['计划模式', 'text-primaryink bg-primarysoft', '规划阶段任何会改动东西的动作都被拒绝,让 AI 先想清楚——与四种模式叠加。'],
   ['危害审查', 'text-amber bg-amber/15', '智能模式对命令 / 联网 / MCP 先判危害:安全放行,有害弹窗并附原因,评估失败也弹窗,绝不静默放行。'],
-  ['并发队列', 'text-green bg-greenbg', '只读类工具并行执行;多个授权请求排队逐个弹出、互不覆盖;批次里任一被拒绝同样停止本回合。'],
+  ['并发队列', 'text-green bg-greenbg', '只读类工具并行执行;多个授权请求排队逐个弹出、互不覆盖;同一批里问题相同的请求只弹一次、共用答复;批次里任一被拒绝同样停止本回合。'],
+  ['越界授权按目录记', 'text-amber bg-amber/15', '批准一个项目外的文件 = 批准它所在目录及其子目录;读与写分开记,写授权蕴含读,读授权不含写。项目内那条"文件改动"授权永远不会外溢到项目之外。'],
 ]
 
 // AutonomyMeter renders a mode's "how much it lets through" as four segments filled

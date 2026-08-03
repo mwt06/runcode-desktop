@@ -14,6 +14,24 @@ type SkillInfo struct {
 	DisabledProject bool `json:"disabledProject"`
 }
 
+// SkillLoad is what the desktop's Skill tool attaches to its progress event's
+// `data` when the model loads a skill, so the chat can render a card naming what
+// was loaded instead of a bare "加载技能" row.
+//
+// It carries what the tool result does not expose to the UI: the skill's
+// description, which scope it came from, and the directory its bundled files
+// live in. The frontend cannot derive these from the call's arguments — those
+// hold only the name.
+type SkillLoad struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"` // "user" or "project"
+	Dir         string `json:"dir"`
+	// Truncated marks a skill whose body hit the engine's size cap, so the card can
+	// warn that the model is acting on incomplete instructions.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
 // SkillProblem reports a skill directory that failed to load.
 type SkillProblem struct {
 	Dir    string `json:"dir"`

@@ -99,7 +99,7 @@ const DENY_REASON: Record<string, string> = {
   read_stale: '文件已变化，请重新读取',
   approval_denied: '已拒绝',
   approval_unavailable: '安全模式下不可执行',
-  outside_workspace: '路径在工作区之外',
+  outside_workspace: '路径在工作区之外，未获授权',
   denylisted: '已被拒止规则阻止',
   policy_denied: '策略不允许',
   invalid_target: '目标无效',
@@ -147,6 +147,42 @@ export function analyzeSteps(input: unknown): { method?: string; steps: { key: s
     ? obj.steps.map((s) => ({ key: String(s?.key ?? ''), label: s?.label ? String(s.label) : undefined, content: String(s?.content ?? '') }))
     : []
   return { method: obj.method ? String(obj.method) : undefined, steps }
+}
+
+// SkillLoadView is what the skill card renders: the metadata the desktop's Skill
+// tool announced, or just the requested name when it did not (a resumed session
+// replays no live events).
+export type SkillLoadView = {
+  name: string
+  description: string
+  source: string
+  dir: string
+  truncated: boolean
+  running: boolean
+  failed: boolean
+}
+
+// skillLoad reads a Skill call into its card. The metadata rides on the progress
+// event's `data` (protocol.SkillLoad) rather than being derivable here: the call's
+// arguments carry only a name, and the result text — the instructions themselves —
+// is never rendered. Without it the card falls back to the requested name, so a
+// resumed conversation still shows which skill was loaded instead of dropping the
+// card. Returns null when there is not even a name to show.
+export function skillLoad(tool: ToolEvent): SkillLoadView | null {
+  const data = (tool as ToolEvent & { data?: unknown }).data
+  const meta = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  const requested = parseToolInput<{ name?: string }>((tool as ToolEvent & { input?: unknown }).input).name
+  const name = String(meta.name ?? requested ?? '').trim()
+  if (name === '') return null
+  return {
+    name,
+    description: String(meta.description ?? '').trim(),
+    source: String(meta.source ?? ''),
+    dir: String(meta.dir ?? ''),
+    truncated: meta.truncated === true,
+    running: tool.type === 'started',
+    failed: tool.type === 'failed',
+  }
 }
 
 // askPayload pulls the question and options out of an AskUser tool call's input.

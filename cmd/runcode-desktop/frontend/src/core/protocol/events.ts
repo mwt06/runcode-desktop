@@ -4,16 +4,18 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
-import type { AssistantDelta, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, RetryNotice, SessionRenamed, ToolEvent, TurnEnd, TurnError, TurnQueued, Warning } from './types';
+import type { AssistantDelta, ContextUsage, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, PlanRun, RetryNotice, SessionRenamed, ToolEvent, TurnEnd, TurnError, TurnQueued, Warning } from './types';
 
 // EventMap maps every wire event name to its payload type.
 export interface EventMap {
   'assistant:delta': AssistantDelta;
   'assistant:thinking': AssistantDelta;
+  'context:usage': ContextUsage;
   'harm:autoallow': HarmAutoAllow;
   'llm:retry': RetryNotice;
   'passport:changed': PassportStatus;
   'permission:request': PermissionRequest;
+  'plan:updated': PlanRun;
   'session:renamed': SessionRenamed;
   'tool:event': ToolEvent;
   'turn:end': TurnEnd;

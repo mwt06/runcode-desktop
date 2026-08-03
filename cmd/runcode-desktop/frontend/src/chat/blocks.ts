@@ -1,7 +1,7 @@
 // Pure conversation-model logic for the chat UI: the block/group data model and the
 // reducers that fold streaming tool events into it. Kept free of React so it can be
 // unit-tested directly (see chat.test.ts).
-import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord } from '@/core/bridge'
+import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord, ResumedBlock } from '@/core/bridge'
 import { isEditRecord } from '@/core/bridge'
 
 // AgentNested holds a sub-agent's live activity, shown nested inside its Task card:
@@ -22,7 +22,6 @@ export type Block =
   // retry marks a transient LLM-request failure being retried, rendered as a
   // divider carrying the disconnect reason and the attempt number.
   | { kind: 'retry'; id: string; reason: string; attempt: number; maxAttempts: number }
-  | { kind: 'planchoice'; id: string }
   // usage closes a completed reply with that turn's own token spend (the parent
   // session's model calls — sub-agent tokens are shown on the Task card instead).
   | { kind: 'usage'; id: string; inTok: number; outTok: number; durMs?: number }
@@ -35,6 +34,10 @@ export type Group =
   | { kind: 'exec'; id: string; tools: ToolEvent[] }
   | { kind: 'ask'; id: string; tool: ToolEvent }
   | { kind: 'analyze'; id: string; tool: ToolEvent }
+  // skill is one "模型加载了某个技能" moment. It leaves the compact tool list
+  // because a bare 加载技能 row says nothing: the call carries only a name, so
+  // what the model actually picked up (and why) is only visible on a card.
+  | { kind: 'skill'; id: string; tool: ToolEvent }
   | { kind: 'edits'; id: string; edits: EditRecord[] }
   // taskgroup collects a fan-out of parallel Task delegations (adjacent Task calls
   // issued in one assistant response) so they render as one container of compact
@@ -211,9 +214,10 @@ export function groupBlocks(blocks: Block[]): Group[] {
         pending.set(rec.relPath, rec)
         if (!pendingId) pendingId = b.id
       }
-      // TodoWrite drives the progress pill, never a stream row. This also covers
-      // resumed sessions, whose tool blocks bypass the live handler.
-      if (b.tool.toolName === 'TodoWrite') continue
+      // TodoWrite drives the progress pill and plan_write the staged plan board —
+      // never a stream row, or the same content would be on screen twice. This also
+      // covers resumed sessions, whose tool blocks bypass the live handler.
+      if (b.tool.toolName === 'TodoWrite' || b.tool.toolName === 'plan_write') continue
       // AskUser renders as its own interactive question, not in an execution group.
       if (b.tool.toolName === 'AskUser') {
         out.push({ kind: 'ask', id: b.id, tool: b.tool })
@@ -223,6 +227,13 @@ export function groupBlocks(blocks: Block[]): Group[] {
       // own visual card, not merged into the compact tool list.
       if (b.tool.toolName === 'Analyze') {
         out.push({ kind: 'analyze', id: b.id, tool: b.tool })
+        continue
+      }
+      // A skill load is its own card: it announces which reusable workflow the
+      // model is now following, which is worth more than one row in a list of
+      // greps.
+      if (b.tool.toolName === 'Skill') {
+        out.push({ kind: 'skill', id: b.id, tool: b.tool })
         continue
       }
       // A Task delegation is its own observable card (its sub-agent's live text and
@@ -261,15 +272,46 @@ export function parsePlan(ev: ToolEvent): PlanSnapshot | null {
   if (!d || typeof d !== 'object') return null
   const o = d as { items?: unknown; done?: unknown; total?: unknown }
   if (!Array.isArray(o.items)) return null
-  const items: PlanItem[] = o.items.map((raw) => {
-    const it = (raw ?? {}) as { content?: unknown; status?: unknown; activeForm?: unknown }
+  const items = toPlanItems(o.items)
+  const done = typeof o.done === 'number' ? o.done : items.filter((i) => i.status === 'completed').length
+  const total = typeof o.total === 'number' ? o.total : items.length
+  return { items, done, total }
+}
+
+// resumedPlan rebuilds the progress board from a reopened session's blocks: the
+// board is live state fed by TodoWrite events, and a resume replays history instead
+// of events, so without this the pill vanishes on reopening a session whose task
+// list is still unfinished. The last TodoWrite call is the current list by the
+// tool's own contract (each call replaces the previous one), and its arguments ride
+// along in the resumed block, so no snapshot needs to be persisted for this.
+// Returns null when the session never recorded one (or the arguments are unusable).
+export function resumedPlan(blocks: ResumedBlock[] | null | undefined): PlanSnapshot | null {
+  for (let i = (blocks?.length ?? 0) - 1; i >= 0; i--) {
+    const t = blocks?.[i]?.tool
+    if (!t || t.toolName !== 'TodoWrite' || !t.input) continue
+    let todos: unknown
+    try {
+      todos = (JSON.parse(t.input) as { todos?: unknown } | null)?.todos
+    } catch {
+      return null // malformed arguments: no board is better than a wrong one
+    }
+    if (!Array.isArray(todos) || todos.length === 0) return null
+    const items = toPlanItems(todos)
+    return { items, done: items.filter((it) => it.status === 'completed').length, total: items.length }
+  }
+  return null
+}
+
+// toPlanItems normalizes the tool's raw items (from a live event or a resumed
+// call's arguments — the same shape) into PlanItems, defaulting a missing status
+// to pending so one odd item cannot break the board.
+function toPlanItems(raw: unknown[]): PlanItem[] {
+  return raw.map((entry) => {
+    const it = (entry ?? {}) as { content?: unknown; status?: unknown; activeForm?: unknown }
     return {
       content: String(it.content ?? ''),
       status: String(it.status ?? 'pending'),
       activeForm: it.activeForm ? String(it.activeForm) : undefined,
     }
   })
-  const done = typeof o.done === 'number' ? o.done : items.filter((i) => i.status === 'completed').length
-  const total = typeof o.total === 'number' ? o.total : items.length
-  return { items, done, total }
 }

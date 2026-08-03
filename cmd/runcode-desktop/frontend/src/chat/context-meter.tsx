@@ -1,7 +1,13 @@
-// ContextMeter shows how full the model's context window is — the last turn's
-// input tokens against the compaction budget — with a bar that turns amber as it
-// nears the 80% auto-compaction threshold, plus a manual "压缩" button. With no
+// ContextMeter shows how full the model's context window is, against the compaction
+// budget, with a bar that turns amber as it nears the 80% threshold where the engine
+// automatically condenses and carries on — plus a manual "压缩" button. With no
 // budget set (auto-compaction off) it just shows the raw occupancy.
+//
+// The figure updates on every model round-trip, not once per turn: a turn is where
+// context fills up (one can span dozens of tool rounds), so a per-turn meter showed
+// a number that was already stale. It is a calibrated estimate rather than a
+// provider-exact count — the same estimate the automatic thresholds act on, so what
+// the bar shows and what the engine does always agree.
 import { Icon } from '@/ui/icons'
 import { NO_DRAG } from '@/ui/tokens'
 import { fmtTokens } from '@/core/format'
@@ -24,17 +30,18 @@ export function ContextMeter({
   const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0
   const near = budget > 0 && pct >= 80
   const bar = pct >= 100 ? 'bg-red' : near ? 'bg-[#e0954a]' : 'bg-primary'
-  // A leading "≈" marks a resume-time estimate, until the first turn reports the
-  // provider's exact count.
+  // A leading "≈" marks the figure as not yet calibrated against this model's real
+  // token usage — the state a resumed session starts in, before any round-trip has
+  // been observed.
   const approx = estimated ? '≈' : ''
   return (
     <div className="inline-flex items-center gap-2" style={NO_DRAG}>
       <span
         className="inline-flex items-center gap-1.5"
         title={
-          (estimated ? '（估算值，发送一条消息后即为精确值）\n' : '') +
+          (estimated ? '（尚未按当前模型校准，完成一次往返后自动校准）\n' : '') +
           (budget > 0
-            ? `上下文占用 ${used.toLocaleString()} / ${budget.toLocaleString()} tokens · 达 80% 自动总结压缩`
+            ? `上下文占用 ${used.toLocaleString()} / ${budget.toLocaleString()} tokens\n每次模型往返实时刷新 · 达 80% 自动整理并总结后继续`
             : `上下文占用 ${used.toLocaleString()} tokens · 未设预算，自动压缩关闭`)
         }
       >

@@ -29,6 +29,9 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   AskUser: { label: '询问用户', desc: '向用户提问并停下等待回复，用于需要用户决策或缺少关键信息时。' },
   open_preview: { verb: '预览', label: '预览产物', desc: '在桌面预览面板打开工作区文件(仅桌面版)。' },
   ReadOffice: { verb: '读取文档', label: '读取 Office 文档', desc: '把 .docx/.xlsx/.pptx 读成结构化文本(文字、字体、格式、版式)，按页返回，长文档可续读(仅桌面版)。' },
+  // plan_write 有意不给 verb：它不出现在工具行里，产出直接进计划模式的阶段进度条与
+  // 审批板（见 chat/plan-board）。
+  plan_write: { label: '记录方案', desc: '计划模式下按阶段记录规划产出（需求理解 / 方案设计 / 方案审查），交给用户编辑与审批(仅桌面版)。' },
   Task: { verb: '委派子代理', label: '委派子代理', desc: '把一个自包含的子任务委派给子代理独立执行。' },
   Skill: { verb: '加载技能', label: '加载技能', desc: '加载并执行一个已定义的技能。' },
   // 以下四个由引擎的 mcp 包提供，配了 MCP 服务器时才出现在工具集里。它们不带

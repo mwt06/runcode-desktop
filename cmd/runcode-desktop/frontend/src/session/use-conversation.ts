@@ -1,6 +1,7 @@
 // useConversation 拥有"对话本身"的全部状态：消息块、引擎事件订阅、发送/停止/
 // 压缩、上下文占用与计划快照。它不知道会话是怎么创建或切换的——那是 use-session
-// 的事；两者的接缝只有 infoRef(读当前会话的 planMode)与几个回调。
+// 的事；两者的接缝只有 infoRef(读当前会话，判断有没有会话可压缩)与几个回调。
+// 阶段化计划模式是第三块状态，独立在 use-plan 里，与这里只经 send 相连。
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import {
   compact as compactSession,
@@ -26,11 +27,13 @@ import {
   mergeTool,
   parsePlan,
   resumedMatchedFiles,
+  resumedPlan,
   turnErrorText,
   turnProducedText,
   type AgentNested,
   type Block,
 } from '@/chat/blocks'
+import { fmtTokens } from '@/core/format'
 import { basename } from '@/core/paths'
 
 let seq = 0
@@ -57,10 +60,12 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
   // task timeline); the pill itself stays visible whenever a plan exists.
   const [plan, setPlan] = useState<PlanSnapshot | null>(null)
   const [planOpen, setPlanOpen] = useState(false)
-  // ctxTokens is the current context-window occupancy (last turn's final input
-  // tokens), shown against the compaction budget so the user sees how full it is.
-  // ctxEstimated marks it as a resume-time estimate until the first turn reports
-  // the provider's exact count.
+  // ctxTokens is the current context-window occupancy, shown against the compaction
+  // budget. It updates on every model round-trip (context:usage), not just at turn
+  // boundaries: a turn is where context actually fills up — one can span dozens of
+  // tool rounds — so a meter that only moved at turn end showed a number that was
+  // already stale. ctxEstimated marks it as a resume-time figure until the running
+  // session reports its own.
   const [ctxTokens, setCtxTokens] = useState(0)
   const [ctxEstimated, setCtxEstimated] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -170,6 +175,13 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
           return [...next, { kind: 'tool', id: nextID(), tool: ev }]
         })
       }),
+      // Live context occupancy: emitted before every model round-trip inside a turn,
+      // and again right after automatic context control shortens the history, so the
+      // meter shows both the climb and the drop as they happen.
+      onEvent(Events.ContextUsage, (u) => {
+        setCtxTokens(u.contextTokens)
+        setCtxEstimated(false)
+      }),
       onEvent(Events.TurnEnd, (end) => {
         setBusy(false)
         userStopped.current = false
@@ -179,10 +191,18 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
         cb.current.permissions.clear()
         if (end.contextTokens) {
           setCtxTokens(end.contextTokens)
-          setCtxEstimated(false) // now a provider-measured exact count
+          setCtxEstimated(false) // now measured against the committed history
         }
         setBlocks((prev) => {
           let next = finalizeTools(finalizeStreaming(prev))
+          // Context control ran during this turn. Say so: the meter just fell, and an
+          // unexplained drop reads as a glitch rather than the system working.
+          if (end.contextTokensSaved) {
+            next = [...next, {
+              kind: 'notice', id: nextID(),
+              text: `上下文已自动整理，回收约 ${fmtTokens(end.contextTokensSaved)} tokens(过期的工具产出会按需重新读取)`,
+            }]
+          }
           // Did THIS turn produce assistant text? Scoped to the current turn so an
           // earlier reply can't mask an empty one (see turnProducedText).
           const producedText = turnProducedText(next)
@@ -218,12 +238,6 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
           // tokens are shown on its Task card instead, so the two never double-count.
           if (end.inputTokens > 0 || end.outputTokens > 0) {
             next = [...next, { kind: 'usage', id: nextID(), inTok: end.inputTokens, outTok: end.outputTokens, durMs: end.durationMs }]
-          }
-          // In plan mode, a completed turn means the model presented its plan — offer
-          // how to proceed (execute interactively / via judge, or keep refining).
-          if (infoRef.current?.planMode && !end.stopped && !isAsk && !emptyResponse) {
-            next = next.filter((b) => b.kind !== 'planchoice')
-            next = [...next, { kind: 'planchoice', id: nextID() }]
           }
           return next
         })
@@ -371,10 +385,6 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     }
   }
 
-  function dismissPlanChoice() {
-    setBlocks((prev) => prev.filter((b) => b.kind !== 'planchoice'))
-  }
-
   // reset 清空会话相关的一切显示状态——新建/切工作区时用。
   function reset() {
     setBlocks([])
@@ -429,7 +439,10 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     } else {
       setRevertedEdits(new Set())
     }
-    setPlan(null)
+    // Rebuild the progress board from the reopened history: the live board is fed by
+    // TodoWrite events, which a resume never replays, so an unfinished task list would
+    // otherwise disappear the moment the session is reopened.
+    setPlan(resumedPlan(r.blocks))
     setPlanOpen(false)
     // Seed the usage bar with the reopened history's estimated occupancy so it
     // isn't 0; the first turn replaces it with the provider's exact count.
@@ -441,6 +454,6 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     blocks, harmAllows, busy, plan, planOpen, setPlanOpen,
     ctxTokens, ctxEstimated, compacting, revertedEdits,
     scrollRef, onChatScroll,
-    send, stop, compact, undo, pushError, dismissPlanChoice, reset, applyResumed,
+    send, stop, compact, undo, pushError, reset, applyResumed,
   }
 }

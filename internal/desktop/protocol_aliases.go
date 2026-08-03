@@ -33,7 +33,23 @@ const (
 	EventWarning           = hostproto.EventWarning
 	EventSessionRenamed    = protocol.EventSessionRenamed
 	EventHarmAutoAllow     = protocol.EventHarmAutoAllow
+	EventPlanUpdated       = protocol.EventPlanUpdated
 	EventPassportChanged   = protocol.EventPassportChanged
+)
+
+// 阶段化计划模式的阶段与运行状态值,同样再导出(文档在 protocol 包)。
+//
+//nolint:revive // 再导出别名:文档以定义方的 protocol 包为准
+const (
+	PlanStageUnderstanding = protocol.PlanStageUnderstanding
+	PlanStageDesign        = protocol.PlanStageDesign
+	PlanStageReview        = protocol.PlanStageReview
+
+	PlanStateIdle             = protocol.PlanStateIdle
+	PlanStatePlanning         = protocol.PlanStatePlanning
+	PlanStateAwaitingApproval = protocol.PlanStateAwaitingApproval
+	PlanStateExecuting        = protocol.PlanStateExecuting
+	PlanStateCancelled        = protocol.PlanStateCancelled
 )
 
 // Wire payload types. 块内的注释是分组标签,不是各别名的 godoc —— 每个标识符的
@@ -95,6 +111,13 @@ type (
 	// Edit undo/review.
 	EditRecord = protocol.EditRecord
 	EditDiff   = protocol.EditDiff
+
+	// 阶段化计划模式。
+	PlanStep           = protocol.PlanStep
+	PlanDoc            = protocol.PlanDoc
+	PlanRun            = protocol.PlanRun
+	PlanApproveRequest = protocol.PlanApproveRequest
+	PlanApproveResult  = protocol.PlanApproveResult
 
 	// Project context & memory.
 	ProjectContextInfo = protocol.ProjectContextInfo

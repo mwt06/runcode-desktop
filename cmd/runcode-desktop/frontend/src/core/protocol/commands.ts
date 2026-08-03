@@ -4,7 +4,7 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
-import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
+import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
 
 // app resolves the Wails binding for desktop.App lazily, so importing this
 // module before the runtime injects window.go is safe.
@@ -226,6 +226,30 @@ export function pickWorkspaceFolder(): Promise<string> {
   return app().PickWorkspaceFolder();
 }
 
+// PlanApprove crosses the approval gate: it records the user's final checklist, leaves plan mode for the chosen permission mode, and returns both the new session status and the execution instruction to send as the next message.
+// kind: idempotent-set
+export function planApprove(req: PlanApproveRequest): Promise<PlanApproveResult> {
+  return app().PlanApprove(req);
+}
+
+// PlanCancel abandons the planning run.
+// kind: idempotent-set
+export function planCancel(): Promise<PlanRun> {
+  return app().PlanCancel();
+}
+
+// PlanStatus returns the active session's planning run, so the UI can render the board on load and after a resume (a plan waiting for approval outlives a restart).
+// kind: query
+export function planStatus(): Promise<PlanRun> {
+  return app().PlanStatus();
+}
+
+// PlanUpdate stores the user's edits to the checklist (reordering, rewriting, adding or dropping steps) while it waits for approval.
+// kind: idempotent-set
+export function planUpdate(doc: PlanDoc): Promise<PlanRun> {
+  return app().PlanUpdate(doc);
+}
+
 // ReadArtifact returns the UTF-8 text of a workspace file for React-rendered previews (Markdown/code/text).
 // kind: query
 export function readArtifact(relPath: string): Promise<string> {
@@ -254,6 +278,12 @@ export function readProjectContext(): Promise<ProjectContextInfo> {
 // kind: trigger
 export function reloadMCPServers(): Promise<boolean> {
   return app().ReloadMCPServers();
+}
+
+// RenderOfficePDF 把工作区里的一份 Office 文档转成 PDF,返回**工作区相对**的 PDF 路径,前端拿它走既有的 PDF 预览(经预览服务器的 URL 塞进 iframe)。 同一份文件重复打开命中缓存直接返回;源文件改了(大小或修改时间变了)键就变了, 于是自然重转,不需要额外的失效逻辑。
+// kind: query
+export function renderOfficePDF(relPath: string): Promise<string> {
+  return app().RenderOfficePDF(relPath);
 }
 
 // Reset clears the in-memory working history (the on-disk log is untouched).

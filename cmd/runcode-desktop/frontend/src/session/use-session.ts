@@ -244,24 +244,13 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
     }
   }
 
-  // executePlanAs 退出计划模式、切到选定的权限模式，随后由调用方发出执行指令。
-  // 返回 false 表示切换失败(错误已入对话流)，此时不应再发消息。
-  async function leavePlanMode(mode: string): Promise<boolean> {
-    try {
-      await setPermissionMode(mode)
-      const i = await setPlanMode(false)
-      if (i?.model) setInfo(i)
-      else setInfo((prev) => (prev ? { ...prev, permissionMode: mode, planMode: false } : prev))
-      return true
-    } catch (e) {
-      conversation.pushError(errText(e))
-      return false
-    }
-  }
+  // 计划模式的"确认执行"不在这里：退出计划模式、切权限模式、拼执行指令是一个原子
+  // 动作，整件事由后端的 PlanApprove 一次做完（见 session/use-plan），这里只负责把
+  // 它返回的会话状态采纳进来。
 
   return {
     info, setInfo, started, starting, startError, recents, initialReq, setInitialReq, switching,
     start, newChat, openRecent, switchToWorkspace, pickWorkspaceAndSwitch, deleteRecent, returnToStart,
-    togglePlan, chooseReasoning, chooseThinking, pickMode, toggleMode, pickModel, leavePlanMode,
+    togglePlan, chooseReasoning, chooseThinking, pickMode, toggleMode, pickModel,
   }
 }

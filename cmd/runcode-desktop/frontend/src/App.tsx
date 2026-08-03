@@ -11,6 +11,7 @@ import { usePermissionQueue } from '@/session/use-permission-queue'
 import { useWorkspaceFiles } from '@/session/use-workspace-files'
 import { usePreviewPanel } from '@/session/use-preview-panel'
 import { useConversation } from '@/session/use-conversation'
+import { usePlan } from '@/session/use-plan'
 import { useAutoPreview } from '@/session/use-auto-preview'
 import { useSession } from '@/session/use-session'
 import { usePassportStatus } from '@/session/use-passport'
@@ -43,7 +44,7 @@ export default function App() {
 
   const toast = useToast()
   const permissions = usePermissionQueue()
-  const workspace = useWorkspaceFiles()
+  const workspace = useWorkspaceFiles(() => infoRef.current?.cwd ?? '')
   const preview = usePreviewPanel()
   // 登录用户的通行证状态：欢迎语称呼（经 passportDisplayName）与侧栏用户区
   // （头像/用户名/退出登录）共用同一份订阅。未登录时名字为空串、头像为 undefined。
@@ -71,6 +72,16 @@ export default function App() {
     infoRef.current = session.info
   }, [session.info])
 
+  // 阶段化计划模式（需求理解 → 方案设计 → 方案审查 → 用户审批）。确认方案后要发的
+  // 那条执行指令由后端拼好，这里原样走 conversation.send——busy、用户气泡、回合生命
+  // 周期因此完全复用普通消息的链路，不另起一套。
+  const planning = usePlan({
+    sessionId: session.info?.sessionId,
+    onSend: (text) => void conversation.send(text),
+    onApproved: session.setInfo,
+    showToast: toast.show,
+  })
+
   // Workspace file list for the composer picker (#), the file browser, and reply
   // artifact matching — reloaded per session。把 reload 解出来做依赖:它是
   // useCallback([]) 的稳定引用,而 workspace 对象每次渲染都是新的。
@@ -84,6 +95,7 @@ export default function App() {
     blocks: conversation.blocks,
     cwd: session.info?.cwd ?? '',
     enabled: preview.autoOpen,
+    opens: preview.opens,
     open: preview.openFile,
   })
 
@@ -93,16 +105,6 @@ export default function App() {
   const logout = async () => {
     try { await passportLogout() } catch { /* 清令牌失败也退回首屏,登录门兜底 */ }
     session.returnToStart()
-  }
-
-  // executePlanAs 离开计划模式、切到选定的权限模式，再让模型按方案执行——
-  // 唯一同时牵动会话与对话的动作，所以留在这里编排。
-  const executePlanAs = async (mode: string) => {
-    if (conversation.busy) return
-    conversation.dismissPlanChoice()
-    if (await session.leavePlanMode(mode)) {
-      await conversation.send('计划已确认，请按上述方案开始执行。')
-    }
   }
 
   if (!session.started) {
@@ -205,6 +207,7 @@ export default function App() {
                 plan={conversation.plan}
                 planOpen={conversation.planOpen}
                 onPlanToggle={conversation.setPlanOpen}
+                planning={planning}
                 harmAllows={conversation.harmAllows}
                 revertedEdits={conversation.revertedEdits}
                 files={workspace.files}
@@ -212,8 +215,6 @@ export default function App() {
                 scrollRef={conversation.scrollRef}
                 onScroll={conversation.onChatScroll}
                 onAnswer={(text) => void conversation.send(text)}
-                onExecutePlan={(mode) => void executePlanAs(mode)}
-                onDismissPlan={conversation.dismissPlanChoice}
                 onOpenFile={preview.openFile}
                 onReviewEdit={preview.openDiff}
                 onUndoEdit={(id) => void conversation.undo(id)}

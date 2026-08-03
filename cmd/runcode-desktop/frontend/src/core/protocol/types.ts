@@ -11,9 +11,11 @@ export const ProtocolVersion = 1;
 export const Events = {
   AssistantDelta: 'assistant:delta',
   AssistantThinking: 'assistant:thinking',
+  ContextUsage: 'context:usage',
   HarmAutoAllow: 'harm:autoallow',
   PassportChanged: 'passport:changed',
   PermissionRequest: 'permission:request',
+  PlanUpdated: 'plan:updated',
   Retry: 'llm:retry',
   SessionRenamed: 'session:renamed',
   ToolEvent: 'tool:event',
@@ -65,6 +67,28 @@ export const ErrCodes = {
 // ErrCode keeps unknown codes assignable so a newer host degrades gracefully.
 export type ErrCode = (typeof ErrCodes)[keyof typeof ErrCodes] | (string & {});
 
+// Mirrors the protocol.PlanStage* constants. Stages of 计划模式's planning pipeline, in order; the values of plan_write's stage argument.
+export const PlanStages = {
+  Design: 'design',
+  Review: 'review',
+  Understanding: 'understanding',
+} as const;
+
+// PlanStage is the closed set of planning stages — the shell's own pipeline, so an unknown value is a bug, not a newer peer.
+export type PlanStage = (typeof PlanStages)[keyof typeof PlanStages];
+
+// Mirrors the protocol.PlanState* constants. Lifecycle states of a planning run, carried by PlanRun.state.
+export const PlanStates = {
+  AwaitingApproval: 'awaiting_approval',
+  Cancelled: 'cancelled',
+  Executing: 'executing',
+  Idle: 'idle',
+  Planning: 'planning',
+} as const;
+
+// PlanState is the closed set of planning-run states.
+export type PlanState = (typeof PlanStates)[keyof typeof PlanStates];
+
 // Mirrors protocol.AgentInfo. AgentInfo is one sub-agent for the UI's sub-agent manager.
 export interface AgentInfo {
   name: string;
@@ -111,6 +135,7 @@ export interface ApprovalSummary {
   resourceScope?: string;
   resourceCount?: number;
   mutationKind?: string;
+  outsideWorkspace?: boolean;
   commandCategory?: string;
   commandSummary?: string;
   networkHost?: string;
@@ -139,6 +164,13 @@ export interface ContextAuditInfo {
   enabled: boolean;
   url: string;
   dir: string;
+}
+
+// Mirrors protocol.ContextUsage. ContextUsage reports how full the context window is right now, emitted before each model round-trip inside a turn.
+export interface ContextUsage {
+  contextTokens: number;
+  maxContextTokens: number;
+  iteration: number;
 }
 
 // Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点，与通行证平台模型并列显示在模型 选择器里。Provider 是引擎 provider registry 的名称（当前为 openai/ openai-responses/anthropic），由 llm.IsRegistered 校验而非本仓库的名单；旧配置 没有该字段时由桌面端按 openai 兼容处理。密钥字段仅用于桌面端持久化， ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
@@ -299,9 +331,51 @@ export interface PermissionRequest {
   id: string;
   summary: ApprovalSummary;
   targets?: string[] | null;
+  externalTargets?: string[] | null;
+  externalRoots?: string[] | null;
   command?: string;
   harmReason?: string;
   samplingServer?: string;
+}
+
+// Mirrors protocol.PlanApproveRequest. PlanApproveRequest 是用户点"确认执行"时提交的东西：编辑后的最终清单，加上执行阶段 要切换到的权限模式（沿用原先那张三选一卡片的语义：交互 / 智能）。
+export interface PlanApproveRequest {
+  doc: PlanDoc;
+  permissionMode: string;
+}
+
+// Mirrors protocol.PlanApproveResult. PlanApproveResult 把审批的两件后果一起带回前端：会话状态已变（计划模式关、权限模式 切好），以及应当作为下一条消息发出去的执行指令。指令由后端拼是为了让措辞与清单编号 只有一个来源（也便于单测），发送仍走前端既有的 send 路径，这样 busy、用户气泡、回合 生命周期全部复用原有链路。
+export interface PlanApproveResult {
+  info: SessionInfo;
+  executionPrompt: string;
+}
+
+// Mirrors protocol.PlanDoc. PlanDoc 是规划文档本身：三个阶段各自往里填一部分，用户在审批前还能改。
+export interface PlanDoc {
+  goal?: string;
+  nonGoals?: string[] | null;
+  title?: string;
+  steps?: PlanStep[] | null;
+  risks?: string[] | null;
+  questions?: string[] | null;
+  reviewNotes?: string[] | null;
+}
+
+// Mirrors protocol.PlanRun. PlanRun 是一次规划运行的完整对外状态，EventPlanUpdated 与 PlanStatus 都发它。
+export interface PlanRun {
+  state: PlanState;
+  stage?: PlanStage;
+  doc?: PlanDoc;
+  edited?: boolean;
+  updatedAt?: string;
+}
+
+// Mirrors protocol.PlanStep. PlanStep 是清单里的一步。ID 由外壳分配并在编辑往返中保持稳定（前端拿它做 key， 后端拿它认"这步是不是新加的"）；模型不提供 ID，新步骤留空由后端补。
+export interface PlanStep {
+  id: string;
+  title: string;
+  detail?: string;
+  files?: string[] | null;
 }
 
 // Mirrors protocol.ProjectContextInfo. ProjectContextInfo is the workspace's project-instructions file (RUNCODE.md or CLAUDE.md), for viewing and editing.
@@ -409,6 +483,15 @@ export interface SkillList {
   problems: SkillProblem[] | null;
 }
 
+// Mirrors protocol.SkillLoad. SkillLoad is what the desktop's Skill tool attaches to its progress event's `data` when the model loads a skill, so the chat can render a card naming what was loaded instead of a bare "加载技能" row.
+export interface SkillLoad {
+  name: string;
+  description: string;
+  source: string;
+  dir: string;
+  truncated?: boolean;
+}
+
 // Mirrors protocol.SkillProblem. SkillProblem reports a skill directory that failed to load.
 export interface SkillProblem {
   dir: string;
@@ -495,6 +578,7 @@ export interface TurnEnd {
   inputTokens: number;
   outputTokens: number;
   contextTokens: number;
+  contextTokensSaved?: number;
   stopped: boolean;
   durationMs?: number;
 }

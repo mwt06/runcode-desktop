@@ -37,6 +37,13 @@ export type {
   PassportModel,
   PassportStatus,
   PermissionRequest,
+  PlanApproveRequest,
+  PlanApproveResult,
+  PlanDoc,
+  PlanRun,
+  PlanStage,
+  PlanState,
+  PlanStep,
   ProjectContextInfo,
   ResultImage,
   ResumedBlock,
@@ -62,7 +69,7 @@ export type {
 // expose it under a collision-free name (the old handwritten bridge exported no
 // error type, so nothing depends on the bare name).
 export type { Error as ProtocolError } from './protocol/types'
-export { Events, ToolEventTypes, Decisions, ErrCodes, ProtocolVersion } from './protocol/types'
+export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, ProtocolVersion } from './protocol/types'
 
 export type { PassportTenant } from './protocol/types'
 
@@ -105,10 +112,15 @@ export {
   passportTenants,
   pickImageAttachment,
   pickWorkspaceFolder,
+  planApprove,
+  planCancel,
+  planStatus,
+  planUpdate,
   readArtifact,
   readMemory,
   readProjectContext,
   reloadMCPServers,
+  renderOfficePDF,
   resolveArtifactPath,
   resolvePermission,
   // renamed: the old bridge exposed the Reset command as resetHistory
@@ -183,6 +195,23 @@ export function errText(e: unknown): string {
     /* not a structured error */
   }
   return s
+}
+
+// errCode reads the machine-readable code off a command rejection (protocol.Error
+// JSON, docs/protocol.md §5), or '' when the host did not send one. Use it where
+// the UI must *behave* differently — e.g. a preview target that no longer exists
+// closes quietly instead of showing a message — never for what to display; that
+// is errText's job. Matching on the message text would break the moment the
+// wording is edited or translated.
+export function errCode(e: unknown): string {
+  const s = e instanceof Error ? e.message : String(e)
+  try {
+    const o = JSON.parse(s) as { code?: unknown }
+    if (o && typeof o === 'object' && typeof o.code === 'string') return o.code
+  } catch {
+    /* not a structured error */
+  }
+  return ''
 }
 
 // openInBrowser opens an absolute URL in the system browser via the Wails

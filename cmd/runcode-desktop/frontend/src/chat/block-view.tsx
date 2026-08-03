@@ -125,7 +125,5 @@ export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; on
       // (no live nested data) falls back to the normal card showing its result.
       if (block.tool.toolName === 'Task' && block.nested) return <BotRow><AgentTaskCard tool={block.tool} nested={block.nested} /></BotRow>
       return <BotRow><ExecutionCard tools={[block.tool]} /></BotRow>
-    case 'planchoice':
-      return null // rendered as PlanChoiceCard in the group loop
   }
 }

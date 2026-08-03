@@ -7,6 +7,7 @@ import (
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/skill"
 )
 
 // wireError must pass host command errors (*protocol.Error) through untouched,
@@ -71,8 +72,27 @@ func TestConfigureSessionWiresOptions(t *testing.T) {
 	for i, tl := range opts.ExtraTools {
 		toolNames[i] = tl.Name()
 	}
-	if len(toolNames) != 2 || toolNames[0] != "open_preview" || toolNames[1] != "ReadOffice" {
-		t.Fatalf("ExtraTools = %v, want [open_preview ReadOffice]", toolNames)
+	if len(toolNames) != 3 || toolNames[0] != "open_preview" || toolNames[1] != "ReadOffice" || toolNames[2] != "plan_write" {
+		t.Fatalf("ExtraTools = %v, want [open_preview ReadOffice plan_write]", toolNames)
+	}
+	// The planning run is parked like the edit store: bound to this session, and
+	// published to the App only once Create succeeds.
+	app.mu.Lock()
+	pendingPlan := app.pendingPlans
+	app.mu.Unlock()
+	if pendingPlan == nil {
+		t.Fatal("configureSession did not park a plan store")
+	}
+	if got := pendingPlan.Snapshot().State; got != PlanStateIdle {
+		t.Fatalf("fresh plan run state = %q, want idle", got)
+	}
+	// The Skill tool is a replacement, not an extra: it must arrive through the
+	// engine's port under the model-facing name the engine requires.
+	if opts.SkillTool == nil {
+		t.Fatal("configureSession did not install the desktop's Skill tool")
+	}
+	if got := opts.SkillTool.Name(); got != skill.ToolName {
+		t.Fatalf("SkillTool name = %q, want %q", got, skill.ToolName)
 	}
 	es, ok := opts.EditRecorder.(*editStore)
 	if !ok || es == nil {
