@@ -48,7 +48,7 @@ export function TenantTree({ nodes, selectableIds, selectedId, disabled, onSelec
             <span className="truncate">{n.t.name}</span>
           </button>
         ) : (
-          <div key={n.t.id} style={pad} className="pr-2 py-1.5 text-[11.5px] text-faint font-medium">{n.t.name}</div>
+          <div key={n.t.id} style={pad} className="pr-2 py-1.5 text-[12px] text-faint font-medium">{n.t.name}</div>
         )
         return [
           row,

@@ -7,11 +7,11 @@ import { Icon } from './icons'
 // FIELD_CLS is the one shared input/select look (surface2 bg, line2 border, 9px
 // radius, 14px, primary focus ring). SelectField / ModelSelect reference this so
 // every control lines up pixel-for-pixel with the plain <input> fields.
-export const FIELD_CLS = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2.5 outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primarysoft)] disabled:opacity-60'
+export const FIELD_CLS = 'font-sans text-[14px] bg-surface2 text-ink border border-line2 rounded-field px-3 py-2.5 outline-none focus:border-primary focus:shadow-focus disabled:opacity-60'
 
 // LABEL_CLS is the matching form-field wrapper: a stacked muted caption above
 // its control (used with <label>/<div> around a FIELD_CLS input).
-export const LABEL_CLS = 'flex flex-col gap-1.5 text-[12.5px] text-muted'
+export const LABEL_CLS = 'flex flex-col gap-1.5 text-[13px] text-muted'
 
 // SelectField is a native <select> dressed to match FIELD_CLS: the browser arrow is
 // removed (appearance-none) and one shared chevron is overlaid at the right, so these

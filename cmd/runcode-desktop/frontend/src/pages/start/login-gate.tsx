@@ -4,6 +4,7 @@
 import { passportCancelLogin } from '@/core/bridge'
 import { BRAND } from '@/core/brand'
 import { loginBg, loginMascot } from './splash'
+import { InlineError } from '@/ui/feedback'
 
 export function LoginGate({ loggingIn, error, onLogin }: {
   loggingIn: boolean
@@ -47,7 +48,7 @@ export function LoginGate({ loggingIn, error, onLogin }: {
             取消登录
           </button>
         )}
-        {error && <div className="mt-4 max-w-[420px] text-center text-red text-[13px]">{error}</div>}
+        {error && <InlineError variant="text" className="mt-4 max-w-[420px] text-center">{error}</InlineError>}
       </div>
     </div>
   )

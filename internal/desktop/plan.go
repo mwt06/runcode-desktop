@@ -9,7 +9,6 @@ package desktop
 // ——用户发出第一条消息时开一次新运行，以及模型走到审批闸门后停下等人。
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,9 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wt68/runcode/internal/plantool"
 	"github.com/wt68/runcode/internal/protocol"
-	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/transcript"
 )
 
@@ -515,32 +512,6 @@ func (a *App) PlanCancel() (PlanRun, error) {
 		}
 	}
 	return plans.Cancel(), nil
-}
-
-// planResolver classifies the desktop's own plan_write for the permission pipeline
-// and delegates everything else to the engine's resolver.
-//
-// It has to exist because the engine's resolver keys off a fixed tool-name switch,
-// and a name it does not know resolves to unknown/high-risk — which in interactive
-// mode means an approval prompt for each of the three stages, on a tool that only
-// records the plan the user is about to approve anyway. The engine offers the seam
-// (permissions.Options.Resolver), so classifying a shell-only tool stays a shell
-// concern and needs no engine release.
-type planResolver struct{ inner permissions.Resolver }
-
-// Resolve reports plan_write as side-effect-free management (no files, commands or
-// network — it writes to this process's plan store and to a file under .runcode),
-// so it is allowed without approval and passes plan mode's mutation block, exactly
-// like TodoWrite.
-func (r planResolver) Resolve(ctx context.Context, req permissions.ResolveRequest) (permissions.Action, error) {
-	if req.ToolName == plantool.Name {
-		return permissions.Action{
-			ToolName:  req.ToolName,
-			Operation: permissions.OperationManage,
-			Risk:      permissions.RiskLow,
-		}, nil
-	}
-	return r.inner.Resolve(ctx, req)
 }
 
 // planModeOn reports whether the active session is in plan mode. The plan store

@@ -24,6 +24,9 @@ import {
 import { Splash, SplashSpinner } from './splash'
 import { LoginGate } from './login-gate'
 import { buildTenantTree, TenantTree } from './tenant-tree'
+import { canAutoStartCustom, initialModelChoice } from './restore'
+import { InlineError } from '@/ui/feedback'
+import { InsetRow, INSET_BOX } from '@/ui/layout'
 
 export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: Partial<StartSessionRequest> }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
@@ -35,6 +38,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const platformModels = account.models
   const eligibleTenantIds = new Set(account.eligibleTenants.map((tenant) => tenant.id))
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
+  const [customModelsLoaded, setCustomModelsLoaded] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [passportError, setPassportError] = useState('')
   // Login is mandatory unless 免登录 is enabled in settings (see shouldShowLoginGate).
@@ -45,7 +49,9 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
   const [validating, setValidating] = useState(true)
   // modelChoice: 'passport:<id>' | 'custom:<name>' | ''（未选）。
   // 手动配置/高级默认项都移到设置页；这里只在登录 + 选定租户后选择一个模型。
-  const [modelChoice, setModelChoice] = useState(initial.provider === 'passport' && initial.model ? `passport:${initial.model}` : '')
+  // 初值由 initialModelChoice 从上次持久化的请求还原（平台模型与自定义连接两条路径
+  // 都认，见 ./restore）。
+  const [modelChoice, setModelChoice] = useState(() => initialModelChoice(initial))
   const recent = (initial.recentWorkspaces ?? []).filter((w) => w && w !== cwd)
   const browse = async () => {
     try {
@@ -73,9 +79,14 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     accountCoordinator.current = coordinator
 
     // Custom profiles are local and remain usable without a Passport login.
-    listCustomModels().then((models) => {
-      if (alive) setCustomModels(models ?? [])
-    }).catch(() => {})
+    // customModelsLoaded 必须与列表分开记：自动进入只评估一次，若在这个请求回来
+    // 之前就评估，自定义连接会因为"档案列表还是空的"被判定为不可自动进入，而那次
+    // 评估又把闸门永久关上——表现就是"明明记住了却还是停在表单"。失败也要置位，
+    // 否则一次网络抖动会让自动进入永远等不到。
+    listCustomModels()
+      .then((models) => { if (alive) setCustomModels(models ?? []) })
+      .catch(() => {})
+      .finally(() => { if (alive) setCustomModelsLoaded(true) })
 
     // Token validation and tenant reconciliation are one startup gate. A Passport
     // session is not ready until its leaf tenant is persisted and its models loaded.
@@ -161,25 +172,36 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
 
   const tenantTree = buildTenantTree(tenants)
 
-  // 自动进入只在首个完整的 Passport ready 快照后评估一次。这样单租户必须
-  // 已真正绑定且模型目录已返回，多租户无有效旧选择时也不会在用户手选后误触发。
+  // 自动进入只评估一次，且必须等两个数据源都落定：账号快照（租户与平台模型目录）
+  // 和自定义连接档列表。少等任何一个，那一次评估都会因为"数据还没到"而判否，并把
+  // 闸门永久关上。
+  //
+  // 两条路径互斥地对应两种上次选择：平台模型走 canAutoStartPassport（要登录 + 租户
+  // 有效 + 模型仍在目录里），自定义连接走 canAutoStartCustom（不依赖登录与租户，只
+  // 看连接档还在不在）。此前只有前者，所以自定义连接的用户每次都被留在表单上。
   const autoStartEvaluated = useRef(false)
   const autoStarted = useRef(false)
   const [autoEntering, setAutoEntering] = useState(false)
+  const accountSettled = account.phase === 'ready' || account.phase === 'logged-out' || account.phase === 'error'
   useEffect(() => {
-    if (autoStarted.current || autoStartEvaluated.current || account.phase !== 'ready' || !passport.loggedIn) return
+    if (autoStarted.current || autoStartEvaluated.current) return
+    // 还停在登录门上就先不评估：等用户登录、账号快照 ready 之后再判一次，
+    // 否则这一次必然判否并永久关闸，登录成功也不会自动进入了。
+    if (shouldShowLoginGate(passport.loggedIn, skipLogin)) return
+    if (!accountSettled || !customModelsLoaded) return
     autoStartEvaluated.current = true
-    if (starting || error || !canAutoStartPassport(initial, account)) return
+    if (starting || error) return
+    if (!canAutoStartPassport(initial, account) && !canAutoStartCustom(initial, customModels)) return
     const req = buildRequest()
     if (!req) return
     autoStarted.current = true
     setAutoEntering(true)
     onStart(req)
-    // 自动进入只在首个完整 ready 快照后评估一次(autoStartEvaluated 守住)。
-    // buildRequest/initial/onStart 每次渲染都是新引用,列进依赖只会让这个"一次性"
-    // 判定被反复重跑,而守卫 ref 又会立刻把它挡掉——徒增噪音,不改变行为。
+    // 自动进入只评估一次(autoStartEvaluated 守住)。buildRequest/initial/onStart
+    // 每次渲染都是新引用,列进依赖只会让这个"一次性"判定被反复重跑,而守卫 ref 又会
+    // 立刻把它挡掉——徒增噪音,不改变行为。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account, passport.loggedIn, starting, error])
+  }, [account, accountSettled, customModels, customModelsLoaded, passport.loggedIn, skipLogin, starting, error])
 
   // 启动校验中：转圈的加载门，验完持久化 token 再决定进登录还是表单。
   if (validating) {
@@ -223,15 +245,15 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
           </div>
         </div>
         {passport.loggedIn ? (
-          <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+          <InsetRow>
             <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
             <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => { void passportLogout() }}>登出</button>
-          </div>
+          </InsetRow>
         ) : (
-          <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
-            <span className="text-[12.5px] text-muted">当前使用本地自定义模型；登录后还可选择平台模型。</span>
+          <InsetRow>
+            <span className="text-[13px] text-muted">当前使用本地自定义模型；登录后还可选择平台模型。</span>
             <button type="button" className="text-[12px] text-primary hover:text-primaryink" onClick={() => void doLogin('OneOuchnPassport')}>登录通行证</button>
-          </div>
+          </InsetRow>
         )}
         {passport.loggedIn && (
           <div className={LABEL_CLS}>
@@ -240,22 +262,22 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
               {account.eligibleTenants.length > 1 && <span className="font-normal text-muted">（只能选择末级，选定后可选模型）</span>}
             </span>
             {account.phase === 'resolving' && account.eligibleTenants.length === 0 ? (
-              <div className="rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5 text-[12.5px] text-muted">正在加载并绑定租户…</div>
+              <div className={`${INSET_BOX} text-[13px] text-muted`}>正在加载并绑定租户…</div>
             ) : account.eligibleTenants.length === 0 ? (
-              <div className="rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5 text-[12.5px] text-muted">
+              <div className={`${INSET_BOX} text-[13px] text-muted`}>
                 {account.phase === 'error' ? '租户加载失败，请查看下方提示' : '当前账号没有可用的末级租户'}
               </div>
             ) : account.eligibleTenants.length === 1 ? (
-              <div className="flex items-center justify-between rounded-[9px] border border-primary/25 bg-primarysoft px-3 py-2.5">
+              <div className="flex items-center justify-between rounded-field border border-primary/25 bg-primarysoft px-3 py-2.5">
                 <span className="min-w-0 truncate text-[13px] text-ink">
                   {account.eligibleTenants[0].name} <span className="font-mono text-[11px] text-muted">（{account.eligibleTenants[0].id}）</span>
                 </span>
-                <span className={`ml-3 shrink-0 text-[11.5px] ${tenantId === account.eligibleTenants[0].id ? 'text-primary' : 'text-muted'}`}>
+                <span className={`ml-3 shrink-0 text-[12px] ${tenantId === account.eligibleTenants[0].id ? 'text-primary' : 'text-muted'}`}>
                   {tenantId === account.eligibleTenants[0].id ? '✓ 已绑定' : account.phase === 'resolving' ? '正在绑定…' : '等待绑定'}
                 </span>
               </div>
             ) : (
-              <div className="max-h-[190px] overflow-y-auto rounded-[9px] border border-line2 bg-surface2 p-1.5 flex flex-col gap-0.5">
+              <div className="max-h-[190px] overflow-y-auto rounded-field border border-line2 bg-surface2 p-1.5 flex flex-col gap-0.5">
                 <TenantTree
                   nodes={tenantTree}
                   selectableIds={eligibleTenantIds}
@@ -282,7 +304,7 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
                     type="button"
                     title={w}
                     onClick={() => setCwd(w)}
-                    className="max-w-[220px] inline-flex items-center gap-1 px-2 py-1 rounded-[7px] border border-line2 bg-surface2 text-[11.5px] font-mono text-muted hover:border-primary hover:text-ink transition-colors"
+                    className="max-w-[220px] inline-flex items-center gap-1 px-2 py-1 rounded-[7px] border border-line2 bg-surface2 text-[12px] font-mono text-muted hover:border-primary hover:text-ink transition-colors"
                   >
                     <Icon name="folder" size={12} />
                     <span className="truncate">{shortenPath(w)}</span>
@@ -312,8 +334,8 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
             )}
           </select>
         </label>
-        {passport.loggedIn && passportError && <div className="text-red text-[12.5px]">{passportError}</div>}
-        {error && <div className="text-red text-[13px]">{error}</div>}
+        {passport.loggedIn && passportError && <InlineError variant="text">{passportError}</InlineError>}
+        {error && <InlineError variant="text">{error}</InlineError>}
         <button className={`${BTN} ${BTN_PRIMARY} py-3 text-[15px] mt-1.5`} disabled={!cwd.trim() || !buildRequest() || starting} onClick={() => {
           const req = buildRequest()
           if (!req) { setPassportError('请选择租户和模型'); return }

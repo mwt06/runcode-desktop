@@ -6,6 +6,7 @@ import { ModelSelect, type ModelOption } from '@/ui/model-picker'
 import { deleteAgent, errText, listTools, saveAgent, sessionModels, type AgentInfo, type ToolInfo } from '@/core/bridge'
 import { BUILTIN_AGENTS } from './builtin-agents'
 import { ToolMultiSelect } from './tool-multi-select'
+import { InlineError } from '@/ui/feedback'
 
 export function AgentDetail({ agent, onBack, onChanged, onUse }: {
   agent: AgentInfo | 'new'
@@ -53,7 +54,7 @@ export function AgentDetail({ agent, onBack, onChanged, onUse }: {
     <div className="flex-1 overflow-y-auto px-[30px] py-6">
       <div className="max-w-[720px] mx-auto flex flex-col gap-3.5">
         <button type="button" className="self-start text-[13px] text-muted hover:text-ink inline-flex items-center gap-1" onClick={onBack}>← 返回列表</button>
-        {!editable && <div className="text-[12.5px] text-muted bg-surface2 border border-line2 rounded-[9px] px-3 py-2">内置子代理，只读。可「在对话中使用」，或在用户/项目级新建同名子代理来覆盖它。以下描述与指令正文为中文对照，模型收到的仍是原始定义。</div>}
+        {!editable && <div className="text-[13px] text-muted bg-surface2 border border-line2 rounded-field px-3 py-2">内置子代理，只读。可「在对话中使用」，或在用户/项目级新建同名子代理来覆盖它。以下描述与指令正文为中文对照，模型收到的仍是原始定义。</div>}
         <label className={LABEL_CLS}>名称<input className={FIELD_CLS} value={name} disabled={!editable} onChange={(e) => setName(e.target.value)} placeholder="如 code-reviewer(字母、数字、- 或 _)" /></label>
         <label className={LABEL_CLS}>
           范围
@@ -63,7 +64,7 @@ export function AgentDetail({ agent, onBack, onChanged, onUse }: {
               <option value="user">用户(全局，所有项目可用)</option>
             </select>
           ) : (
-            <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : scope === 'project' ? '项目(本工作区)' : '内置'}</div>
+            <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-field px-3 py-2.5">{scope === 'user' ? '用户(全局)' : scope === 'project' ? '项目(本工作区)' : '内置'}</div>
           )}
         </label>
         <label className={LABEL_CLS}>描述(一句话，告诉 AI 何时委派它)<input className={FIELD_CLS} value={description} disabled={!editable} onChange={(e) => setDescription(e.target.value)} placeholder="如 审查代码，找出 bug 与风险" /></label>
@@ -79,7 +80,7 @@ export function AgentDetail({ agent, onBack, onChanged, onUse }: {
           指令正文(Markdown，子代理的系统提示)
           <textarea className={`${FIELD_CLS} min-h-[280px] font-mono text-[13px] leading-[1.6] resize-y`} value={prompt} disabled={!editable} onChange={(e) => setPrompt(e.target.value)} />
         </label>
-        {error && <div className="text-[12.5px] text-red">{error}</div>}
+        {error && <InlineError variant="text">{error}</InlineError>}
         <div className="flex gap-2.5">
           {editable && <button className={`${BTN} ${BTN_PRIMARY}`} disabled={busy || !name.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>}
           {!isNew && <button className={BTN} onClick={() => onUse(ag!.name)}>在对话中使用</button>}

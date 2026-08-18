@@ -8,8 +8,8 @@ import { type AgentInfo, type SkillInfo } from '@/core/bridge'
 
 function PickerPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="absolute left-6 right-6 bottom-full mb-1.5 z-10 bg-surface border border-line2 rounded-[12px] shadow-card overflow-hidden max-h-[300px] overflow-y-auto">
-      <div className="px-3.5 pt-2 pb-1 text-[11.5px] text-faint">{title}</div>
+    <div className="absolute left-6 right-6 bottom-full mb-1.5 z-10 bg-surface border border-line2 rounded-xl shadow-card overflow-hidden max-h-[300px] overflow-y-auto">
+      <div className="px-3.5 pt-2 pb-1 text-[12px] text-faint">{title}</div>
       {children}
     </div>
   )
@@ -41,7 +41,7 @@ export function SkillPicker({ items, sel, selRef, onHover, onPick }: {
               {sk.name}
               <SourceBadge source={sk.source} />
             </div>
-            <div className="text-[11.5px] text-faint truncate">{sk.description}</div>
+            <div className="text-[12px] text-faint truncate">{sk.description}</div>
           </div>
         </div>
       ))}
@@ -72,7 +72,7 @@ export function AgentPicker({ items, sel, selRef, onHover, onPick }: {
               {ag.name}
               <SourceBadge source={ag.source} />
             </div>
-            <div className="text-[11.5px] text-faint truncate">{ag.description}</div>
+            <div className="text-[12px] text-faint truncate">{ag.description}</div>
           </div>
         </div>
       ))}
@@ -90,7 +90,7 @@ export function FilePicker({ items, sel, selRef, onHover, onPick }: {
   return (
     <PickerPanel title={`引用文件 · ${items.length}${items.length >= 50 ? '+' : ''}`}>
       {items.length === 0 && (
-        <div className="px-3.5 py-2.5 text-[12.5px] text-faint">该工作区没有可引用的文件</div>
+        <div className="px-3.5 py-2.5 text-[13px] text-faint">该工作区没有可引用的文件</div>
       )}
       {items.map((p, i) => {
         const slash = p.lastIndexOf('/')
@@ -104,9 +104,9 @@ export function FilePicker({ items, sel, selRef, onHover, onPick }: {
             onMouseEnter={() => onHover(i)}
             className={`flex items-center gap-2.5 px-3.5 py-1.5 ${rowCls(sel === i)}`}
           >
-            <span className="w-6 h-6 rounded-[6px] flex-none bg-inset inline-flex items-center justify-center" style={{ color: fileColor(p) }}><Icon name={kindIcon(classifyPreview(p).kind)} size={14} /></span>
+            <span className="w-6 h-6 rounded-md flex-none bg-inset inline-flex items-center justify-center" style={{ color: fileColor(p) }}><Icon name={kindIcon(classifyPreview(p).kind)} size={14} /></span>
             <span className="text-[13px] text-ink flex-none">{name}</span>
-            {dir && <span className="text-[11.5px] text-faint font-mono truncate min-w-0">{dir}</span>}
+            {dir && <span className="text-[12px] text-faint font-mono truncate min-w-0">{dir}</span>}
           </div>
         )
       })}

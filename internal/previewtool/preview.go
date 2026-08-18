@@ -30,6 +30,11 @@ type input struct {
 	Path string `json:"path"`
 }
 
+// Name is the wire name the model calls. Exported so the desktop can key this
+// tool's permission classification off it (engine.Options.ToolClasses and the
+// session's resolver) without repeating the string.
+const Name = "open_preview"
+
 // Tool is the open_preview tool.
 type Tool struct{}
 
@@ -37,7 +42,7 @@ type Tool struct{}
 func New() tool.Tool { return Tool{} }
 
 // Name is the tool name the model calls.
-func (Tool) Name() string { return "open_preview" }
+func (Tool) Name() string { return Name }
 
 // Description tells the model when to reach for this tool.
 func (Tool) Description() string {

@@ -12,9 +12,15 @@ import { IconBtn } from './icon-btn'
 import { ImperativeDocView, renderDocx } from './viewers/doc-view'
 import { PptxView } from './viewers/pptx-view'
 import { XlsxView } from './viewers/xlsx-view'
+import { InlineError } from '@/ui/feedback'
+import { PreviewLoading, PreviewSkeleton } from './loading'
 
 // OfficePDFState 是 Office 文档的三态：转换中、拿到 PDF、退回内嵌渲染器。
 type OfficePDFState = { state: 'converting'; pdfRel: '' } | { state: 'ready'; pdfRel: string } | { state: 'fallback'; pdfRel: '' }
+
+// 内嵌文档框（html / 转出的 PDF / 原生 PDF）共用：撑满、无边框，并显式给白底——
+// 预览的是文档，不能让应用的浅灰背景透过来当纸面。
+const FRAME = 'w-full h-full border-0 bg-white'
 
 const isOfficeKind = (kind: PreviewKind) => kind === 'docx' || kind === 'pptx' || kind === 'xlsx'
 
@@ -95,7 +101,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
     <div className="flex flex-col h-full min-h-0 bg-surface">
       <div className="flex-none flex items-center gap-1.5 h-[44px] px-2.5 border-b border-line2">
         <span className="flex-none" style={{ color: fileColor(relPath) }}><Icon name={kindIcon(kind)} size={15} /></span>
-        <span className="flex-none text-[10.5px] text-faint bg-inset rounded px-1.5 py-0.5 mr-auto">{artifactKindLabel(kind)}</span>
+        <span className="flex-none text-[11px] text-faint bg-inset rounded px-1.5 py-0.5 mr-auto">{artifactKindLabel(kind)}</span>
         <IconBtn name="refresh" title="刷新" onClick={() => setBust((v) => v + 1)} />
         <IconBtn name="external-link" title="用系统默认程序打开" onClick={() => { openExternal(relPath).catch(() => {}) }} />
         <IconBtn name="copy" title="复制路径" onClick={copyPath} />
@@ -103,7 +109,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         {kind === 'html' && baseURL && (
-          <iframe title={name} src={previewSrc(baseURL, relPath, bust)} className="w-full h-full border-0 bg-white" sandbox="allow-scripts allow-forms allow-popups allow-modals" />
+          <iframe title={name} src={previewSrc(baseURL, relPath, bust)} className={FRAME} sandbox="allow-scripts allow-forms allow-popups allow-modals" />
         )}
         {(kind === 'image' || kind === 'svg') && baseURL && (
           <div className="p-4 flex items-center justify-center min-h-full bg-inset/30"><img src={previewSrc(baseURL, relPath, bust)} alt={name} className="max-w-full" /></div>
@@ -111,21 +117,24 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
         {kind === 'markdown' && text != null && <div className="p-4"><Markdown>{text}</Markdown></div>}
         {kind === 'code' && text != null && <div className="p-4"><Markdown>{fencedCode(text, lang)}</Markdown></div>}
         {kind === 'text' && text != null && (
-          <pre className="m-0 p-4 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap break-words">{text}</pre>
+          <pre className="m-0 p-4 font-mono text-[13px] leading-[1.6] whitespace-pre-wrap break-words">{text}</pre>
         )}
+        {/* 读取中（且没出错）：先摆骨架，别把面板留成空白——空白分不清是在加载还是
+            文件本身就是空的。err 时不画，那边已经有错误在说话了。 */}
+        {textual && text == null && !err && <PreviewSkeleton />}
         {isOfficeKind(kind) && office.state === 'converting' && (
-          <div className="p-6 text-[13px] text-muted">正在用本机 Office 生成高保真预览…</div>
+          <PreviewLoading hint="正在用本机 Office 生成高保真预览…" />
         )}
         {/* 转出来的 PDF 就放在工作区的 .runcode 下，走的仍是既有的 PDF 预览通路。 */}
         {isOfficeKind(kind) && office.state === 'ready' && baseURL && (
-          <iframe title={name} src={previewSrc(baseURL, office.pdfRel, bust)} className="w-full h-full border-0 bg-white" />
+          <iframe title={name} src={previewSrc(baseURL, office.pdfRel, bust)} className={FRAME} />
         )}
         {isOfficeKind(kind) && office.state === 'ready' && !baseURL && <div className="p-6 text-[13px] text-muted">预览服务不可用。</div>}
         {office.state === 'fallback' && kind === 'docx' && <ImperativeDocView relPath={relPath} reloadKey={bust} load={renderDocx} busyHint=" Word" onMissing={onClose} />}
         {office.state === 'fallback' && kind === 'pptx' && <PptxView relPath={relPath} reloadKey={bust} onMissing={onClose} />}
         {office.state === 'fallback' && kind === 'xlsx' && <XlsxView relPath={relPath} reloadKey={bust} onMissing={onClose} />}
         {kind === 'pdf' && baseURL && (
-          <iframe title={name} src={previewSrc(baseURL, relPath, bust)} className="w-full h-full border-0 bg-white" />
+          <iframe title={name} src={previewSrc(baseURL, relPath, bust)} className={FRAME} />
         )}
         {kind === 'pdf' && !baseURL && <div className="p-6 text-[13px] text-muted">预览服务不可用。</div>}
         {kind === 'unsupported' && (
@@ -134,7 +143,7 @@ export function PreviewPanel({ baseURL, relPath, onClose }: { baseURL: string; r
         {(kind === 'html' || kind === 'image' || kind === 'svg') && !baseURL && (
           <div className="p-6 text-[13px] text-muted">预览服务不可用。</div>
         )}
-        {err && <div className="p-6 text-[13px] text-red">{err}</div>}
+        {err && <InlineError variant="text" className="p-6">{err}</InlineError>}
       </div>
     </div>
   )

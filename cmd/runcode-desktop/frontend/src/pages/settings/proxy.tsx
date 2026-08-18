@@ -35,7 +35,7 @@ export function ProxySection() {
         }}>保存</button>
       </div>
       {proxyMsg && <div className="text-[12px] text-muted -mt-1">{proxyMsg}</div>}
-      <p className="text-[11.5px] text-faint -mt-1">
+      <p className="text-[12px] text-faint -mt-1">
         出于安全，联网工具始终拒绝访问内网/回环地址(如 127.0.0.1、192.168.*、169.254.169.254)，配了代理也一样。
       </p>
     </Section>

@@ -32,7 +32,7 @@ export function Markdown({ children, onOpenFile, resolveFile }: { children: stri
           table: (props) => <table className="my-2 border-collapse text-[13px] block overflow-auto" {...props} />,
           th: (props) => <th className="border border-line2 px-2 py-1 bg-surface2 text-left" {...props} />,
           td: (props) => <td className="border border-line2 px-2 py-1" {...props} />,
-          pre: (props) => <pre className="my-2 bg-inset border border-line2 rounded-lg p-3 overflow-auto text-[12.5px] font-mono leading-[1.55]" {...props} />,
+          pre: (props) => <pre className="my-2 bg-inset border border-line2 rounded-lg p-3 overflow-auto text-[13px] font-mono leading-[1.55]" {...props} />,
           code: ({ className, children, ...rest }) => {
             const text = String(children ?? '')
             const isBlock = /language-/.test(className || '') || text.includes('\n')

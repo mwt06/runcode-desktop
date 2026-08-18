@@ -202,24 +202,37 @@ const AUTO_PREVIEW_RANK: Record<PreviewKind, number> = {
   unsupported: 99,
 }
 
-// pickAutoPreview chooses which of a turn's written files to open: the
-// highest-ranked kind (see AUTO_PREVIEW_RANK), and among equals the most recently
-// written — so a turn that rewrites the same deck twice opens the newer one, while
-// a turn that writes a deck *and* a helper script still opens the deck. Returns
-// null when nothing written is previewable.
-export function pickAutoPreview(paths: string[]): string | null {
-  let best: string | null = null
-  let bestRank = Number.POSITIVE_INFINITY
-  for (const path of paths) {
+// rankAutoPreview orders a turn's candidate files best-first: by kind (see
+// AUTO_PREVIEW_RANK), and among equals the most recently written — so a turn that
+// rewrites the same deck twice ranks the newer one first, while a turn that writes
+// a deck *and* a helper script still ranks the deck above it. Unpreviewable kinds
+// are dropped, duplicates collapse onto their latest position.
+//
+// The full order (not just the winner) is what the caller needs: a candidate may
+// name a file that no longer exists — written mid-turn then renamed or deleted, or
+// simply a path the model mentioned in prose — so the caller walks this list and
+// opens the first one that is actually there.
+export function rankAutoPreview(paths: string[]): string[] {
+  const ranked: { path: string; rank: number; order: number }[] = []
+  paths.forEach((path, index) => {
     const rank = AUTO_PREVIEW_RANK[classifyPreview(path).kind]
-    if (rank >= 99) continue
-    // `<=` keeps the later file when ranks tie: paths arrive in write order.
-    if (rank <= bestRank) {
-      best = path
-      bestRank = rank
+    if (rank >= 99) return
+    const prior = ranked.find((entry) => entry.path === path)
+    if (prior) {
+      prior.order = index // 同一个文件又写了一次：按最后一次的位置算"更晚"
+      return
     }
-  }
-  return best
+    ranked.push({ path, rank, order: index })
+  })
+  ranked.sort((a, b) => a.rank - b.rank || b.order - a.order)
+  return ranked.map((entry) => entry.path)
+}
+
+// pickAutoPreview returns just the best candidate, or null when nothing is
+// previewable. Kept for callers that cannot verify existence and simply want the
+// top pick.
+export function pickAutoPreview(paths: string[]): string | null {
+  return rankAutoPreview(paths)[0] ?? null
 }
 
 // extractFilePaths pulls file-path-like tokens out of prose: word/path chars ending

@@ -63,12 +63,12 @@ export function ModelPickerPopover({ open, onClose, placement, className, option
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索模型…"
-          className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2 outline-none focus:border-primary"
+          className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-field px-3 py-2 outline-none focus:border-primary"
         />
       </div>
       <div className="overflow-y-auto py-1">
         {clearLabel && (
-          <button type="button" onClick={() => choose('')} className={`w-full text-left px-3.5 py-2 text-[12.5px] hover:bg-surface2 ${current ? 'text-muted' : 'text-primary'}`}>
+          <button type="button" onClick={() => choose('')} className={`w-full text-left px-3.5 py-2 text-[13px] hover:bg-surface2 ${current ? 'text-muted' : 'text-primary'}`}>
             {clearLabel}{!current && ' ✓'}
           </button>
         )}
@@ -81,7 +81,7 @@ export function ModelPickerPopover({ open, onClose, placement, className, option
               onClick={() => choose(o.id, o)}
               className={`w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 transition ${cur ? 'text-primary' : 'text-ink'}`}
             >
-              <span className="font-mono text-[12.5px] truncate flex-1">{o.label}</span>
+              <span className="font-mono text-[13px] truncate flex-1">{o.label}</span>
               {o.kind === 'custom' && <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-primarysoft text-primaryink flex-none">自定义</span>}
               {o.sub && o.sub !== o.label && <span className="text-[11px] text-faint flex-none truncate max-w-[110px]">{o.sub}</span>}
               {cur && <span className="text-primary text-[13px] flex-none">✓</span>}
@@ -90,11 +90,11 @@ export function ModelPickerPopover({ open, onClose, placement, className, option
         })}
         {showCustom && (
           <button type="button" onClick={() => choose(typed)} className="w-full text-left px-3.5 py-2 hover:bg-surface2 text-ink">
-            <span className="text-[12.5px]">使用自定义：<span className="font-mono">{typed}</span></span>
+            <span className="text-[13px]">使用自定义：<span className="font-mono">{typed}</span></span>
           </button>
         )}
         {matches.length === 0 && !showCustom && (
-          <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">{options.length === 0 ? '无可选模型(登录通行证或在设置中添加自定义模型)' : '没有匹配的模型'}</div>
+          <div className="px-3.5 py-6 text-center text-[13px] text-muted">{options.length === 0 ? '无可选模型(登录通行证或在设置中添加自定义模型)' : '没有匹配的模型'}</div>
         )}
       </div>
     </Popover>

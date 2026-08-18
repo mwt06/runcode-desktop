@@ -60,9 +60,11 @@ Skills/Agents 编辑后经 `session.ReloadSkills()`/`ReloadAgents()` 热生效�
 
 `PermissionRequest.targets` 是工作区相对的脱敏路径；越出工作区的路径不再被丢弃，而是走 `externalTargets`（**绝对路径**，弹窗必须原样展示——用户被问的正是"要动项目外的哪个文件"），`externalRoots` 是选「本次会话 / 本项目」后真正记住的**目录**（含子目录），`summary.outsideWorkspace` 是这一事实的脱敏标记。`command` 仅 Bash 原始命令行、进程内展示用；`harmReason` 仅在 harm judge 升级拦截时携带。
 
+`allowedDecisions` 列出这次请求真正能兑现的决定（`allow-once` / `allow-session` / `allow-project` / `deny`），**弹窗不得给出不在其中的选项**：没有授权键的动作（引擎侧 `grantSpec` 记不住）收到 `allow-session` 会照单接受然后什么都不记，用户于是"选了不再问、下次照问"。缺失该字段＝未声明，按老行为给全部四个；`deny` 永远在列——被限制的是"允许能记多远"，不是"能不能拒绝"。前端的取舍逻辑在 `shell/permission-decisions.ts`（纯函数，有单测），CLI 侧读同一事实的 `permissions.ApprovalRequest.Grantable`。
+
 ### 异步权限审批（Approver）
 
-`internal/desktop/approver.go` 实现 `permissions.Approver`：executor 深处（turn goroutine）的每次阻塞审批分配 `perm-N` id，发 `permission:request` 事件后阻塞在 **buffered(1)** 应答 channel 上，直到 `Resolve(id, decision)`、`DenyAll()` 或 turn context 取消三者之一。保证每个挂起请求恰好被唤醒一次；缓冲 channel 使 `Resolve`/`DenyAll` 不会因接收方已离场而阻塞。未识别的 decision 一律按 deny 处理（fail-closed）。`Interrupt` 与 `CloseSession` 都会 `DenyAll` 兜底。并发工具的审批按 id 排队（前端同样排队，见下）。
+引擎 `host` 包的 `AsyncApprover`（会话装配时经 `host.SessionContext.Approver` 交给外壳）实现 `permissions.Approver`：executor 深处（turn goroutine）的每次阻塞审批分配 `perm-N` id，发 `permission:request` 事件后阻塞在 **buffered(1)** 应答 channel 上，直到 `Resolve(id, decision)`、`DenyAll()` 或 turn context 取消三者之一。保证每个挂起请求恰好被唤醒一次；缓冲 channel 使 `Resolve`/`DenyAll` 不会因接收方已离场而阻塞。未识别的 decision 一律按 deny 处理（fail-closed）。`Interrupt` 与 `CloseSession` 都会 `DenyAll` 兜底。并发工具的审批按 id 排队（前端同样排队，见下）。
 
 ### 配置映射与 harm judge 接线
 
@@ -114,7 +116,7 @@ harm judge 在 `buildAndSetLocked`（`internal/desktop/app.go`）接线：`permi
 - **聊天视图**：用户气泡（含图片附件 chips）、助手 Markdown、notice/warning/error、每 turn 用量脚注。
 - **工具卡片**（`ExecutionCard`/`ToolDetail`）：连续工具调用折叠为可扫读列表（图标+动词+目标+diff 徽标+状态），点开看输入/输出；Edit/Write 渲染**统一行内彩色 diff**。
 - **子代理卡片**（`AgentTaskCard`）：Task 委托的实时嵌套视图（流式文本 + 子工具调用 + token/耗时）。
-- **权限弹窗**（`PermissionModal`）：`harmReason` 红色"模型判定可能有害"横幅、原始命令块、摘要表、四个决定（本次会话/仅此一次/本项目/拒绝），有队列时另有"全部拒绝"；并发审批在前端按队列逐个展示。
+- **权限弹窗**（`PermissionModal`）：`harmReason` 红色"模型判定可能有害"横幅、原始命令块、摘要表、按 `allowedDecisions` 给出的决定（本次会话/仅此一次/本项目/拒绝，记不住的请求只剩后两个），有队列时另有"全部拒绝"；并发审批在前端按队列逐个展示。
 - **进度板**（`PlanPill` 等）：顶部居中 pill，由 TodoWrite 快照驱动（步骤 N/M、改动文件数、diff 总量、时间线下拉）。
 - **思考面板**：`ThinkingPanel` 可折叠思考链；`AnalyzeCard` 渲染结构化思考步骤。
 - **输入区（composer）**：`@`（子代理）/`/`（技能）/`#`（文件）触发选择器、"+"添加菜单（技能/代理/文件/图片）、权限模式切换、plan 模式开关、思考强度菜单、模型 chip、发送/停止。
@@ -126,7 +128,7 @@ harm judge 在 `buildAndSetLocked`（`internal/desktop/app.go`）接线：`permi
 
 - **正式打包**：`cd cmd/runcode-desktop && wails build` → `build/bin/XRUN.exe`（会跑 `npm install` + `npm run build` 重建前端）。
 - **开发模式**：`wails dev`（Vite HMR + Go 后端）；启动表单留空时凭证/model 取自环境变量。
-- **仅 Go 侧编译检查**：`go -C cmd/runcode-desktop build ./...`。`.gitignore` 提交了 `dist/index.html` 占位使 embed 可编译，`dist/assets/` 由 `npm run build` 再生成。
+- **仅 Go 侧编译检查**：`go -C cmd/runcode-desktop build ./...`。`frontend/dist/` 整个是构建产物、一律不提交，只跟踪一个空的 `dist/.gitkeep` —— `main.go` 的 `//go:embed all:frontend/dist` 要求这棵树存在且至少匹配到一个文件，`all:` 前缀正是让点文件也算数的那一位，所以干净 clone 上 `go build` 仍能编译。真正的页面由 `npm run build` / `wails build` 再生成。
 - **前端脚本**：`dev`=vite、`build`=vite build、`test`=vitest run。注意 `build` **没有 tsc 类型检查门禁**。
 - **CI**（`.github/workflows/desktop.yml`）：ubuntu/windows/macos 三平台矩阵（Wails 不能交叉编译），Go 1.26.x + Node 20，Linux 加 webkit2gtk-4.1 依赖与 `-tags webkit2_41 -clean`，产物命名 `XRUN-{os}-{arch}`，tag 推送时附加到 GitHub Release。
 

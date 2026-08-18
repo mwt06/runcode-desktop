@@ -17,6 +17,8 @@ import { CustomModelsSection } from './custom-models'
 import { ProxySection } from './proxy'
 import { ContextSection } from './context'
 import { ContextAuditSection } from './context-audit'
+import { InlineError } from '@/ui/feedback'
+import { PageShell } from '@/ui/layout'
 
 export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
   initial: Partial<StartSessionRequest>
@@ -103,12 +105,7 @@ export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-[22px] py-7">
-      <div className="max-w-[640px] mx-auto flex flex-col gap-5">
-        <div>
-          <h2 className="m-0 text-[20px] font-bold tracking-tight">设置</h2>
-          <p className="mt-1 text-muted text-[13px]">模型与权限模式即时生效；连接设置在下次新建会话时生效。</p>
-        </div>
+    <PageShell title="设置" hint="模型与权限模式即时生效；连接设置在下次新建会话时生效。" width={640}>
 
         <AccountSection
           onAccount={(tenantId, models, ready) => {
@@ -154,15 +151,14 @@ export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
         <ContextAuditSection />
 
         <Section title="工作区">
-          <div className="font-mono text-[12.5px] text-muted break-all">{info?.cwd || '—'}</div>
+          <div className="font-mono text-[13px] text-muted break-all">{info?.cwd || '—'}</div>
         </Section>
 
-        {error && <div className="text-red text-[13px]">{error}</div>}
+        {error && <InlineError variant="text">{error}</InlineError>}
         <div className="flex items-center gap-3 pb-2">
           <button className={`${BTN} ${BTN_PRIMARY} px-7 py-2.5`} disabled={saving || accountBusy || (!!activeTenantId && !accountReady)} onClick={save}>{saving ? '保存中…' : accountBusy ? '正在同步租户…' : '保存设置'}</button>
           {saved && <span className="text-green text-[13px]">✓ 已保存</span>}
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

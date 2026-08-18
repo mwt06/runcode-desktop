@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { errCode, errText, readArtifactBytes } from '@/core/bridge'
 import { ViewerError } from './viewer-error'
+import { PreviewLoading } from '../loading'
 
 export async function renderDocx(buf: ArrayBuffer, host: HTMLDivElement) {
   const docx = await import('docx-preview')
@@ -61,7 +62,7 @@ export function ImperativeDocView({ relPath, reloadKey, load, busyHint, onMissin
   }, [relPath, reloadKey, load])
   return (
     <div className="min-h-full bg-inset/40 flex flex-col items-center">
-      {state === 'loading' && <div className="p-6 text-[13px] text-muted">正在加载{busyHint}预览…</div>}
+      {state === 'loading' && <PreviewLoading hint={`正在加载${busyHint}预览…`} />}
       {state === 'error' && <ViewerError relPath={relPath} message={err} />}
       {/* Host stays mounted (not hidden) so a renderer that measures its width — pptx —
           sees the real laid-out width rather than 0. flex + items-center 让固定宽度的

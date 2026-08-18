@@ -4,6 +4,7 @@
 // 「保存设置」一起落盘。判定模型只列平台模型:它是交给引擎的模型 id,自定义档名引擎
 // 认不出。
 import { Icon } from '@/ui/icons'
+import { Banner } from '@/ui/feedback'
 import { LABEL_CLS, SelectField } from '@/ui/fields'
 import { ModelSelect, type ModelOption } from '@/ui/model-picker'
 import { Section } from './section'
@@ -42,10 +43,9 @@ export function SessionSection({ currentModel, switchOpts, onSwitchModel, busy, 
         </SelectField>
       </label>
       {permissionMode === 'flight' && (
-        <div className="flex items-start gap-2 bg-redbg border border-[rgba(224,86,74,0.35)] rounded-lg px-3 py-2.5 text-[12.5px] text-red">
-          <span className="flex-none mt-px"><Icon name="shield" size={15} /></span>
-          <span>飞行模式会<b>放行一切操作</b>（含删除文件、sudo 等高危命令），不再询问也不做模型审查。仅在完全信任的环境使用。</span>
-        </div>
+        <Banner tone="danger" icon={<Icon name="shield" size={15} />}>
+          飞行模式会<b>放行一切操作</b>（含删除文件、sudo 等高危命令），不再询问也不做模型审查。仅在完全信任的环境使用。
+        </Banner>
       )}
       <div className={LABEL_CLS}>判定模型（智能模式的安全判定；留空 = 独立默认，与主模型解耦）
         <ModelSelect value={harmJudgeModel} options={modelOpts} onPick={onHarmJudgeModel} placeholder="留空 = 默认独立模型（如 claude-haiku-4-5）" allowCustom clearLabel="留空 = 默认独立模型" />

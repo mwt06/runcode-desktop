@@ -84,7 +84,12 @@ func (m Model) approvalDetailLines() []string {
 		}
 		lines = append(lines, mutedStyle.Render(" ↳ "+truncate(detail, width)))
 	}
-	if hint := m.approvalSessionScopeHint(); hint != "" {
+	// What an allow is remembered by, or that it cannot be. The second case is
+	// worth a line of its own: someone used to [s]/[p] needs to know they are gone
+	// because this action has no grant key, not because the modal is broken.
+	if !m.approval.grantable {
+		lines = append(lines, mutedStyle.Render(" allow applies to this call only (nothing to remember it by)"))
+	} else if hint := m.approvalSessionScopeHint(); hint != "" {
 		lines = append(lines, mutedStyle.Render(" allow remembers: "+truncate(hint, maxZero(m.width-19))))
 	}
 	return lines
@@ -127,13 +132,13 @@ func (m Model) approvalSessionScopeHint() string {
 }
 
 func (m Model) approvalOptionsLine() string {
-	labels := []string{"[y] allow once", "[s] allow session", "[p] allow project", "[n] deny"}
-	rendered := make([]string, len(labels))
-	for i, label := range labels {
+	options := m.approval.options()
+	rendered := make([]string, len(options))
+	for i, option := range options {
 		if i == m.approval.selected {
-			rendered[i] = approvalSelectStyle.Render(" " + label + " ")
+			rendered[i] = approvalSelectStyle.Render(" " + option.label + " ")
 		} else {
-			rendered[i] = approvalOptionStyle.Render(label)
+			rendered[i] = approvalOptionStyle.Render(option.label)
 		}
 	}
 	return " " + strings.Join(rendered, "   ")

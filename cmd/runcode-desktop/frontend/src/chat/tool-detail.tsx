@@ -11,9 +11,9 @@ import { formatInput, lineClass, toolInputObj } from './tool-text'
 function kvRows(rows: ([string, unknown] | false | null | undefined)[]) {
   const pairs = rows.filter(Boolean) as [string, unknown][]
   return (
-    <div className="flex flex-col gap-1.5 bg-surface2 border border-line rounded-[8px] py-2 px-2.5">
+    <div className="flex flex-col gap-1.5 bg-surface2 border border-line rounded-lg py-2 px-2.5">
       {pairs.map(([k, v], i) => (
-        <div key={i} className="flex gap-2.5 text-[12.5px] min-w-0">
+        <div key={i} className="flex gap-2.5 text-[13px] min-w-0">
           <span className="text-faint flex-none w-[48px]">{k}</span>
           <span className="font-mono text-ink break-all min-w-0">{String(v ?? '')}</span>
         </div>
@@ -27,7 +27,7 @@ function kvRows(rows: ([string, unknown] | false | null | undefined)[]) {
 function RawJson({ value }: { value: unknown }) {
   const text = formatInput(value)
   const [open, setOpen] = useState(text.length <= 400)
-  if (!text || text === '{}') return <div className="text-faint text-[12.5px] bg-surface2 border border-line rounded-[8px] py-2 px-2.5">（无入参）</div>
+  if (!text || text === '{}') return <div className="text-faint text-[13px] bg-surface2 border border-line rounded-lg py-2 px-2.5">（无入参）</div>
   return (
     <div>
       {text.length > 400 && (
@@ -37,7 +37,7 @@ function RawJson({ value }: { value: unknown }) {
         </button>
       )}
       {open && (
-        <pre className="m-0 font-mono text-[12px] leading-[1.5] bg-surface2 border border-line rounded-[8px] py-2 px-2.5 max-h-[200px] overflow-auto whitespace-pre-wrap break-all">
+        <pre className="m-0 font-mono text-[12px] leading-[1.5] bg-surface2 border border-line rounded-lg py-2 px-2.5 max-h-[200px] overflow-auto whitespace-pre-wrap break-all">
           {text.length > 16000 ? text.slice(0, 16000) + '\n… 已截断' : text}
         </pre>
       )}
@@ -55,8 +55,8 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
     case 'Bash':
       if (s('command')) return (
         <div>
-          <pre className="m-0 font-mono text-[12.5px] leading-[1.5] bg-surface2 border border-line rounded-[8px] py-2 px-2.5 max-h-[160px] overflow-auto whitespace-pre-wrap break-all text-ink">{s('command')}</pre>
-          {(o.timeout || o.run_in_background) ? <div className="text-[11.5px] text-faint mt-1">{o.timeout ? `超时 ${s('timeout')}ms` : ''}{o.run_in_background ? (o.timeout ? ' · ' : '') + '后台运行' : ''}</div> : null}
+          <pre className="m-0 font-mono text-[13px] leading-[1.5] bg-surface2 border border-line rounded-lg py-2 px-2.5 max-h-[160px] overflow-auto whitespace-pre-wrap break-all text-ink">{s('command')}</pre>
+          {(o.timeout || o.run_in_background) ? <div className="text-[12px] text-faint mt-1">{o.timeout ? `超时 ${s('timeout')}ms` : ''}{o.run_in_background ? (o.timeout ? ' · ' : '') + '后台运行' : ''}</div> : null}
         </div>
       )
       break
@@ -156,22 +156,22 @@ export function ToolDetail({ tool }: { tool: ToolEvent }) {
           输出{imgSrc ? ' · 图片' : matched.length > 0 ? ` · ${matched.length}${tool.filesTotal && tool.filesTotal > matched.length ? `/${tool.filesTotal}` : ''} 个匹配` : out.length > 0 ? ` · ${out.length} 行` : ''}
         </div>
         {imgSrc ? (
-        <div className="bg-surface2 border border-line rounded-[8px] p-2 inline-block max-w-full">
+        <div className="bg-surface2 border border-line rounded-lg p-2 inline-block max-w-full">
           <img src={imgSrc} alt="" className="max-h-[340px] max-w-full rounded-[5px] block" />
         </div>
       ) : matched.length > 0 ? (
-        <div className="bg-surface2 border border-line rounded-[8px] py-2 px-2.5 max-h-[360px] overflow-auto">
+        <div className="bg-surface2 border border-line rounded-lg py-2 px-2.5 max-h-[360px] overflow-auto">
           <MatchedFileTree paths={matched.slice(0, 400).map((f) => f.path)} />
         </div>
       ) : out.length > 0 ? (
-        <pre ref={outScroll.ref} onScroll={outScroll.onScroll} className="m-0 font-mono text-[12px] leading-[1.55] bg-surface2 border border-line rounded-[8px] py-2 max-h-[360px] overflow-auto">
+        <pre ref={outScroll.ref} onScroll={outScroll.onScroll} className="m-0 font-mono text-[12px] leading-[1.55] bg-surface2 border border-line rounded-lg py-2 max-h-[360px] overflow-auto">
           {out.slice(0, 400).map((l, i) => (
             <div key={i} className={(l.stream || '').startsWith('diff') ? `cl ${l.stream}` : lineClass(l.stream)}>{l.text}</div>
           ))}
           {tool.outputTruncated && <div className="px-2.5 text-faint">… 输出已截断</div>}
         </pre>
       ) : (
-        <div className="text-faint text-[12.5px] bg-surface2 border border-line rounded-[8px] py-2 px-2.5">（无返回内容）</div>
+        <div className="text-faint text-[13px] bg-surface2 border border-line rounded-lg py-2 px-2.5">（无返回内容）</div>
       )}
       </div>
     </div>

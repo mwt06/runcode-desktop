@@ -27,7 +27,7 @@ export function CollapsibleGroup({ icon, label, count, threshold = 2, extra, chi
           className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer select-none hover:bg-surface2"
         >
           <span className="flex-none text-faint"><Icon name={icon} size={15} /></span>
-          <span className="flex-1 min-w-0 truncate text-[13.5px] text-[#3f4653]">
+          <span className="flex-1 min-w-0 truncate text-[14px] text-ink2">
             {label} <span className="font-mono text-faint">· {count} 个</span>
           </span>
           {extra}

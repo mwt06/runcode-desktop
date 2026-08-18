@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wt68/runcode/internal/officetool"
 	"github.com/wt68/runcode/internal/plantool"
+	"github.com/wt68/runcode/internal/previewtool"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
@@ -384,21 +386,29 @@ func TestClearWipesTheRun(t *testing.T) {
 	}
 }
 
-// plan_write is the shell's own tool, so the shell classifies it: side-effect-free
-// management, like TodoWrite. Without this it resolves to unknown/high-risk and the
-// user is asked to approve each of the three stages.
-func TestPlanResolverClassifiesPlanWriteAsManage(t *testing.T) {
+// The three tools the shell registers are the shell's to classify: all
+// side-effect-free management, like TodoWrite. Unclassified they resolve to
+// unknown/high-risk, which the default policy hard-denies — plan mode would then
+// ask the user to approve each of its three stages, and open_preview/ReadOffice
+// would fail on first use outside flight mode.
+func TestHostToolClassesResolveAsManage(t *testing.T) {
 	t.Parallel()
-	r := planResolver{inner: permissions.DefaultResolver{}}
-	action, err := r.Resolve(context.Background(), permissions.ResolveRequest{
-		ToolName: plantool.Name,
-		Input:    json.RawMessage(`{"stage":"design"}`),
-	})
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	if action.Operation != permissions.OperationManage || action.Risk != permissions.RiskLow {
-		t.Fatalf("action = %+v, want manage/low", action)
+	r := permissions.WithToolClasses(nil, hostToolClasses)
+	for _, tc := range []struct{ tool, input string }{
+		{plantool.Name, `{"stage":"design"}`},
+		{previewtool.Name, `{"path":"out/index.html"}`},
+		{officetool.Name, `{"path":"doc.docx"}`},
+	} {
+		action, err := r.Resolve(context.Background(), permissions.ResolveRequest{
+			ToolName: tc.tool,
+			Input:    json.RawMessage(tc.input),
+		})
+		if err != nil {
+			t.Fatalf("resolve %s: %v", tc.tool, err)
+		}
+		if action.Operation != permissions.OperationManage || action.Risk != permissions.RiskLow {
+			t.Fatalf("%s resolved to %+v, want manage/low", tc.tool, action)
+		}
 	}
 	// Everything else must still go through the engine's resolver untouched.
 	read, err := r.Resolve(context.Background(), permissions.ResolveRequest{

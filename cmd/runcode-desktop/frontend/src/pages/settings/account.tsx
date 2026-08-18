@@ -15,6 +15,8 @@ import {
   type PassportModel,
 } from '@/core/bridge'
 import { Section } from './section'
+import { InlineError } from '@/ui/feedback'
+import { InsetRow } from '@/ui/layout'
 
 export function AccountSection({ onAccount, onBusy }: {
   onAccount: (tenantId: string, models: PassportModel[], ready: boolean) => void
@@ -73,10 +75,10 @@ export function AccountSection({ onAccount, onBusy }: {
   return (
     <Section title="账号(通行证)">
       {passport.loggedIn ? (
-        <div className="flex items-center justify-between rounded-[9px] border border-line2 bg-surface2 px-3 py-2.5">
+        <InsetRow>
           <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>
-          <button type="button" className="text-[12.5px] text-muted hover:text-red" onClick={() => { void passportLogout() }}>登出</button>
-        </div>
+          <button type="button" className="text-[13px] text-muted hover:text-red" onClick={() => { void passportLogout() }}>登出</button>
+        </InsetRow>
       ) : (
         <div className="flex flex-col gap-1.5">
           <button type="button" className={`${BTN} ${BTN_PRIMARY} py-2.5`} disabled={loggingIn} onClick={() => void doAcctLogin('OneOuchnPassport')}>
@@ -96,7 +98,7 @@ export function AccountSection({ onAccount, onBusy }: {
           </SelectField>
         </label>
       )}
-      {acctMsg && <div className="text-red text-[12.5px]">{acctMsg}</div>}
+      {acctMsg && <InlineError variant="text">{acctMsg}</InlineError>}
     </Section>
   )
 }

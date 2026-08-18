@@ -22,7 +22,7 @@ export function ThinkingPanel({ text, streaming }: { text: string; streaming: bo
           userToggled.current = true
           setOpen((v) => !v)
         }}
-        className="inline-flex items-center gap-1.5 text-[12.5px] text-faint hover:text-muted transition cursor-pointer select-none"
+        className="inline-flex items-center gap-1.5 text-[13px] text-faint hover:text-muted transition cursor-pointer select-none"
       >
         <span className={`flex-none${streaming ? ' animate-pulse' : ''}`}>
           <Icon name="sparkles" size={13} />

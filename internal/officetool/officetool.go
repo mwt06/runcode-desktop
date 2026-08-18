@@ -44,6 +44,11 @@ type input struct {
 	Limit int `json:"limit"`
 }
 
+// Name is the wire name the model calls. Exported so the desktop can key this
+// tool's permission classification off it (engine.Options.ToolClasses and the
+// session's resolver) without repeating the string.
+const Name = "ReadOffice"
+
 // Tool is the ReadOffice tool.
 type Tool struct{}
 
@@ -51,7 +56,7 @@ type Tool struct{}
 func New() tool.Tool { return Tool{} }
 
 // Name is the tool name the model calls.
-func (Tool) Name() string { return "ReadOffice" }
+func (Tool) Name() string { return Name }
 
 // Description steers the model to this tool for Office files, where plain Read
 // returns unreadable binary.

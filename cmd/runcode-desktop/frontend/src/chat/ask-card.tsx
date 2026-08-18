@@ -20,10 +20,10 @@ export function AskCard({ tool, busy, onAnswer }: { tool: ToolEvent; busy: boole
   }
   return (
     <div className="anim-rise">
-      <div className="min-w-0 flex-1 bg-surface border border-primary rounded-[14px] shadow-xs p-4">
+      <div className="min-w-0 flex-1 bg-surface border border-primary rounded-card shadow-xs p-4">
         <div className="flex items-center gap-2 mb-2 text-primaryink">
           <Icon name="chat" size={16} />
-          <span className="text-[12.5px] font-semibold">需要你的确认</span>
+          <span className="text-[13px] font-semibold">需要你的确认</span>
         </div>
         <div className="text-[14px] text-ink whitespace-pre-wrap mb-3">{question || '（无问题内容）'}</div>
         {answered ? (
@@ -37,7 +37,7 @@ export function AskCard({ tool, busy, onAnswer }: { tool: ToolEvent; busy: boole
                     key={i}
                     onClick={() => answer(opt)}
                     disabled={busy}
-                    className="text-left text-[13.5px] text-ink bg-surface2 border border-line2 rounded-[10px] px-3.5 py-2 cursor-pointer hover:border-primary hover:bg-primarysoft disabled:opacity-40"
+                    className="text-left text-[14px] text-ink bg-surface2 border border-line2 rounded-btn px-3.5 py-2 cursor-pointer hover:border-primary hover:bg-primarysoft disabled:opacity-40"
                   >
                     {opt}
                   </button>
@@ -54,12 +54,12 @@ export function AskCard({ tool, busy, onAnswer }: { tool: ToolEvent; busy: boole
                   if (e.key === 'Enter') answer(custom)
                 }}
                 placeholder="或输入你的回答…"
-                className="flex-1 text-[13.5px] bg-surface2 text-ink border border-line2 rounded-[10px] px-3 py-2 outline-none focus:border-primary"
+                className="flex-1 text-[14px] bg-surface2 text-ink border border-line2 rounded-btn px-3 py-2 outline-none focus:border-primary"
               />
               <button
                 onClick={() => answer(custom)}
                 disabled={!custom.trim() || busy}
-                className="text-[13px] font-semibold text-white bg-primary px-3.5 rounded-[10px] cursor-pointer hover:brightness-105 disabled:opacity-40 disabled:cursor-default"
+                className="text-[13px] font-semibold text-white bg-primary px-3.5 rounded-btn cursor-pointer hover:brightness-105 disabled:opacity-40 disabled:cursor-default"
               >
                 发送
               </button>

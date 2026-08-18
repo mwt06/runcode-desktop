@@ -21,7 +21,10 @@ func editApprovalMsg(reply chan permissions.ApprovalResponse, target string) app
 	return approvalRequestMsg{
 		Summary: permissions.ApprovalSummary{ToolName: "Edit", Operation: permissions.OperationEdit, Risk: permissions.RiskHigh},
 		Targets: []string{target},
-		Reply:   reply,
+		// A workspace edit has a grant key, so the modal offers all four answers.
+		// The unrememberable shape has its own tests below.
+		Grantable: true,
+		Reply:     reply,
 	}
 }
 
@@ -272,4 +275,92 @@ func TestApprovalModalQueuesConcurrentRequests(t *testing.T) {
 	if len(model.approvalQueue) != 0 {
 		t.Fatalf("queue len = %d, want drained", len(model.approvalQueue))
 	}
+}
+
+// A request with nothing to remember it by offers two answers, not four: the
+// modal, the cursor and the letters all read the same list, so none of them can
+// hand back a scope the engine would drop.
+func TestApprovalModalHidesGrantScopesWhenNotGrantable(t *testing.T) {
+	t.Parallel()
+
+	model := sizedApprovalModel(t)
+	reply := make(chan permissions.ApprovalResponse, 1)
+	msg := editApprovalMsg(reply, "a.go")
+	msg.Grantable = false
+	model = deliverApproval(t, model, msg)
+
+	view := model.View()
+	for _, unwanted := range []string{"[s] allow session", "[p] allow project"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("view offers %q, which the engine cannot honor: %q", unwanted, view)
+		}
+	}
+	if !strings.Contains(view, "this call only") {
+		t.Fatalf("view = %q, want it to say the allow cannot be remembered", view)
+	}
+
+	// "s" is unbound here: the modal must stay open rather than resolve as session.
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	model = updated.(Model)
+	if model.approval == nil {
+		t.Fatal("\"s\" resolved a request that does not offer allow-session")
+	}
+
+	// One step right is deny (the second and last option), not allow-session.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	resp := <-reply
+	if resp.Effect != permissions.EffectDeny {
+		t.Fatalf("resp = %#v, want deny as the second option", resp)
+	}
+}
+
+// The cursor wraps over the offered options only — with two of them, two steps
+// right returns to allow-once instead of landing on a removed option.
+func TestApprovalModalCursorWrapsOverOfferedOptions(t *testing.T) {
+	t.Parallel()
+
+	model := sizedApprovalModel(t)
+	reply := make(chan permissions.ApprovalResponse, 1)
+	msg := editApprovalMsg(reply, "a.go")
+	msg.Grantable = false
+	model = deliverApproval(t, model, msg)
+
+	for i := 0; i < 2; i++ {
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+		model = updated.(Model)
+	}
+	if _, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Fatalf("enter returned cmd %v, want the answer delivered on the reply channel", cmd)
+	}
+
+	resp := <-reply
+	if resp.Effect != permissions.EffectAllow || resp.Scope != permissions.ApprovalScopeOnce {
+		t.Fatalf("resp = %#v, want the cursor to wrap back to allow once", resp)
+	}
+}
+
+// The approver copies the engine's Grantable onto the message the modal renders;
+// without it every request would look rememberable.
+func TestApproverForwardsGrantable(t *testing.T) {
+	t.Parallel()
+
+	approver := NewApprover(filepath.FromSlash("/ws"))
+	events := make(chan tea.Msg, 1)
+	approver.SetEvents(events)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = approver.Prompt(context.Background(), permissions.ApprovalRequest{Grantable: true})
+	}()
+	msg := (<-events).(approvalRequestMsg)
+	if !msg.Grantable {
+		t.Error("Grantable=true did not reach the modal")
+	}
+	msg.Reply <- permissions.ApprovalResponse{Effect: permissions.EffectDeny}
+	<-done
 }

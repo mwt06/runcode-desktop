@@ -65,7 +65,7 @@ export function Sidebar({
       className={`${collapsed ? 'w-[64px] px-2.5' : 'w-[268px] px-4'} py-4 flex-none bg-surface border-r border-line2 flex flex-col transition-[width] duration-200 ease-out`}
     >
       <button
-        className={`w-full border-none bg-primary text-white font-semibold text-sm rounded-[11px] cursor-pointer inline-flex items-center justify-center gap-2 shadow-[0_5px_14px_rgba(91,108,240,0.3)] hover:brightness-105 transition ${collapsed ? 'h-10' : 'py-3'}`}
+        className={`w-full border-none bg-primary text-white font-semibold text-sm rounded-btn cursor-pointer inline-flex items-center justify-center gap-2 shadow-lift hover:brightness-105 transition ${collapsed ? 'h-10' : 'py-3'}`}
         onClick={onNew}
         title={collapsed ? '新建对话' : undefined}
       >
@@ -78,7 +78,7 @@ export function Sidebar({
             key={n.label}
             onClick={() => onNav(n.view)}
             title={collapsed ? n.label : undefined}
-            className={`flex items-center py-[9px] rounded-[9px] text-sm cursor-pointer select-none ${
+            className={`flex items-center py-[9px] rounded-field text-sm cursor-pointer select-none ${
               collapsed ? 'justify-center' : 'gap-[11px] px-[11px]'
             } ${view === n.view ? 'bg-primarysoft text-primaryink font-semibold' : 'text-muted hover:bg-surface2 hover:text-ink'}`}
           >
@@ -92,7 +92,7 @@ export function Sidebar({
         <div className="flex-1" />
       ) : (
         <div className="mt-[22px] flex-1 overflow-y-auto -mr-1 pr-1">
-          <div className="text-[11.5px] text-faint px-[11px] pb-2 tracking-wide">最近对话</div>
+          <div className="text-[12px] text-faint px-[11px] pb-2 tracking-wide">最近对话</div>
           {recents.length === 0 ? (
             <div className="text-faint text-[13px] py-1 text-center">暂无对话</div>
           ) : (
@@ -103,7 +103,7 @@ export function Sidebar({
                   key={s.id}
                   onClick={() => onResume(s.id)}
                   title={s.title}
-                  className={`group flex items-center gap-2.5 px-[11px] py-[9px] rounded-[9px] cursor-pointer text-[13.5px] mb-0.5 ${
+                  className={`group flex items-center gap-2.5 px-[11px] py-[9px] rounded-field cursor-pointer text-[14px] mb-0.5 ${
                     active ? 'text-ink bg-surface2' : 'text-muted hover:bg-surface2'
                   }`}
                 >
@@ -134,14 +134,14 @@ export function Sidebar({
         <button
           onClick={() => { if (collapsed) { onSwitchWorkspace() } else { setWsQuery(''); setWsOpen((o) => !o) } }}
           title={`当前工作区:${cwd || '—'}\n点击切换（历史工作区可搜索）`}
-          className={`w-full flex items-center py-2.5 rounded-[10px] border border-line2 bg-surface hover:border-primary hover:bg-surface2 text-muted hover:text-ink transition ${
+          className={`w-full flex items-center py-2.5 rounded-btn border border-line2 bg-surface hover:border-primary hover:bg-surface2 text-muted hover:text-ink transition ${
             collapsed ? 'justify-center' : 'gap-2 px-[11px]'
           }`}
         >
           <Icon name="folder" size={16} />
           {!collapsed && (
             <>
-              <span className="flex-1 min-w-0 truncate text-left font-mono text-[12.5px]">{wsName}</span>
+              <span className="flex-1 min-w-0 truncate text-left font-mono text-[13px]">{wsName}</span>
               <span className="text-faint text-[11px] flex-none">切换</span>
             </>
           )}
@@ -153,7 +153,7 @@ export function Sidebar({
               value={wsQuery}
               onChange={(e) => setWsQuery(e.target.value)}
               placeholder="搜索历史工作区…"
-              className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[9px] px-3 py-2 outline-none focus:border-primary"
+              className="w-full font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-field px-3 py-2 outline-none focus:border-primary"
             />
           </div>
           <div className="overflow-y-auto py-1">
@@ -166,7 +166,7 @@ export function Sidebar({
                 className="w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 text-ink"
               >
                 <Icon name="folder" size={14} />
-                <span className="font-mono text-[12.5px] truncate flex-1">{w}</span>
+                <span className="font-mono text-[13px] truncate flex-1">{w}</span>
               </button>
             ))}
             {wsMatches.length === 0 && (
@@ -178,7 +178,7 @@ export function Sidebar({
               className="w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 text-primary border-t border-line mt-1"
             >
               <Icon name="folder" size={14} />
-              <span className="text-[12.5px]">浏览其它目录…</span>
+              <span className="text-[13px]">浏览其它目录…</span>
             </button>
           </div>
         </Popover>
@@ -191,7 +191,7 @@ export function Sidebar({
             type="button"
             onClick={() => setProfileOpen((o) => !o)}
             title={collapsed ? userName : undefined}
-            className={`w-full flex items-center py-2 rounded-[10px] hover:bg-surface2 text-muted hover:text-ink transition ${
+            className={`w-full flex items-center py-2 rounded-btn hover:bg-surface2 text-muted hover:text-ink transition ${
               collapsed ? 'justify-center' : 'gap-2.5 px-[9px]'
             }`}
           >

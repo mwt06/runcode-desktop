@@ -23,7 +23,7 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: Preview
             key={key}
             onClick={() => onSelect(key)}
             title={t.relPath}
-            className={`group flex items-center gap-1.5 pl-2 pr-1.5 h-[28px] max-w-[190px] flex-none cursor-pointer rounded-md text-[12.5px] ${on ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2/60 hover:text-ink'}`}
+            className={`group flex items-center gap-1.5 pl-2 pr-1.5 h-[28px] max-w-[190px] flex-none cursor-pointer rounded-md text-[13px] ${on ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2/60 hover:text-ink'}`}
           >
             <span className="flex-none" style={iconColor ? { color: iconColor } : undefined}><Icon name={iconName} size={13} /></span>
             <span className="truncate">{name}</span>

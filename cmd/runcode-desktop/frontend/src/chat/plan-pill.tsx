@@ -33,7 +33,7 @@ export function PlanPill({
     <>
       <button
         onClick={() => onToggle(!open)}
-        className={`relative z-10 inline-flex items-center gap-2.5 pl-3 pr-2.5 py-2 rounded-full bg-surface shadow-card text-[12.5px] cursor-pointer transition border ${open ? 'border-primary' : 'border-line2 hover:border-primary'}`}
+        className={`relative z-10 inline-flex items-center gap-2.5 pl-3 pr-2.5 py-2 rounded-full bg-surface shadow-card text-[13px] cursor-pointer transition border ${open ? 'border-primary' : 'border-line2 hover:border-primary'}`}
       >
         {allDone ? (
           <CheckMark size={13} className="text-green flex-none" />
@@ -58,7 +58,7 @@ export function PlanPill({
       </button>
       {open && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-[380px] max-w-[calc(100vw-40px)] z-10">
-          <div className="bg-surface border border-line2 rounded-[14px] shadow-card overflow-hidden anim-rise">
+          <div className="bg-surface border border-line2 rounded-card shadow-card overflow-hidden anim-rise">
             <div className="px-4 py-3 max-h-[52vh] overflow-y-auto">
               {plan.items.map((it, i) => (
                 <PlanRow key={i} item={it} last={i === plan.items.length - 1} filled={i < frontier} />

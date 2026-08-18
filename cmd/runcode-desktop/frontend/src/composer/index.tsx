@@ -167,9 +167,9 @@ export function Composer({
         </div>
       )}
       {info?.planMode && (
-        <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-[12px] px-3.5 py-2.5">
+        <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-xl px-3.5 py-2.5">
           <span className="text-primaryink flex-none"><Icon name="compass" size={16} /></span>
-          <span className="text-[12.5px] text-primaryink flex-1 min-w-0">计划模式：只调研、产出方案，不会修改任何文件。方案给出后可选择如何继续。</span>
+          <span className="text-[13px] text-primaryink flex-1 min-w-0">计划模式：只调研、产出方案，不会修改任何文件。方案给出后可选择如何继续。</span>
         </div>
       )}
       {mention?.trigger === '@' && skillMatches.length > 0 && (
@@ -184,7 +184,7 @@ export function Composer({
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-1.5">
           {attachments.map((p, i) => (
-            <span key={p + i} className="inline-flex items-center gap-1.5 bg-surface2 border border-line2 rounded-[9px] pl-2.5 pr-1 py-1 text-[12px] text-ink max-w-[220px]">
+            <span key={p + i} className="inline-flex items-center gap-1.5 bg-surface2 border border-line2 rounded-field pl-2.5 pr-1 py-1 text-[12px] text-ink max-w-[220px]">
               <Icon name="file" size={13} />
               <span className="truncate">{basename(p)}</span>
               <button className="flex-none text-faint hover:text-red px-1 leading-none" title="移除附件" onClick={() => setAttachments((a) => a.filter((x) => x !== p))}>✕</button>

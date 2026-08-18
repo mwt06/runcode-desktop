@@ -16,7 +16,7 @@ function EditedCard({ rec, reverted, onReview, onUndo }: { rec: EditRecord; reve
       <span className="flex-none text-muted"><Icon name="file-edit" size={17} /></span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-[13px] font-medium text-ink font-mono truncate" title={rec.relPath}>
-          <span className="text-faint font-sans font-normal text-[11.5px] flex-none">已编辑</span>
+          <span className="text-faint font-sans font-normal text-[12px] flex-none">已编辑</span>
           {name}
         </div>
         <div className="text-[11px] font-mono">
@@ -54,7 +54,7 @@ export function EditedCards({ edits, reverted, onReview, onUndo }: { edits: Edit
       icon="pencil"
       label="已编辑文件"
       count={edits.length}
-      extra={<DiffStat add={totalAdded} del={totalRemoved} className="font-mono text-[11.5px] tabular-nums flex-none" />}
+      extra={<DiffStat add={totalAdded} del={totalRemoved} className="font-mono text-[12px] tabular-nums flex-none" />}
     >
       {edits.map((e) => (
         <EditedCard key={e.toolUseId} rec={e} reverted={reverted.has(e.snapshotId)} onReview={() => onReview(e.snapshotId, e.relPath)} onUndo={() => onUndo(e.snapshotId)} />

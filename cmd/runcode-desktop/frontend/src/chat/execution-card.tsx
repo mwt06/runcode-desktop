@@ -42,13 +42,13 @@ export function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmA
               className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer select-none ${rowBg}`}
             >
               <span className={`flex-none ${iconColor}`}><Icon name={toolIcon(t.toolName)} size={15} /></span>
-              <span className="flex-1 min-w-0 truncate text-[13.5px] text-[#3f4653]">
+              <span className="flex-1 min-w-0 truncate text-[14px] text-ink2">
                 {verb}
                 {target && <span className="font-mono text-faint"> {target}</span>}
               </span>
-              {showDiff && <DiffStat add={add} del={del} className="font-mono text-[11.5px] tabular-nums flex-none" />}
+              {showDiff && <DiffStat add={add} del={del} className="font-mono text-[12px] tabular-nums flex-none" />}
               {allowReason && (
-                <span title="智能模式已自动放行，展开查看原因" className="flex-none inline-flex items-center gap-1 text-[10.5px] text-primaryink bg-primarysoft rounded px-1.5 py-0.5">
+                <span title="智能模式已自动放行，展开查看原因" className="flex-none inline-flex items-center gap-1 text-[11px] text-primaryink bg-primarysoft rounded px-1.5 py-0.5">
                   <Icon name="shield" size={11} /> 智能放行
                 </span>
               )}

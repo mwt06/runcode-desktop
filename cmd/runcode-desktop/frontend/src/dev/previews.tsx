@@ -73,9 +73,9 @@ export function ToolPreview() {
         <ExecutionCard tools={[bash, edit, grep, readImg]} />
         <ExecutionCard tools={[running]} />
         <div className="text-[13px] text-muted">图片 Read 展开(缩略图):</div>
-        <div className="bg-surface border border-line2 rounded-[14px] p-4"><ToolDetail tool={readImg} /></div>
+        <div className="bg-surface border border-line2 rounded-card p-4"><ToolDetail tool={readImg} /></div>
         <div className="text-[13px] text-muted">查找/搜索展开(匹配文件列表):</div>
-        <div className="bg-surface border border-line2 rounded-[14px] p-4"><ToolDetail tool={grep} /></div>
+        <div className="bg-surface border border-line2 rounded-card p-4"><ToolDetail tool={grep} /></div>
       </div>
     </div>
   )
@@ -99,16 +99,16 @@ export function ThinkingPreview() {
     <div className="min-h-screen p-8">
       <div className="w-full max-w-[1280px] mx-auto flex flex-col gap-6">
         <h2 className="text-[18px] font-bold tracking-tight">上下文用量条(不同占用)</h2>
-        <div className="flex flex-col gap-3 bg-surface border border-line2 rounded-[12px] p-4">
+        <div className="flex flex-col gap-3 bg-surface border border-line2 rounded-xl p-4">
           {[10000, 96000, 120000, 130000].map((u) => (
-            <div key={u} className="flex items-center gap-4 text-[12.5px] text-muted">
+            <div key={u} className="flex items-center gap-4 text-[13px] text-muted">
               <ContextMeter used={u} budget={128000} onCompact={noop} compacting={false} busy={false} />
             </div>
           ))}
-          <div className="flex items-center gap-4 text-[12.5px] text-muted">
+          <div className="flex items-center gap-4 text-[13px] text-muted">
             <ContextMeter used={44000} budget={0} onCompact={noop} compacting={false} busy={false} />
           </div>
-          <div className="flex items-center gap-4 text-[12.5px] text-muted">
+          <div className="flex items-center gap-4 text-[13px] text-muted">
             <ContextMeter used={18000} budget={200000} estimated onCompact={noop} compacting={false} busy={false} />
           </div>
         </div>

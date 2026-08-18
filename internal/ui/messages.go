@@ -95,7 +95,11 @@ type approvalRequestMsg struct {
 	ExternalTargets []string
 	ExternalRoots   []string
 	Command         string
-	Reply           chan permissions.ApprovalResponse
+	// Grantable mirrors permissions.ApprovalRequest.Grantable: whether an allow
+	// can be remembered at all. False hides the session/project answers, which
+	// would otherwise be accepted and then record nothing.
+	Grantable bool
+	Reply     chan permissions.ApprovalResponse
 }
 
 type turnDoneMsg struct {

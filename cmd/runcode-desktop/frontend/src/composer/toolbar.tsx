@@ -136,10 +136,22 @@ export function ComposerToolbar({
             <Icon name="plus" size={16} />
           </button>
           <Popover open={addMenu} onClose={() => setAddMenu(false)} placement="up-left" className="w-[180px]">
-            <div onClick={() => { setAddMenu(false); onOpenSkillPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="book" size={15} /> 技能</div>
-            <div onClick={() => { setAddMenu(false); onOpenAgentPicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="bot" size={15} /> 智能体</div>
-            <div onClick={() => { setAddMenu(false); onOpenFilePicker() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="hash" size={15} /> 文件</div>
-            <div onClick={() => { setAddMenu(false); onPickAttachment() }} className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"><Icon name="paperclip" size={15} /> 图片附件</div>
+            {/* 四项结构相同、只差图标/文案/动作，走数据驱动——加第五项不必再复制一遍类名。
+                关菜单是所有项的共同动作，提到这里，避免每项各写一次。 */}
+            {([
+              { icon: 'book', label: '技能', run: onOpenSkillPicker },
+              { icon: 'bot', label: '智能体', run: onOpenAgentPicker },
+              { icon: 'hash', label: '文件', run: onOpenFilePicker },
+              { icon: 'paperclip', label: '图片附件', run: onPickAttachment },
+            ] as const).map((it) => (
+              <div
+                key={it.label}
+                onClick={() => { setAddMenu(false); it.run() }}
+                className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"
+              >
+                <Icon name={it.icon} size={15} /> {it.label}
+              </div>
+            ))}
           </Popover>
         </div>
         {/* The mode label is the last to go: unlike the toggles below, the shield
@@ -235,17 +247,17 @@ export function ComposerToolbar({
                 当前步骤结束后看到。描边样式区别于实心红色的停止,避免误当作"立即回复"。 */}
             {canSend && (
               <button
-                className="w-10 h-10 rounded-[11px] flex-none border border-primary text-primary bg-transparent inline-flex items-center justify-center cursor-pointer hover:bg-primarysoft transition"
+                className="w-10 h-10 rounded-btn flex-none border border-primary text-primary bg-transparent inline-flex items-center justify-center cursor-pointer hover:bg-primarysoft transition"
                 onClick={onSend}
                 title="补充：插入正在进行的回合，模型会在当前步骤结束后看到"
               >
                 <Icon name="send" size={16} />
               </button>
             )}
-            <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(224,86,74,0.3)] hover:brightness-105" onClick={onStop} title="停止"><Icon name="stop" size={16} /></button>
+            <button className="w-10 h-10 border-none rounded-btn flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-lift-danger hover:brightness-105" onClick={onStop} title="停止"><Icon name="stop" size={16} /></button>
           </div>
         ) : (
-          <button className="w-10 h-10 border-none rounded-[11px] flex-none bg-primary text-white inline-flex items-center justify-center cursor-pointer shadow-[0_5px_14px_rgba(91,108,240,0.32)] hover:brightness-105 disabled:opacity-40 disabled:shadow-none disabled:cursor-default" onClick={onSend} disabled={!canSend} title="发送"><Icon name="send" size={17} /></button>
+          <button className="w-10 h-10 border-none rounded-btn flex-none bg-primary text-white inline-flex items-center justify-center cursor-pointer shadow-lift hover:brightness-105 disabled:opacity-40 disabled:shadow-none disabled:cursor-default" onClick={onSend} disabled={!canSend} title="发送"><Icon name="send" size={17} /></button>
         )}
       </div>
     </div>

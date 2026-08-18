@@ -29,7 +29,7 @@ export function Popover({ open, onClose, placement, variant = 'menu', className,
   const look =
     variant === 'panel'
       ? 'rounded-[13px] shadow-[0_18px_50px_rgba(30,35,60,0.22)] flex flex-col'
-      : 'rounded-[11px] shadow-card py-1'
+      : 'rounded-btn shadow-card py-1'
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); onClose() }} />

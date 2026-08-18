@@ -29,7 +29,7 @@ export function ContextMeter({
 }) {
   const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0
   const near = budget > 0 && pct >= 80
-  const bar = pct >= 100 ? 'bg-red' : near ? 'bg-[#e0954a]' : 'bg-primary'
+  const bar = pct >= 100 ? 'bg-red' : near ? 'bg-amber' : 'bg-primary'
   // A leading "≈" marks the figure as not yet calibrated against this model's real
   // token usage — the state a resumed session starts in, before any round-trip has
   // been observed.

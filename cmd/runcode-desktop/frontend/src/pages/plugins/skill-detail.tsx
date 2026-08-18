@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from '@/ui/tokens'
 import { FIELD_CLS, LABEL_CLS } from '@/ui/fields'
 import { deleteSkill, errText, saveSkill, type SkillInfo } from '@/core/bridge'
+import { InlineError } from '@/ui/feedback'
 
 export function SkillDetail({ skill, onBack, onChanged, onUse }: {
   skill: SkillInfo | 'new'
@@ -40,7 +41,7 @@ export function SkillDetail({ skill, onBack, onChanged, onUse }: {
               <option value="user">用户(全局，所有项目可用)</option>
             </select>
           ) : (
-            <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-[9px] px-3 py-2.5">{scope === 'user' ? '用户(全局)' : '项目(本工作区)'}</div>
+            <div className="text-[13px] text-ink bg-surface2 border border-line2 rounded-field px-3 py-2.5">{scope === 'user' ? '用户(全局)' : '项目(本工作区)'}</div>
           )}
         </label>
         <label className={LABEL_CLS}>描述(一句话，告诉 AI 何时加载它)<input className={FIELD_CLS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="如 制作 PPT 演示文稿" /></label>
@@ -48,7 +49,7 @@ export function SkillDetail({ skill, onBack, onChanged, onUse }: {
           正文(Markdown，技能的完整指令)
           <textarea className={`${FIELD_CLS} min-h-[320px] font-mono text-[13px] leading-[1.6] resize-y`} value={body} onChange={(e) => setBody(e.target.value)} />
         </label>
-        {error && <div className="text-[12.5px] text-red">{error}</div>}
+        {error && <InlineError variant="text">{error}</InlineError>}
         <div className="flex gap-2.5">
           <button className={`${BTN} ${BTN_PRIMARY}`} disabled={busy || !name.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
           {!isNew && <button className={BTN} onClick={() => onUse(sk!.name)}>在对话中使用</button>}

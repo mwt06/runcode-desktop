@@ -9,22 +9,64 @@
   --color-line: #edeef4;
   --color-line2: #e4e7ef;
   --color-ink: #21242e;
+  /* Body/label ink — softer than --color-ink so long prose (assistant answers,
+     tool labels) doesn't read as heavy as headings. Was inline #3f4653 in six
+     places before it had a name. */
+  --color-ink2: #3f4653;
   --color-muted: #646b7d;
   --color-faint: #8a92a3;
   --color-primary: #5b6cf0;
   --color-primaryink: #4856d6;
   --color-primarysoft: #eef0fe;
+  /* The user's own message bubble. Distinct from primarysoft: it must read as
+     "you said this" without competing with the primary actions on the page. */
+  --color-userbg: #f4f3ff;
   --color-green: #1f9d63;
   --color-greenbg: #e7f6ee;
   --color-red: #e0564a;
   --color-redbg: #fdeceb;
   --color-amber: #e3a23c;
+  /* Text-safe amber. --color-amber is a fill/marker color: on white it lands at
+     ~2.3:1, below the 4.5:1 small-text floor. This darker shade (~5.5:1) is what
+     the retry divider and warning copy already used inline as #9a6b12 — named
+     here so warnings stop being two colors. Mirrors the primary/primaryink pair. */
+  --color-amberink: #9a6b12;
 
   --font-sans: "IBM Plex Sans", -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
 
   --shadow-card: 0 6px 22px rgba(30, 35, 60, 0.08);
   --shadow-xs: 0 1px 2px rgba(30, 35, 60, 0.05);
+  /* Focus ring on text inputs — a soft 3px halo, matched to the focused border. */
+  --shadow-focus: 0 0 0 3px var(--color-primarysoft);
+  /* The lift under a solid accent button (send, sidebar's primary action). Two
+     colors, one geometry — they were written inline as rgba() of the primary/red
+     tokens and had already drifted apart (0.32 vs 0.30 alpha for the same effect). */
+  --shadow-lift: 0 5px 14px rgba(91, 108, 240, 0.3);
+  --shadow-lift-danger: 0 5px 14px rgba(224, 86, 74, 0.3);
+  /* Modal elevation, shared by the permission dialog and the confirm dialog. */
+  --shadow-modal: 0 30px 70px rgba(30, 35, 60, 0.28);
+
+  /* Corner radii, anchored in px. Tailwind's presets are rem-based, so
+     `rounded-lg` (0.5rem) and a hand-written `rounded-[8px]` render identically
+     today but would silently diverge if the root font-size ever moved. This is a
+     fixed-size desktop shell whose type scale is already all px, so px is the
+     honest unit here — and it makes the preset and the literal genuinely
+     interchangeable, which is what lets the two spellings be merged.
+     Values are unchanged from what these utilities already produced. */
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  /* Three semantic stops that earned a name by usage, not by being on a scale:
+     `field` is every input-ish control (FIELD_CLS, INSET_BOX, model picker,
+     textareas); `btn` is buttons and button-shaped blocks (icon tiles, popovers);
+     `card` is the raised section/card surface.
+     btn absorbed a stray 11px that had no meaning — the same buttons, tiles and
+     popovers were being written at both 10 and 11, one pixel apart. */
+  --radius-field: 9px;
+  --radius-btn: 10px;
+  --radius-card: 14px;
 }
 
 @layer base {
@@ -62,6 +104,20 @@
 .plan-pulse { background: var(--color-primary); animation: plan-pulse 1.6s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   .plan-pulse { animation: none; opacity: 0.25; transform: scale(1.5); }
+}
+
+/* 预览骨架：一束灰条上扫过的高光，表示"内容马上就位"。用 background-position 动
+   而不是动 width/left，避免每帧触发布局。深浅取自 line/surface2 两个既有 token，
+   所以它和面板底色天然是一套。 */
+@keyframes skeleton-sweep { to { background-position: -200% 0; } }
+.skeleton {
+  background: linear-gradient(90deg, var(--color-line) 25%, var(--color-surface2) 37%, var(--color-line) 63%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.5s ease-in-out infinite;
+}
+/* 关掉动画后仍要看得出"这里是占位"，所以留一个静态底色而不是整块消失。 */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--color-line); }
 }
 
 /* Ring spinner for in-flight tool rows and the progress pill. */
@@ -111,7 +167,7 @@
 /* Office / spreadsheet preview (see preview-panel.tsx). The Office renderers
    inject their own styles; these only cover the SheetJS table, which ships none,
    and give the docx/pptx hosts a neutral document backdrop. */
-.xlsx-host table { border-collapse: collapse; font-size: 12.5px; }
+.xlsx-host table { border-collapse: collapse; font-size: 13px; }
 .xlsx-host td, .xlsx-host th {
   border: 1px solid var(--color-line2);
   padding: 3px 8px; white-space: nowrap; color: var(--color-ink);

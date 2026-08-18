@@ -40,13 +40,13 @@ export function ContextAuditSection() {
       </label>
       {info.enabled && info.url && (
         <div className="flex items-center gap-2">
-          <code className="flex-1 min-w-0 font-mono text-[12.5px] text-muted bg-bg border border-line2 rounded-[8px] px-3 py-1.5 overflow-hidden text-ellipsis whitespace-nowrap">{info.url}</code>
+          <code className="flex-1 min-w-0 font-mono text-[13px] text-muted bg-bg border border-line2 rounded-lg px-3 py-1.5 overflow-hidden text-ellipsis whitespace-nowrap">{info.url}</code>
           <button type="button" className={`${BTN} px-4 flex-none`} onClick={() => openInBrowser(info.url)}>打开查看页</button>
           <button type="button" className={`${BTN} px-4 flex-none`} onClick={async () => { await copyText(info.url); setMsg('地址已复制'); setTimeout(() => setMsg(''), 2000) }}>复制</button>
         </div>
       )}
       {msg && <div className="text-[12px] text-muted -mt-1">{msg}</div>}
-      <p className="text-[11.5px] text-faint -mt-1">
+      <p className="text-[12px] text-faint -mt-1">
         记录目录：<span className="font-mono break-all">{info.dir || '—'}</span>。审核记录包含完整提示词与对话内容，仅保存在本机、仅限本机页面查看；测试完可直接删除该目录。
       </p>
     </Section>

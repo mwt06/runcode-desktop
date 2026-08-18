@@ -11,6 +11,8 @@ import {
 } from '@/core/bridge'
 import { draftFrom, toServerInput, type MCPDraft } from './mcp-draft'
 import { installState, marketEntryToInput } from './mcp-market'
+import { InlineError } from '@/ui/feedback'
+import { PageShell, Placeholder } from '@/ui/layout'
 
 export function MCPPage() {
   const [servers, setServers] = useState<MCPServerInfo[]>([])
@@ -27,7 +29,7 @@ export function MCPPage() {
   const [installing, setInstalling] = useState<string | null>(null)
   // Which connected servers have their tool list expanded on the page.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const mono = FIELD_CLS + ' font-mono text-[12.5px] leading-relaxed'
+  const mono = FIELD_CLS + ' font-mono text-[13px] leading-relaxed'
 
   async function refresh() {
     setLoading(true)
@@ -115,37 +117,33 @@ export function MCPPage() {
   const set = (patch: Partial<MCPDraft>) => setDraft((d) => (d ? { ...d, ...patch } : d))
 
   return (
-    <div className="flex-1 overflow-y-auto px-[22px] py-7">
-      <div className="max-w-[720px] mx-auto flex flex-col gap-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="m-0 text-[20px] font-bold tracking-tight">MCP 服务器</h2>
-            <p className="mt-1 text-muted text-[13px]">连接外部工具服务器(Model Context Protocol)。与命令行共用同一份 <code className="font-mono text-[12px] bg-surface2 px-1 py-0.5 rounded">config.toml</code>,更改<b className="text-ink font-semibold">立即生效</b>(会重连当前会话,对话不受影响;回合进行中则等本轮结束)。</p>
-          </div>
-          {mode === 'installed' && !draft && (
-            <button className={`${BTN} ${BTN_PRIMARY} flex-none`} onClick={() => setDraft(draftFrom())}>
-              <Icon name="plus" size={15} /> 新建
-            </button>
-          )}
-        </div>
+    <PageShell
+      title="MCP 服务器"
+      hint={<>连接外部工具服务器(Model Context Protocol)。与命令行共用同一份 <code className="font-mono text-[12px] bg-surface2 px-1 py-0.5 rounded">config.toml</code>,更改<b className="text-ink font-semibold">立即生效</b>(会重连当前会话,对话不受影响;回合进行中则等本轮结束)。</>}
+      action={mode === 'installed' && !draft && (
+        <button className={`${BTN} ${BTN_PRIMARY} flex-none`} onClick={() => setDraft(draftFrom())}>
+          <Icon name="plus" size={15} /> 新建
+        </button>
+      )}
+    >
 
-        <div className="inline-flex self-start rounded-[10px] border border-line2 bg-surface2 p-0.5 text-[13px]">
+        <div className="inline-flex self-start rounded-btn border border-line2 bg-surface2 p-0.5 text-[13px]">
           <button
-            className={`px-3.5 py-1.5 rounded-[8px] transition-colors ${mode === 'installed' ? 'bg-surface text-ink shadow-xs font-medium' : 'text-muted hover:text-ink'}`}
+            className={`px-3.5 py-1.5 rounded-lg transition-colors ${mode === 'installed' ? 'bg-surface text-ink shadow-xs font-medium' : 'text-muted hover:text-ink'}`}
             onClick={() => setMode('installed')}
           >已安装{servers.length ? ` · ${servers.length}` : ''}</button>
           <button
-            className={`px-3.5 py-1.5 rounded-[8px] transition-colors ${mode === 'market' ? 'bg-surface text-ink shadow-xs font-medium' : 'text-muted hover:text-ink'}`}
+            className={`px-3.5 py-1.5 rounded-lg transition-colors ${mode === 'market' ? 'bg-surface text-ink shadow-xs font-medium' : 'text-muted hover:text-ink'}`}
             onClick={() => setMode('market')}
           >市场</button>
         </div>
 
         {mode === 'installed' ? (
         <>
-        {error && <div className="text-red text-[13px] bg-redbg border border-red/25 rounded-lg px-3 py-2.5 whitespace-pre-wrap break-words">{error}</div>}
+        {error && <InlineError>{error}</InlineError>}
 
         {draft ? (
-          <section className="bg-surface border border-line2 rounded-[14px] p-5 flex flex-col gap-3.5 shadow-xs">
+          <section className="bg-surface border border-line2 rounded-card p-5 flex flex-col gap-3.5 shadow-xs">
             <div className="text-[14px] font-semibold">{draft.originalName ? `编辑 ${draft.originalName}` : '新建 MCP 服务器'}</div>
             <div className="grid grid-cols-2 gap-3">
               <label className={LABEL_CLS}>名称<input className={FIELD_CLS} value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="例如 filesystem" /></label>
@@ -189,28 +187,28 @@ export function MCPPage() {
             </div>
           </section>
         ) : loading ? (
-          <div className="text-muted text-[13px] py-6 text-center">加载中…</div>
+          <Placeholder>加载中…</Placeholder>
         ) : servers.length === 0 ? (
-          <div className="bg-surface border border-line2 border-dashed rounded-[14px] px-5 py-10 text-center">
+          <div className="bg-surface border border-line2 border-dashed rounded-card px-5 py-10 text-center">
             <div className="text-muted text-[14px]">还没有配置 MCP 服务器</div>
-            <div className="text-faint text-[12.5px] mt-1">点右上角「新建」接入一个外部工具服务器(如文件系统、浏览器、数据库)。</div>
+            <div className="text-faint text-[13px] mt-1">点右上角「新建」接入一个外部工具服务器(如文件系统、浏览器、数据库)。</div>
           </div>
         ) : (
           <div className="flex flex-col gap-2.5">
             {servers.map((s) => (
-              <div key={s.name} className="bg-surface border border-line2 rounded-[14px] p-4 shadow-xs flex flex-col gap-2">
+              <div key={s.name} className="bg-surface border border-line2 rounded-card p-4 shadow-xs flex flex-col gap-2">
                 <div className="flex items-center gap-2.5">
                   <span className={`w-2 h-2 rounded-full flex-none ${!s.enabled ? 'bg-faint' : s.connected ? 'bg-green' : 'bg-amber'}`} />
-                  <span className="font-semibold text-[14.5px]">{s.name}</span>
-                  <span className="font-mono text-[10.5px] uppercase tracking-wide text-muted bg-surface2 border border-line2 rounded px-1.5 py-0.5">{s.transport}</span>
-                  {s.passport && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-primarysoft text-primaryink border border-primary/40">通行证</span>}
+                  <span className="font-semibold text-[15px]">{s.name}</span>
+                  <span className="font-mono text-[11px] uppercase tracking-wide text-muted bg-surface2 border border-line2 rounded px-1.5 py-0.5">{s.transport}</span>
+                  {s.passport && <span className="text-[11px] px-1.5 py-0.5 rounded bg-primarysoft text-primaryink border border-primary/40">通行证</span>}
                   <span className="text-[12px] text-muted ml-1">
                     {!s.enabled ? '已停用' : s.connected ? `已连接 · ${s.toolCount} 个工具` : '未连接'}
                   </span>
                   <div className="ml-auto flex items-center gap-1.5">
-                    <button className={`${BTN} px-2.5 py-1 text-[12.5px]`} onClick={() => toggle(s)}>{s.enabled ? '停用' : '启用'}</button>
-                    <button className={`${BTN} px-2.5 py-1 text-[12.5px]`} onClick={() => setDraft(draftFrom(s))}>编辑</button>
-                    <button className={`${BTN} ${BTN_DANGER} px-2.5 py-1 text-[12.5px]`} onClick={() => remove(s.name)}>删除</button>
+                    <button className={`${BTN} px-2.5 py-1 text-[13px]`} onClick={() => toggle(s)}>{s.enabled ? '停用' : '启用'}</button>
+                    <button className={`${BTN} px-2.5 py-1 text-[13px]`} onClick={() => setDraft(draftFrom(s))}>编辑</button>
+                    <button className={`${BTN} ${BTN_DANGER} px-2.5 py-1 text-[13px]`} onClick={() => remove(s.name)}>删除</button>
                   </div>
                 </div>
                 <div className="font-mono text-[12px] text-muted break-all pl-[18px]">
@@ -243,51 +241,50 @@ export function MCPPage() {
         </>
         ) : marketError ? (
           <div className="flex flex-col gap-3">
-            <div className="text-red text-[13px] bg-redbg border border-red/25 rounded-lg px-3 py-2.5 whitespace-pre-wrap break-words">{marketError}</div>
+            <InlineError>{marketError}</InlineError>
             <button className={`${BTN} self-start`} onClick={() => void loadMarket()}>重试</button>
           </div>
         ) : marketLoading ? (
-          <div className="text-muted text-[13px] py-6 text-center">加载中…</div>
+          <Placeholder>加载中…</Placeholder>
         ) : market.length === 0 ? (
-          <div className="bg-surface border border-line2 border-dashed rounded-[14px] px-5 py-10 text-center">
+          <div className="bg-surface border border-line2 border-dashed rounded-card px-5 py-10 text-center">
             <div className="text-muted text-[14px]">市场暂无可安装的 MCP</div>
-            <div className="text-faint text-[12.5px] mt-1">基座下发的清单为空,或当前未登录通行证。</div>
+            <div className="text-faint text-[13px] mt-1">基座下发的清单为空,或当前未登录通行证。</div>
           </div>
         ) : (
           <div className="flex flex-col gap-2.5">
-            <p className="text-faint text-[12.5px]">由基座下发的可安装服务器。安装即写入 <code className="font-mono text-[12px] bg-surface2 px-1 py-0.5 rounded">config.toml</code> 并<b className="text-ink font-semibold">立即连接</b>,随后在「已安装」里就能看到它的工具。</p>
+            <p className="text-faint text-[13px]">由基座下发的可安装服务器。安装即写入 <code className="font-mono text-[12px] bg-surface2 px-1 py-0.5 rounded">config.toml</code> 并<b className="text-ink font-semibold">立即连接</b>,随后在「已安装」里就能看到它的工具。</p>
             {market.map((e) => {
               const state = installState(e, servers)
               return (
-                <div key={e.id} className="bg-surface border border-line2 rounded-[14px] p-4 shadow-xs flex flex-col gap-2">
+                <div key={e.id} className="bg-surface border border-line2 rounded-card p-4 shadow-xs flex flex-col gap-2">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="font-semibold text-[14.5px]">{e.name}</span>
+                    <span className="font-semibold text-[15px]">{e.name}</span>
                     {e.official && (
-                      <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-primarysoft text-primaryink border border-primary/40">基座自建</span>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-primarysoft text-primaryink border border-primary/40">基座自建</span>
                     )}
-                    <span className="font-mono text-[10.5px] uppercase tracking-wide text-muted bg-surface2 border border-line2 rounded px-1.5 py-0.5">{e.transport}</span>
+                    <span className="font-mono text-[11px] uppercase tracking-wide text-muted bg-surface2 border border-line2 rounded px-1.5 py-0.5">{e.transport}</span>
                     <button
-                      className={`${BTN} px-3 py-1 text-[12.5px] ml-auto ${state === 'installed' ? '' : BTN_PRIMARY}`}
+                      className={`${BTN} px-3 py-1 text-[13px] ml-auto ${state === 'installed' ? '' : BTN_PRIMARY}`}
                       disabled={state === 'installed' || installing === e.id}
                       onClick={() => void install(e)}
                     >
                       {installing === e.id ? '安装中…' : state === 'installed' ? '已安装' : state === 'outdated' ? '更新' : '安装'}
                     </button>
                   </div>
-                  {e.description && <div className="text-[12.5px] text-muted leading-relaxed">{e.description}</div>}
+                  {e.description && <div className="text-[13px] text-muted leading-relaxed">{e.description}</div>}
                   <div className="font-mono text-[12px] text-muted break-all">{e.url}</div>
                   {e.passport && (
-                    <div className="text-[11.5px] text-muted">已随基座自动注入登录通行证,仅返回你本人在该系统里的数据——无需手动配置。</div>
+                    <div className="text-[12px] text-muted">已随基座自动注入登录通行证,仅返回你本人在该系统里的数据——无需手动配置。</div>
                   )}
                   {state === 'outdated' && (
-                    <div className="text-[11.5px] text-amber">已安装的配置与基座下发的不一致(如地址已变更),点「更新」同步。</div>
+                    <div className="text-[12px] text-amber">已安装的配置与基座下发的不一致(如地址已变更),点「更新」同步。</div>
                   )}
                 </div>
               )
             })}
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   )
 }

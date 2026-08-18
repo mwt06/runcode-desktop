@@ -36,7 +36,7 @@ export function ToolMultiSelect({ value, options, onChange, disabled }: {
           <button
             type="button"
             onClick={() => onChange('')}
-            className={`w-full text-left px-3.5 py-2 text-[12.5px] hover:bg-surface2 ${picked.length ? 'text-muted' : 'text-primary'}`}
+            className={`w-full text-left px-3.5 py-2 text-[13px] hover:bg-surface2 ${picked.length ? 'text-muted' : 'text-primary'}`}
           >
             继承全部工具{picked.length === 0 && ' ✓'}
           </button>
@@ -47,12 +47,12 @@ export function ToolMultiSelect({ value, options, onChange, disabled }: {
               <button key={t.name} type="button" onClick={() => toggle(t.name)} className="w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2">
                 <span className={`w-4 h-4 rounded border flex-none inline-flex items-center justify-center text-[10px] leading-none ${on ? 'bg-primary border-primary text-white' : 'border-line2 bg-surface'}`}>{on ? '✓' : ''}</span>
                 <span className="text-[13px] text-ink flex-none">{zh?.label ?? t.name}</span>
-                {zh && <span className="font-mono text-[11.5px] text-faint truncate">{t.name}</span>}
+                {zh && <span className="font-mono text-[12px] text-faint truncate">{t.name}</span>}
               </button>
             )
           })}
           {options.length === 0 && (
-            <div className="px-3.5 py-6 text-center text-[12.5px] text-muted">工具目录为空(启动一个会话后可选);留空即继承全部工具</div>
+            <div className="px-3.5 py-6 text-center text-[13px] text-muted">工具目录为空(启动一个会话后可选);留空即继承全部工具</div>
           )}
         </div>
       </Popover>

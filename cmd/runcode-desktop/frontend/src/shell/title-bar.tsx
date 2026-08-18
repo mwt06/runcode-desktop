@@ -8,7 +8,7 @@ import { DRAG, NO_DRAG } from '@/ui/tokens'
 export function TitleBar() {
   return (
     <div className="h-[38px] flex-none flex items-center pl-3.5 bg-surface border-b border-line2 select-none" style={DRAG}>
-      <span className="flex items-center gap-2 font-semibold text-[13.5px] tracking-tight">
+      <span className="flex items-center gap-2 font-semibold text-[14px] tracking-tight">
         <span className="w-[20px] h-[20px] inline-flex items-center justify-center"><Logo size={18} /></span>
         {BRAND.name}
       </span>

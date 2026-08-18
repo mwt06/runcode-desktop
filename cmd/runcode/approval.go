@@ -30,7 +30,7 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 			return permissions.ApprovalResponse{}, err
 		}
 		if attempt > 0 {
-			if _, err := fmt.Fprint(p.err, "Please answer y, s, p, or n: "); err != nil {
+			if _, err := fmt.Fprintf(p.err, "Please answer %s: ", answerList(req.Grantable)); err != nil {
 				return permissions.ApprovalResponse{}, err
 			}
 		}
@@ -42,11 +42,17 @@ func (p *approvalPrompter) Prompt(ctx context.Context, req permissions.ApprovalR
 		if answer == "y" || answer == "yes" || answer == "allow" {
 			return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeOnce}, nil
 		}
-		if answer == "s" || answer == "session" {
-			return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeSession}, nil
-		}
-		if answer == "p" || answer == "project" {
-			return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeProject}, nil
+		// The remembering answers are only accepted when the engine says this action
+		// has a key to remember them by. Otherwise they are not offered and not
+		// understood — the alternative, quietly downgrading "session" to "once",
+		// answers a question the user did not ask.
+		if req.Grantable {
+			if answer == "s" || answer == "session" {
+				return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeSession}, nil
+			}
+			if answer == "p" || answer == "project" {
+				return permissions.ApprovalResponse{Effect: permissions.EffectAllow, Scope: permissions.ApprovalScopeProject}, nil
+			}
 		}
 		if answer == "" || answer == "n" || answer == "no" || answer == "deny" {
 			return permissions.ApprovalResponse{Effect: permissions.EffectDeny, Reason: permissions.ReasonApprovalDenied}, nil
@@ -62,9 +68,34 @@ func (p *approvalPrompter) readLine(ctx context.Context) (string, error) {
 	return p.lines.ReadLine(ctx)
 }
 
+// answerList names the answers a request accepts, for the prompt and the retry
+// line. Both read it, so what the user is told to type is always what the parser
+// above will take.
+func answerList(grantable bool) string {
+	if grantable {
+		return "y, s, p, or n"
+	}
+	return "y or n"
+}
+
+// allowLine renders the trailing question. An action with no grant key drops the
+// session/project offers and says why, so the missing letters read as a property
+// of this action rather than a missing feature.
+func allowLine(grantable bool) string {
+	if grantable {
+		return "Allow? [y]es once / [s]ession / [p]roject / [N]o: "
+	}
+	return "Allow? [y]es once / [N]o (this call cannot be remembered): "
+}
+
 func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 	if req.SamplingServer != "" {
-		_, err := fmt.Fprintf(p.err, "Permission request\nMCP server %q requests to use your model (sampling).\nAllowing spends your model on the server's behalf; a session grant stops re-asking.\n", req.SamplingServer)
+		note := "a session grant stops re-asking."
+		if !req.Grantable {
+			note = "this call cannot be remembered, so it is asked each time."
+		}
+		_, err := fmt.Fprintf(p.err, "Permission request\nMCP server %q requests to use your model (sampling).\nAllowing spends your model on the server's behalf; %s\n%s",
+			req.SamplingServer, note, allowLine(req.Grantable))
 		return err
 	}
 	summary := req.Summary
@@ -96,7 +127,7 @@ func (p *approvalPrompter) writePrompt(req permissions.ApprovalRequest) error {
 			return err
 		}
 	}
-	_, err := fmt.Fprintf(p.err, "Policy: %s\nAllow? [y]es once / [s]ession / [p]roject / [N]o: ", summary.PolicyRule)
+	_, err := fmt.Fprintf(p.err, "Policy: %s\n%s", summary.PolicyRule, allowLine(req.Grantable))
 	return err
 }
 

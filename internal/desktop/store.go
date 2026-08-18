@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -106,6 +107,17 @@ func saveConfigHeld(req StartSessionRequest) {
 	req.WebProxy = prev.WebProxy
 	req.SkipLogin = prev.SkipLogin
 	req.ContextAudit = prev.ContextAudit
+	// 租户是**账号级**选择，写它的三层职责各不相同：
+	//   SetActiveTenant        权威写入，含显式设空（=用令牌自带租户）；
+	//   persistConnectionChoice 完全不碰——换模型与"我属于哪个组织"无关；
+	//   这里（会话级保存）      只在非空时覆盖。
+	// 非空的来源都是前端当下的活动租户，与 SetActiveTenant 刚落盘的值一致，覆盖无害；
+	// 而空**不表示"请清除租户"**，只表示"本次会话与租户无关"——自定义连接的启动请求
+	// 里 TenantID 天然是空的（它直连自己的 Base URL，不经租户）。若把空原样落盘，用一次
+	// 自定义模型就会把已选租户抹掉，多租户用户下次启动便要重新选一遍。
+	if strings.TrimSpace(req.TenantID) == "" {
+		req.TenantID = prev.TenantID
+	}
 	req = protectRequestSecrets(req)
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {

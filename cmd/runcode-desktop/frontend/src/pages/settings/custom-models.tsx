@@ -16,6 +16,7 @@ import {
 } from '@/core/custom-models'
 import { deleteCustomModel, errText, saveCustomModel, type CustomModel } from '@/core/bridge'
 import { Section } from './section'
+import { InlineError } from '@/ui/feedback'
 
 export function CustomModelsSection({ models, onChanged }: { models: CustomModel[]; onChanged: (list: CustomModel[]) => void }) {
   const [editing, setEditing] = useState<CustomModel | null>(null)
@@ -57,7 +58,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
       {models.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {models.map((m) => (
-            <div key={m.name} className={`flex items-center justify-between rounded-[9px] border bg-surface2 px-3 py-2 text-[12.5px] ${editing?.name === m.name ? 'border-primary' : 'border-line2'}`}>
+            <div key={m.name} className={`flex items-center justify-between rounded-field border bg-surface2 px-3 py-2 text-[13px] ${editing?.name === m.name ? 'border-primary' : 'border-line2'}`}>
               <span className="truncate">
                 {m.name}
                 <span className="text-muted"> · {customModelProviderLabel(m.provider)} · {m.model}</span>
@@ -79,7 +80,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
           ))}
         </div>
       )}
-      <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line2 p-3">
+      <div className="flex flex-col gap-2 rounded-btn border border-dashed border-line2 p-3">
         <div className="flex items-center justify-between">
           <span className="text-[12px] font-medium text-ink">{editing?.name ? `编辑：${editing?.name}` : '添加模型'}</span>
           {editing?.name && <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={resetForm}>取消编辑</button>}
@@ -112,7 +113,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
             清除已保存的 API 密钥
           </label>
         )}
-        {cmError && <div className="text-red text-[12px]">{cmError}</div>}
+        {cmError && <InlineError variant="text">{cmError}</InlineError>}
         <div className="flex items-center gap-2">
           <button type="button" className={`${BTN} px-5`} disabled={cmSaving || !draft.name.trim() || !draft.model.trim()} onClick={() => void saveModel()}>
             {cmSaving ? '保存中…' : editing?.name ? '保存修改' : '添加自定义模型'}

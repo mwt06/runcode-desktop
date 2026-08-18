@@ -19,6 +19,8 @@ import { MCPPage } from '../mcp'
 import { BUILTIN_AGENTS } from './builtin-agents'
 import { AgentDetail } from './agent-detail'
 import { SkillDetail } from './skill-detail'
+import { InlineError } from '@/ui/feedback'
+import { Placeholder } from '@/ui/layout'
 
 export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: string) => void; onUseAgent: (name: string) => void }) {
   const [tab, setTab] = useState<'tools' | 'agents' | 'skills' | 'mcp'>('tools')
@@ -88,7 +90,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   ]
   const showControls = tab !== 'mcp'
   const scopeBtn = (s: 'project' | 'user', text: string) => (
-    <button type="button" onClick={() => setScope(s)} className={`px-3.5 py-1 text-[12.5px] transition ${scope === s ? 'bg-primary text-white' : 'text-muted hover:text-ink'}`}>{text}</button>
+    <button type="button" onClick={() => setScope(s)} className={`px-3.5 py-1 text-[13px] transition ${scope === s ? 'bg-primary text-white' : 'text-muted hover:text-ink'}`}>{text}</button>
   )
 
   // 一张能力卡片：图标 + 名称(+原名/徽章) + 描述 + [使用] + iOS 开关。可点击项进入详情。
@@ -96,16 +98,16 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
     <div
       key={key}
       onClick={onClick}
-      className={`bg-surface border border-line2 rounded-[14px] px-5 py-4 flex items-center gap-4 transition ${onClick ? 'cursor-pointer hover:border-primary hover:shadow-xs' : ''} ${on ? '' : 'opacity-60'}`}
+      className={`bg-surface border border-line2 rounded-card px-5 py-4 flex items-center gap-4 transition ${onClick ? 'cursor-pointer hover:border-primary hover:shadow-xs' : ''} ${on ? '' : 'opacity-60'}`}
     >
-      <span className="w-10 h-10 rounded-[11px] bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={icon} size={19} /></span>
+      <span className="w-10 h-10 rounded-btn bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={icon} size={19} /></span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-[14.5px] text-ink truncate">{title}</span>
-          {raw && <span className="font-mono text-[11.5px] text-faint flex-none">{raw}</span>}
-          {tag && <span className="text-[10.5px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{tag}</span>}
+          <span className="font-semibold text-[15px] text-ink truncate">{title}</span>
+          {raw && <span className="font-mono text-[12px] text-faint flex-none">{raw}</span>}
+          {tag && <span className="text-[11px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{tag}</span>}
         </div>
-        <div className="text-[12.5px] text-muted mt-1 line-clamp-2 leading-relaxed">{desc}</div>
+        <div className="text-[13px] text-muted mt-1 line-clamp-2 leading-relaxed">{desc}</div>
       </div>
       {otherOff && <span className="text-[11px] text-red/70 flex-none">{otherOff}</span>}
       {onUse && <button type="button" className="text-[12px] text-muted hover:text-primary flex-none" onClick={(e) => { e.stopPropagation(); onUse() }}>使用</button>}
@@ -126,7 +128,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
                   key={t.k}
                   type="button"
                   onClick={() => setTab(t.k)}
-                  className={`px-3.5 py-1.5 rounded-[9px] text-[13.5px] transition ${tab === t.k ? 'bg-surface2 text-ink font-medium' : 'text-muted hover:text-ink'}`}
+                  className={`px-3.5 py-1.5 rounded-field text-[14px] transition ${tab === t.k ? 'bg-surface2 text-ink font-medium' : 'text-muted hover:text-ink'}`}
                 >
                   {t.label}{t.n !== undefined && <span className="ml-1.5 text-faint text-[12px]">{t.n}</span>}
                 </button>
@@ -135,7 +137,7 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
             {showControls && (
               <div className="ml-auto relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none"><Icon name="search" size={14} /></span>
-                <input className="w-[240px] font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-[10px] pl-9 pr-3 py-2 outline-none focus:border-primary" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索" />
+                <input className="w-[240px] font-sans text-[13px] bg-surface2 text-ink border border-line2 rounded-btn pl-9 pr-3 py-2 outline-none focus:border-primary" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索" />
               </div>
             )}
             {tab === 'agents' && <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4 py-2 text-[13px]`} onClick={() => setDetail({ k: 'agent', item: 'new' })}>+ 新建</button>}
@@ -154,27 +156,27 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
                 <Popover open={importMenu} onClose={() => setImportMenu(false)} placement="down-right" className="w-[260px]">
                   <div onClick={() => void doImport('project')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
                     <div className="text-[13px] text-ink">导入到本项目</div>
-                    <div className="text-[11.5px] text-faint mt-0.5">仅当前工作区可用</div>
+                    <div className="text-[12px] text-faint mt-0.5">仅当前工作区可用</div>
                   </div>
                   <div onClick={() => void doImport('user')} className="px-3.5 py-2 cursor-pointer hover:bg-surface2">
                     <div className="text-[13px] text-ink">导入到全局(用户级)</div>
-                    <div className="text-[11.5px] text-faint mt-0.5">所有项目都可用</div>
+                    <div className="text-[12px] text-faint mt-0.5">所有项目都可用</div>
                   </div>
                 </Popover>
               </div>
             )}
           </div>
           {showControls && (
-            <div className="flex items-center gap-3 mt-4 text-[12.5px]">
+            <div className="flex items-center gap-3 mt-4 text-[13px]">
               <span className="text-muted">停用范围</span>
-              <div className="inline-flex rounded-[9px] border border-line2 overflow-hidden">
+              <div className="inline-flex rounded-field border border-line2 overflow-hidden">
                 {scopeBtn('project', '本项目')}
                 {scopeBtn('user', '全局(用户级)')}
               </div>
               <span className="text-faint">下次新建会话生效{scope === 'user' ? ' · 项目级条目请切到「本项目」范围管理' : ''}</span>
             </div>
           )}
-          {err && <p className="mt-3 text-red text-[12.5px]">{err}</p>}
+          {err && <InlineError variant="text" className="mt-3">{err}</InlineError>}
         </div>
       </div>
 
@@ -200,9 +202,9 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
               const badge = sourceLabel(s.source)
               return card('s/' + s.source + '/' + s.name, 'book', s.name, '', badge, s.description, scopeOn(s.disabledUser, s.disabledProject), otherOffLabel(s.disabledUser, s.disabledProject), (n) => toggleSkill(s.name, n), () => setDetail({ k: 'skill', item: s }))
             })}
-            {tab === 'tools' && shownTools.length === 0 && <div className="text-center text-muted text-[13px] py-16">{q ? '没有匹配的工具' : '还没有自定义工具（内置工具已隐藏，模型仍可使用；连接 MCP 服务器可在此管理其工具）'}</div>}
-            {tab === 'agents' && shownAgents.length === 0 && <div className="text-center text-muted text-[13px] py-16">{q ? '没有匹配的子代理' : '还没有自定义子代理，点右上「新建」创建（内置子代理已隐藏，仍可在对话中委派）'}</div>}
-            {tab === 'skills' && shownSkills.length === 0 && <div className="text-center text-muted text-[13px] py-16">还没有技能，点右上「新建」创建，或「导入」一个已有的技能文件夹（含 SKILL.md 及相关文件）</div>}
+            {tab === 'tools' && shownTools.length === 0 && <Placeholder pad="lg">{q ? '没有匹配的工具' : '还没有自定义工具（内置工具已隐藏，模型仍可使用；连接 MCP 服务器可在此管理其工具）'}</Placeholder>}
+            {tab === 'agents' && shownAgents.length === 0 && <Placeholder pad="lg">{q ? '没有匹配的子代理' : '还没有自定义子代理，点右上「新建」创建（内置子代理已隐藏，仍可在对话中委派）'}</Placeholder>}
+            {tab === 'skills' && shownSkills.length === 0 && <Placeholder pad="lg">还没有技能，点右上「新建」创建，或「导入」一个已有的技能文件夹（含 SKILL.md 及相关文件）</Placeholder>}
           </div>
         </div>
       )}

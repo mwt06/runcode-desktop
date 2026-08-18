@@ -11,6 +11,10 @@ import { type AgentNested, type ToolBlock } from './blocks'
 import { taskActivity, taskMeta, toolLabel } from './tool-text'
 import { ToolDetail } from './tool-detail'
 
+// 用量/步数脚注的排版：三处（单个子代理、组合计、组内步数）必须完全一致，
+// tabular-nums 让数字在流式刷新时不抖。
+const FOOTNOTE = 'flex-none text-[11px] text-faint font-mono tabular-nums'
+
 // AgentTaskCard renders a Task delegation as a live, observable nested view: the
 // sub-agent's streamed text plus its own tool calls (each drillable). It is
 // expanded while the sub-agent runs and collapses to a summary when it finishes.
@@ -23,7 +27,7 @@ export function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: Agen
   const tools = nested?.tools ?? []
   return (
     <div className="anim-rise flex flex-col gap-2">
-      <div className={`flex items-center gap-2 text-[12.5px] ${running ? '' : 'cursor-pointer'}`} onClick={() => !running && setOpen((o) => !o)}>
+      <div className={`flex items-center gap-2 text-[13px] ${running ? '' : 'cursor-pointer'}`} onClick={() => !running && setOpen((o) => !o)}>
         <span className="inline-flex items-center text-primary flex-none"><Icon name="bot" size={14} /></span>
         <span className="font-medium text-ink">委派子代理 · {meta.sub}</span>
         <span className="inline-flex items-center gap-1.5 text-faint font-mono flex-none">
@@ -31,7 +35,7 @@ export function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: Agen
           {running ? '运行中…' : failed ? '失败' : `${tools.length} 步`}
         </span>
         {nested?.usage && (nested.usage.inTok > 0 || nested.usage.outTok > 0) && (
-          <span className="text-[11px] text-faint font-mono tabular-nums flex-none" title="子代理自身用量与运行时间(与主回复分开计)">
+          <span className={FOOTNOTE} title="子代理自身用量与运行时间(与主回复分开计)">
             ↑{fmtTokens(nested.usage.inTok)} ↓{fmtTokens(nested.usage.outTok)}{nested.usage.durMs ? ` · ${fmtDuration(nested.usage.durMs)}` : ''}
           </span>
         )}
@@ -42,7 +46,7 @@ export function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: Agen
           </button>
         )}
       </div>
-      {meta.desc && <div className="text-[12.5px] text-faint break-words">{meta.desc}</div>}
+      {meta.desc && <div className="text-[13px] text-faint break-words">{meta.desc}</div>}
       {expanded && <AgentTaskDetail nested={nested} running={running} />}
     </div>
   )
@@ -73,7 +77,7 @@ function AgentTaskDetail({ nested, running }: { nested?: AgentNested; running: b
               <div key={i}>
                 <div onClick={() => setSelTool(active ? null : i)} className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg cursor-pointer select-none ${active ? 'bg-surface2' : 'hover:bg-surface2'}`}>
                   <span className={`flex-none ${iconColor}`}><Icon name={toolIcon(ct.toolName)} size={14} /></span>
-                  <span className="flex-1 min-w-0 truncate text-[#3f4653]">{toolLabel(ct)}</span>
+                  <span className="flex-1 min-w-0 truncate text-ink2">{toolLabel(ct)}</span>
                   {st === 'running' ? <Spinner size={13} /> : st === 'failed' ? <span className="text-red text-[12px] flex-none">✕</span> : <span className="text-green flex-none"><CheckMark size={13} /></span>}
                   <Icon name="chevron-down" size={12} className={`flex-none text-faint transition ${active ? 'rotate-180' : ''}`} />
                 </div>
@@ -84,12 +88,12 @@ function AgentTaskDetail({ nested, running }: { nested?: AgentNested; running: b
         </div>
       )}
       {nested?.text ? (
-        <div className="text-[13.5px] text-[#3f4653] leading-[1.7] break-words">
+        <div className="text-[14px] text-ink2 leading-[1.7] break-words">
           <Markdown>{nested.text}</Markdown>
           {running && <span className="caret">▍</span>}
         </div>
       ) : running ? (
-        <div className="text-faint text-[12.5px]">子代理思考中…</div>
+        <div className="text-faint text-[13px]">子代理思考中…</div>
       ) : null}
     </div>
   )
@@ -113,7 +117,7 @@ export function AgentTaskGroup({ tasks }: { tasks: ToolBlock[] }) {
   const durMs = usages.reduce((m, u) => Math.max(m, u.durMs ?? 0), 0)
   return (
     <div className="anim-rise flex flex-col gap-2">
-      <div className={`flex items-center gap-2 text-[12.5px] ${running ? '' : 'cursor-pointer'}`} onClick={() => !running && setOpen((o) => !o)}>
+      <div className={`flex items-center gap-2 text-[13px] ${running ? '' : 'cursor-pointer'}`} onClick={() => !running && setOpen((o) => !o)}>
         <span className="inline-flex items-center text-primary flex-none"><Icon name="bot" size={14} /></span>
         <span className="font-medium text-ink">并行子代理 · {tasks.length} 个任务</span>
         <span className="inline-flex items-center gap-1.5 text-faint font-mono flex-none">
@@ -121,7 +125,7 @@ export function AgentTaskGroup({ tasks }: { tasks: ToolBlock[] }) {
           {running ? `${finished}/${tasks.length} 完成` : failed > 0 ? `${finished - failed} 成功 · ${failed} 失败` : '全部完成'}
         </span>
         {!running && (inTok > 0 || outTok > 0) && (
-          <span className="text-[11px] text-faint font-mono tabular-nums flex-none" title="各子代理用量合计;耗时取最长者(并行运行)">
+          <span className={FOOTNOTE} title="各子代理用量合计;耗时取最长者(并行运行)">
             ↑{fmtTokens(inTok)} ↓{fmtTokens(outTok)}{durMs > 0 ? ` · ${fmtDuration(durMs)}` : ''}
           </span>
         )}
@@ -159,12 +163,12 @@ function AgentTaskRow({ block }: { block: ToolBlock }) {
       <div onClick={() => setOpen((o) => !o)} className={`flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg cursor-pointer select-none ${open ? 'bg-surface2' : 'hover:bg-surface2'}`}>
         {running ? <span className="flex-none"><Spinner size={13} /></span> : failed ? <span className="text-red text-[12px] flex-none">✕</span> : <span className="text-green flex-none"><CheckMark size={13} /></span>}
         <span className="flex-none font-medium text-ink">{meta.sub}</span>
-        <span className="flex-1 min-w-0 truncate text-[#3f4653]">{meta.desc}</span>
+        <span className="flex-1 min-w-0 truncate text-ink2">{meta.desc}</span>
         {running && activity && (
           <span className="flex-none max-w-[40%] truncate text-faint text-[12px]">{activity}</span>
         )}
         {!running && (
-          <span className="flex-none text-[11px] text-faint font-mono tabular-nums">
+          <span className={FOOTNOTE}>
             {steps > 0 ? `${steps} 步` : ''}
             {usage && (usage.inTok > 0 || usage.outTok > 0) ? ` · ↑${fmtTokens(usage.inTok)} ↓${fmtTokens(usage.outTok)}` : ''}
             {usage?.durMs ? ` · ${fmtDuration(usage.durMs)}` : ''}

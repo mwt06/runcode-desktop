@@ -8,11 +8,13 @@ import '@fontsource/ibm-plex-mono/600.css'
 import 'highlight.js/styles/github.css'
 import App from './App'
 import { ToolPreview, ThinkingPreview } from '@/dev/previews'
+import { UIGallery } from '@/dev/ui-gallery'
 import './styles.css'
 
 const preview = new URLSearchParams(location.search).get('preview')
 const previewTools = preview === 'tools'
 const previewThinking = preview === 'thinking'
+const previewUI = preview === 'ui'
 
 // A render error in any component should show a message instead of a blank
 // WebView. Event-handler errors aren't caught here, but render crashes are.
@@ -43,7 +45,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      {previewTools ? <ToolPreview /> : previewThinking ? <ThinkingPreview /> : <App />}
+      {previewTools ? <ToolPreview /> : previewThinking ? <ThinkingPreview /> : previewUI ? <UIGallery /> : <App />}
     </ErrorBoundary>
   </React.StrictMode>,
 )

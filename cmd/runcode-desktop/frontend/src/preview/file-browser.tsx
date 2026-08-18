@@ -11,11 +11,11 @@ export function FileBrowser({ files, onPick, autoOpen, onToggleAutoOpen }: { fil
     nodes.map((n) =>
       n.dir ? (
         <div key={n.path}>
-          <div className="px-2 py-1 text-[12.5px] text-muted font-medium" style={{ paddingLeft: 8 + depth * 12 }}>{n.name}/</div>
+          <div className="px-2 py-1 text-[13px] text-muted font-medium" style={{ paddingLeft: 8 + depth * 12 }}>{n.name}/</div>
           {n.children && render(n.children, depth + 1)}
         </div>
       ) : (
-        <div key={n.path} onClick={() => onPick(n.path)} className="flex items-center gap-1.5 px-2 py-1 text-[12.5px] text-ink hover:bg-surface2 cursor-pointer" style={{ paddingLeft: 8 + depth * 12 }} title={n.path}>
+        <div key={n.path} onClick={() => onPick(n.path)} className="flex items-center gap-1.5 px-2 py-1 text-[13px] text-ink hover:bg-surface2 cursor-pointer" style={{ paddingLeft: 8 + depth * 12 }} title={n.path}>
           <span className="flex-none" style={{ color: fileColor(n.path) }}><Icon name={kindIcon(classifyPreview(n.path).kind)} size={13} /></span>
           <span className="truncate">{n.name}</span>
         </div>
@@ -34,10 +34,10 @@ export function FileBrowser({ files, onPick, autoOpen, onToggleAutoOpen }: { fil
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="筛选文件…"
-          className="w-full text-[12.5px] bg-inset rounded-md px-2.5 py-1.5 outline-none text-ink placeholder:text-faint"
+          className="w-full text-[13px] bg-inset rounded-md px-2.5 py-1.5 outline-none text-ink placeholder:text-faint"
         />
       </div>
-      <div className="flex-1 min-h-0 text-[12.5px] py-1 overflow-auto">{render(tree, 0)}</div>
+      <div className="flex-1 min-h-0 text-[13px] py-1 overflow-auto">{render(tree, 0)}</div>
     </div>
   )
 }

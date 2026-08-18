@@ -28,7 +28,7 @@ function OpenWithMenu({ relPath, previewable, onPreview }: { relPath: string; pr
       >
         打开方式 <Icon name="chevron-down" size={12} />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} placement="down-right" className="min-w-[168px] text-[12.5px] text-ink">
+      <Popover open={open} onClose={() => setOpen(false)} placement="down-right" className="min-w-[168px] text-[13px] text-ink">
         <button className={`${item} ${previewable ? '' : 'text-faint cursor-default'}`} disabled={!previewable} onClick={(e) => { e.stopPropagation(); onPreview(); setOpen(false) }}>预览</button>
         <button className={item} onClick={(e) => { e.stopPropagation(); openExternal(relPath).catch(() => {}); setOpen(false) }}>用系统默认程序打开</button>
         <button className={item} onClick={(e) => { e.stopPropagation(); revealInFolder(relPath).catch(() => {}); setOpen(false) }}>在文件夹中显示</button>

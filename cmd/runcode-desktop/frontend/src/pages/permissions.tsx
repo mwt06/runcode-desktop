@@ -15,7 +15,7 @@ const PERM_CHIP: Record<string, { label: string; cls: string; auto?: boolean }> 
 function PermChip({ kind }: { kind: string }) {
   const c = PERM_CHIP[kind] ?? PERM_CHIP.deny
   return (
-    <span className={`inline-flex items-center justify-center gap-1 text-[12.5px] font-medium px-3 py-[5px] rounded-full whitespace-nowrap ${c.cls}`}>
+    <span className={`inline-flex items-center justify-center gap-1 text-[13px] font-medium px-3 py-[5px] rounded-full whitespace-nowrap ${c.cls}`}>
       {c.label}
       {c.auto && <span className="font-mono text-[9px] tracking-wide opacity-70">自动</span>}
     </span>
@@ -98,15 +98,15 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
                 <button
                   key={m.key}
                   onClick={() => onPickMode(m.key)}
-                  className={`text-left rounded-[16px] border p-[22px] bg-surface transition-all duration-150 ${active ? 'border-primary shadow-[0_0_0_3px_var(--color-primarysoft)]' : 'border-line2 hover:shadow-[0_5px_18px_rgba(30,35,60,0.08)] hover:-translate-y-0.5'}`}
+                  className={`text-left rounded-2xl border p-[22px] bg-surface transition-all duration-150 ${active ? 'border-primary shadow-focus' : 'border-line2 hover:shadow-[0_5px_18px_rgba(30,35,60,0.08)] hover:-translate-y-0.5'}`}
                 >
                   <div className="flex items-center justify-between h-6 mb-4">
                     <AutonomyMeter level={m.level} tone={m.tone} />
                     {active && <span className="text-[11px] font-semibold text-white bg-primary rounded-full px-2.5 py-1 leading-none tracking-wide">当前</span>}
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[19px] font-bold tracking-tight text-ink">{m.zh}</span>
-                    <span className="font-mono text-[11.5px] text-faint">{m.en}</span>
+                    <span className="text-[20px] font-bold tracking-tight text-ink">{m.zh}</span>
+                    <span className="font-mono text-[12px] text-faint">{m.en}</span>
                   </div>
                   <div className="text-[14px] text-muted mt-2.5 leading-[1.7]">{m.essence}</div>
                 </button>
@@ -120,14 +120,14 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
         <section className="flex flex-col gap-4">
           <div className="flex items-baseline justify-between flex-wrap gap-y-2 gap-x-4">
             <span className="text-[15px] font-semibold text-ink">各模式如何处理每类操作</span>
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-muted">
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] text-muted">
               <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full bg-green" />允许</span>
               <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full bg-amber" />询问</span>
               <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full bg-primary" />智能审查</span>
               <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full bg-red" />拒绝</span>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-[16px] border border-line2 bg-surface">
+          <div className="overflow-x-auto rounded-2xl border border-line2 bg-surface">
             <table className="w-full border-collapse text-[14px] min-w-[620px]">
               <thead>
                 <tr>
@@ -136,7 +136,7 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
                     const on = m.key === mode
                     return (
                       <th key={m.key} className={`px-3 py-4 text-center align-bottom ${on ? 'bg-primarysoft/50' : ''}`}>
-                        <div className={`text-[14.5px] font-semibold ${on ? 'text-primaryink' : 'text-ink'}`}>{m.zh}</div>
+                        <div className={`text-[15px] font-semibold ${on ? 'text-primaryink' : 'text-ink'}`}>{m.zh}</div>
                         <div className="h-[15px] mt-0.5">{on && <span className="text-[10px] font-mono text-primary">当前</span>}</div>
                       </th>
                     )
@@ -148,7 +148,7 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
                   <tr key={r.op} className="border-t border-line">
                     <td className="px-6 py-4">
                       <div className="text-ink text-[14px]">{r.op}</div>
-                      <div className="font-mono text-[11.5px] text-faint mt-1">{r.q}</div>
+                      <div className="font-mono text-[12px] text-faint mt-1">{r.q}</div>
                     </td>
                     {r.cells.map((c, ci) => (
                       <td key={ci} className={`px-3 py-4 text-center ${PERM_MODES[ci].key === mode ? 'bg-primarysoft/40' : ''}`}>
@@ -164,23 +164,23 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
 
         {/* Footer — quiet: what a prompt offers, plus the cross-cutting rules. */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          <div className="rounded-[16px] border border-line2 bg-surface p-6">
+          <div className="rounded-2xl border border-line2 bg-surface p-6">
             <div className="text-[15px] font-semibold text-ink mb-4">被询问时,你能选</div>
             <div className="flex flex-col gap-3">
               {PERM_CHOICES.map(([k, d, stop]) => (
                 <div key={k} className="flex gap-3 items-start">
-                  <span className={`font-mono text-[12.5px] font-medium rounded-[7px] px-2.5 py-1 min-w-[74px] text-center flex-none border ${stop ? 'text-red border-red/35 bg-red/[0.06]' : 'text-ink bg-surface2 border-line2'}`}>{k}</span>
+                  <span className={`font-mono text-[13px] font-medium rounded-[7px] px-2.5 py-1 min-w-[74px] text-center flex-none border ${stop ? 'text-red border-red/35 bg-red/[0.06]' : 'text-ink bg-surface2 border-line2'}`}>{k}</span>
                   <span className="text-[14px] text-muted leading-[1.7]">{d}</span>
                 </div>
               ))}
             </div>
           </div>
-          <div className="rounded-[16px] border border-line2 bg-surface p-6">
+          <div className="rounded-2xl border border-line2 bg-surface p-6">
             <div className="text-[15px] font-semibold text-ink mb-4">还有几条连带规则</div>
             <div className="flex flex-col gap-3.5">
               {PERM_RULES.map(([b, cls, d]) => (
                 <div key={b} className="flex gap-3 items-start">
-                  <span className={`font-mono text-[12px] font-medium rounded-[6px] px-2 py-1 flex-none mt-0.5 whitespace-nowrap ${cls}`}>{b}</span>
+                  <span className={`font-mono text-[12px] font-medium rounded-md px-2 py-1 flex-none mt-0.5 whitespace-nowrap ${cls}`}>{b}</span>
                   <span className="text-[14px] text-muted leading-[1.7]">{d}</span>
                 </div>
               ))}

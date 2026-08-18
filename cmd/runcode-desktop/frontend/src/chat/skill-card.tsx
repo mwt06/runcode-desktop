@@ -18,22 +18,22 @@ export function SkillCard({ tool }: { tool: ToolEvent }) {
   const scope = SOURCE_ZH[view.source]
   return (
     <div className="anim-rise">
-      <div className="flex items-start gap-2.5 bg-surface border border-line2 rounded-[14px] shadow-xs px-3.5 py-2.5">
+      <div className="flex items-start gap-2.5 bg-surface border border-line2 rounded-card shadow-xs px-3.5 py-2.5">
         <span className={`text-primary flex-none mt-px${view.running ? ' animate-pulse' : ''}`}>
           <Icon name="sparkles" size={16} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[12.5px] text-muted flex-none">{view.failed ? '技能未加载' : view.running ? '加载技能' : '已加载技能'}</span>
+            <span className="text-[13px] text-muted flex-none">{view.failed ? '技能未加载' : view.running ? '加载技能' : '已加载技能'}</span>
             <span className="font-mono text-[13px] font-semibold text-ink break-all">{view.name}</span>
             {scope && <span className="text-[11px] text-primaryink bg-primarysoft rounded-full px-2 py-0.5 flex-none">{scope}</span>}
             {view.truncated && <span className="text-[11px] text-amber bg-amber/15 rounded-full px-2 py-0.5 flex-none">正文超长已截断</span>}
           </div>
           {view.description && (
-            <div className="text-[12.5px] text-muted leading-[1.6] mt-1 break-words">{view.description}</div>
+            <div className="text-[13px] text-muted leading-[1.6] mt-1 break-words">{view.description}</div>
           )}
           {view.dir && (
-            <div className="text-[11.5px] text-faint font-mono mt-1 break-all" title={view.dir}>{view.dir}</div>
+            <div className="text-[12px] text-faint font-mono mt-1 break-all" title={view.dir}>{view.dir}</div>
           )}
         </div>
       </div>

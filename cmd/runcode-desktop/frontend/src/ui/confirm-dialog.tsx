@@ -13,11 +13,11 @@ export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCance
 }) {
   return (
     <div className="fixed inset-0 bg-[rgba(30,33,50,0.32)] backdrop-blur-[2px] flex items-center justify-center z-30 anim-rise" onClick={onCancel}>
-      <div className="w-[400px] max-w-[92vw] bg-surface rounded-[16px] p-[22px] shadow-[0_30px_70px_rgba(30,35,60,0.28)]" onClick={(e) => e.stopPropagation()}>
-        <h3 className="m-0 mb-2.5 text-[15.5px] font-bold flex items-center gap-2.5">
+      <div className="w-[400px] max-w-[92vw] bg-surface rounded-2xl p-[22px] shadow-modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="m-0 mb-2.5 text-[16px] font-bold flex items-center gap-2.5">
           <span className="w-[9px] h-[9px] rounded-[3px] bg-red" />{title}
         </h3>
-        <div className="text-[13.5px] text-muted leading-relaxed break-words">{message}</div>
+        <div className="text-[14px] text-muted leading-relaxed break-words">{message}</div>
         <div className="mt-5 flex justify-end gap-2.5">
           <button type="button" onClick={onCancel} className={`${BTN} px-5`}>取消</button>
           <button type="button" autoFocus onClick={onConfirm} className={`${BTN} ${BTN_DANGER} px-5`}>{confirmLabel}</button>

@@ -77,7 +77,7 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 | 目录 | 职责 |
 | --- | --- |
 | `core/` | 后端通道与领域纯逻辑：`bridge`、生成的 `protocol/`、`paths`、`format`、`tool-catalog`（内置工具中文目录）、`custom-models`、`passport-account`、`brand`（白标品牌：名字/标记/文案，构建时选一套） |
-| `ui/` | 与业务无关的通用件：`tokens`（BTN/DRAG 等类名常量）、`keys`（`isComposingKey`：输入法组字判定，凡是把 Enter 当快捷键的地方都要先过它）、`icons`、`markdown`、`popover`、`fields`、`model-picker`、`badges`、`glyphs`、`toggle`、`confirm-dialog`… |
+| `ui/` | 与业务无关的通用件：`tokens`（BTN/DRAG 等类名常量）、`feedback`（**错误/警告的唯一出口**，见下）、`layout`（`PageShell` 管理页骨架 / `Placeholder` 空态与加载态 / `InsetRow`+`INSET_BOX` 设置行）、`keys`（`isComposingKey`：输入法组字判定，凡是把 Enter 当快捷键的地方都要先过它）、`icons`、`markdown`、`popover`、`fields`、`model-picker`、`badges`、`glyphs`、`toggle`、`confirm-dialog`… |
 | `hooks/` | 跨模块通用钩子：`use-stick-to-bottom`、`use-persistent-state` |
 | `chat/` | 对话渲染层：`blocks`（分组/合并纯逻辑）、`tool-text`（工具事件→中文，纯函数）+ 各类卡片组件 |
 | `preview/` | 预览：`classify`/`tabs`（纯逻辑）、`file-panel`/`diff-panel`/`pane`/`file-browser`，Office 查看器在 `viewers/` |
@@ -85,8 +85,16 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 | `pages/` | 整页：`plugins/`、`permissions`、`mcp`、`memory`、`start/`、`settings/` |
 | `session/` | 应用状态与副作用钩子：`use-conversation`（引擎事件订阅在此）、`use-session`、`use-plan`（阶段化计划模式的运行状态与审批草稿）、`use-permission-queue`、`use-preview-panel`、`use-workspace-files`、`use-auto-preview`、`use-toast` |
 | `shell/` | 外壳组件：`title-bar`、`status-bar`、`chat-pane`、`preview-side`、`permission-modal`、`sidebar` |
-| `dev/` | 样式预览页（`?preview=tools` / `?preview=thinking`），不进正常流程 |
+| `dev/` | 预览页，不进正常流程：`?preview=ui` 公共组件画廊（**改样式后的视觉回归就看它**——自动化检查证明不了观感）、`?preview=tools` 工具卡、`?preview=thinking` 思考面板 |
 
 `App.tsx` 只负责把上述钩子接起来并按视图摆放 shell 组件，不放具体逻辑。改行为找 `session/`，改样子找 `shell/` 或对应页面。
+
+**公共组件与设计 token 的完整说明在 [`frontend/src/ui/README.md`](cmd/runcode-desktop/frontend/src/ui/README.md)**——token 对照表、每个组件的用法与**何时不该用**、以及每条约束各自是从哪次真实事故来的。写前端前先看它，改 `ui/` 下的东西请同步它。铁律五条：
+
+1. **颜色 / 圆角 / 阴影 / 字号只用 token**，不写 `#hex`、`rgba()`、`rounded-[8px]`、`text-[12.5px]` 这类字面值（三类例外见文档）。透明度用斜杠语法 `border-red/35`。
+2. **字号只有整数 px，没有半档**（`9 10 11 12 13 14 15 16 18 20 22 24 26`，主力 12/13）。要拉层次跨整档——0.5px 在本应用的 DPI 下看不出来，只会变成下一个人的困惑。
+3. **报错与警告只从 `ui/feedback` 出**：对话流用 `SystemNote`（居中分割线条，**不是气泡**——只有模型说的话才进助手列 `BotRow`），弹窗表单用 `Banner`，页面级失败用 `InlineError`。严重度只有 `Tone` 一个维度，它同时决定颜色与字号，调用点别另挑字号。警告文字用 `text-amberink` 不是 `text-amber`（后者对比度约 2.3:1，小字不达标）。
+4. **管理页用 `PageShell`**（mcp / memory / settings）。plugins 与 permissions 有各自的固定页头与更宽版心，不套这层。
+5. **把 Enter / 方向键当快捷键前先过 `isComposingKey`**，否则中日韩输入法组字时会被抢键。
 
 前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`chat/plan-draft`（审批区清单的增删/排序/整理）、`preview/classify`、`preview/tabs`、`composer/mention`、`composer/keymap`、`ui/keys`、`ui/model-picker`（`toModelOptions`：平台+自定义候选合并，输入框与设置页共用）、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`、`core/brand`）都有单测，新增纯函数请一并补测。

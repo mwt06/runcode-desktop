@@ -8,7 +8,12 @@ build/.runcode/
 build/*.html
 build/*.py
 build/ppt_skill/
-# dist/ is committed with a placeholder index.html so `go build`'s embed compiles;
-# `wails build` / `npm run build` regenerates its real contents (the assets bundle
-# is not committed).
-frontend/dist/assets/
+# dist/ is a build output — `wails build` / `npm run build` regenerates it, so
+# none of it is committed. Only the empty .gitkeep is tracked, and solely so the
+# directory survives a fresh clone: main.go's `//go:embed all:frontend/dist` needs
+# the tree to exist and match at least one file, and the `all:` prefix is what
+# makes a dot-file count. Without it `go build ./...` fails on a clean checkout.
+# (index.html used to be committed as a placeholder, but it carries the hashed
+# asset names, so every rebuild left the working tree dirty for no benefit.)
+frontend/dist/*
+!frontend/dist/.gitkeep

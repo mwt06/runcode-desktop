@@ -187,7 +187,7 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 		if err != nil {
 			return SessionInfo{}, err
 		}
-		persistConnectionChoice(cfg.Provider, cm.Model, name, "")
+		persistConnectionChoice(cfg.Provider, cm.Model, name)
 		return info, nil
 	}
 
@@ -205,7 +205,7 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 			a.config.Model = name
 		}
 		a.mu.Unlock()
-		persistConnectionChoice("passport", name, "", liveTenant)
+		persistConnectionChoice("passport", name, "")
 		return a.Status()
 	}
 	// Rebuild as a passport/bridge session on the target tenant, re-wiring the token
@@ -227,7 +227,7 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 	if err != nil {
 		return SessionInfo{}, err
 	}
-	persistConnectionChoice("passport", name, "", nextTenant)
+	persistConnectionChoice("passport", name, "")
 	return info, nil
 }
 
@@ -239,12 +239,18 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 // and a custom profile keeps its endpoint/key in its own CustomModels record,
 // re-resolved by name. Persistence failures are non-fatal (the live switch already
 // took effect); the choice simply reverts to the stored one on the next restart.
-func persistConnectionChoice(provider, model, customModelName, tenantID string) {
+//
+// 它**刻意不碰 TenantID**：租户是账号级选择，唯一的写入者是 SetActiveTenant（那里
+// 同时更新磁盘与内存 a.passportTenant，启动时又从磁盘读回，两者始终同步）。此前这个
+// 函数也写租户，于是有了两个写入者，而它的入参把两种含义混在了一起——切平台模型时
+// 传的是"当前租户值"（空是合法的，表示用令牌自带租户），切自定义连接时却传硬编码的
+// 空串表示"本次与租户无关"。结果是**在对话内切一次自定义模型就把已选租户清空**，
+// 下次启动被迫重选。少一个写入者，这类分叉就不会再出现。
+func persistConnectionChoice(provider, model, customModelName string) {
 	_ = updateRawConfig(func(cfg *StartSessionRequest) error {
 		cfg.Provider = provider
 		cfg.Model = model
 		cfg.CustomModelName = customModelName
-		cfg.TenantID = tenantID
 		cfg.BaseURL = ""
 		cfg.APIKey = ""
 		cfg.AuthToken = ""

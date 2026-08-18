@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, pickAutoPreview, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './classify'
+import { classifyPreview, isPreviewable, previewSrc, toWorkspaceRel, buildFileTree, artifactKindLabel, kindIcon, filterFiles, clampPreviewWidth, pickAutoPreview, rankAutoPreview, extractFilePaths, matchWorkspaceFiles, normalizeSheetGrid } from './classify'
 
 describe('normalizeSheetGrid', () => {
   it('pads ragged rows to the widest row and coerces cells to strings', () => {
@@ -206,5 +206,37 @@ describe('toWorkspaceRel 与行内路径可点击', () => {
 
   it('工作区之外的绝对路径原样保留，不会被误当成相对路径', () => {
     expect(toWorkspaceRel('E:\\别处\\x.md', 'D:\\演示')).toBe('E:/别处/x.md')
+  })
+})
+
+describe('rankAutoPreview', () => {
+  it('返回完整顺序，供调用方逐个验证存在性', () => {
+    expect(rankAutoPreview(['build.py', 'README.md', 'deck.pptx']))
+      .toEqual(['deck.pptx', 'README.md', 'build.py'])
+  })
+
+  it('真实场景：Bash 生成的 pptx 排在 Write 写的讲稿 md 之前', () => {
+    // 做 PPT 的回合里 .pptx 由脚本产出、.md 是旁边的讲稿；此前只收集 Write/Edit 的
+    // 产物，pptx 根本进不了候选，于是总在开 md。
+    const ranked = rankAutoPreview([
+      'projects/deck/notes/01_封面.md',
+      'projects/deck/notes/02_正文.md',
+      'projects/deck/exports/page_design_20260804.pptx',
+    ])
+    expect(ranked[0]).toBe('projects/deck/exports/page_design_20260804.pptx')
+  })
+
+  it('丢掉不可预览的类型', () => {
+    expect(rankAutoPreview(['a.bin', 'b.md', 'c.exe'])).toEqual(['b.md'])
+    expect(rankAutoPreview(['a.bin'])).toEqual([])
+  })
+
+  it('同一个文件写多次只出现一次，并按最后一次的先后算', () => {
+    expect(rankAutoPreview(['a.md', 'b.md', 'a.md'])).toEqual(['a.md', 'b.md'])
+  })
+
+  it('与 pickAutoPreview 首选一致', () => {
+    const paths = ['x.go', 'y.pptx', 'z.md']
+    expect(rankAutoPreview(paths)[0]).toBe(pickAutoPreview(paths))
   })
 })

@@ -40,13 +40,13 @@ export function PlanStageBar({ run, busy, onResume, onCancel }: {
   const stalled = !busy && run.state === PlanStates.Planning
   return (
     <div className="flex-none flex items-center gap-3 px-6 py-2 border-b border-line2 bg-surface2">
-      <span className="text-[12.5px] text-muted flex-none">计划模式</span>
+      <span className="text-[13px] text-muted flex-none">计划模式</span>
       <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto">
         {STAGES.map((stage, i) => (
           <div key={stage.key} className="flex items-center gap-1.5 flex-none">
             {i > 0 && <span className={`w-4 h-px ${i <= done ? 'bg-primary' : 'bg-line2'}`} />}
             <span
-              className={`inline-flex items-center gap-1 text-[12.5px] px-2 py-0.5 rounded-full border ${
+              className={`inline-flex items-center gap-1 text-[13px] px-2 py-0.5 rounded-full border ${
                 i < done
                   ? 'border-transparent text-green'
                   : i === active
@@ -62,11 +62,11 @@ export function PlanStageBar({ run, busy, onResume, onCancel }: {
       </div>
       <div className="flex-1" />
       {stalled && (
-        <button onClick={onResume} className="flex-none text-[12.5px] text-primaryink font-medium hover:brightness-110 cursor-pointer">
+        <button onClick={onResume} className="flex-none text-[13px] text-primaryink font-medium hover:brightness-110 cursor-pointer">
           继续规划
         </button>
       )}
-      <button onClick={onCancel} className="flex-none text-[12.5px] text-muted hover:text-ink cursor-pointer">
+      <button onClick={onCancel} className="flex-none text-[13px] text-muted hover:text-ink cursor-pointer">
         取消规划
       </button>
     </div>
@@ -100,7 +100,7 @@ export function PlanBoard({
         <div className="flex items-center gap-2 mb-3 text-primaryink">
           <Icon name="compass" size={16} />
           <span className="text-[13px] font-semibold">方案待确认</span>
-          <span className="text-[12.5px] text-muted">
+          <span className="text-[13px] text-muted">
             可以改写、增删、调整顺序；确认后才会退出计划模式开始执行。
           </span>
         </div>
@@ -114,7 +114,7 @@ export function PlanBoard({
         {draft?.nonGoals?.length ? <Bullets label="不做" items={draft.nonGoals} /> : null}
 
         <div className="mt-3 mb-1.5 flex items-center gap-2">
-          <span className="text-[12.5px] font-semibold text-ink">执行步骤</span>
+          <span className="text-[13px] font-semibold text-ink">执行步骤</span>
           <span className="text-[12px] text-faint">{steps.length} 步</span>
         </div>
         <div className="flex flex-col gap-1.5">
@@ -130,7 +130,7 @@ export function PlanBoard({
         </div>
         <button
           onClick={() => actions.insertAfter(steps.length - 1)}
-          className="mt-2 text-[12.5px] text-primaryink hover:brightness-110 cursor-pointer inline-flex items-center gap-1"
+          className="mt-2 text-[13px] text-primaryink hover:brightness-110 cursor-pointer inline-flex items-center gap-1"
         >
           <Icon name="plus" size={13} /> 新增步骤
         </button>
@@ -177,7 +177,7 @@ function StepRow({ step, index, last, actions }: {
   }
 }) {
   return (
-    <div className="group flex gap-2 items-start bg-surface2 border border-line2 rounded-[10px] px-2.5 py-2 focus-within:border-primary">
+    <div className="group flex gap-2 items-start bg-surface2 border border-line2 rounded-btn px-2.5 py-2 focus-within:border-primary">
       <span className="mt-1.5 w-5 flex-none text-[12px] text-faint tabular-nums text-right">{index + 1}</span>
       <div className="flex-1 min-w-0 flex flex-col gap-1">
         <input
@@ -185,7 +185,7 @@ function StepRow({ step, index, last, actions }: {
           onChange={(e) => actions.patch(index, { title: e.target.value })}
           onBlur={actions.flush}
           placeholder="这一步做什么"
-          className="w-full text-[13.5px] text-ink bg-transparent outline-none placeholder:text-faint"
+          className="w-full text-[14px] text-ink bg-transparent outline-none placeholder:text-faint"
         />
         <textarea
           value={step.detail ?? ''}
@@ -193,7 +193,7 @@ function StepRow({ step, index, last, actions }: {
           onBlur={actions.flush}
           rows={step.detail ? 2 : 1}
           placeholder="补充说明（可留空）"
-          className="w-full resize-y text-[12.5px] text-muted bg-transparent outline-none placeholder:text-faint"
+          className="w-full resize-y text-[13px] text-muted bg-transparent outline-none placeholder:text-faint"
         />
         {step.files?.length ? (
           <div className="text-[12px] text-faint font-mono truncate">{step.files.join('  ')}</div>
@@ -233,7 +233,7 @@ function IconBtn({ name, label, onClick, disabled, flip }: {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="text-[12.5px] text-muted mt-1">
+    <div className="text-[13px] text-muted mt-1">
       <span className="text-faint">{label}：</span>
       {children}
     </div>
@@ -243,10 +243,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Bullets({ label, items, accent }: { label: string; items: string[]; accent?: boolean }) {
   return (
     <div className="mt-3">
-      <div className={`text-[12.5px] font-semibold mb-1 ${accent ? 'text-primaryink' : 'text-ink'}`}>{label}</div>
+      <div className={`text-[13px] font-semibold mb-1 ${accent ? 'text-primaryink' : 'text-ink'}`}>{label}</div>
       <ul className="flex flex-col gap-0.5">
         {items.map((item, i) => (
-          <li key={i} className="text-[12.5px] text-muted flex gap-1.5">
+          <li key={i} className="text-[13px] text-muted flex gap-1.5">
             <span className="text-faint flex-none">·</span>
             <span className="whitespace-pre-wrap min-w-0">{item}</span>
           </li>

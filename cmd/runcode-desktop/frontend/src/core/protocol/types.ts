@@ -336,6 +336,7 @@ export interface PermissionRequest {
   command?: string;
   harmReason?: string;
   samplingServer?: string;
+  allowedDecisions?: string[] | null;
 }
 
 // Mirrors protocol.PlanApproveRequest. PlanApproveRequest 是用户点"确认执行"时提交的东西：编辑后的最终清单，加上执行阶段 要切换到的权限模式（沿用原先那张三选一卡片的语义：交互 / 智能）。

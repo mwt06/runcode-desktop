@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/ui/icons'
 import { errCode, errText, readArtifactBytes } from '@/core/bridge'
 import { ViewerError } from './viewer-error'
+import { PreviewLoading } from '../loading'
 
 // onMissing fires when the file is gone rather than unreadable, so the panel can
 // close the tab instead of showing an error for something the user cannot fix.
@@ -72,7 +73,7 @@ export function PptxView({ relPath, reloadKey, onMissing }: { relPath: string; r
         else if (e.key === 'ArrowRight') { e.preventDefault(); go(idx + 1) }
       }}
     >
-      {state === 'loading' && <div className="p-6 text-[13px] text-muted">正在加载幻灯片预览…</div>}
+      {state === 'loading' && <PreviewLoading hint="正在加载幻灯片预览…" />}
       <div className="flex-1 min-h-0 overflow-auto p-3">
         {/* min-h-full + items-center 让幻灯片在面板里垂直居中；内容比面板高时容器随之
             撑高、从顶部正常滚动，不会裁掉顶部。水平居中由 pptx-host 的 margin:auto 负责。 */}

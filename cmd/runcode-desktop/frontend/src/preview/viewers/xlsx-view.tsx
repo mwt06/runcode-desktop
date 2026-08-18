@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { errCode, errText, readArtifactBytes } from '@/core/bridge'
 import { normalizeSheetGrid } from '../classify'
 import { ViewerError } from './viewer-error'
+import { PreviewLoading } from '../loading'
 
 // onMissing fires when the file is gone rather than unreadable, so the panel can
 // close the tab instead of showing an error for something the user cannot fix.
@@ -42,7 +43,7 @@ export function XlsxView({ relPath, reloadKey, onMissing }: { relPath: string; r
     return () => { cancelled = true }
   }, [relPath, reloadKey])
   if (err) return <ViewerError relPath={relPath} message={err} />
-  if (!sheets) return <div className="p-6 text-[13px] text-muted">正在加载表格预览…</div>
+  if (!sheets) return <PreviewLoading hint="正在加载表格预览…" />
   return (
     <div className="min-h-full flex flex-col">
       {sheets.length > 1 && (

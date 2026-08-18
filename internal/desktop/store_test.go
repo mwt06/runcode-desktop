@@ -124,3 +124,45 @@ func TestSetDisabledConcurrentNoLostUpdate(t *testing.T) {
 		t.Fatalf("disabled tools = %d (%v), want %d", len(tools), tools, n)
 	}
 }
+
+// 租户是账号级选择，只有 SetActiveTenant 能改。会话级的 saveConfig 不得清空它：
+// 自定义连接的启动请求天然不带 TenantID（直连自己的 Base URL，不经租户），一旦原样
+// 落盘就会把已选租户抹掉，多租户用户下次启动被迫重选——这正是"每次打开都要重新选
+// 租户和模型"的后半截。
+func TestSaveConfigKeepsTenantWhenRequestHasNone(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir()) // 隔离 desktop.json
+
+	// 用户选定了租户（走 SetActiveTenant 的持久化路径）。
+	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+		raw.TenantID = "wjtest"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 随后用一个自定义连接开会话：请求里没有租户。
+	saveConfig(StartSessionRequest{
+		CWD: t.TempDir(), Provider: "anthropic", Model: "claude-opus-5", CustomModelName: "claude-opus-5",
+	})
+
+	if got := loadRawConfig().TenantID; got != "wjtest" {
+		t.Fatalf("自定义连接的会话把租户抹掉了: TenantID = %q, want %q", got, "wjtest")
+	}
+}
+
+// 反向：请求带了租户就该覆盖，否则切换租户后开会话会被旧值粘住。
+func TestSaveConfigOverwritesTenantWhenRequestHasOne(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+
+	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+		raw.TenantID = "old"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	saveConfig(StartSessionRequest{CWD: t.TempDir(), Provider: "passport", Model: "m", TenantID: "new"})
+
+	if got := loadRawConfig().TenantID; got != "new" {
+		t.Fatalf("TenantID = %q, want %q", got, "new")
+	}
+}

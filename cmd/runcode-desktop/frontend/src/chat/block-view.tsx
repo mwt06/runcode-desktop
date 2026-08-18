@@ -1,8 +1,14 @@
 // BlockView 是对话流的单块渲染入口：把一个 Block 画成对应的行——用户消息、助手
-// 回复(含思考面板)、错误/警告/提示条、压缩与重试分割线、用量脚注、工具卡。
+// 回复(含思考面板)、系统事件条(错误/警告/提示/压缩/重试)、用量脚注、工具卡。
 // 分组类(执行卡/子代理组/编辑组)由上层 groupBlocks 决定，不走这里。
+//
+// 只有「模型说的话」进 BotRow(助手列)。系统自己的播报一律走 ui/feedback 的
+// SystemNote 分割线条——此前错误/警告是助手列里的气泡、提示是居中胶囊、压缩与
+// 重试各自手写了一遍同样的分割线，四种形状表达同一件事。
 import { Icon } from '@/ui/icons'
 import { Markdown } from '@/ui/markdown'
+import { SystemNote } from '@/ui/feedback'
+import { WarnTriangle } from '@/ui/glyphs'
 import { fmtDuration, fmtTokens } from '@/core/format'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { type Block, retryReasonLabel } from './blocks'
@@ -20,11 +26,11 @@ export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; on
     case 'user':
       return (
         <div className="flex justify-end anim-rise">
-          <div className="min-w-0 max-w-[82%] rounded-[13px] px-3.5 py-2 text-[13.5px] text-ink leading-[1.55]" style={{ background: '#F4F3FF' }}>
+          <div className="min-w-0 max-w-[82%] rounded-[13px] px-3.5 py-2 text-[14px] text-ink leading-[1.55] bg-userbg">
             {block.attachments && block.attachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-1.5">
                 {block.attachments.map((name, i) => (
-                  <span key={name + i} className="inline-flex items-center gap-1 bg-surface border border-line2 rounded-[7px] px-2 py-0.5 text-[11.5px] text-muted max-w-[220px]">
+                  <span key={name + i} className="inline-flex items-center gap-1 bg-surface border border-line2 rounded-[7px] px-2 py-0.5 text-[12px] text-muted max-w-[220px]">
                     <Icon name="file" size={12} /> <span className="truncate">{name}</span>
                   </span>
                 ))}
@@ -52,7 +58,7 @@ export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; on
               <div
                 ref={block.streaming ? aScroll.ref : undefined}
                 onScroll={block.streaming ? aScroll.onScroll : undefined}
-                className={`text-[15px] text-[#3f4653] leading-[1.75] break-words${block.streaming ? ' max-h-[58vh] overflow-y-auto pr-1' : ''}`}
+                className={`text-[15px] text-ink2 leading-[1.75] break-words${block.streaming ? ' max-h-[58vh] overflow-y-auto pr-1' : ''}`}
               >
                 <Markdown onOpenFile={onOpenFile} resolveFile={resolveFile}>{block.text}</Markdown>
                 {block.streaming && <span className="caret">▍</span>}
@@ -62,50 +68,42 @@ export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; on
         </BotRow>
       )
     }
+    // error / warning / notice / compaction / retry are all the app talking, not the
+    // model — so they share one centered divider row (SystemNote) rather than sitting
+    // in the assistant column as bubbles. Tone carries the severity; error and
+    // warning stay selectable because the user may need to copy the reason out.
     case 'error':
       return (
-        <BotRow>
-          <div className="max-w-full px-3.5 py-2.5 rounded-[10px] text-[13.5px] bg-redbg text-red">{block.text}</div>
-        </BotRow>
+        <SystemNote tone="danger" icon={<WarnTriangle />} selectable>
+          {block.text}
+        </SystemNote>
       )
     case 'warning':
       return (
-        <BotRow>
-          <div className="max-w-full px-3.5 py-2.5 rounded-[10px] text-[13.5px] bg-[#fff7e8] text-[#9a6b12]">{block.text}</div>
-        </BotRow>
+        <SystemNote tone="warning" icon={<WarnTriangle />} selectable>
+          {block.text}
+        </SystemNote>
       )
     case 'notice':
-      return (
-        <div className="flex justify-center anim-rise">
-          <div className="px-3 py-1.5 rounded-full text-[12.5px] bg-surface2 border border-line2 text-muted">
-            {block.text}
-          </div>
-        </div>
-      )
+      return <SystemNote selectable>{block.text}</SystemNote>
     case 'compaction':
       return (
-        <div className="flex flex-col items-center gap-1 my-1 anim-rise select-none" title="较早的对话已折叠为一条摘要，仍完整保存在磁盘会话记录中">
-          <div className="flex items-center gap-3 w-full">
-            <div className="flex-1 h-px bg-line2" />
-            <span className="text-[11.5px] text-faint whitespace-nowrap">
-              已压缩对话 · {block.before} → {block.after} 条
+        <SystemNote
+          title="较早的对话已折叠为一条摘要，仍完整保存在磁盘会话记录中"
+          sub={
+            <span className="text-[11px] text-faint font-mono tabular-nums">
+              本次压缩 ↑{fmtTokens(block.inTok)} ↓{fmtTokens(block.outTok)} · 当前上下文 ≈{fmtTokens(block.contextTokens)}
             </span>
-            <div className="flex-1 h-px bg-line2" />
-          </div>
-          <span className="text-[11px] text-faint font-mono tabular-nums">
-            本次压缩 ↑{fmtTokens(block.inTok)} ↓{fmtTokens(block.outTok)} · 当前上下文 ≈{fmtTokens(block.contextTokens)}
-          </span>
-        </div>
+          }
+        >
+          已压缩对话 · {block.before} → {block.after} 条
+        </SystemNote>
       )
     case 'retry':
       return (
-        <div className="flex items-center gap-3 my-1 anim-rise select-none" title="模型请求中断，正在自动重试（磁盘记录不受影响）">
-          <div className="flex-1 h-px bg-[#f0c98a]" />
-          <span className="text-[11.5px] text-[#9a6b12] whitespace-nowrap">
-            {retryReasonLabel(block.reason)} · 重试 {block.attempt}/{block.maxAttempts}
-          </span>
-          <div className="flex-1 h-px bg-[#f0c98a]" />
-        </div>
+        <SystemNote tone="warning" title="模型请求中断，正在自动重试（磁盘记录不受影响）">
+          {retryReasonLabel(block.reason)} · 重试 {block.attempt}/{block.maxAttempts}
+        </SystemNote>
       )
     case 'usage':
       return (

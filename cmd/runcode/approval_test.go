@@ -168,7 +168,11 @@ func approvalRequest() permissions.ApprovalRequest {
 			permissions.MetadataReadState:    "fresh",
 			permissions.MetadataTargetExists: true,
 		},
-	}, permissions.Ask(permissions.ReasonRequiresApproval, "default.mutate.workspace"))}
+	}, permissions.Ask(permissions.ReasonRequiresApproval, "default.mutate.workspace")),
+		// The ordinary case: a workspace mutation has a grant key, so all four
+		// answers are on offer. The unrememberable case has its own test.
+		Grantable: true,
+	}
 }
 
 func commandApprovalRequest() permissions.ApprovalRequest {
@@ -183,5 +187,55 @@ func commandApprovalRequest() permissions.ApprovalRequest {
 			permissions.MetadataCommandRiskReasons:  []string{"network_access"},
 			permissions.MetadataCommandSummary:      "network command",
 		},
-	}, permissions.Ask(permissions.ReasonRequiresApproval, "default.execute.requires_approval"))}
+	}, permissions.Ask(permissions.ReasonRequiresApproval, "default.execute.requires_approval")),
+		Grantable: true,
+	}
+}
+
+// A request the engine cannot remember must not advertise the remembering
+// answers — and must not quietly accept them either. "s" on such a request used
+// to come back as an allow-session the engine then dropped, which is the user
+// asking not to be asked again and being asked again with nothing to explain it.
+func TestApprovalPrompterHidesGrantScopesWhenNotGrantable(t *testing.T) {
+	t.Parallel()
+
+	req := approvalRequest()
+	req.Grantable = false
+
+	var errOut bytes.Buffer
+	response, err := newApprovalPrompter(newLineInput(strings.NewReader("y\n")), &errOut).Prompt(context.Background(), req)
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if response.Effect != permissions.EffectAllow || response.Scope != permissions.ApprovalScopeOnce {
+		t.Fatalf("response = %#v, want allow once", response)
+	}
+	prompt := errOut.String()
+	if strings.Contains(prompt, "[s]ession") || strings.Contains(prompt, "[p]roject") {
+		t.Fatalf("prompt offers scopes the engine cannot honor: %q", prompt)
+	}
+	if !strings.Contains(prompt, "cannot be remembered") {
+		t.Fatalf("prompt = %q, want it to say why the scopes are gone", prompt)
+	}
+}
+
+// "s" is not an answer on an unrememberable request: it must re-ask rather than
+// resolve, and the retry line must name only the answers that exist.
+func TestApprovalPrompterRejectsScopeAnswerWhenNotGrantable(t *testing.T) {
+	t.Parallel()
+
+	req := approvalRequest()
+	req.Grantable = false
+
+	var errOut bytes.Buffer
+	response, err := newApprovalPrompter(newLineInput(strings.NewReader("s\ny\n")), &errOut).Prompt(context.Background(), req)
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if response.Effect != permissions.EffectAllow || response.Scope != permissions.ApprovalScopeOnce {
+		t.Fatalf("response = %#v, want the retry to land on allow once", response)
+	}
+	if !strings.Contains(errOut.String(), "Please answer y or n") {
+		t.Fatalf("retry line = %q, want it to offer y or n only", errOut.String())
+	}
 }

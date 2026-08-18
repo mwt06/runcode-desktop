@@ -22,22 +22,22 @@ export function StatusBar({ busy, sidebarCollapsed, onToggleSidebar, ctxTokens, 
           onClick={onToggleSidebar}
           title={sidebarCollapsed ? '展开侧栏' : '折叠侧栏'}
           style={NO_DRAG}
-          className="flex-none flex items-center justify-center w-8 h-8 rounded-[9px] text-muted hover:text-ink hover:bg-surface2 transition"
+          className="flex-none flex items-center justify-center w-8 h-8 rounded-field text-muted hover:text-ink hover:bg-surface2 transition"
         >
           <Icon name="panel-left" size={17} />
         </button>
-        <span className={`inline-flex items-center gap-1.5 text-[12.5px] ${busy ? 'text-green' : 'text-muted'}`}>
+        <span className={`inline-flex items-center gap-1.5 text-[13px] ${busy ? 'text-green' : 'text-muted'}`}>
           <span className={`w-[7px] h-[7px] rounded-full ${busy ? 'bg-green blip shadow-[0_0_0_3px_rgba(31,157,99,0.16)]' : 'bg-faint'}`} />
           {busy ? '运行中' : '空闲'}
         </span>
       </div>
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-[18px] text-muted text-[12.5px]" style={NO_DRAG}>
+        <div className="flex items-center gap-[18px] text-muted text-[13px]" style={NO_DRAG}>
           <ContextMeter used={ctxTokens} budget={ctxBudget} estimated={ctxEstimated} onCompact={onCompact} compacting={compacting} busy={busy} />
         </div>
         <button
           style={NO_DRAG}
-          className="text-muted hover:text-ink text-[12.5px] px-2"
+          className="text-muted hover:text-ink text-[13px] px-2"
           title="文件预览"
           onClick={onTogglePreview}
         >预览</button>

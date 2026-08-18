@@ -10,14 +10,38 @@ import (
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
 
-const approvalOptionCount = 4
+// approvalOption is one answer the modal offers: the shortcut that picks it, the
+// label that names it, and the response it produces.
+type approvalOption struct {
+	key    string
+	label  string
+	effect permissions.Effect
+	scope  permissions.ApprovalScope
+}
 
-const (
-	approvalOptionOnce = iota
-	approvalOptionSession
-	approvalOptionProject
-	approvalOptionDeny
-)
+// approvalOptions is the answer set for one request. It is derived from the
+// request instead of fixed, so the rendered options, the arrow-key cursor and the
+// letter shortcuts cannot disagree about what is on offer.
+//
+// A request the engine reports as not grantable has no key to remember an allow
+// by: a session or project answer would be accepted and record nothing, so the
+// user would ask not to be asked again and be asked again on the next identical
+// call. Offering allow-once alone is the honest form of that — and the letters
+// stay unbound rather than quietly meaning something else.
+func approvalOptions(grantable bool) []approvalOption {
+	options := []approvalOption{
+		{key: "y", label: "[y] allow once", effect: permissions.EffectAllow, scope: permissions.ApprovalScopeOnce},
+	}
+	if grantable {
+		options = append(options,
+			approvalOption{key: "s", label: "[s] allow session", effect: permissions.EffectAllow, scope: permissions.ApprovalScopeSession},
+			approvalOption{key: "p", label: "[p] allow project", effect: permissions.EffectAllow, scope: permissions.ApprovalScopeProject},
+		)
+	}
+	return append(options,
+		approvalOption{key: "n", label: "[n] deny", effect: permissions.EffectDeny, scope: permissions.ApprovalScopeOnce},
+	)
+}
 
 // Approver bridges blocking permission prompts (invoked on the turn goroutine,
 // deep inside the executor) to the Bubble Tea model, which renders the modal
@@ -62,6 +86,7 @@ func (a *Approver) Prompt(ctx context.Context, req permissions.ApprovalRequest) 
 		ExternalTargets: externalTargetLabels(req.ExternalTargets),
 		ExternalRoots:   externalTargetLabels(req.ExternalRoots),
 		Command:         req.Command,
+		Grantable:       req.Grantable,
 		Reply:           reply,
 	}
 	select {
@@ -147,9 +172,16 @@ type pendingApproval struct {
 	externalTargets []string
 	externalRoots   []string
 	command         string
-	reply           chan permissions.ApprovalResponse
-	selected        int
+	// grantable is the engine's answer to "can an allow be remembered at all".
+	// Only the option set is derived from it (see options) — storing the derived
+	// list too would let the two drift apart across a re-render.
+	grantable bool
+	reply     chan permissions.ApprovalResponse
+	selected  int
 }
+
+// options are the answers this pending request offers, in display order.
+func (p *pendingApproval) options() []approvalOption { return approvalOptions(p.grantable) }
 
 func (m *Model) enqueueApproval(msg approvalRequestMsg) {
 	pending := &pendingApproval{
@@ -158,6 +190,7 @@ func (m *Model) enqueueApproval(msg approvalRequestMsg) {
 		externalTargets: msg.ExternalTargets,
 		externalRoots:   msg.ExternalRoots,
 		command:         msg.Command,
+		grantable:       msg.Grantable,
 		reply:           msg.Reply,
 	}
 	if m.approval == nil {
@@ -179,23 +212,23 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		return m.resolveSelectedApproval()
 	case tea.KeyLeft, tea.KeyUp:
-		m.approval.selected = (m.approval.selected + approvalOptionCount - 1) % approvalOptionCount
+		count := len(m.approval.options())
+		m.approval.selected = (m.approval.selected + count - 1) % count
 		m.relayout()
 		return m, nil
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
-		m.approval.selected = (m.approval.selected + 1) % approvalOptionCount
+		m.approval.selected = (m.approval.selected + 1) % len(m.approval.options())
 		m.relayout()
 		return m, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(msg.String())) {
-	case "y":
-		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeOnce)
-	case "s":
-		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeSession)
-	case "p":
-		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeProject)
-	case "n":
-		return m.resolveApproval(permissions.EffectDeny, permissions.ApprovalScopeOnce)
+	// Letters resolve only what this request actually offers: on a request that
+	// cannot be remembered, "s" and "p" are unbound rather than silently allowing
+	// once under a scope the engine would drop.
+	pressed := strings.ToLower(strings.TrimSpace(msg.String()))
+	for _, option := range m.approval.options() {
+		if option.key == pressed {
+			return m.resolveApproval(option.effect, option.scope)
+		}
 	}
 	return m, nil
 }
@@ -204,16 +237,12 @@ func (m Model) resolveSelectedApproval() (tea.Model, tea.Cmd) {
 	if m.approval == nil {
 		return m, nil
 	}
-	switch m.approval.selected {
-	case approvalOptionSession:
-		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeSession)
-	case approvalOptionProject:
-		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeProject)
-	case approvalOptionDeny:
-		return m.resolveApproval(permissions.EffectDeny, permissions.ApprovalScopeOnce)
-	default:
+	options := m.approval.options()
+	if m.approval.selected < 0 || m.approval.selected >= len(options) {
 		return m.resolveApproval(permissions.EffectAllow, permissions.ApprovalScopeOnce)
 	}
+	selected := options[m.approval.selected]
+	return m.resolveApproval(selected.effect, selected.scope)
 }
 
 func (m Model) resolveApproval(effect permissions.Effect, scope permissions.ApprovalScope) (tea.Model, tea.Cmd) {

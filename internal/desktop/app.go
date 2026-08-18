@@ -237,6 +237,28 @@ func wireError(err error) error {
 // SetDialoger installs the native file-dialog provider (called by the shell).
 func (a *App) SetDialoger(d Dialoger) { a.dialog = d }
 
+// hostToolClasses is the permission classification of the three tools this shell
+// registers itself. The engine's resolver keys off a fixed tool-name switch, and a
+// name it does not know resolves to unknown/high-risk — which the default policy
+// hard-denies. So whoever supplies a tool has to supply its class, and for these
+// three that is us.
+//
+// All three are ClassReadOnly, which the engine resolves to side-effect-free
+// management: allowed without approval, and past plan mode's mutation block.
+//   - plan_write writes to this process's plan store and one file under .runcode,
+//     recording the plan the user is about to approve — exactly TodoWrite's shape.
+//   - open_preview only opens a panel in this window.
+//   - ReadOffice reads one document and enforces workspace containment itself.
+//
+// It is stated here rather than left to the engine on purpose: two of these names
+// still appear in the engine's own resolver switch, which is the engine knowing
+// about desktop-only tools. Classifying them here is what lets that go away.
+var hostToolClasses = map[string]permissions.ToolClass{
+	plantool.Name:    permissions.ClassReadOnly,
+	previewtool.Name: permissions.ClassReadOnly,
+	officetool.Name:  permissions.ClassReadOnly,
+}
+
 // configureSession is the host's per-session Configure hook — the desktop's
 // contribution to each session's assembly (migrated from the pre-host
 // buildAndSetLocked). It wires: (1) the interactive permission service around
@@ -260,9 +282,12 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// the UI can switch modes at runtime.
 	opts.Permissions = permissions.NewService(permissions.Options{
 		Mode: cfg.PermissionMode,
-		// plan_write is this shell's own tool, so its classification is this shell's
-		// to state; everything else falls through to the engine (see planResolver).
-		Resolver: planResolver{inner: permissions.DefaultResolver{}},
+		// The tools this shell registers itself are this shell's to classify;
+		// everything else falls through to the engine's resolver (see
+		// hostToolClasses). engine.Options.ToolClasses is the same thing for hosts
+		// that let the engine build the service — we build our own, so we install
+		// the classifier ourselves.
+		Resolver: permissions.WithToolClasses(nil, hostToolClasses),
 		// Which servers we vouch for is ours to know, not the engine's: the same
 		// opt-in that earns a server the user's identity headers also lets its calls
 		// skip the per-call approval an arbitrary external endpoint always needs.
