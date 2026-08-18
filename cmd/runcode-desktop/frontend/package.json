@@ -14,6 +14,7 @@
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
+    "@wailsio/runtime": "^3.0.0-beta.9",
     "docx-preview": "^0.4.0",
     "highlight.js": "^11.11.1",
     "pptx-preview": "^1.0.7",

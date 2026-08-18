@@ -69,7 +69,7 @@ func emitEvents(m *model) []byte {
 	for _, e := range m.events {
 		imports[e.payload] = true
 	}
-	fmt.Fprintf(&b, "\nimport type { %s } from './types';\n", strings.Join(sortedKeys(imports), ", "))
+	fmt.Fprintf(&b, "\nimport { Events } from '@wailsio/runtime';\nimport type { %s } from './types';\n", strings.Join(sortedKeys(imports), ", "))
 
 	b.WriteString("\n// EventMap maps every wire event name to its payload type.\n")
 	b.WriteString("export interface EventMap {\n")
@@ -79,22 +79,31 @@ func emitEvents(m *model) []byte {
 	b.WriteString("}\n")
 
 	b.WriteString(`
-const runtime = () => (window as any).runtime;
-
 // onEvent subscribes to a host event and delivers its typed payload.
 // It returns an unsubscribe function.
+//
+// Wails v3 的回调收到的是 WailsEvent 对象而不是数据本身,载荷挂在 .data 上;
+// Go 侧 app.Event.Emit(name, envelope) 单参数发射时 event.Data 就是 envelope,
+// 所以这里剥一层即可。
 export function onEvent<K extends keyof EventMap>(name: K, cb: (payload: EventMap[K]) => void): () => void {
-  return runtime().EventsOn(name, (env: Envelope<EventMap[K]>) => cb(env.payload));
+  return Events.On(name, (ev) => cb((ev.data as Envelope<EventMap[K]>).payload));
 }
 
 // onEnvelope subscribes to a host event and delivers the full envelope
 // (sessionId, seq, ts plus the typed payload). It returns an unsubscribe function.
 export function onEnvelope<K extends keyof EventMap>(name: K, cb: (env: Envelope<EventMap[K]>) => void): () => void {
-  return runtime().EventsOn(name, (env: Envelope<EventMap[K]>) => cb(env));
+  return Events.On(name, (ev) => cb(ev.data as Envelope<EventMap[K]>));
 }
 `)
 	return b.Bytes()
 }
+
+// appServiceFQN 是 desktop.App 在 Wails v3 绑定表里的名字前缀。
+//
+// 它必须与 main.go 里 application.NewService(deskApp) 注册的那个类型一致——
+// v3 用 reflect 的 PkgPath()+类型名生成,所以这里写的是 internal/desktop 的
+// 导入路径,不是桌面外壳自己的模块路径。改包位置时要一起改。
+const appServiceFQN = "github.com/wt68/runcode/internal/desktop.App"
 
 // emitCommands renders commands.ts: one typed wrapper per App command.
 func emitCommands(m *model) []byte {
@@ -107,15 +116,24 @@ func emitCommands(m *model) []byte {
 			imports[name] = true
 		}
 	}
+	b.WriteString("\nimport { Call } from '@wailsio/runtime';\n")
 	if len(imports) > 0 {
-		fmt.Fprintf(&b, "\nimport type { %s } from './types';\n", strings.Join(sortedKeys(imports), ", "))
+		fmt.Fprintf(&b, "import type { %s } from './types';\n", strings.Join(sortedKeys(imports), ", "))
 	}
 
-	b.WriteString(`
-// app resolves the Wails binding for desktop.App lazily, so importing this
-// module before the runtime injects window.go is safe.
-const app = () => (window as any).go.desktop.App;
-`)
+	fmt.Fprintf(&b, `
+// APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
+// "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
+const APP = %q;
+
+// call 走 v3 的按名调用。
+//
+// 不用 wails3 生成器那种 Call.ByID(<FNV 哈希>):哈希是它从 fqn 现算的实现细节,
+// protogen 复算一遍等于把两个工具的实现绑死。名字是稳定契约,哈希不是。
+function call<T>(method: string, ...args: unknown[]): Promise<T> {
+  return Call.ByName(APP + '.' + method, ...args) as Promise<T>;
+}
+`, appServiceFQN)
 
 	for _, c := range m.commands {
 		b.WriteString("\n")
@@ -129,7 +147,8 @@ const app = () => (window as any).go.desktop.App;
 			args = append(args, p.name)
 		}
 		fmt.Fprintf(&b, "export function %s(%s): Promise<%s> {\n", c.tsName, strings.Join(params, ", "), c.result)
-		fmt.Fprintf(&b, "  return app().%s(%s);\n", c.goName, strings.Join(args, ", "))
+		callArgs := append([]string{tsString(c.goName)}, args...)
+		fmt.Fprintf(&b, "  return call<%s>(%s);\n", c.result, strings.Join(callArgs, ", "))
 		b.WriteString("}\n")
 	}
 	return b.Bytes()

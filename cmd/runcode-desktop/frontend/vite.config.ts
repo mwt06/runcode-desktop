@@ -16,5 +16,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // 两个入口 = 两个窗口。主窗加载 /,录音窗加载 /recorder.html——具体哪个窗口
+    // 加载哪个 URL 在 main.go 的 WebviewWindowOptions 里指定。
+    // 两者共用同一份 src/,所以设计 token 与公共组件天然一致,不会出现
+    // 「像两个应用」的割裂感。
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        recorder: fileURLToPath(new URL('./recorder.html', import.meta.url)),
+      },
+    },
   },
 })

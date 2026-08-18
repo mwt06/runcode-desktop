@@ -1,8 +1,17 @@
 *.exe
 frontend/node_modules/
 frontend/wailsjs/
+# go-task 的校验和缓存（wails3 task 每次构建都写）。
+.task/
+# wails3 自动生成的绑定。本项目不用它——命令层走 tools/protogen 生成的
+# core/protocol/commands.ts（它按 CommandKinds 交叉核对，能挡住漏登记），
+# 录音窗那几个方法走手写的 recorder/window-api.ts。留着只会让人以为有两套真相。
+frontend/bindings/
 frontend/package.json.md5
 build/bin/
+# Wails v3 的产物目录（v2 是 build/bin/）。exe 已被上面的 *.exe 覆盖，但 macOS 的
+# .app 包与通用二进制没有扩展名，所以整个目录一并忽略。
+bin/
 # Runtime data and stray files created when the app is run from build/ as its CWD.
 build/.runcode/
 build/*.html

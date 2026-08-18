@@ -6,7 +6,7 @@
 // that add real client-side logic (readArtifactBytes, copyText).
 //
 // Consumers import from './bridge' only; nothing outside src/protocol touches
-// window.go directly, and window.runtime access stays here + in the generated
+// the Wails runtime directly, and runtime access stays here + in the generated
 // events module.
 
 // ---- wire types (generated single source of truth) ----------------------------
@@ -156,6 +156,7 @@ export {
   webProxy,
 } from './protocol/commands'
 
+import { Browser, Clipboard } from '@wailsio/runtime'
 import {
   readArtifactBytes as readArtifactBytesCmd,
   switchModel as switchModelCmd,
@@ -217,14 +218,14 @@ export function errCode(e: unknown): string {
 // openInBrowser opens an absolute URL in the system browser via the Wails
 // runtime (in-app anchors would navigate the webview itself).
 export function openInBrowser(url: string): void {
-  window.runtime.BrowserOpenURL(url)
+  void Browser.OpenURL(url)
 }
 
 // copyText writes to the clipboard via the Wails runtime, falling back to the
 // browser clipboard API.
 export async function copyText(text: string): Promise<void> {
   try {
-    await window.runtime.ClipboardSetText(text)
+    await Clipboard.SetText(text)
   } catch {
     await navigator.clipboard.writeText(text)
   }

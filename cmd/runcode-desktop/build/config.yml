@@ -1,0 +1,53 @@
+# 桌面应用的打包信息（Wails v3）。
+#
+# 与 v2 的 wails.json 有一处关键差异：**v3 在生成资产时就把这里的值烤进
+# build/windows/info.json 与 build/darwin/Info.plist**，不像 v2 那样在构建时
+# 解析 {{.Info.*}}。改了 info: 之后要跑
+#   wails3 task common:update:build-assets
+# 让它重新落到那两个文件里——注意那会覆盖手工维护过的资产。
+#
+# 按品牌打包不走这条路（见 scripts/build-desktop.sh）：品牌只需要换应用名与
+# bundle 标识符，脚本直接对已生成的资产做替换，避免整套重新生成把
+# wails.exe.manifest 这类东西冲掉。
+version: '3'
+
+info:
+  companyName: "国家开放大学"
+  productName: "XRUN"
+  productIdentifier: "cn.ouconline.ai.xrun"
+  description: "AI 编程助手（桌面版）"
+  copyright: "© 2026 国家开放大学"
+  comments: "An open-source AI coding companion (desktop)"
+  version: "0.1.0"
+
+# 开发模式配置。
+#
+# frontend 目录整体排除：Vite 自己有热更新，让 Go 侧再监听一遍只会互相打架。
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+      - build
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task common:dev:frontend
+      type: background
+    - cmd: wails3 task run
+      type: primary
+
+fileAssociations:

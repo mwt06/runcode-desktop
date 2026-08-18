@@ -4,6 +4,7 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
+import { Events } from '@wailsio/runtime';
 import type { AssistantDelta, ContextUsage, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, PlanRun, RetryNotice, SessionRenamed, ToolEvent, TurnEnd, TurnError, TurnQueued, Warning } from './types';
 
 // EventMap maps every wire event name to its payload type.
@@ -24,16 +25,18 @@ export interface EventMap {
   'warning': Warning;
 }
 
-const runtime = () => (window as any).runtime;
-
 // onEvent subscribes to a host event and delivers its typed payload.
 // It returns an unsubscribe function.
+//
+// Wails v3 的回调收到的是 WailsEvent 对象而不是数据本身,载荷挂在 .data 上;
+// Go 侧 app.Event.Emit(name, envelope) 单参数发射时 event.Data 就是 envelope,
+// 所以这里剥一层即可。
 export function onEvent<K extends keyof EventMap>(name: K, cb: (payload: EventMap[K]) => void): () => void {
-  return runtime().EventsOn(name, (env: Envelope<EventMap[K]>) => cb(env.payload));
+  return Events.On(name, (ev) => cb((ev.data as Envelope<EventMap[K]>).payload));
 }
 
 // onEnvelope subscribes to a host event and delivers the full envelope
 // (sessionId, seq, ts plus the typed payload). It returns an unsubscribe function.
 export function onEnvelope<K extends keyof EventMap>(name: K, cb: (env: Envelope<EventMap[K]>) => void): () => void {
-  return runtime().EventsOn(name, (env: Envelope<EventMap[K]>) => cb(env));
+  return Events.On(name, (ev) => cb(ev.data as Envelope<EventMap[K]>));
 }

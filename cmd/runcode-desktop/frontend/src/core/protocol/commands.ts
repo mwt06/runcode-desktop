@@ -4,482 +4,491 @@
 // desktop.App command surface (internal/desktop).
 // Regenerate with: go run ./tools/protogen
 
+import { Call } from '@wailsio/runtime';
 import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
 
-// app resolves the Wails binding for desktop.App lazily, so importing this
-// module before the runtime injects window.go is safe.
-const app = () => (window as any).go.desktop.App;
+// APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
+// "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
+const APP = "github.com/wt68/runcode/internal/desktop.App";
+
+// call 走 v3 的按名调用。
+//
+// 不用 wails3 生成器那种 Call.ByID(<FNV 哈希>):哈希是它从 fqn 现算的实现细节,
+// protogen 复算一遍等于把两个工具的实现绑死。名字是稳定契约,哈希不是。
+function call<T>(method: string, ...args: unknown[]): Promise<T> {
+  return Call.ByName(APP + '.' + method, ...args) as Promise<T>;
+}
 
 // ActiveTenant 返回当前活动租户 id(可能为空 = 令牌自带租户)。
 // kind: query
 export function activeTenant(): Promise<string> {
-  return app().ActiveTenant();
+  return call<string>('ActiveTenant');
 }
 
 // CloseSession ends the session and releases its resources.
 // kind: trigger
 export function closeSession(): Promise<void> {
-  return app().CloseSession();
+  return call<void>('CloseSession');
 }
 
 // Compact summarizes the oldest turns now and reports the message counts.
 // kind: trigger
 export function compact(): Promise<CompactResult> {
-  return app().Compact();
+  return call<CompactResult>('Compact');
 }
 
 // ContextAuditStatus 报告上下文审核的当前状态（是否测试版、开关、查看地址、目录）。
 // kind: query
 export function contextAuditStatus(): Promise<ContextAuditInfo> {
-  return app().ContextAuditStatus();
+  return call<ContextAuditInfo>('ContextAuditStatus');
 }
 
 // DeleteAgent removes a sub-agent file in the given scope and returns the list.
 // kind: idempotent-set
 export function deleteAgent(name: string, scope: string): Promise<AgentList> {
-  return app().DeleteAgent(name, scope);
+  return call<AgentList>('DeleteAgent', name, scope);
 }
 
 // DeleteCustomModel 按名称删除，返回最新列表。未知名称是幂等 no-op。
 // kind: idempotent-set
 export function deleteCustomModel(name: string): Promise<CustomModel[] | null> {
-  return app().DeleteCustomModel(name);
+  return call<CustomModel[] | null>('DeleteCustomModel', name);
 }
 
 // DeleteMCPServer removes a server from config.toml.
 // kind: idempotent-set
 export function deleteMCPServer(name: string): Promise<void> {
-  return app().DeleteMCPServer(name);
+  return call<void>('DeleteMCPServer', name);
 }
 
 // DeleteSession permanently removes a saved session (history + title/meta sidecars) from the workspace store.
 // kind: idempotent-set
 export function deleteSession(id: string): Promise<void> {
-  return app().DeleteSession(id);
+  return call<void>('DeleteSession', id);
 }
 
 // DeleteSkill removes a skill directory in the given scope and returns the list.
 // kind: idempotent-set
 export function deleteSkill(name: string, scope: string): Promise<SkillList> {
-  return app().DeleteSkill(name, scope);
+  return call<SkillList>('DeleteSkill', name, scope);
 }
 
 // GetProtocolInfo reports the wire-protocol version this host implements, so a frontend built against a different protocol can detect the mismatch instead of failing on a missing field.
 // kind: query
 export function getProtocolInfo(): Promise<Info> {
-  return app().GetProtocolInfo();
+  return call<Info>('GetProtocolInfo');
 }
 
 // ImportAgent opens a file picker for an existing agent .md and copies it into the given scope's agents directory under its declared name.
 // kind: trigger
 export function importAgent(scope: string): Promise<AgentList> {
-  return app().ImportAgent(scope);
+  return call<AgentList>('ImportAgent', scope);
 }
 
 // ImportSkill opens a folder picker (defaulting to ~/.claude/skills) and copies skills into the given scope's skills directory, each under its declared name with all its related files (references/, scripts/, assets/, …).
 // kind: trigger
 export function importSkill(scope: string): Promise<SkillList> {
-  return app().ImportSkill(scope);
+  return call<SkillList>('ImportSkill', scope);
 }
 
 // InjectMessage delivers text into the in-flight turn as mid-turn steering: the engine splices it into the running turn so the model sees it at the next iteration boundary (after the current tool round), instead of only next turn.
 // kind: trigger
 export function injectMessage(text: string): Promise<boolean> {
-  return app().InjectMessage(text);
+  return call<boolean>('InjectMessage', text);
 }
 
 // InjectMessageWithImages is InjectMessage for a message carrying image attachments: it injects into the in-flight turn as mid-turn steering, falling back to a fresh turn if none is running (returning startedTurn=true).
 // kind: trigger
 export function injectMessageWithImages(text: string, paths: string[]): Promise<boolean> {
-  return app().InjectMessageWithImages(text, paths);
+  return call<boolean>('InjectMessageWithImages', text, paths);
 }
 
 // Interrupt cancels the in-flight turn and denies any pending approval prompts.
 // kind: trigger
 export function interrupt(): Promise<void> {
-  return app().Interrupt();
+  return call<void>('Interrupt');
 }
 
 // ListAgents loads built-in, user, and project sub-agents (the same set the AI sees), so the manager mirrors the catalog.
 // kind: query
 export function listAgents(): Promise<AgentList> {
-  return app().ListAgents();
+  return call<AgentList>('ListAgents');
 }
 
 // ListCustomModels 返回脱敏后的自定义模型列表。连接密钥只在后端解析会话时 解密，前端仅知道是否已配置，不能读取明文或落盘密文。
 // kind: query
 export function listCustomModels(): Promise<CustomModel[] | null> {
-  return app().ListCustomModels();
+  return call<CustomModel[] | null>('ListCustomModels');
 }
 
 // ListEdits returns every recorded edit for the active session, so a resumed session can re-render its "已编辑" cards (Wails binding).
 // kind: query
 export function listEdits(): Promise<EditRecord[] | null> {
-  return app().ListEdits();
+  return call<EditRecord[] | null>('ListEdits');
 }
 
 // ListFiles returns the active session workspace's files as sorted, slash-style relative paths, for the composer's @-mention file picker.
 // kind: query
 export function listFiles(): Promise<string[] | null> {
-  return app().ListFiles();
+  return call<string[] | null>('ListFiles');
 }
 
 // ListMCPServers returns every configured MCP server (from the shared config.toml), annotated with live connection state from the running session.
 // kind: query
 export function listMCPServers(): Promise<MCPServerInfo[] | null> {
-  return app().ListMCPServers();
+  return call<MCPServerInfo[] | null>('ListMCPServers');
 }
 
 // ListSessions returns the workspace's saved sessions, newest first, for the recent-conversations list.
 // kind: query
 export function listSessions(): Promise<SessionSummary[] | null> {
-  return app().ListSessions();
+  return call<SessionSummary[] | null>('ListSessions');
 }
 
 // ListSkills loads both user (global) and project (workspace) skills, matching the precedence the AI sees (user shadows a same-named project skill).
 // kind: query
 export function listSkills(): Promise<SkillList> {
-  return app().ListSkills();
+  return call<SkillList>('ListSkills');
 }
 
 // ListTools returns the full catalog of built-in tools (always, so a disabled one still shows and can be re-enabled) plus the active session's MCP and infra tools, each annotated with source, concurrency-safety, and per-scope disabled state.
 // kind: query
 export function listTools(): Promise<ToolInfo[] | null> {
-  return app().ListTools();
+  return call<ToolInfo[] | null>('ListTools');
 }
 
 // LoadConfig returns the last-used session request to prefill the start form, or sensible defaults when none has been saved.
 // kind: query
 export function loadConfig(): Promise<StartSessionRequest> {
-  return app().LoadConfig();
+  return call<StartSessionRequest>('LoadConfig');
 }
 
 // McpMarket returns the platform MCP market (installable servers) from the bridge's GET /api/mcp/market.
 // kind: query
 export function mcpMarket(): Promise<McpMarketEntry[] | null> {
-  return app().McpMarket();
+  return call<McpMarketEntry[] | null>('McpMarket');
 }
 
 // NewSession opens a fresh session in the same workspace (a new id, empty history), reusing the active session's provider/model/credentials.
 // kind: trigger
 export function newSession(): Promise<SessionInfo> {
-  return app().NewSession();
+  return call<SessionInfo>('NewSession');
 }
 
 // OpenExternal opens the workspace file with the OS default application.
 // kind: trigger
 export function openExternal(relPath: string): Promise<void> {
-  return app().OpenExternal(relPath);
+  return call<void>('OpenExternal', relPath);
 }
 
 // PassportCancelLogin 取消进行中的登录等待。
 // kind: trigger
 export function passportCancelLogin(): Promise<void> {
-  return app().PassportCancelLogin();
+  return call<void>('PassportCancelLogin');
 }
 
 // PassportLogin 执行完整登录流程，阻塞至完成/超时/取消。
 // kind: trigger
 export function passportLogin(scheme: string): Promise<PassportStatus> {
-  return app().PassportLogin(scheme);
+  return call<PassportStatus>('PassportLogin', scheme);
 }
 
 // PassportLogout 清除本地令牌（不调 Passport endsession——桌面登出不应 顺带登出浏览器里的 SSO 会话）。
 // kind: trigger
 export function passportLogout(): Promise<void> {
-  return app().PassportLogout();
+  return call<void>('PassportLogout');
 }
 
 // PassportModels 经 Bridge 列指定租户的平台模型（tenantID 空 = 令牌自带租户）。
 // kind: query
 export function passportModels(tenantID: string): Promise<PassportModel[] | null> {
-  return app().PassportModels(tenantID);
+  return call<PassportModel[] | null>('PassportModels', tenantID);
 }
 
 // PassportStatus 返回当前登录态；已登录且未缓存用户信息时尝试拉取（失败不缓存、下次重试）。
 // kind: query
 export function passportStatus(): Promise<PassportStatus> {
-  return app().PassportStatus();
+  return call<PassportStatus>('PassportStatus');
 }
 
 // PassportTenants 列出当前用户可用的租户；单租户时前端自动选定，多租户让用户选。
 // kind: query
 export function passportTenants(): Promise<PassportTenant[] | null> {
-  return app().PassportTenants();
+  return call<PassportTenant[] | null>('PassportTenants');
 }
 
 // PassportValidate confirms the persisted token still works by calling the Bridge /api/me.
 // kind: query
 export function passportValidate(): Promise<PassportStatus> {
-  return app().PassportValidate();
+  return call<PassportStatus>('PassportValidate');
 }
 
 // PickImageAttachment opens a native image picker and returns the chosen path ("" if cancelled).
 // kind: trigger
 export function pickImageAttachment(): Promise<string> {
-  return app().PickImageAttachment();
+  return call<string>('PickImageAttachment');
 }
 
 // PickWorkspaceFolder opens a native directory picker and returns the chosen path ("" when cancelled).
 // kind: trigger
 export function pickWorkspaceFolder(): Promise<string> {
-  return app().PickWorkspaceFolder();
+  return call<string>('PickWorkspaceFolder');
 }
 
 // PlanApprove crosses the approval gate: it records the user's final checklist, leaves plan mode for the chosen permission mode, and returns both the new session status and the execution instruction to send as the next message.
 // kind: idempotent-set
 export function planApprove(req: PlanApproveRequest): Promise<PlanApproveResult> {
-  return app().PlanApprove(req);
+  return call<PlanApproveResult>('PlanApprove', req);
 }
 
 // PlanCancel abandons the planning run.
 // kind: idempotent-set
 export function planCancel(): Promise<PlanRun> {
-  return app().PlanCancel();
+  return call<PlanRun>('PlanCancel');
 }
 
 // PlanStatus returns the active session's planning run, so the UI can render the board on load and after a resume (a plan waiting for approval outlives a restart).
 // kind: query
 export function planStatus(): Promise<PlanRun> {
-  return app().PlanStatus();
+  return call<PlanRun>('PlanStatus');
 }
 
 // PlanUpdate stores the user's edits to the checklist (reordering, rewriting, adding or dropping steps) while it waits for approval.
 // kind: idempotent-set
 export function planUpdate(doc: PlanDoc): Promise<PlanRun> {
-  return app().PlanUpdate(doc);
+  return call<PlanRun>('PlanUpdate', doc);
 }
 
 // ReadArtifact returns the UTF-8 text of a workspace file for React-rendered previews (Markdown/code/text).
 // kind: query
 export function readArtifact(relPath: string): Promise<string> {
-  return app().ReadArtifact(relPath);
+  return call<string>('ReadArtifact', relPath);
 }
 
 // ReadArtifactBytes returns a workspace file's raw bytes as base64, for previews the renderer needs the binary of — Office documents (docx/pptx/xlsx), which are zip archives.
 // kind: query
 export function readArtifactBytes(relPath: string): Promise<string> {
-  return app().ReadArtifactBytes(relPath);
+  return call<string>('ReadArtifactBytes', relPath);
 }
 
 // ReadMemory returns the agent's persistent memory (user + project scopes) for display.
 // kind: query
 export function readMemory(): Promise<MemoryInfo> {
-  return app().ReadMemory();
+  return call<MemoryInfo>('ReadMemory');
 }
 
 // ReadProjectContext returns the workspace's project-instructions file for the editor.
 // kind: query
 export function readProjectContext(): Promise<ProjectContextInfo> {
-  return app().ReadProjectContext();
+  return call<ProjectContextInfo>('ReadProjectContext');
 }
 
 // ReloadMCPServers applies MCP config changes to the running session right away, by rebuilding it on its own id so the conversation is restored from the store and every server reconnects from the current config.toml.
 // kind: trigger
 export function reloadMCPServers(): Promise<boolean> {
-  return app().ReloadMCPServers();
+  return call<boolean>('ReloadMCPServers');
 }
 
 // RenderOfficePDF 把工作区里的一份 Office 文档转成 PDF,返回**工作区相对**的 PDF 路径,前端拿它走既有的 PDF 预览(经预览服务器的 URL 塞进 iframe)。 同一份文件重复打开命中缓存直接返回;源文件改了(大小或修改时间变了)键就变了, 于是自然重转,不需要额外的失效逻辑。
 // kind: query
 export function renderOfficePDF(relPath: string): Promise<string> {
-  return app().RenderOfficePDF(relPath);
+  return call<string>('RenderOfficePDF', relPath);
 }
 
 // Reset clears the in-memory working history (the on-disk log is untouched).
 // kind: trigger
 export function reset(): Promise<void> {
-  return app().Reset();
+  return call<void>('Reset');
 }
 
 // ResolveArtifactPath returns the absolute path of a workspace file, for the UI's "copy path" action.
 // kind: idempotent-set
 export function resolveArtifactPath(relPath: string): Promise<string> {
-  return app().ResolveArtifactPath(relPath);
+  return call<string>('ResolveArtifactPath', relPath);
 }
 
 // ResolvePermission delivers the user's decision for a pending approval request.
 // kind: idempotent-set
 export function resolvePermission(id: string, decision: string): Promise<void> {
-  return app().ResolvePermission(id, decision);
+  return call<void>('ResolvePermission', id, decision);
 }
 
 // ResumeSession reopens a saved session by id (reusing the active session's provider/model/credentials) and returns its prior conversation for display.
 // kind: trigger
 export function resumeSession(id: string): Promise<ResumedSession> {
-  return app().ResumeSession(id);
+  return call<ResumedSession>('ResumeSession', id);
 }
 
 // RevealInFolder shows the workspace file in the OS file manager.
 // kind: trigger
 export function revealInFolder(relPath: string): Promise<void> {
-  return app().RevealInFolder(relPath);
+  return call<void>('RevealInFolder', relPath);
 }
 
 // RevertEdit restores the file for snapshotID to its turn baseline (Wails binding).
 // kind: trigger
 export function revertEdit(snapshotID: string): Promise<void> {
-  return app().RevertEdit(snapshotID);
+  return call<void>('RevertEdit', snapshotID);
 }
 
 // ReviewEdit returns the baseline-vs-latest red/green diff for snapshotID (Wails binding).
 // kind: trigger
 export function reviewEdit(snapshotID: string): Promise<EditDiff> {
-  return app().ReviewEdit(snapshotID);
+  return call<EditDiff>('ReviewEdit', snapshotID);
 }
 
 // SaveAgent writes a sub-agent's <name>.md to its scope's root and returns the list.
 // kind: idempotent-set
 export function saveAgent(req: AgentSaveRequest): Promise<AgentList> {
-  return app().SaveAgent(req);
+  return call<AgentList>('SaveAgent', req);
 }
 
 // SaveCustomModel 新增或修改一个自定义模型，返回最新的脱敏列表。编辑时 OriginalName 定位原记录；APIKey 留空保留旧密钥，只有 ClearAPIKey 才清除。
 // kind: idempotent-set
 export function saveCustomModel(req: SaveCustomModelRequest): Promise<CustomModel[] | null> {
-  return app().SaveCustomModel(req);
+  return call<CustomModel[] | null>('SaveCustomModel', req);
 }
 
 // SaveMCPServer creates or updates a server and persists it to config.toml.
 // kind: idempotent-set
 export function saveMCPServer(in_: MCPServerInput): Promise<void> {
-  return app().SaveMCPServer(in_);
+  return call<void>('SaveMCPServer', in_);
 }
 
 // SaveProjectContext writes the project-instructions file, targeting the same file ReadProjectContext surfaced (the existing RUNCODE.md/CLAUDE.md, or a new CLAUDE.md in the workspace root).
 // kind: idempotent-set
 export function saveProjectContext(content: string): Promise<void> {
-  return app().SaveProjectContext(content);
+  return call<void>('SaveProjectContext', content);
 }
 
 // SaveSettings persists the settings form and applies what a running session can change without a rebuild (model, permission mode).
 // kind: idempotent-set
 export function saveSettings(req: StartSessionRequest): Promise<SessionInfo> {
-  return app().SaveSettings(req);
+  return call<SessionInfo>('SaveSettings', req);
 }
 
 // SaveSkill writes a skill's SKILL.md to its scope's root and returns the list.
 // kind: idempotent-set
 export function saveSkill(req: SkillSaveRequest): Promise<SkillList> {
-  return app().SaveSkill(req);
+  return call<SkillList>('SaveSkill', req);
 }
 
 // SendMessage runs one user turn asynchronously.
 // kind: trigger
 export function sendMessage(text: string): Promise<void> {
-  return app().SendMessage(text);
+  return call<void>('SendMessage', text);
 }
 
 // SendMessageWithImages runs one user turn whose message carries the images at the given paths.
 // kind: trigger
 export function sendMessageWithImages(text: string, paths: string[]): Promise<void> {
-  return app().SendMessageWithImages(text, paths);
+  return call<void>('SendMessageWithImages', text, paths);
 }
 
 // SessionModels 返回当前通行证会话所选租户的平台模型，供对话内模型选择器使用； 未登录返回空。
 // kind: query
 export function sessionModels(): Promise<PassportModel[] | null> {
-  return app().SessionModels();
+  return call<PassportModel[] | null>('SessionModels');
 }
 
 // SetActiveTenant 切换当前活动租户：持久化到 desktop.json，并更新内存配置(供对话内 模型选择器与下次新建/恢复会话使用)。仅在通行证会话下更新 baseURL。
 // kind: idempotent-set
 export function setActiveTenant(tenantID: string): Promise<void> {
-  return app().SetActiveTenant(tenantID);
+  return call<void>('SetActiveTenant', tenantID);
 }
 
 // SetAgentEnabled 在 scope("user"/"project")开关一个子代理。下次新建会话生效。
 // kind: idempotent-set
 export function setAgentEnabled(name: string, scope: string, enabled: boolean): Promise<void> {
-  return app().SetAgentEnabled(name, scope, enabled);
+  return call<void>('SetAgentEnabled', name, scope, enabled);
 }
 
 // SetContextAudit 开关上下文审核并持久化。仅测试版构建允许开启；关闭总是允许 （正式版里它本来就不可能开着）。运行态先行、持久化随后：持久化失败会回滚刚 打开的运行态，保证界面所见与重启后的行为一致。
 // kind: idempotent-set
 export function setContextAudit(enabled: boolean): Promise<ContextAuditInfo> {
-  return app().SetContextAudit(enabled);
+  return call<ContextAuditInfo>('SetContextAudit', enabled);
 }
 
 // SetMCPServerEnabled toggles a server on or off without touching its other fields.
 // kind: idempotent-set
 export function setMCPServerEnabled(name: string, enabled: boolean): Promise<void> {
-  return app().SetMCPServerEnabled(name, enabled);
+  return call<void>('SetMCPServerEnabled', name, enabled);
 }
 
 // SetModel switches the model used for subsequent turns.
 // kind: idempotent-set
 export function setModel(model: string): Promise<void> {
-  return app().SetModel(model);
+  return call<void>('SetModel', model);
 }
 
 // SetPermissionMode switches the permission mode at runtime.
 // kind: idempotent-set
 export function setPermissionMode(mode: string): Promise<void> {
-  return app().SetPermissionMode(mode);
+  return call<void>('SetPermissionMode', mode);
 }
 
 // SetPlanMode toggles plan mode on the active session and returns the updated status so the UI reflects it.
 // kind: idempotent-set
 export function setPlanMode(on: boolean): Promise<SessionInfo> {
-  return app().SetPlanMode(on);
+  return call<SessionInfo>('SetPlanMode', on);
 }
 
 // SetReasoningScenario switches the in-conversation "thinking model" (off/auto/<scenario>) and returns the updated status.
 // kind: idempotent-set
 export function setReasoningScenario(scenario: string): Promise<SessionInfo> {
-  return app().SetReasoningScenario(scenario);
+  return call<SessionInfo>('SetReasoningScenario', scenario);
 }
 
 // SetSkillEnabled 在 scope("user"/"project")开关一个技能。下次新建会话生效。
 // kind: idempotent-set
 export function setSkillEnabled(name: string, scope: string, enabled: boolean): Promise<void> {
-  return app().SetSkillEnabled(name, scope, enabled);
+  return call<void>('SetSkillEnabled', name, scope, enabled);
 }
 
 // SetThinkingEffort switches provider-native reasoning strength (off/low/medium/high) at runtime and returns the updated status.
 // kind: idempotent-set
 export function setThinkingEffort(effort: string): Promise<SessionInfo> {
-  return app().SetThinkingEffort(effort);
+  return call<SessionInfo>('SetThinkingEffort', effort);
 }
 
 // SetToolEnabled 在 scope("user"/"project")开关一个工具。下次新建会话生效。
 // kind: idempotent-set
 export function setToolEnabled(name: string, scope: string, enabled: boolean): Promise<void> {
-  return app().SetToolEnabled(name, scope, enabled);
+  return call<void>('SetToolEnabled', name, scope, enabled);
 }
 
 // SetWebProxy 设置联网工具的代理并持久化，返回规范化后的地址(空 = 直连)。 只影响 WebFetch/WebSearch，不影响模型/通行证的请求——那些走各自的客户端。 工具的 HTTP 客户端在建会话时构造，故改动对**新建/恢复的会话**生效。
 // kind: idempotent-set
 export function setWebProxy(v: string): Promise<string> {
-  return app().SetWebProxy(v);
+  return call<string>('SetWebProxy', v);
 }
 
 // StartSession opens (or reopens) the session for a workspace and returns its display state.
 // kind: trigger
 export function startSession(req: StartSessionRequest): Promise<SessionInfo> {
-  return app().StartSession(req);
+  return call<SessionInfo>('StartSession', req);
 }
 
 // Status returns the current session's display state.
 // kind: query
 export function status(): Promise<SessionInfo> {
-  return app().Status();
+  return call<SessionInfo>('Status');
 }
 
 // SwitchModel changes the model for the running session, spanning both platform (passport) and custom direct-connection models so the in-chat picker can offer either.
 // kind: trigger
 export function switchModel(kind: string, name: string): Promise<SessionInfo> {
-  return app().SwitchModel(kind, name);
+  return call<SessionInfo>('SwitchModel', kind, name);
 }
 
 // SwitchWorkspace closes the current session and opens a fresh one in dir, reusing the active session's provider/model/credentials.
 // kind: trigger
 export function switchWorkspace(dir: string): Promise<SessionInfo> {
-  return app().SwitchWorkspace(dir);
+  return call<SessionInfo>('SwitchWorkspace', dir);
 }
 
 // WebProxy 返回联网工具(WebFetch/WebSearch)使用的代理地址(空 = 直连)。
 // kind: query
 export function webProxy(): Promise<string> {
-  return app().WebProxy();
+  return call<string>('WebProxy');
 }

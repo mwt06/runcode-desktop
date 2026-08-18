@@ -1,29 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  macOS 应用包(.app)的元数据模板。Wails 打包时按 wails.json 的 info 段渲染
-  {{.Info.*}} / {{.Name}}。本文件是「默认品牌」(XRUN)的清单;打其它品牌时由
-  scripts/build-desktop.sh 用 build/brands/<品牌>/Info.plist 临时覆盖后再还原,
-  因为 bundle 标识符与显示名必须随品牌走(同一台 Mac 上要能并存、且 Launchpad/
-  访达显示各自的名字)。
+  macOS 应用包(.app)的元数据。
+
+  **Wails v3 不做模板替换**：build/darwin/Taskfile.yml 的 create:app:bundle 是
+  一句纯 cp，把本文件原样拷进 .app/Contents/。v2 时代这里写 {{.Info.ProductName}}
+  由打包器按 wails.json 渲染，照搬到 v3 的结果是发布出去的 .app 里显示名字面就是
+  「{{.Info.ProductName}}」。所以这里的值必须是字面量，并与 build/config.yml 的
+  info: 保持一致。
+
+  本文件是「默认品牌」(XRUN)的清单；打其它品牌时由 scripts/build-desktop.sh 用
+  build/brands/<品牌>/Info.plist 临时覆盖后再还原——bundle 标识符与显示名必须随
+  品牌走（同一台 Mac 上要能并存，且 Launchpad/访达显示各自的名字）。
 -->
 <plist version="1.0">
 <dict>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleName</key>
-    <string>{{.Info.ProductName}}</string>
+    <string>XRUN</string>
     <key>CFBundleExecutable</key>
-    <string>{{.Name}}</string>
+    <string>XRUN</string>
     <!-- 反写域名唯一标识本应用:换品牌必须换它,否则两个品牌在系统里被当成同一个
          应用(偏好、通知、Gatekeeper 记录都会串)。 -->
     <key>CFBundleIdentifier</key>
     <string>cn.ouconline.ai.xrun</string>
     <key>CFBundleVersion</key>
-    <string>{{.Info.ProductVersion}}</string>
+    <string>0.1.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>{{.Info.ProductVersion}}</string>
+    <string>0.1.0</string>
     <key>CFBundleGetInfoString</key>
-    <string>{{.Info.Comments}}</string>
+    <string>An open-source AI coding companion (desktop)</string>
     <key>CFBundleIconFile</key>
     <string>iconfile</string>
     <!-- 简体中文优先:菜单栏与系统弹窗(如目录选择授权)按此选择语言。 -->
@@ -35,7 +41,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>{{.Info.Copyright}}</string>
+    <string>© 2026 国家开放大学</string>
     <!-- 无边框窗口自绘标题栏,仍需系统按普通应用对待(有 Dock 图标、可激活)。 -->
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
