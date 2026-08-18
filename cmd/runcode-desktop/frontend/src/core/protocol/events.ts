@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Events } from '@wailsio/runtime';
-import type { AssistantDelta, ContextUsage, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, PlanRun, RetryNotice, SessionRenamed, ToolEvent, TurnEnd, TurnError, TurnQueued, Warning } from './types';
+import type { AssistantDelta, ContextUsage, Envelope, HarmAutoAllow, PassportStatus, PermissionRequest, PlanRun, RecorderLevel, RecorderState, RecorderTranscript, RetryNotice, SessionRenamed, ToolEvent, TurnEnd, TurnError, TurnQueued, Warning } from './types';
 
 // EventMap maps every wire event name to its payload type.
 export interface EventMap {
@@ -17,6 +17,9 @@ export interface EventMap {
   'passport:changed': PassportStatus;
   'permission:request': PermissionRequest;
   'plan:updated': PlanRun;
+  'recorder:level': RecorderLevel;
+  'recorder:state': RecorderState;
+  'recorder:transcript': RecorderTranscript;
   'session:renamed': SessionRenamed;
   'tool:event': ToolEvent;
   'turn:end': TurnEnd;

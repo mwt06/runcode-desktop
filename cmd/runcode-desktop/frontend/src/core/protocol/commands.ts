@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartSessionRequest, ToolInfo } from './types';
+import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -61,6 +61,12 @@ export function deleteMCPServer(name: string): Promise<void> {
   return call<void>('DeleteMCPServer', name);
 }
 
+// DeleteRecording 删掉一场录音（连同音频）。未知 id 是幂等 no-op。
+// kind: idempotent-set
+export function deleteRecording(id: string): Promise<void> {
+  return call<void>('DeleteRecording', id);
+}
+
 // DeleteSession permanently removes a saved session (history + title/meta sidecars) from the workspace store.
 // kind: idempotent-set
 export function deleteSession(id: string): Promise<void> {
@@ -71,6 +77,12 @@ export function deleteSession(id: string): Promise<void> {
 // kind: idempotent-set
 export function deleteSkill(name: string, scope: string): Promise<SkillList> {
   return call<SkillList>('DeleteSkill', name, scope);
+}
+
+// DiscardRecording 放弃这一场：停掉并删掉整个目录。
+// kind: trigger
+export function discardRecording(): Promise<void> {
+  return call<void>('DiscardRecording');
 }
 
 // GetProtocolInfo reports the wire-protocol version this host implements, so a frontend built against a different protocol can detect the mismatch instead of failing on a missing field.
@@ -137,6 +149,12 @@ export function listFiles(): Promise<string[] | null> {
 // kind: query
 export function listMCPServers(): Promise<MCPServerInfo[] | null> {
   return call<MCPServerInfo[] | null>('ListMCPServers');
+}
+
+// ListRecordings 列出历史录音，最近的在前。 顺带做崩溃恢复：进程被强杀过的会话在这里被标成 Interrupted，被截断的 WAV 也 在这里修好——列表是用户第一眼会看到的地方，修复放在这里最自然。 RecoverSessions 只回报它救过的那几场，所以完整清单要另取一次。
+// kind: query
+export function listRecordings(): Promise<RecordingInfo[] | null> {
+  return call<RecordingInfo[] | null>('ListRecordings');
 }
 
 // ListSessions returns the workspace's saved sessions, newest first, for the recent-conversations list.
@@ -223,6 +241,12 @@ export function passportValidate(): Promise<PassportStatus> {
   return call<PassportStatus>('PassportValidate');
 }
 
+// PauseRecording 暂停。本地 WAV 与服务端时间轴一起停住，恢复后接着走。
+// kind: trigger
+export function pauseRecording(): Promise<void> {
+  return call<void>('PauseRecording');
+}
+
 // PickImageAttachment opens a native image picker and returns the chosen path ("" if cancelled).
 // kind: trigger
 export function pickImageAttachment(): Promise<string> {
@@ -283,6 +307,24 @@ export function readProjectContext(): Promise<ProjectContextInfo> {
   return call<ProjectContextInfo>('ReadProjectContext');
 }
 
+// RecorderDevices 列出可用的录音设备。 不支持时不返回 error 而是 Supported=false + 理由：界面要把入口置灰并说明 原因，而不是等用户点下去才弹一个错。
+// kind: query
+export function recorderDevices(): Promise<RecorderDeviceList> {
+  return call<RecorderDeviceList>('RecorderDevices');
+}
+
+// RecorderSettings 读回录音设置。文件不存在时返回带默认值的空设置。
+// kind: query
+export function recorderSettings(): Promise<RecorderSettings> {
+  return call<RecorderSettings>('RecorderSettings');
+}
+
+// RecorderStatus 报告当前录音状态。没有正在进行的录音时 ID 为空。
+// kind: query
+export function recorderStatus(): Promise<RecordingInfo> {
+  return call<RecordingInfo>('RecorderStatus');
+}
+
 // ReloadMCPServers applies MCP config changes to the running session right away, by rebuilding it on its own id so the conversation is restored from the store and every server reconnects from the current config.toml.
 // kind: trigger
 export function reloadMCPServers(): Promise<boolean> {
@@ -311,6 +353,12 @@ export function resolveArtifactPath(relPath: string): Promise<string> {
 // kind: idempotent-set
 export function resolvePermission(id: string, decision: string): Promise<void> {
   return call<void>('ResolvePermission', id, decision);
+}
+
+// ResumeRecording 恢复。
+// kind: trigger
+export function resumeRecording(): Promise<void> {
+  return call<void>('ResumeRecording');
 }
 
 // ResumeSession reopens a saved session by id (reusing the active session's provider/model/credentials) and returns its prior conversation for display.
@@ -359,6 +407,12 @@ export function saveMCPServer(in_: MCPServerInput): Promise<void> {
 // kind: idempotent-set
 export function saveProjectContext(content: string): Promise<void> {
   return call<void>('SaveProjectContext', content);
+}
+
+// SaveRecorderSettings 写回录音设置。
+// kind: idempotent-set
+export function saveRecorderSettings(s: RecorderSettings): Promise<void> {
+  return call<void>('SaveRecorderSettings', s);
 }
 
 // SaveSettings persists the settings form and applies what a running session can change without a rebuild (model, permission mode).
@@ -463,6 +517,12 @@ export function setWebProxy(v: string): Promise<string> {
   return call<string>('SetWebProxy', v);
 }
 
+// StartRecording 开一场录音。同一时刻只允许一场。
+// kind: trigger
+export function startRecording(req: StartRecordingRequest): Promise<RecordingInfo> {
+  return call<RecordingInfo>('StartRecording', req);
+}
+
 // StartSession opens (or reopens) the session for a workspace and returns its display state.
 // kind: trigger
 export function startSession(req: StartSessionRequest): Promise<SessionInfo> {
@@ -473,6 +533,12 @@ export function startSession(req: StartSessionRequest): Promise<SessionInfo> {
 // kind: query
 export function status(): Promise<SessionInfo> {
   return call<SessionInfo>('Status');
+}
+
+// StopRecording 结束录音，返回这一场的最终记录。 会等服务端 flush 最后一块（上限 stopTimeout）——实测「说完话 → 出确认文本」 约 1.5 秒，等这一下换来的是最后一句话不丢。
+// kind: trigger
+export function stopRecording(): Promise<RecordingInfo> {
+  return call<RecordingInfo>('StopRecording');
 }
 
 // SwitchModel changes the model for the running session, spanning both platform (passport) and custom direct-connection models so the in-chat picker can offer either.

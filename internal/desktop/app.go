@@ -61,6 +61,10 @@ type App struct {
 	sink   EventSink
 	dialog Dialoger
 
+	// rec 是录音纪要的状态（一次只允许一场）。它自带锁，与 mu / startMu
+	// 没有嵌套关系——录音与对话是两条互不相干的线。
+	rec recorderCtl
+
 	// mgr is the host session manager. The desktop configures it with no
 	// resource limits and no idle reclamation (a visible conversation must
 	// never be reaped under the user).

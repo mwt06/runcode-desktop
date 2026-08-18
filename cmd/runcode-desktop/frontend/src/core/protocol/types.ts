@@ -16,6 +16,9 @@ export const Events = {
   PassportChanged: 'passport:changed',
   PermissionRequest: 'permission:request',
   PlanUpdated: 'plan:updated',
+  RecorderLevel: 'recorder:level',
+  RecorderState: 'recorder:state',
+  RecorderTranscript: 'recorder:transcript',
   Retry: 'llm:retry',
   SessionRenamed: 'session:renamed',
   ToolEvent: 'tool:event',
@@ -387,6 +390,98 @@ export interface ProjectContextInfo {
   exists: boolean;
 }
 
+// Mirrors protocol.RecorderDevice. RecorderDevice 是「麦克风 ∨」下拉里的一项。
+export interface RecorderDevice {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+// Mirrors protocol.RecorderDeviceList. RecorderDeviceList 是两路音源各自可选的设备。 Supported=false 表示这台机器上根本开不了录音（非 Windows、或 WASAPI 初始化 失败）。分开报而不是直接返回 error：界面要把「录音纪要」入口置灰并给出理由， 而不是等用户点下去才弹一个错。
+export interface RecorderDeviceList {
+  mic: RecorderDevice[] | null;
+  sys: RecorderDevice[] | null;
+  supported: boolean;
+  reason?: string;
+}
+
+// Mirrors protocol.RecorderLevel. RecorderLevel 是两条轨的实时电平（0..1），约 20 Hz。 两条轨合成一条事件发：它们各自约 20 Hz，分开发就是 40 次/秒的事件，而界面 上是同一次重绘要用的两个数。
+export interface RecorderLevel {
+  mic: number;
+  sys: number;
+}
+
+// Mirrors protocol.RecorderSettings. RecorderSettings 是录音纪要的客户端设置，落在配置目录里，与会话无关。
+export interface RecorderSettings {
+  gatewayUrl: string;
+  speakerName: string;
+  lang: string;
+  micDeviceId: string;
+  sysDeviceId: string;
+  keepAudio: boolean;
+  summaryModel: string;
+  root?: string;
+}
+
+// Mirrors protocol.RecorderState. RecorderState 是录音状态的变化。
+export interface RecorderState {
+  id: string;
+  state: string;
+  audioMs: number;
+  uplink?: string;
+  error?: string;
+}
+
+// Mirrors protocol.RecorderTrack. RecorderTrack 是一条音轨录完后的记录。
+export interface RecorderTrack {
+  source: string;
+  wav: string;
+  sampleRate: number;
+  channels: number;
+  durationMs: number;
+  gapMs: number;
+  sentFrames: number;
+  droppedFrames: number;
+  reconnects: number;
+}
+
+// Mirrors protocol.RecorderTranscript. RecorderTranscript 是网关下行的一条转写事件。 字段与 recorder.Event 一一对应，含义见那边——这里刻意不复述，两处各写一遍 只会各自漂移。
+export interface RecorderTranscript {
+  type: string;
+  track?: string;
+  seg: number;
+  rev: number;
+  text?: string;
+  bt?: number;
+  et?: number;
+  spk?: string;
+  name?: string;
+  userId?: string;
+  conf?: number;
+  segs?: number[] | null;
+  silence?: number;
+  need?: number;
+  stage?: string;
+  queuePos?: number;
+}
+
+// Mirrors protocol.RecordingInfo. RecordingInfo 是一场录音在界面上的样子。ID 为空表示「当前没有录音」。
+export interface RecordingInfo {
+  id: string;
+  title: string;
+  room: string;
+  state: string;
+  lang?: string;
+  startedAt: string;
+  endedAt?: string;
+  audioMs: number;
+  interrupted?: boolean;
+  needsBackfill?: boolean;
+  tracks?: RecorderTrack[] | null;
+  uplink?: string;
+  dir?: string;
+}
+
 // Mirrors protocol.ResultImage. ResultImage is an inline image a tool returned (Data is base64 in JSON).
 export interface ResultImage {
   media_type?: string;
@@ -506,6 +601,14 @@ export interface SkillSaveRequest {
   description: string;
   body: string;
   scope: string;
+}
+
+// Mirrors protocol.StartRecordingRequest. StartRecordingRequest 开一场录音。空字段一律回落到 RecorderSettings 里存的值。
+export interface StartRecordingRequest {
+  title: string;
+  lang: string;
+  micDeviceId: string;
+  sysDeviceId: string;
 }
 
 // Mirrors protocol.StartSessionRequest. StartSessionRequest opens a session for a workspace.

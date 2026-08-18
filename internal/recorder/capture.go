@@ -31,6 +31,11 @@ const (
 	// FrameDuration 与服务端的 chunk 尺寸对齐。实测流式单块计算中位 35.4 ms，
 	// 余量 565 ms，所以 600 ms 这一档是稳的。
 	FrameDuration = 600 * time.Millisecond
+	// LevelInterval 是电平回调的最小间隔。50 ms（20 Hz）是取舍点：再密人眼分辨
+	// 不出来，只是白白往事件总线上灌；再疏就画不出一句话里的起伏。
+	LevelInterval = 50 * time.Millisecond
+	// LevelSamples 是 LevelInterval 对应的样本数（16 kHz 下 800）。
+	LevelSamples = TargetSampleRate * int(LevelInterval/time.Millisecond) / 1000
 	// FrameSamples 是一帧的样本数（16000 × 0.6）。
 	FrameSamples = TargetSampleRate * int(FrameDuration/time.Millisecond) / 1000
 )
@@ -59,7 +64,8 @@ type DeviceInfo struct {
 type Frame struct {
 	Source Source
 	PCM    []int16
-	// Peak 是这一帧归一化前的峰值（0..1），给界面电平表用。
+	// Peak 是整帧的峰值（0..1）。界面电平条走 OpenConfig.OnLevel，这里留着是
+	// 为了让「这一帧有多响」跟着帧一起走——静音判定与它是同一块数据上的两个视角。
 	Peak float32
 	// Silent 表示这一帧判定为静音，上层可以直接不上行。
 	//
@@ -82,6 +88,14 @@ type OpenConfig struct {
 	// OnFrame 在采集线程上被调用，必须快速返回——里面不要做 I/O 或加锁等待，
 	// 阻塞它会直接导致丢音。
 	OnFrame func(Frame)
+	// OnLevel 报告峰值电平（0..1），驱动界面上那根跳动的条。
+	//
+	// 单独一条回调而不是复用 OnFrame：帧是 600 ms 一个，靠它驱动电平条每秒只
+	// 动 1.67 次，看着像卡死了。这条按 levelInterval 的节奏来（约 20 Hz），
+	// 密到够画出说话的起伏，又不至于把事件总线淹掉。
+	//
+	// 同样跑在采集线程上，必须快速返回。
+	OnLevel func(float32)
 	// OnError 报告采集中途的失败（设备被拔、驱动重启）。上层据此切设备重开。
 	OnError func(error)
 }

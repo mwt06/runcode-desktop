@@ -18,6 +18,7 @@ type fakeStream struct {
 	mu     sync.Mutex
 	closed bool
 	onFr   func(Frame)
+	onLvl  func(float32)
 }
 
 func (s *fakeStream) Format() Format { return s.format }
@@ -59,7 +60,7 @@ func (c *fakeCapturer) Open(cfg OpenConfig) (Stream, error) {
 	if c.failOn == cfg.Source {
 		return nil, fmt.Errorf("假装打不开 %s", cfg.Source)
 	}
-	st := &fakeStream{format: Format{SampleRate: 48000, Channels: 2}, onFr: cfg.OnFrame}
+	st := &fakeStream{format: Format{SampleRate: 48000, Channels: 2}, onFr: cfg.OnFrame, onLvl: cfg.OnLevel}
 	c.streams[cfg.Source] = st
 	c.opened = append(c.opened, cfg.Source)
 	return st, nil
@@ -608,4 +609,90 @@ func TestNewSessionValidates(t *testing.T) {
 	if _, err := NewSession(SessionConfig{Root: t.TempDir()}); err == nil {
 		t.Error("未注入 Capturer 应当报错")
 	}
+}
+
+// TestSessionSameSecondGetsOwnDir 盯住会话目录的独占认领。
+//
+// 场景是真实的：会开完点「结束」，想起还有一段要单独录，马上又点「开始」。
+// id 只精确到秒，两场撞进同一个目录的话，第二个 WAVSink 会把第一场的录音从头
+// 覆写掉——一小时的会就这么没了，而且两场共用一个 room 号，服务端会把它们并
+// 进同一条时间轴。
+func TestSessionSameSecondGetsOwnDir(t *testing.T) {
+	root := t.TempDir()
+	fixed := time.Date(2026, 8, 18, 15, 30, 45, 0, time.UTC)
+
+	newAt := func() *Session {
+		s, err := NewSession(SessionConfig{
+			Root:     root,
+			Capturer: newFakeCapturer(),
+			Uplinker: newFakeLinks().uplinker,
+			Now:      func() time.Time { return fixed },
+		})
+		if err != nil {
+			t.Fatalf("建会话: %v", err)
+		}
+		return s
+	}
+
+	first, second := newAt(), newAt()
+	if first.Dir() == second.Dir() {
+		t.Fatalf("同一秒的两场录音共用了目录 %s", first.Dir())
+	}
+	if first.Meta().ID == second.Meta().ID {
+		t.Fatalf("同一秒的两场录音共用了 id %s —— room 号也会撞", first.Meta().ID)
+	}
+
+	// 两份 meta 都要在，各自读得回来。
+	for _, s := range []*Session{first, second} {
+		m, err := ReadMeta(s.Dir())
+		if err != nil {
+			t.Fatalf("读 %s 的 meta: %v", s.Dir(), err)
+		}
+		if m.ID != s.Meta().ID {
+			t.Fatalf("meta 被另一场覆盖了：%s != %s", m.ID, s.Meta().ID)
+		}
+	}
+}
+
+// TestSessionLevelComesFromCapture 盯住电平走的是采集层那条密集回调，而不是
+// 600 ms 一个的帧——靠帧驱动的话电平条每秒只动 1.67 次，看着像卡死了。
+func TestSessionLevelComesFromCapture(t *testing.T) {
+	var mu sync.Mutex
+	got := map[Source][]float32{}
+	s, capt, _ := newTestSession(t, func(c *SessionConfig) {
+		c.OnLevel = func(src Source, peak float32) {
+			mu.Lock()
+			got[src] = append(got[src], peak)
+			mu.Unlock()
+		}
+	})
+	if err := s.Start(); err != nil {
+		t.Fatalf("开始: %v", err)
+	}
+	defer func() { _ = s.Stop(context.Background()) }()
+
+	// 一帧都不推，只报电平：这正是「说话了但还没攒够 600 ms」的那段时间，
+	// 界面上的条必须已经在动了。
+	capt.stream(SourceMic).level(0.8)
+	capt.stream(SourceMic).level(0.3)
+	capt.stream(SourceLoopback).level(0.5)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got[SourceMic]) != 2 || got[SourceMic][0] != 0.8 {
+		t.Fatalf("麦克风电平不对：%v", got[SourceMic])
+	}
+	if len(got[SourceLoopback]) != 1 || got[SourceLoopback][0] != 0.5 {
+		t.Fatalf("回环电平不对：%v", got[SourceLoopback])
+	}
+}
+
+// level 模拟一次采集层的电平回调（比 push 密得多，见 OpenConfig.OnLevel）。
+func (s *fakeStream) level(peak float32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.onLvl == nil {
+		return
+	}
+	s.onLvl(peak)
 }

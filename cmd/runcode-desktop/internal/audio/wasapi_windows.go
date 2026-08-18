@@ -126,7 +126,7 @@ func (c *Capturer) Open(cfg recorder.OpenConfig) (recorder.Stream, error) {
 		dc.Capture.DeviceID = id.Pointer()
 	}
 
-	s := &stream{onFrame: cfg.OnFrame, onError: cfg.OnError, source: cfg.Source}
+	s := &stream{onFrame: cfg.OnFrame, onLevel: cfg.OnLevel, onError: cfg.OnError, source: cfg.Source}
 
 	dev, err := malgo.InitDevice(ctx.Context, dc, malgo.DeviceCallbacks{Data: s.onData})
 	if err != nil {
@@ -194,13 +194,20 @@ type stream struct {
 	onFrame func(recorder.Frame)
 	onError func(error)
 
+	onLevel func(float32)
+
 	fbuf []float32 // 设备字节解出来的交错浮点
 	mbuf []float32 // 降混后的单声道
 	ibuf []int16   // 转定点后的 PCM
 
-	// lastPeak 是最近一次回调的峰值。一帧（600 ms）会跨多次回调，取最后一次
-	// 对电平表足够——它只用来画一根跳动的条，不参与任何判决。
-	lastPeak float32
+	// framePeak 累计当前这一帧（600 ms，跨约 60 次回调）的峰值，emit 时清零。
+	// 取最大而不是取最后一次：一帧里只要响过就算响过，用最后一小块的值等于
+	// 在 600 ms 里随机抽一个瞬间，静音判定与它对不上。
+	framePeak float32
+	// levelPeak / levelCount 攒够 LevelSamples 个样本就往 onLevel 报一次，
+	// 把约 100 Hz 的回调节流到 20 Hz。
+	levelPeak  float32
+	levelCount int
 
 	closeOnce sync.Once
 }
@@ -251,9 +258,21 @@ func (s *stream) onData(_, pInput []byte, framecount uint32) {
 		return // 重采样器还在攒够一个输出点所需的输入
 	}
 	peak := recorder.PeakLevel(mono)
-	s.ibuf = recorder.FloatToInt16(mono, s.ibuf)
+	if peak > s.framePeak {
+		s.framePeak = peak
+	}
+	if peak > s.levelPeak {
+		s.levelPeak = peak
+	}
+	s.levelCount += len(mono)
+	if s.levelCount >= recorder.LevelSamples {
+		if s.onLevel != nil {
+			s.onLevel(s.levelPeak)
+		}
+		s.levelPeak, s.levelCount = 0, 0
+	}
 
-	s.lastPeak = peak
+	s.ibuf = recorder.FloatToInt16(mono, s.ibuf)
 	s.framer.Push(s.ibuf, s.emit)
 }
 
@@ -261,7 +280,8 @@ func (s *stream) emit(pcm []int16) {
 	s.onFrame(recorder.Frame{
 		Source: s.source,
 		PCM:    pcm,
-		Peak:   s.lastPeak,
+		Peak:   s.framePeak,
 		Silent: recorder.IsSilent(pcm),
 	})
+	s.framePeak = 0
 }

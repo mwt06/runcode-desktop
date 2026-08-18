@@ -26,6 +26,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/wt68/runcode/cmd/runcode-desktop/internal/audio"
 	"github.com/wt68/runcode/internal/desktop"
 )
 
@@ -233,6 +234,14 @@ func main() {
 	deskApp := desktop.New(sink)
 	deskApp.SetDialoger(dlg)
 
+	// 采集实现要 cgo 且只有 Windows 有，所以住在外壳里注进去（同 Dialoger）。
+	// 拿不到不算致命：录音入口会以「当前系统不支持」置灰，其余功能照常。
+	if capt, err := audio.New(); err != nil {
+		log.Printf("runcode-desktop: 录音采集不可用: %v", err)
+	} else {
+		deskApp.SetCapturer(capt)
+	}
+
 	// 嵌进来的是 frontend/dist 整棵子树，要把前缀剥掉再交给 asset server。
 	dist, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {
@@ -253,8 +262,11 @@ func main() {
 		},
 		// 桌面只允许开一个实例：两个进程同时开会抢同一份会话记录与配置。
 		SingleInstance: &application.SingleInstanceOptions{UniqueID: "cn.ouconline.ai.runcode"},
-		OnShutdown:     func() { _ = deskApp.CloseSession() },
-		Windows:        application.WindowsOptions{AdditionalBrowserArgs: devtoolsArgs()},
+		OnShutdown: func() {
+			deskApp.Shutdown()
+			_ = deskApp.CloseSession()
+		},
+		Windows: application.WindowsOptions{AdditionalBrowserArgs: devtoolsArgs()},
 	})
 	sink.setApp(app)
 	dlg.setApp(app)

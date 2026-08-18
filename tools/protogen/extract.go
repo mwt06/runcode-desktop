@@ -19,25 +19,30 @@ import (
 // Adding an event constant without adding it here fails generation, so the
 // EventMap can never silently miss an event (and vice versa for stale rows).
 var eventPayloads = map[string]string{
-	"EventAssistantDelta":    "AssistantDelta",
-	"EventAssistantThinking": "AssistantDelta",
-	"EventContextUsage":      "ContextUsage",
-	"EventHarmAutoAllow":     "HarmAutoAllow",
-	"EventPassportChanged":   "PassportStatus",
-	"EventRetry":             "RetryNotice",
-	"EventPermissionRequest": "PermissionRequest",
-	"EventPlanUpdated":       "PlanRun",
-	"EventSessionRenamed":    "SessionRenamed",
-	"EventToolEvent":         "ToolEvent",
-	"EventTurnEnd":           "TurnEnd",
-	"EventTurnQueued":        "TurnQueued",
-	"EventTurnError":         "TurnError",
-	"EventWarning":           "Warning",
+	"EventAssistantDelta":     "AssistantDelta",
+	"EventAssistantThinking":  "AssistantDelta",
+	"EventContextUsage":       "ContextUsage",
+	"EventHarmAutoAllow":      "HarmAutoAllow",
+	"EventPassportChanged":    "PassportStatus",
+	"EventRecorderLevel":      "RecorderLevel",
+	"EventRecorderState":      "RecorderState",
+	"EventRecorderTranscript": "RecorderTranscript",
+	"EventRetry":              "RetryNotice",
+	"EventPermissionRequest":  "PermissionRequest",
+	"EventPlanUpdated":        "PlanRun",
+	"EventSessionRenamed":     "SessionRenamed",
+	"EventToolEvent":          "ToolEvent",
+	"EventTurnEnd":            "TurnEnd",
+	"EventTurnQueued":         "TurnQueued",
+	"EventTurnError":          "TurnError",
+	"EventWarning":            "Warning",
 }
 
 // excludedMethods are App methods that are shell wiring, not wire commands.
 var excludedMethods = map[string]bool{
+	"SetCapturer": true, // installs the system audio capturer; called by the Wails shell, never the frontend
 	"SetDialoger": true, // installs the native file-dialog provider; called by the Wails shell, never the frontend
+	"Shutdown":    true, // once-per-run teardown; called by the Wails shell from OnShutdown, never the frontend
 	"Startup":     true, // once-per-run background work; called by the Wails shell from OnStartup, never the frontend
 }
 

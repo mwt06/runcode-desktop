@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -144,8 +145,14 @@ type SessionConfig struct {
 
 	// OnEvent 透传网关下行的转写事件给界面。
 	OnEvent func(Event)
-	// OnState 报告会话状态变化。
-	OnState func(SessionState)
+	// OnState 报告会话状态变化，带上此刻的完整快照。
+	//
+	// 之所以把快照一起给出去而不是让回调自己回来调 Meta()：它是**持着会话锁**
+	// 调用的，回调里再调任何一个要锁的方法都会死锁。带上快照就没有回调的理由了。
+	// 同理，回调里不要做阻塞的事。
+	OnState func(SessionMeta)
+	// OnUplink 报告某条轨的上行链路状态，驱动界面上的「离线录制中」。
+	OnUplink func(Source, UplinkState)
 	// OnLevel 报告电平，驱动界面上那根跳动的条。
 	OnLevel func(Source, float32)
 	// OnError 报告致命错误（磁盘写不动）。会话会自行停止。
@@ -212,17 +219,22 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 
 	started := now()
 	id := cfg.ID
+	dir := ""
 	if id == "" {
-		id = "rec_" + started.Format("20060102_150405")
+		var err error
+		id, dir, err = claimSessionDir(cfg.Root, "rec_"+started.Format("20060102_150405"))
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		dir = filepath.Join(cfg.Root, id)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("建录音目录: %w", err)
+		}
 	}
 	title := cfg.Title
 	if title == "" {
 		title = NextTitle(cfg.Root)
-	}
-
-	dir := filepath.Join(cfg.Root, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("建录音目录: %w", err)
 	}
 
 	s := &Session{
@@ -323,6 +335,11 @@ func (s *Session) openTrack(src Source, deviceID string, diarize bool) (*trackRu
 		Name: s.cfg.SpeakerName, Auth: s.cfg.Auth,
 		Diarize: diarize, Lang: s.cfg.Lang,
 		OnEvent: s.cfg.OnEvent,
+		OnState: func(st UplinkState) {
+			if s.cfg.OnUplink != nil {
+				s.cfg.OnUplink(src, st)
+			}
+		},
 	})
 	if err != nil {
 		tr.shutdownDisk()
@@ -333,6 +350,11 @@ func (s *Session) openTrack(src Source, deviceID string, diarize bool) (*trackRu
 	stream, err := s.cfg.Capturer.Open(OpenConfig{
 		Source: src, DeviceID: deviceID,
 		OnFrame: func(f Frame) { s.onFrame(tr, f) },
+		OnLevel: func(peak float32) {
+			if s.cfg.OnLevel != nil {
+				s.cfg.OnLevel(src, peak)
+			}
+		},
 		OnError: func(err error) {
 			if s.cfg.OnError != nil {
 				s.cfg.OnError(fmt.Errorf("[%s] 采集: %w", src, err))
@@ -351,9 +373,6 @@ func (s *Session) openTrack(src Source, deviceID string, diarize bool) (*trackRu
 
 // onFrame 跑在音频线程上，必须快速返回。
 func (s *Session) onFrame(tr *trackRun, f Frame) {
-	if s.cfg.OnLevel != nil {
-		s.cfg.OnLevel(f.Source, f.Peak)
-	}
 	// 暂停时整帧丢弃：本地 WAV 与服务端时间轴同步不前进。
 	if s.paused.Load() {
 		return
@@ -523,7 +542,7 @@ func (s *Session) setStateLocked(st SessionState) {
 	s.state = st
 	s.meta.State = st
 	if s.cfg.OnState != nil {
-		s.cfg.OnState(st)
+		s.cfg.OnState(s.snapshotLocked())
 	}
 }
 
@@ -692,4 +711,31 @@ func RecoverSessions(root string) ([]SessionMeta, error) {
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// claimSessionDir 用 os.Mkdir 独占地认领一个会话目录，必要时给 id 加后缀。
+//
+// 非要独占不可：id 只精确到秒，而「停一场、马上再开一场」是再自然不过的操作。
+// 撞上同一秒时若沿用同一个目录，上一场的 WAV 会被新的 WAVSink 从头覆写——录了
+// 一小时的会就这么没了；而且 Room 取自 id，服务端那边还会把两场会并进同一条
+// 时间轴。os.Mkdir 在目录已存在时报错，正好是需要的原子认领。
+func claimSessionDir(root, base string) (id, dir string, err error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", "", fmt.Errorf("建录音根目录: %w", err)
+	}
+	for n := 1; n <= 1000; n++ {
+		cand := base
+		if n > 1 {
+			cand = fmt.Sprintf("%s_%d", base, n)
+		}
+		d := filepath.Join(root, cand)
+		err := os.Mkdir(d, 0o755)
+		if err == nil {
+			return cand, d, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", "", fmt.Errorf("建录音目录: %w", err)
+		}
+	}
+	return "", "", fmt.Errorf("同一秒内已有太多录音目录（%s）", base)
 }
