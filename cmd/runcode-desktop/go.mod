@@ -8,6 +8,7 @@ module github.com/wt68/runcode/cmd/runcode-desktop
 go 1.26
 
 require (
+	github.com/gen2brain/malgo v0.11.25
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/wt68/runcode v0.0.0
 )
