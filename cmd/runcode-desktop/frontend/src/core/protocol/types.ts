@@ -414,6 +414,7 @@ export interface RecorderLevel {
 // Mirrors protocol.RecorderSettings. RecorderSettings 是录音纪要的客户端设置，落在配置目录里，与会话无关。
 export interface RecorderSettings {
   gatewayUrl: string;
+  gatewayToken: string;
   speakerName: string;
   lang: string;
   micDeviceId: string;

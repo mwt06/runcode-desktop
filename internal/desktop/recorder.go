@@ -244,7 +244,13 @@ func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.Recor
 
 	// 网关的鉴权用的就是通行证令牌。取不到不算致命：本地照录，转写那一路
 	// 会被服务端拒掉，界面上表现为「离线录制中」——比直接不让开始要好。
-	auth, _ := a.tokens.Token()
+	// 转写服务的令牌优先用设置里配的那个；没配就退回通行证令牌（本机匿名模式下
+	// 服务端不校验，照样能跑）。取不到也不算致命：本地照录，上行会被服务端拒掉，
+	// 界面上表现为「离线录制中」——比直接不让开始要好。
+	auth := strings.TrimSpace(set.GatewayToken)
+	if auth == "" {
+		auth, _ = a.tokens.Token()
+	}
 
 	cfg := recorder.SessionConfig{
 		Root:        root,

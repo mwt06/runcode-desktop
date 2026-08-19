@@ -87,6 +87,11 @@ type RecorderSettings struct {
 	// GatewayURL 是 FunASR 网关地址（ws:// 或 wss://）。空 = 未配置，
 	// 此时不允许开始录音。
 	GatewayURL string `json:"gatewayUrl"`
+	// GatewayToken 是转写服务的访问令牌（服务端的 FUNASR_AUTH_TOKEN）。
+	//
+	// 与通行证令牌是两回事：通行证认的是「你是谁」，这个认的是「你能不能用这台
+	// 转写服务」。留空时退回送通行证令牌——本机匿名模式下服务端不校验，那样也能跑。
+	GatewayToken string `json:"gatewayToken"`
 	// SpeakerName 是麦克风轨的说话人显示名，空则取通行证里的姓名。
 	SpeakerName string `json:"speakerName"`
 	// Lang 是默认识别语言，空 = 自动。
