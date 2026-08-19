@@ -124,6 +124,26 @@ describe('groupBlocks', () => {
     const groups = groupBlocks([toolB('1', 'Read'), toolB('2', 'Skill'), toolB('3', 'Grep')])
     expect(groups.map((g) => g.kind)).toEqual(['exec', 'skill', 'exec'])
   })
+
+  it('录音卡片和用户消息一样，先把上一轮的「已编辑」结掉', () => {
+    // 实测排错过：第 7 场的录音卡片排在了第 6 场那份纪要的「已编辑」卡前面，
+    // 读起来成了「第 7 场录音产生了第 6 场的纪要文件」。
+    const edit: Block = {
+      kind: 'tool', id: 'w1',
+      tool: ev({ toolName: 'Write', toolUseID: 'w1', data: { snapshotId: 's1', relPath: '纪要6.md', added: 3, removed: 0, isNew: true } }),
+    }
+    const rec: Block = { kind: 'recording', id: 'r7', mark: { id: 'rec_7', title: '新录音 7', audioMs: 52_000 } }
+    const groups = groupBlocks([
+      { kind: 'user', id: 'u6', text: '录音纪要', ts: '' },
+      edit,
+      rec,
+      { kind: 'user', id: 'u7', text: '录音纪要', ts: '' },
+    ])
+    // 顺序必须是：上一轮的用户消息 → 执行卡 → 已编辑 → 录音卡 → 下一轮用户消息
+    expect(groups.map((g) => g.kind)).toEqual(['block', 'exec', 'edits', 'block', 'block'])
+    const recGroup = groups[3]
+    expect(recGroup.kind === 'block' && recGroup.block.kind).toBe('recording')
+  })
 })
 
 describe('groupBlocks taskgroup', () => {

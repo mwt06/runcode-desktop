@@ -206,7 +206,10 @@ export function groupBlocks(blocks: Block[]): Group[] {
     pendingId = ''
   }
   for (const b of blocks) {
-    if (b.kind === 'user') {
+    // recording 和 user 一样标志着新一轮的开始——录音卡片就钉在纪要请求前面。
+    // 不在这里 flush 的话，上一轮的「已编辑」卡片会排到这张录音卡片**后面**去，
+    // 读起来就是"第 7 场录音产生了第 6 场的纪要文件"。
+    if (b.kind === 'user' || b.kind === 'recording') {
       flush() // end of the previous turn
       out.push({ kind: 'block', block: b })
       continue
