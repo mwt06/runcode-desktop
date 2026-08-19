@@ -80,14 +80,19 @@ func (l *fakeLink) Stats() recorder.UplinkStats {
 }
 
 type fakeUplinks struct {
-	mu    sync.Mutex
-	links map[recorder.Source]*fakeLink
+	// onOpen 在链路刚建好时调用，用来模拟「Start() 返回前就连上了」。
+	onOpen func(recorder.UplinkConfig)
+	mu     sync.Mutex
+	links  map[recorder.Source]*fakeLink
 }
 
 func (u *fakeUplinks) open(cfg recorder.UplinkConfig) (recorder.Link, error) {
 	l := &fakeLink{cfg: cfg}
 	u.mu.Lock()
 	u.links[cfg.Track] = l
+	if u.onOpen != nil {
+		u.onOpen(cfg)
+	}
 	u.mu.Unlock()
 	return l, nil
 }
@@ -457,5 +462,71 @@ func TestUplinkChangeEmitsState(t *testing.T) {
 	st, _ = payloadOf[protocol.RecorderState](t, sink, protocol.EventRecorderState)
 	if st.Uplink != string(recorder.UplinkConnected) {
 		t.Fatalf("两条轨都连上了，链路状态却是 %q", st.Uplink)
+	}
+}
+
+// TestUplinkAggregateSettlesOnConnected 盯住两条轨先后连上后指示灯要回到「已连接」。
+//
+// 实测挂过：读旧值 / 写自己这轨 / 读新值 三步没有原子性，两条轨的 goroutine 一
+// 交错就变成「麦克风算出变了并发了 connecting，回环随后算出没变而不发」——于是
+// 明明都连上了，界面永远停在「正在连接」。
+func TestUplinkAggregateSettlesOnConnected(t *testing.T) {
+	app, sink, _, up := newRecorderApp(t)
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{GatewayURL: "ws://x/ws"}); err != nil {
+		t.Fatalf("写设置: %v", err)
+	}
+	if _, err := app.StartRecording(protocol.StartRecordingRequest{}); err != nil {
+		t.Fatalf("StartRecording: %v", err)
+	}
+	defer func() { _, _ = app.StopRecording() }()
+
+	// 两条轨的回调并发打进来，正是实测里出问题的时序。
+	var wg sync.WaitGroup
+	for _, src := range []recorder.Source{recorder.SourceMic, recorder.SourceLoopback} {
+		wg.Add(1)
+		go func(s recorder.Source) {
+			defer wg.Done()
+			up.link(t, s).cfg.OnState(recorder.UplinkConnecting)
+			up.link(t, s).cfg.OnState(recorder.UplinkConnected)
+		}(src)
+	}
+	wg.Wait()
+
+	if got := app.RecorderStatus().Uplink; got != string(recorder.UplinkConnected) {
+		t.Fatalf("两条轨都连上了，聚合状态却是 %q", got)
+	}
+	st, ok := payloadOf[protocol.RecorderState](t, sink, protocol.EventRecorderState)
+	if !ok || st.Uplink != string(recorder.UplinkConnected) {
+		t.Fatalf("最后一条状态事件仍不是 connected：%+v", st)
+	}
+}
+
+// TestUplinkInitDoesNotClobberCallbacks 盯住链路状态初值写在 Start() 之前。
+//
+// 实测挂过：初值写在 Start() 之后，把 openTrack 里回调刚设好的 connected 又抹回
+// connecting。此后不再有状态变化，「正在连接」就永远挂在界面上——网关明明是通的。
+func TestUplinkInitDoesNotClobberCallbacks(t *testing.T) {
+	app, _, _, up := newRecorderApp(t)
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{GatewayURL: "ws://x/ws"}); err != nil {
+		t.Fatalf("写设置: %v", err)
+	}
+	// 建链路时立刻回调 connected，模拟「Start() 返回前就连上了」。
+	up.onOpen = func(cfg recorder.UplinkConfig) {
+		if cfg.OnState != nil {
+			cfg.OnState(recorder.UplinkConnected)
+		}
+	}
+
+	info, err := app.StartRecording(protocol.StartRecordingRequest{})
+	if err != nil {
+		t.Fatalf("StartRecording: %v", err)
+	}
+	defer func() { _, _ = app.StopRecording() }()
+
+	if info.Uplink != string(recorder.UplinkConnected) {
+		t.Fatalf("StartRecording 返回的链路状态是 %q，应为 connected", info.Uplink)
+	}
+	if got := app.RecorderStatus().Uplink; got != string(recorder.UplinkConnected) {
+		t.Fatalf("状态查询里的链路状态是 %q，应为 connected", got)
 	}
 }

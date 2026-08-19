@@ -71,6 +71,11 @@ export function useRecorder(): Recorder {
     setElapsedMS(audioMS)
   }, [])
 
+  // knownID / knownState 记住界面当前认定的那一场与那个状态，用来判断一条状态
+  // 事件到底是「真的变了」还是链路补发的。
+  const knownID = useRef('')
+  const knownState = useRef('')
+
   // pullStatus 取一次完整状态。
   //
   // 状态事件只带 id/state/audioMs——标题、音轨、目录只有这条命令有，所以换了一场
@@ -83,6 +88,7 @@ export function useRecorder(): Recorder {
     for (let i = 0; i < 6; i++) {
       try {
         const s = await recorderStatus()
+        knownState.current = s.state
         setInfo(s)
         adopt(s.audioMs, s.state)
         return
@@ -95,18 +101,24 @@ export function useRecorder(): Recorder {
   // 冷启动对齐一次：录音窗是被叫出来的，挂载时录音可能已经在跑了。
   useEffect(() => { void pullStatus() }, [pullStatus])
 
-  const knownID = useRef('')
   useEffect(() => {
     const offState = onEvent(Events.RecorderState, (st) => {
       setError(st.error ?? '')
-      adopt(st.audioMs, st.state)
+      // 只有真的换了状态才重置计时基准。链路状态变化也会补发这条事件，那种事件
+      // 带的是缓存里的时长（可能落后几十秒）——照单全收会让秒数往回跳。
+      const changed = st.state !== knownState.current
+      if (changed) {
+        knownState.current = st.state
+        adopt(st.audioMs, st.state)
+      }
       setInfo((prev) => {
         // 事件只带状态与时长，其余字段（标题、音轨、目录）留着上一次的。
         const base: RecordingInfo = prev ?? {
           id: st.id, title: '', room: '', state: st.state,
           startedAt: '', audioMs: st.audioMs,
         }
-        return { ...base, id: st.id || base.id, state: st.state, audioMs: st.audioMs, uplink: st.uplink }
+        const audioMs = changed ? st.audioMs : base.audioMs
+        return { ...base, id: st.id || base.id, state: st.state, audioMs, uplink: st.uplink }
       })
       // 换了一场：补一次完整状态，并把上一场的字幕清掉。
       if (st.id && st.id !== knownID.current) {
@@ -150,6 +162,7 @@ export function useRecorder(): Recorder {
     setTranscript(emptyTranscript)
     const s = await startRecording(req ?? { title: '', lang: '', micDeviceId: '', sysDeviceId: '' })
     knownID.current = s.id
+    knownState.current = s.state
     setInfo(s)
     adopt(s.audioMs, s.state)
     return s
@@ -157,6 +170,7 @@ export function useRecorder(): Recorder {
 
   const stop = useCallback(async () => {
     const s = await stopRecording()
+    knownState.current = s.state
     setInfo(s)
     adopt(s.audioMs, s.state)
     return s
