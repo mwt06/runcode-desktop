@@ -16,7 +16,7 @@ import { Section } from './section'
 
 const EMPTY: RecorderSettings = {
   gatewayUrl: '', speakerName: '', lang: '',
-  micDeviceId: '', sysDeviceId: '', keepAudio: true, summaryModel: '', gatewayToken: '',
+  micDeviceId: '', sysDeviceId: '', keepAudio: true, summaryModel: '', gatewayToken: '', micDiarize: false,
 }
 
 export function RecorderSection() {
@@ -97,6 +97,18 @@ export function RecorderSection() {
         <option value="">系统默认</option>
         {(devices?.sys ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
       </SelectField>
+
+      <label className="flex items-center justify-between gap-3 cursor-pointer">
+        <span className="min-w-0">
+          <span className="text-[13px]">麦克风也区分说话人</span>
+          <span className="block text-[12px] text-muted mt-0.5">
+            几个人围着一台电脑面对面开会时打开，否则整场会被标成你一个人。线上会议
+            不用开——对方的声音走「系统声音」那一路，那边一直开着。单麦分离的准确率
+            明显低于双轨，而且要多花 GPU。
+          </span>
+        </span>
+        <Toggle on={s.micDiarize} onChange={(v) => patch({ micDiarize: v })} />
+      </label>
 
       <label className="flex items-center justify-between gap-3 cursor-pointer">
         <span className="min-w-0">

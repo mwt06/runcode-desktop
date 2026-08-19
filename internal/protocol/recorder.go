@@ -96,6 +96,8 @@ type RecorderSettings struct {
 	SpeakerName string `json:"speakerName"`
 	// Lang 是默认识别语言，空 = 自动。
 	Lang string `json:"lang"`
+	// MicDiarize 打开后麦克风轨也做说话人分离，供面对面开会用。默认关。
+	MicDiarize bool `json:"micDiarize"`
 	// MicDeviceID / SysDeviceID 记住上次选的设备，空 = 系统默认。
 	MicDeviceID string `json:"micDeviceId"`
 	SysDeviceID string `json:"sysDeviceId"`

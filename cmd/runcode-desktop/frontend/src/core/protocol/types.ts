@@ -417,6 +417,7 @@ export interface RecorderSettings {
   gatewayToken: string;
   speakerName: string;
   lang: string;
+  micDiarize: boolean;
   micDeviceId: string;
   sysDeviceId: string;
   keepAudio: boolean;

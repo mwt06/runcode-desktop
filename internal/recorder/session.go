@@ -143,6 +143,13 @@ type SessionConfig struct {
 	SpeakerName string
 	KeepAudio   bool
 
+	// MicDiarize 决定麦克风轨要不要做说话人分离。
+	//
+	// 默认关：线上会议里麦克风天然只有本人一个说话人，跑聚类是白费 GPU——单卡
+	// A10 下这不是小事。几个人围着一个麦克风面对面开会时才需要打开，代价是
+	// 单麦盲分离的段准确率实测封顶 83.3%（README「单麦分离」一节），比双轨差得多。
+	MicDiarize bool
+
 	MicDeviceID string
 	SysDeviceID string
 
@@ -296,8 +303,9 @@ func (s *Session) Start() error {
 		deviceID string
 		diarize  bool
 	}{
-		// 麦克风天然单人，不跑说话人聚类——单卡 A10 下这不是小事。
-		{SourceMic, s.cfg.MicDeviceID, false},
+		// 麦克风默认不跑说话人聚类：线上会议里它天然只有本人。面对面开会要靠
+		// MicDiarize 打开（见 SessionConfig）。
+		{SourceMic, s.cfg.MicDeviceID, s.cfg.MicDiarize},
 		{SourceLoopback, s.cfg.SysDeviceID, true},
 	}
 

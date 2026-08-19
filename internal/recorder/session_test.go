@@ -749,3 +749,24 @@ func TestSessionStopSkipsWaitWhenOffline(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionMicDiarizeSwitch 盯住麦克风轨的说话人分离开关。
+//
+// 默认关是有代价的：几个人围着一个麦克风面对面开会时，整场会被标成一个人。
+// 打开又要花 GPU。所以它必须真的可配——而不是写死在 Start 里的那个 false。
+func TestSessionMicDiarizeSwitch(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		s, _, links := newTestSession(t, func(c *SessionConfig) { c.MicDiarize = on })
+		if err := s.Start(); err != nil {
+			t.Fatalf("MicDiarize=%v 开始: %v", on, err)
+		}
+		if got := links.get(SourceMic).cfg.Diarize; got != on {
+			t.Fatalf("MicDiarize=%v 时麦克风轨的 diarize 是 %v", on, got)
+		}
+		// 回环轨永远开着：它才是「对方」那一路，多人是常态。
+		if !links.get(SourceLoopback).cfg.Diarize {
+			t.Fatal("回环轨的说话人分离不该被关掉")
+		}
+		_ = s.Stop(context.Background())
+	}
+}

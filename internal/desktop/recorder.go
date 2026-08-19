@@ -260,6 +260,7 @@ func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.Recor
 		Lang:        firstNonEmpty(req.Lang, set.Lang),
 		SpeakerName: firstNonEmpty(set.SpeakerName, a.passportDisplayName()),
 		KeepAudio:   set.KeepAudio,
+		MicDiarize:  set.MicDiarize,
 		MicDeviceID: firstNonEmpty(req.MicDeviceID, set.MicDeviceID),
 		SysDeviceID: firstNonEmpty(req.SysDeviceID, set.SysDeviceID),
 		Capturer:    a.rec.capturer,
