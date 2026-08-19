@@ -126,6 +126,7 @@ export {
   planStatus,
   planUpdate,
   readArtifact,
+  readRecordingTranscript,
   recorderDevices,
   recorderSettings,
   recorderStatus,

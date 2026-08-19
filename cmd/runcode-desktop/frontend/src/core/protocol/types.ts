@@ -476,6 +476,7 @@ export interface RecordingInfo {
   endedAt?: string;
   audioMs: number;
   interrupted?: boolean;
+  transcript?: string;
   needsBackfill?: boolean;
   tracks?: RecorderTrack[] | null;
   uplink?: string;

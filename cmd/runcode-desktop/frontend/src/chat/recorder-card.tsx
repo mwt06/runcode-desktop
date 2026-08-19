@@ -5,7 +5,7 @@
 // 发起的录音，结果也该回到这里。
 import { Icon } from '@/ui/icons'
 import { Banner } from '@/ui/feedback'
-import { revealInFolder } from '@/core/bridge'
+import { revealInFolder, type RecordingInfo } from '@/core/bridge'
 import { lastLine } from '@/recorder/transcript'
 import { LevelBar } from '@/recorder/level-bar'
 import { type Recorder } from '@/session/use-recorder'
@@ -26,7 +26,13 @@ function duration(ms: number): string {
   return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`
 }
 
-export function RecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenWindow: () => void }) {
+export function RecorderCard({ rec, onOpenWindow, onGenerateMinutes }: {
+  rec: Recorder
+  onOpenWindow: () => void
+  // onGenerateMinutes 是「生成纪要」。录完会自动走一次，这个按钮用来重来一次
+  // ——第一次可能撞上没有会话、或者模型答得不好。
+  onGenerateMinutes?: (info: RecordingInfo) => void
+}) {
   const info = rec.info
   if (!info || info.state === 'idle') return null
 
@@ -89,7 +95,7 @@ export function RecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenWindo
             </div>
           )}
           {info.dir && (
-            <div className="flex items-center px-4 py-2.5 border-t border-line bg-inset">
+            <div className="flex items-center gap-3 px-4 py-2.5 border-t border-line bg-inset">
               <button
                 className="inline-flex items-center gap-1.5 text-[12px] text-muted hover:text-ink"
                 onClick={() => void revealInFolder(info.dir ?? '')}
@@ -97,6 +103,16 @@ export function RecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenWindo
                 <Icon name="folder" size={13} />
                 在文件夹中显示
               </button>
+              <div className="flex-1" />
+              {info.transcript && onGenerateMinutes && (
+                <button
+                  className="px-2.5 py-1 rounded text-[12px] text-primaryink border border-primary hover:bg-primarysoft"
+                  onClick={() => onGenerateMinutes(info)}
+                  title="把这场录音的转写交给模型整理成会议纪要"
+                >
+                  生成纪要
+                </button>
+              )}
             </div>
           )}
         </>

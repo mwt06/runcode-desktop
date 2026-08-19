@@ -1,9 +1,9 @@
 // App 只做两件事：把各个 hook 接起来（会话 / 对话 / 权限队列 / 预览栏 / 文件），
 // 以及按当前视图摆放 shell 组件。任何具体逻辑都不在这里——需要改行为时去
 // session/ 下对应的 hook，需要改样子去 shell/ 或各页面。
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
-import { errText, loadConfig, passportLogout, type SessionInfo } from '@/core/bridge'
+import { errText, listSkills, loadConfig, passportLogout, readRecordingTranscript, type RecordingInfo, type SessionInfo } from '@/core/bridge'
 import { passportDisplayName } from '@/core/passport-account'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
@@ -25,6 +25,7 @@ import { Sidebar } from '@/shell/sidebar'
 import { Composer } from '@/composer'
 import { type QuickSkill } from '@/composer/quick-skills'
 import { RecorderCard } from '@/chat/recorder-card'
+import { buildMinutesPrompt, minutesFileName, pickMinutesSkill } from '@/recorder/minutes'
 import { show as showRecorderWindow } from '@/recorder/window-api'
 import { PluginsPage } from '@/pages/plugins'
 import { PermissionsPage } from '@/pages/permissions'
@@ -86,6 +87,43 @@ export default function App() {
     onOpenPreview: (p) => preview.openFile(toWorkspaceRel(p, infoRef.current?.cwd ?? '')),
   })
 
+
+  // 会后纪要：录音一结束就把转写交给模型整理。
+  //
+  // 走的是当前这条对话，而不是另起一个后台任务——设计稿里纪要就出现在对话流里，
+  // 用户接着能直接追问「第三条待办是谁负责的」，那要求它和会话共享上下文。
+  const minutesFired = useRef('')
+  const generateMinutes = useCallback(async (rec: RecordingInfo) => {
+    if (!rec.id) return
+    if (!infoRef.current) {
+      toast.show('还没有进行中的对话，无法生成纪要')
+      return
+    }
+    try {
+      const text = await readRecordingTranscript(rec.id)
+      if (!text.trim()) {
+        toast.show('这场录音没有转写文字，生成不了纪要')
+        return
+      }
+      const list = await listSkills().catch(() => null)
+      const skill = pickMinutesSkill((list?.skills ?? []).map((s) => s.name))
+      await conversation.send(buildMinutesPrompt({
+        info: rec, transcript: text, skill, outPath: minutesFileName(rec),
+      }))
+    } catch (e) {
+      toast.show(errText(e))
+    }
+  }, [conversation, toast])
+
+  // 自动触发一次。用 id 记名而不是布尔量：连着录两场时第二场也要触发，而同一场
+  // 不能因为别的状态事件再触发一遍——那是一次白花钱的重复调用。
+  useEffect(() => {
+    const rec = recorder.info
+    if (!rec || rec.state !== 'stopped' || !rec.id || !rec.transcript) return
+    if (minutesFired.current === rec.id) return
+    minutesFired.current = rec.id
+    void generateMinutes(rec)
+  }, [recorder.info, generateMinutes])
   const session = useSession({
     busy: conversation.busy,
     conversation,
@@ -245,7 +283,7 @@ export default function App() {
                 onReviewEdit={preview.openDiff}
                 onUndoEdit={(id) => void conversation.undo(id)}
                 resolveFile={workspace.resolve}
-                recorderCard={<RecorderCard rec={recorder} onOpenWindow={() => void showRecorderWindow()} />}
+                recorderCard={<RecorderCard rec={recorder} onOpenWindow={() => void showRecorderWindow()} onGenerateMinutes={(r) => void generateMinutes(r)} />}
               />
 
               {permissions.pending && (

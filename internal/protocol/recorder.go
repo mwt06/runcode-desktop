@@ -70,6 +70,8 @@ type RecordingInfo struct {
 	// Interrupted 表示上次不是正常结束的（进程被强杀 / 断电），由启动时的恢复
 	// 扫描打上。界面据此提示「有一场未完成的录音」。
 	Interrupted bool `json:"interrupted,omitempty"`
+	// Transcript 是最终稿的文件名（相对 Dir）。为空表示这场没有文本。
+	Transcript string `json:"transcript,omitempty"`
 	// NeedsBackfill 表示服务端那份转写不完整，要拿本地音频补跑。
 	NeedsBackfill bool            `json:"needsBackfill,omitempty"`
 	Tracks        []RecorderTrack `json:"tracks,omitempty"`

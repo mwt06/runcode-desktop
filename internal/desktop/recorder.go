@@ -550,6 +550,7 @@ func toWireRecording(m recorder.SessionMeta, dir string) protocol.RecordingInfo 
 		StartedAt:     m.StartedAt.Format(time.RFC3339),
 		AudioMS:       m.AudioMS,
 		Interrupted:   m.Interrupted,
+		Transcript:    m.Transcript,
 		NeedsBackfill: m.NeedsBackfill(),
 		Dir:           dir,
 	}
@@ -668,4 +669,30 @@ func (r *recorderCtl) uplinkerOrDefault() recorder.Uplinker {
 		return r.uplinker
 	}
 	return recorder.DefaultUplinker
+}
+
+// ReadRecordingTranscript 读回某场录音的最终稿（Markdown）。没有文本时返回空串。
+//
+// 界面拿它做两件事：生成纪要时当输入，以及在预览栏里当「原始记录」那一栏。
+func (a *App) ReadRecordingTranscript(id string) (string, error) {
+	if err := validRecordingID(id); err != nil {
+		return "", wireError(err)
+	}
+	root, err := a.recorderRoot()
+	if err != nil {
+		return "", wireError(err)
+	}
+	m, err := recorder.ReadMeta(filepath.Join(root, id))
+	if err != nil {
+		return "", wireError(err)
+	}
+	if m.Transcript == "" {
+		return "", nil
+	}
+	// 文件名取自我们自己写的 meta，不是外部输入；id 已经过 validRecordingID。
+	b, err := os.ReadFile(filepath.Join(root, id, filepath.Base(m.Transcript))) //nolint:gosec // 路径由校验过的 id 与自写的 meta 拼出
+	if err != nil {
+		return "", wireError(err)
+	}
+	return string(b), nil
 }

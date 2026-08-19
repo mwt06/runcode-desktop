@@ -307,6 +307,12 @@ export function readProjectContext(): Promise<ProjectContextInfo> {
   return call<ProjectContextInfo>('ReadProjectContext');
 }
 
+// ReadRecordingTranscript 读回某场录音的最终稿（Markdown）。没有文本时返回空串。 界面拿它做两件事：生成纪要时当输入，以及在预览栏里当「原始记录」那一栏。
+// kind: query
+export function readRecordingTranscript(id: string): Promise<string> {
+  return call<string>('ReadRecordingTranscript', id);
+}
+
 // RecorderDevices 列出可用的录音设备。 不支持时不返回 error 而是 Supported=false + 理由：界面要把入口置灰并说明 原因，而不是等用户点下去才弹一个错。
 // kind: query
 export function recorderDevices(): Promise<RecorderDeviceList> {

@@ -48,6 +48,9 @@ const (
 
 const (
 	metaFileName = "meta.json"
+	// transcriptFileName 是最终稿。Markdown 而不是 JSON：它既是生成纪要的输入，
+	// 也是设计稿里「原始记录」那一栏直接给人看的东西。
+	transcriptFileName = "transcript.md"
 	// diskQueueDepth 是写盘队列深度，约 38 秒音频。磁盘写 32 KB/s 正常永远追得上；
 	// 真挤满了说明磁盘出了问题（写满、被安全软件锁住），那时要停录报错而不是丢帧。
 	diskQueueDepth = 64
@@ -109,6 +112,9 @@ type SessionMeta struct {
 	// 由 RecoverSessions 打上。界面据此提示「有一场未完成的录音」。
 	Interrupted bool `json:"interrupted,omitempty"`
 
+	// Transcript 是最终稿的文件名（相对会话目录）。为空表示这场没有文本。
+	Transcript string `json:"transcript,omitempty"`
+
 	Tracks []TrackMeta `json:"tracks"`
 }
 
@@ -167,6 +173,9 @@ type Session struct {
 	cfg SessionConfig
 	dir string
 	now func() time.Time
+	// tx 把下行事件折成最终稿。它是这场录音唯一的持久文本——界面那份只活在
+	// WebView 内存里，刷新一下就没了，更不可能拿去生成纪要。
+	tx *Transcript
 
 	mu     sync.Mutex
 	state  SessionState
@@ -242,6 +251,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		dir:   dir,
 		now:   now,
 		state: SessionIdle,
+		tx:    NewTranscript(),
 		meta: SessionMeta{
 			ID: id, Title: title, Room: id, State: SessionIdle,
 			Lang: cfg.Lang, KeepAudio: cfg.KeepAudio, StartedAt: started,
@@ -334,7 +344,12 @@ func (s *Session) openTrack(src Source, deviceID string, diarize bool) (*trackRu
 		URL: s.cfg.GatewayURL, Room: s.meta.Room, Track: src,
 		Name: s.cfg.SpeakerName, Auth: s.cfg.Auth,
 		Diarize: diarize, Lang: s.cfg.Lang,
-		OnEvent: s.cfg.OnEvent,
+		OnEvent: func(ev Event) {
+			s.tx.Apply(ev)
+			if s.cfg.OnEvent != nil {
+				s.cfg.OnEvent(ev)
+			}
+		},
 		OnState: func(st UplinkState) {
 			if s.cfg.OnUplink != nil {
 				s.cfg.OnUplink(src, st)
@@ -493,6 +508,18 @@ func (s *Session) doStop(ctx context.Context, clean bool) error {
 	defer s.mu.Unlock()
 	end := s.now()
 	s.meta.EndedAt = &end
+
+	// 先落转写再写 meta：meta 里那个文件名是给界面找文件用的，指向一个还没写出来
+	// 的文件是最难查的一类错。写失败不影响录音本身——音频还在，最多是这一场没有
+	// 文本，所以只记进 firstErr 而不回滚。
+	if name, err := s.writeTranscriptLocked(); err != nil {
+		if firstErr == nil {
+			firstErr = err
+		}
+	} else {
+		s.meta.Transcript = name
+	}
+
 	s.setStateLocked(SessionStopped)
 	if err := s.writeMetaLocked(); err != nil && firstErr == nil {
 		firstErr = err
@@ -743,3 +770,21 @@ func claimSessionDir(root, base string) (id, dir string, err error) {
 	}
 	return "", "", fmt.Errorf("同一秒内已有太多录音目录（%s）", base)
 }
+
+// writeTranscriptLocked 把最终稿写进会话目录，返回文件名。
+//
+// 一段文字都没有时不建文件、返回空名——「有个空文件」比「没有文件」更难解释，
+// 而界面靠 meta.Transcript 是否为空来决定要不要给出「原始记录」入口。
+func (s *Session) writeTranscriptLocked() (string, error) {
+	if len(s.tx.Segments()) == 0 {
+		return "", nil
+	}
+	path := filepath.Join(s.dir, transcriptFileName)
+	if err := os.WriteFile(path, []byte(s.tx.Markdown(s.meta.Title)), 0o600); err != nil {
+		return "", fmt.Errorf("写转写文件: %w", err)
+	}
+	return transcriptFileName, nil
+}
+
+// Transcript 返回这场录音的最终稿（实时的，录音进行中也能取）。
+func (s *Session) Transcript() *Transcript { return s.tx }
