@@ -5,6 +5,7 @@ import { Logo } from '@/ui/icons'
 import { BRAND } from '@/core/brand'
 import { shortenPath } from '@/core/paths'
 import { groupBlocks, type Block } from '@/chat/blocks'
+import { type RecordingMark } from '@/recorder/minutes'
 import { diffStats, hasDiff } from '@/chat/tool-text'
 import { AgentTaskGroup } from '@/chat/agent-task'
 import { AnalyzeCard } from '@/chat/analyze-card'
@@ -27,6 +28,7 @@ export function ChatPane({
   scrollRef, onScroll,
   onAnswer, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
   recorderCard,
+  onGenerateMinutes,
 }: {
   blocks: Block[]
   busy: boolean
@@ -52,6 +54,8 @@ export function ChatPane({
   // recorderCard 钉在对话末尾。它不是一条消息——录音每秒都在变，走消息那条路
   // 等于每秒往历史里塞一条；但它属于这条对话，所以位置在这里而不是浮在别处。
   recorderCard?: ReactNode
+  // onGenerateMinutes 由历史里的录音卡片触发「重新生成纪要」。
+  onGenerateMinutes?: (mark: RecordingMark) => void
 }) {
   const groups = groupBlocks(blocks)
   // 计划胶囊上的聚合数字：本会话改过的文件数与累计增删行数。
@@ -135,7 +139,7 @@ export function ChatPane({
               <BotRow key={g.id}><AgentTaskGroup tasks={g.tasks} /></BotRow>
             ) : (
               <div key={g.block.id}>
-                <BlockView block={g.block} onOpenFile={onOpenFile} resolveFile={resolveFile} />
+                <BlockView block={g.block} onOpenFile={onOpenFile} resolveFile={resolveFile} onGenerateMinutes={onGenerateMinutes} />
                 {g.block.kind === 'assistant' && (
                   <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} onOpen={onOpenFile} />
                 )}

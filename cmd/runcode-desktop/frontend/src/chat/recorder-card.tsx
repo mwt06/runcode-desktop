@@ -1,13 +1,19 @@
-// 对话流里的录音卡片。
+// 对话流里的录音卡片，两个形态：
 //
-// 它不是一条会话消息，而是钉在对话末尾的实时组件——录音每秒都在变，走会话
-// 消息那条路等于每秒往历史里塞一条。设计稿把它画在对话流里是因为用户是从这里
-// 发起的录音，结果也该回到这里。
+//   LiveRecorderCard    录着的时候。每秒都在变，所以它是个**临时**组件，钉在
+//                       对话末尾，录完就消失。
+//   RecordingCard       录完之后。它是一条真正的对话块（Block），发起纪要的那一刻
+//                       钉在历史里——换条对话看不见，恢复历史时原样回来。
+//
+// 分成两个而不是一个组件按状态切换，是因为这两件事的生命周期根本不同：前者属于
+// 「此刻」，后者属于「那条对话」。早先做成一个，结果就是录完之后那张卡片一直浮在
+// 界面上，换到别的对话它还在。
 import { Icon } from '@/ui/icons'
 import { Banner } from '@/ui/feedback'
-import { revealInFolder, type RecordingInfo } from '@/core/bridge'
+import { revealInFolder } from '@/core/bridge'
 import { lastLine } from '@/recorder/transcript'
 import { LevelBar } from '@/recorder/level-bar'
+import { type RecordingMark } from '@/recorder/minutes'
 import { type Recorder } from '@/session/use-recorder'
 
 function mmss(ms: number): string {
@@ -17,8 +23,8 @@ function mmss(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-// duration 是结束后那句人话时长，与卡片顶上的计时器分工不同：录着的时候要
-// 精确到秒，录完之后「12 分 52 秒」比 12:52 更适合被读出来。
+// duration 是录完之后那句人话时长，与录着时的计时器分工不同：录的时候要精确到秒，
+// 录完之后「12 分 52 秒」比 12:52 更适合被读出来。
 function duration(ms: number): string {
   const total = Math.round(Math.max(0, ms) / 1000)
   const m = Math.floor(total / 60)
@@ -26,97 +32,99 @@ function duration(ms: number): string {
   return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`
 }
 
-export function RecorderCard({ rec, onOpenWindow, onGenerateMinutes }: {
-  rec: Recorder
-  onOpenWindow: () => void
-  // onGenerateMinutes 是「生成纪要」。录完会自动走一次，这个按钮用来重来一次
-  // ——第一次可能撞上没有会话、或者模型答得不好。
-  onGenerateMinutes?: (info: RecordingInfo) => void
-}) {
-  const info = rec.info
-  if (!info || info.state === 'idle') return null
+const SHELL = 'rounded-xl border border-line2 bg-surface overflow-hidden max-w-[560px]'
 
-  const live = rec.recording || rec.paused
+export function LiveRecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenWindow: () => void }) {
+  const info = rec.info
+  // 只画「正在录」。录完那一刻它就该消失，接手的是历史里的 RecordingCard。
+  if (!info || !(rec.recording || rec.paused)) return null
   const line = lastLine(rec.transcript)
 
   return (
-    <div className="rounded-xl border border-line2 bg-surface overflow-hidden max-w-[560px]">
+    <div className={SHELL}>
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
         <span className="text-primaryink flex-none"><Icon name="mic" size={15} /></span>
         <span className="text-[13px] font-medium flex-1 min-w-0 truncate">{info.title || '录音纪要'}</span>
         <span className="text-[12px] tabular-nums text-muted flex-none">{mmss(rec.elapsedMS)}</span>
       </div>
 
-      {live ? (
-        <>
-          <div className="px-4">
-            <LevelBar mic={rec.levels.mic} sys={rec.levels.sys} active={rec.recording} height={20} />
-          </div>
-          <div className="px-4 pt-1.5 pb-3 text-[13px] leading-[1.6] text-ink min-h-[38px]">
-            {line || <span className="text-faint">{rec.paused ? '已暂停' : '正在听…'}</span>}
-          </div>
-          {rec.uplink === 'offline' && (
-            <div className="px-4 pb-3">
-              <Banner tone="warning">离线录制中：本地照常录音，但这段时间的文字会缺。</Banner>
-            </div>
-          )}
-          <div className="flex items-center gap-2 px-4 py-2.5 border-t border-line bg-inset">
-            <button
-              className="text-[12px] text-muted hover:text-ink"
-              onClick={onOpenWindow}
-            >
-              打开录音窗
-            </button>
-            <div className="flex-1" />
-            <button
-              className="text-[12px] text-muted hover:text-ink px-2 py-1 rounded hover:bg-surface2"
-              onClick={() => void (rec.paused ? rec.resume() : rec.pause())}
-            >
-              {rec.paused ? '继续' : '暂停'}
-            </button>
-            <button
-              className="px-2.5 py-1 rounded text-[12px] text-white bg-red hover:opacity-90"
-              onClick={() => void rec.stop()}
-            >
-              结束录音转写
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="px-4 pb-3 text-[13px] text-muted">
-            录音已结束 · {duration(info.audioMs)}
-          </div>
-          {info.needsBackfill && (
-            <div className="px-4 pb-3">
-              <Banner tone="warning" title="转写有缺口">
-                录音期间与转写服务断开过，有一段没有文字。本地音频还在，可以之后补一次。
-              </Banner>
-            </div>
-          )}
-          {info.dir && (
-            <div className="flex items-center gap-3 px-4 py-2.5 border-t border-line bg-inset">
-              <button
-                className="inline-flex items-center gap-1.5 text-[12px] text-muted hover:text-ink"
-                onClick={() => void revealInFolder(info.dir ?? '')}
-              >
-                <Icon name="folder" size={13} />
-                在文件夹中显示
-              </button>
-              <div className="flex-1" />
-              {info.transcript && onGenerateMinutes && (
-                <button
-                  className="px-2.5 py-1 rounded text-[12px] text-primaryink border border-primary hover:bg-primarysoft"
-                  onClick={() => onGenerateMinutes(info)}
-                  title="把这场录音的转写交给模型整理成会议纪要"
-                >
-                  生成纪要
-                </button>
-              )}
-            </div>
-          )}
-        </>
+      <div className="px-4">
+        <LevelBar mic={rec.levels.mic} sys={rec.levels.sys} active={rec.recording} height={20} />
+      </div>
+      <div className="px-4 pt-1.5 pb-3 text-[13px] leading-[1.6] text-ink min-h-[38px]">
+        {line || <span className="text-faint">{rec.paused ? '已暂停' : '正在听…'}</span>}
+      </div>
+      {rec.uplink === 'offline' && (
+        <div className="px-4 pb-3">
+          <Banner tone="warning">离线录制中：本地照常录音，但这段时间的文字会缺。</Banner>
+        </div>
       )}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-t border-line bg-inset">
+        <button className="text-[12px] text-muted hover:text-ink" onClick={onOpenWindow}>
+          打开录音窗
+        </button>
+        <div className="flex-1" />
+        <button
+          className="text-[12px] text-muted hover:text-ink px-2 py-1 rounded hover:bg-surface2"
+          onClick={() => void (rec.paused ? rec.resume() : rec.pause())}
+        >
+          {rec.paused ? '继续' : '暂停'}
+        </button>
+        <button
+          className="px-2.5 py-1 rounded text-[12px] text-white bg-red hover:opacity-90"
+          onClick={() => void rec.stop()}
+        >
+          结束录音转写
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function RecordingCard({ mark, onGenerateMinutes }: {
+  mark: RecordingMark
+  // onGenerateMinutes 重来一次。自动那次可能撞上没有会话，或者纪要本身答得不好。
+  onGenerateMinutes?: (mark: RecordingMark) => void
+}) {
+  return (
+    <div className={SHELL}>
+      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+        <span className="text-primaryink flex-none"><Icon name="mic" size={15} /></span>
+        <span className="text-[13px] font-medium flex-1 min-w-0 truncate">{mark.title || '录音纪要'}</span>
+        <span className="text-[12px] tabular-nums text-muted flex-none">{mmss(mark.audioMs)}</span>
+      </div>
+
+      <div className="px-4 pb-3 text-[13px] text-muted">录音已结束 · {duration(mark.audioMs)}</div>
+
+      {mark.needsBackfill && (
+        <div className="px-4 pb-3">
+          <Banner tone="warning" title="转写有缺口">
+            录音期间与转写服务断开过，有一段没有文字。本地音频还在，可以之后补一次。
+          </Banner>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 px-4 py-2.5 border-t border-line bg-inset">
+        {mark.dir && (
+          <button
+            className="inline-flex items-center gap-1.5 text-[12px] text-muted hover:text-ink"
+            onClick={() => void revealInFolder(mark.dir ?? '')}
+          >
+            <Icon name="folder" size={13} />
+            在文件夹中显示
+          </button>
+        )}
+        <div className="flex-1" />
+        {mark.transcript && onGenerateMinutes && (
+          <button
+            className="px-2.5 py-1 rounded text-[12px] text-primaryink border border-primary hover:bg-primarysoft"
+            onClick={() => onGenerateMinutes(mark)}
+            title="把这场录音的转写重新交给模型整理"
+          >
+            重新生成纪要
+          </button>
+        )}
+      </div>
     </div>
   )
 }

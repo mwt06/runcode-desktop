@@ -11,13 +11,20 @@ import { SystemNote } from '@/ui/feedback'
 import { WarnTriangle } from '@/ui/glyphs'
 import { fmtDuration, fmtTokens } from '@/core/format'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
+import { type RecordingMark } from '@/recorder/minutes'
 import { type Block, retryReasonLabel } from './blocks'
 import { BotRow } from './bot-row'
 import { ThinkingPanel } from './thinking-panel'
 import { AgentTaskCard } from './agent-task'
 import { ExecutionCard } from './execution-card'
+import { RecordingCard } from './recorder-card'
 
-export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; onOpenFile?: (relPath: string) => void; resolveFile?: (token: string) => string | null }) {
+export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes }: {
+  block: Block
+  onOpenFile?: (relPath: string) => void
+  resolveFile?: (token: string) => string | null
+  onGenerateMinutes?: (mark: RecordingMark) => void
+}) {
   // While an assistant answer streams, keep it in a fixed-height window pinned to
   // the newest text (consistent with the tool/agent cards); release to full height
   // when done so the finished answer reads normally in the page flow.
@@ -84,6 +91,8 @@ export function BlockView({ block, onOpenFile, resolveFile }: { block: Block; on
           {block.text}
         </SystemNote>
       )
+    case 'recording':
+      return <RecordingCard mark={block.mark} onGenerateMinutes={onGenerateMinutes} />
     case 'notice':
       return <SystemNote selectable>{block.text}</SystemNote>
     case 'compaction':

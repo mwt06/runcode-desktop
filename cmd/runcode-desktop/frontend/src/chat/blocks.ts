@@ -3,6 +3,7 @@
 // unit-tested directly (see chat.test.ts).
 import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord, ResumedBlock } from '@/core/bridge'
 import { isEditRecord } from '@/core/bridge'
+import { type RecordingMark } from '@/recorder/minutes'
 
 // AgentNested holds a sub-agent's live activity, shown nested inside its Task card:
 // the streamed assistant text and the child tool events (merged by tool-use id).
@@ -14,6 +15,9 @@ export type Block =
   | { kind: 'error'; id: string; text: string }
   | { kind: 'warning'; id: string; text: string }
   | { kind: 'notice'; id: string; text: string }
+  // recording 是一场已结束的录音。它是对话的一部分——发起纪要的那一刻钉在这里，
+  // 换条对话就看不见，恢复历史时原样回来。不是浮在界面上的组件。
+  | { kind: 'recording'; id: string; mark: RecordingMark }
   // compaction marks the point where earlier turns were folded into a summary,
   // rendered as a divider across the conversation flow. inTok/outTok are what the
   // summary call itself spent; contextTokens is the estimated working-history size

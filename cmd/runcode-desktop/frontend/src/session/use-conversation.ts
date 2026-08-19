@@ -35,6 +35,7 @@ import {
 } from '@/chat/blocks'
 import { fmtTokens } from '@/core/format'
 import { basename } from '@/core/paths'
+import { minutesDisplayText, parseRecordingMarker, type RecordingMark } from '@/recorder/minutes'
 
 let seq = 0
 const nextID = () => `b${++seq}`
@@ -393,6 +394,15 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     }
   }
 
+  // pushRecording 把一场录完的录音钉进当前这条对话。
+  //
+  // 它必须在发纪要请求**之前**调用，这样卡片就落在请求上方——录音先于请求发生，
+  // 顺序反了读起来就是"先请求整理，然后才录的音"。
+  function pushRecording(mark: RecordingMark) {
+    chatStick.current = true
+    push({ kind: 'recording', id: nextID(), mark })
+  }
+
   // reset 清空会话相关的一切显示状态——新建/切工作区时用。
   function reset() {
     setBlocks([])
@@ -406,9 +416,20 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
   // 元数据按 tool-use id 重新挂回去（恢复载荷本身不带 diff）。
   async function applyResumed(r: ResumedSession, isStale: () => boolean) {
     setBlocks(
-      (r.blocks ?? []).map((b): Block => {
-        if (b.kind === 'user') return { kind: 'user', id: nextID(), text: b.text ?? '', ts: '' }
-        if (b.kind === 'assistant') return { kind: 'assistant', id: nextID(), text: b.text ?? '', streaming: false, ts: '' }
+      (r.blocks ?? []).flatMap((b): Block[] => {
+        if (b.kind === 'user') {
+          // 纪要请求：把开头那行标记还原成录音卡片，正文换回那一句短的。
+          // 不做这一步，恢复出来的历史里会是几千字的提示词原文，而卡片没了。
+          const mark = parseRecordingMarker(b.text ?? '')
+          if (mark) {
+            return [
+              { kind: 'recording', id: nextID(), mark },
+              { kind: 'user', id: nextID(), text: minutesDisplayText(mark.title), ts: '' },
+            ]
+          }
+          return [{ kind: 'user', id: nextID(), text: b.text ?? '', ts: '' }]
+        }
+        if (b.kind === 'assistant') return [{ kind: 'assistant', id: nextID(), text: b.text ?? '', streaming: false, ts: '' }]
         // Rebuild a tool execution card from the persisted result. Live-only
         // details (colored diffs, file chips) aren't stored, so the card shows the
         // tool, its target, and the result text. (Partial: a malformed block may
@@ -419,7 +440,7 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
         // 查找/搜索(文件列表模式)的结果文本重建成 matched 文件引用——实时的
         // 文件事件不落盘,重建后恢复的卡片与实时共用同一个可折叠结构树渲染。
         const matched = t.isError ? null : resumedMatchedFiles(t.toolName, t.input, out)
-        return {
+        return [{
           kind: 'tool',
           id: nextID(),
           tool: {
@@ -431,7 +452,7 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
             files: matched ?? (t.path ? [{ path: t.path }] : undefined),
             output: matched ? [] : lines,
           },
-        }
+        }]
       }),
     )
     const edits = (await listEdits()) ?? []
@@ -462,6 +483,6 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     blocks, harmAllows, busy, plan, planOpen, setPlanOpen,
     ctxTokens, ctxEstimated, compacting, revertedEdits,
     scrollRef, onChatScroll,
-    send, stop, compact, undo, pushError, reset, applyResumed,
+    send, stop, compact, undo, pushError, reset, applyResumed, pushRecording,
   }
 }

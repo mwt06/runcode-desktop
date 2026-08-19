@@ -3,7 +3,7 @@
 // session/ 下对应的 hook，需要改样子去 shell/ 或各页面。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
-import { errText, listSkills, loadConfig, passportLogout, readRecordingTranscript, type RecordingInfo, type SessionInfo } from '@/core/bridge'
+import { errText, listSkills, loadConfig, passportLogout, readRecordingTranscript, type SessionInfo } from '@/core/bridge'
 import { passportDisplayName } from '@/core/passport-account'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
@@ -24,8 +24,8 @@ import { PreviewSide } from '@/shell/preview-side'
 import { Sidebar } from '@/shell/sidebar'
 import { Composer } from '@/composer'
 import { type QuickSkill } from '@/composer/quick-skills'
-import { RecorderCard } from '@/chat/recorder-card'
-import { buildMinutesPrompt, minutesFileName, pickMinutesSkill } from '@/recorder/minutes'
+import { LiveRecorderCard } from '@/chat/recorder-card'
+import { buildMinutesPrompt, minutesDisplayText, minutesFileName, pickMinutesSkill, recordingMark, type RecordingMark } from '@/recorder/minutes'
 import { show as showRecorderWindow } from '@/recorder/window-api'
 import { PluginsPage } from '@/pages/plugins'
 import { PermissionsPage } from '@/pages/permissions'
@@ -93,14 +93,14 @@ export default function App() {
   // 走的是当前这条对话，而不是另起一个后台任务——设计稿里纪要就出现在对话流里，
   // 用户接着能直接追问「第三条待办是谁负责的」，那要求它和会话共享上下文。
   const minutesFired = useRef('')
-  const generateMinutes = useCallback(async (rec: RecordingInfo) => {
-    if (!rec.id) return
+  const generateMinutes = useCallback(async (mark: RecordingMark) => {
+    if (!mark.id) return
     if (!infoRef.current) {
       toast.show('还没有进行中的对话，无法生成纪要')
       return
     }
     try {
-      const text = await readRecordingTranscript(rec.id)
+      const text = await readRecordingTranscript(mark.id)
       if (!text.trim()) {
         toast.show('这场录音没有转写文字，生成不了纪要')
         return
@@ -111,24 +111,27 @@ export default function App() {
       // 自己的历史整个冲掉——设计稿那个位置本来就只有一句「录音纪要」。
       // 附了什么要说清楚，不能让人不知道自己刚把什么送了出去。
       await conversation.send(
-        buildMinutesPrompt({ info: rec, transcript: text, skill, outPath: minutesFileName(rec) }),
+        buildMinutesPrompt({ mark, transcript: text, skill, outPath: minutesFileName(mark) }),
         [],
-        `录音纪要 · 已附上《${rec.title || '录音'}》的转写全文`,
+        minutesDisplayText(mark.title),
       )
     } catch (e) {
       toast.show(errText(e))
     }
   }, [conversation, toast])
 
-  // 自动触发一次。用 id 记名而不是布尔量：连着录两场时第二场也要触发，而同一场
+  // 录完自动走一次：先把卡片钉进对话（它属于这条对话，不是浮在界面上的东西），
+  // 再发纪要请求。用 id 记名而不是布尔量：连着录两场时第二场也要触发，而同一场
   // 不能因为别的状态事件再触发一遍——那是一次白花钱的重复调用。
   useEffect(() => {
     const rec = recorder.info
     if (!rec || rec.state !== 'stopped' || !rec.id || !rec.transcript) return
     if (minutesFired.current === rec.id) return
     minutesFired.current = rec.id
-    void generateMinutes(rec)
-  }, [recorder.info, generateMinutes])
+    const mark = recordingMark(rec)
+    conversation.pushRecording(mark)
+    void generateMinutes(mark)
+  }, [recorder.info, conversation, generateMinutes])
   const session = useSession({
     busy: conversation.busy,
     conversation,
@@ -288,7 +291,8 @@ export default function App() {
                 onReviewEdit={preview.openDiff}
                 onUndoEdit={(id) => void conversation.undo(id)}
                 resolveFile={workspace.resolve}
-                recorderCard={<RecorderCard rec={recorder} onOpenWindow={() => void showRecorderWindow()} onGenerateMinutes={(r) => void generateMinutes(r)} />}
+                recorderCard={<LiveRecorderCard rec={recorder} onOpenWindow={() => void showRecorderWindow()} />}
+                onGenerateMinutes={(m) => void generateMinutes(m)}
               />
 
               {permissions.pending && (
