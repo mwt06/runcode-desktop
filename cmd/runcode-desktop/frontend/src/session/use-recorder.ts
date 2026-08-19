@@ -120,10 +120,19 @@ export function useRecorder(): Recorder {
         const audioMs = changed ? st.audioMs : base.audioMs
         return { ...base, id: st.id || base.id, state: st.state, audioMs, uplink: st.uplink }
       })
-      // 换了一场：补一次完整状态，并把上一场的字幕清掉。
+      // 换了一场：把上一场的字幕清掉。
       if (st.id && st.id !== knownID.current) {
         knownID.current = st.id
         setTranscript(emptyTranscript)
+      }
+      // 状态一变就补一次完整状态。
+      //
+      // 事件里只有 id / state / audioMs，转写文件名、音轨、落盘目录、结束时间
+      // 都不在里面。少了这一步，从**录音窗**按的结束就只会更新一个 state 字段：
+      // 主窗那张卡片没有 dir 因而不显示底部那一行，info.transcript 还是空的，
+      // 于是自动生成纪要的判据永远不成立——从对话卡片按结束却没事，因为那条路
+      // 直接拿到了 StopRecording 的完整返回。同一个功能两条路走出两种结果。
+      if (changed) {
         void pullStatus()
       }
     })

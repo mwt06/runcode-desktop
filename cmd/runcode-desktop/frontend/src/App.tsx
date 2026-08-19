@@ -107,9 +107,14 @@ export default function App() {
       }
       const list = await listSkills().catch(() => null)
       const skill = pickMinutesSkill((list?.skills ?? []).map((s) => s.name))
-      await conversation.send(buildMinutesPrompt({
-        info: rec, transcript: text, skill, outPath: minutesFileName(rec),
-      }))
+      // 对话里只显示一句话。整篇转写照旧发给模型，但几千字铺在对话流里会把用户
+      // 自己的历史整个冲掉——设计稿那个位置本来就只有一句「录音纪要」。
+      // 附了什么要说清楚，不能让人不知道自己刚把什么送了出去。
+      await conversation.send(
+        buildMinutesPrompt({ info: rec, transcript: text, skill, outPath: minutesFileName(rec) }),
+        [],
+        `录音纪要 · 已附上《${rec.title || '录音'}》的转写全文`,
+      )
     } catch (e) {
       toast.show(errText(e))
     }

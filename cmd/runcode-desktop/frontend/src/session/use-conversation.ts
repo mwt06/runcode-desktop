@@ -293,16 +293,24 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
     if (el && chatStick.current) el.scrollTo({ top: el.scrollHeight })
   }, [blocks, permissions.pending])
 
-  async function send(text: string, attach: string[] = []) {
+  // display 让「发给模型的」和「显示在对话里的」分开。
+  //
+  // 目前只有会后纪要用它：那条消息里带着整篇转写，几千字原样铺在对话里，把用户
+  // 自己的对话历史整个冲掉了；设计稿那个位置本来就只有一句话。传了 display 就
+  // 只影响这一条气泡的显示，发给模型的仍是 text。
+  //
+  // 代价：会话恢复时历史由引擎回放，那边只有真正的 text，所以恢复后会看到全文。
+  // 这是可接受的——恢复本来就是"看当时到底发生了什么"的场景。
+  async function send(text: string, attach: string[] = [], display?: string) {
     if (!text && attach.length === 0) return
     // 回合进行中:改为"中途插入"——把消息交给引擎,在下一个工具回合边界喂给模型
     // (mid-turn steering),而不是被丢弃或干等整轮结束。见 supplement。
-    if (busy) { void supplement(text, attach); return }
+    if (busy) { void supplement(text, attach, display); return }
     const names = attach.map((p) => basename(p))
     // A fresh turn is not a stop: any cancellation from here on must surface.
     userStopped.current = false
     chatStick.current = true
-    push({ kind: 'user', id: nextID(), text, ts: now(), attachments: names.length ? names : undefined })
+    push({ kind: 'user', id: nextID(), text: display ?? text, ts: now(), attachments: names.length ? names : undefined })
     setBusy(true)
     try {
       if (attach.length) await sendMessageWithImages(text, attach)
@@ -317,11 +325,11 @@ export function useConversation({ infoRef, permissions, onFilesChanged, onOpenPr
   // 模型调用前(当前工具回合结束时)把它喂进上下文,模型随即就能看到,无需等整轮跑完。
   // 消息先乐观入流(用户能立刻看到自己插了什么);若插入时回合恰好已结束(竞态),引擎
   // 退化为新起一轮并回传 startedTurn=true,这里据此把 busy 重新置起。
-  async function supplement(text: string, attach: string[] = []) {
+  async function supplement(text: string, attach: string[] = [], display?: string) {
     if (!text && attach.length === 0) return
     const names = attach.map((p) => basename(p))
     chatStick.current = true
-    push({ kind: 'user', id: nextID(), text, ts: now(), attachments: names.length ? names : undefined })
+    push({ kind: 'user', id: nextID(), text: display ?? text, ts: now(), attachments: names.length ? names : undefined })
     try {
       const startedTurn = attach.length ? await injectMessageWithImages(text, attach) : await injectMessage(text)
       // 竞态:插入时回合刚结束,引擎改起新一轮——补上 busy(当前回合的 turn:end 已把它置回 false)。
