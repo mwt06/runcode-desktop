@@ -530,3 +530,37 @@ func TestUplinkInitDoesNotClobberCallbacks(t *testing.T) {
 		t.Fatalf("状态查询里的链路状态是 %q，应为 connected", got)
 	}
 }
+
+// TestRecorderSettingsToleratesBOM 盯住带 BOM 的配置文件读得回来。
+//
+// 真实踩过：用 PowerShell 5.1 的 `Out-File -Encoding utf8` 改过一次
+// recorder.json，之后整个录音功能就废了，界面上只有一句
+// 「invalid character 'ï' looking for beginning of value」——对着一个看起来
+// 完全正常的文件，没人猜得出是 BOM。记事本「另存为 UTF-8」也一样。
+func TestRecorderSettingsToleratesBOM(t *testing.T) {
+	app, _, _, _ := newRecorderApp(t)
+
+	want := protocol.RecorderSettings{GatewayURL: "ws://127.0.0.1:8000/ws", SpeakerName: "马文涛", KeepAudio: true}
+	if err := app.SaveRecorderSettings(want); err != nil {
+		t.Fatalf("SaveRecorderSettings: %v", err)
+	}
+	path, err := recorderSettingsPath()
+	if err != nil {
+		t.Fatalf("配置路径: %v", err)
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // 测试自己写的临时路径
+	if err != nil {
+		t.Fatalf("读回: %v", err)
+	}
+	if err := os.WriteFile(path, append([]byte{0xEF, 0xBB, 0xBF}, raw...), 0o600); err != nil {
+		t.Fatalf("写带 BOM 的版本: %v", err)
+	}
+
+	got, err := app.RecorderSettings()
+	if err != nil {
+		t.Fatalf("带 BOM 时读设置: %v", err)
+	}
+	if got != want {
+		t.Fatalf("带 BOM 时读出来不一致：\n got %+v\nwant %+v", got, want)
+	}
+}

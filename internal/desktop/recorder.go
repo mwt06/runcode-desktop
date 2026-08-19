@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -599,7 +600,7 @@ func loadRecorderSettings() (protocol.RecorderSettings, error) {
 	if err != nil {
 		return out, err
 	}
-	if err := json.Unmarshal(b, &out); err != nil {
+	if err := json.Unmarshal(stripBOM(b), &out); err != nil {
 		return protocol.RecorderSettings{KeepAudio: true}, fmt.Errorf("解析 %s: %w", recorderSettingsFile, err)
 	}
 	return out, nil
@@ -702,4 +703,19 @@ func (a *App) ReadRecordingTranscript(id string) (string, error) {
 		return "", wireError(err)
 	}
 	return string(b), nil
+}
+
+// utf8BOM 是 UTF-8 字节序标记。
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// stripBOM 去掉开头的 UTF-8 BOM。
+//
+// encoding/json 不认它，会报 `invalid character 'ï' looking for beginning of
+// value`——这条信息对着一个看起来完全正常的配置文件，没人猜得出是怎么回事。
+//
+// 而这个文件在 Windows 上非常容易被写成带 BOM 的：记事本「另存为 UTF-8」、
+// PowerShell 5.1 的 `Out-File -Encoding utf8`，都会加上。它是用户可以手工编辑的
+// 配置，容得下这一点。
+func stripBOM(b []byte) []byte {
+	return bytes.TrimPrefix(b, utf8BOM)
 }
