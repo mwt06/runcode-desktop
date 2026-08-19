@@ -1,5 +1,6 @@
 // ChatPane 是对话流本身：顶部的计划进度胶囊、可滚动的消息区（把 groupBlocks 分好
 // 的组映射成各类卡片）、空态与"思考中"指示。纯展示——所有交互都经 props 回调。
+import { type ReactNode } from 'react'
 import { Logo } from '@/ui/icons'
 import { BRAND } from '@/core/brand'
 import { shortenPath } from '@/core/paths'
@@ -25,6 +26,7 @@ export function ChatPane({
   harmAllows, revertedEdits, files, tabs,
   scrollRef, onScroll,
   onAnswer, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
+  recorderCard,
 }: {
   blocks: Block[]
   busy: boolean
@@ -47,6 +49,9 @@ export function ChatPane({
   onReviewEdit: (snapshotId: string, relPath: string) => void
   onUndoEdit: (snapshotId: string) => void
   resolveFile: (token: string) => string | null
+  // recorderCard 钉在对话末尾。它不是一条消息——录音每秒都在变，走消息那条路
+  // 等于每秒往历史里塞一条；但它属于这条对话，所以位置在这里而不是浮在别处。
+  recorderCard?: ReactNode
 }) {
   const groups = groupBlocks(blocks)
   // 计划胶囊上的聚合数字：本会话改过的文件数与累计增删行数。
@@ -137,6 +142,7 @@ export function ChatPane({
               </div>
             ),
           )}
+          {recorderCard && <BotRow>{recorderCard}</BotRow>}
           {busy && (
             <BotRow>
               <div className="inline-flex items-center gap-2.5 text-faint py-1">

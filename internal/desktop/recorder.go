@@ -58,8 +58,16 @@ type recorderCtl struct {
 	// math.Float32bits。用原子而不是锁：音频回调里不能等锁。
 	micLevel atomic.Uint32
 	sysLevel atomic.Uint32
-	// uplink 是两条轨里"最差"的那条的状态（见 worseUplink）。
-	uplink atomic.Value // string
+	// micUplink / sysUplink 是两条轨**各自当前**的链路状态。界面上只有一个指示
+	// 灯，取两者里更该让用户知道的那个（见 worstUplink）。
+	//
+	// 分开存而不是就地取最差：那样是对时间取最大值，一旦掉过线就永远停在
+	// offline，重连上了灯也不会变回去。
+	micUplink atomic.Value // string
+	sysUplink atomic.Value // string
+	// live 是正在录的那场会话。单独存一份原子指针而不是走 mu：链路状态回调跑在
+	// 上行自己的 goroutine 上，那条路上要 mu 就是死锁（见 noteUplink）。
+	live atomic.Pointer[recorder.Session]
 
 	// uplinker 可注入。零值走真的 WebSocket——测试要靠它把网关换成假的，
 	// 否则这一层就只能靠一个真网关才能测。
@@ -249,7 +257,7 @@ func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.Recor
 		OnEvent:     a.emitTranscript,
 		OnState:     a.emitRecorderState,
 		OnLevel:     a.rec.noteLevel,
-		OnUplink:    a.rec.noteUplink,
+		OnUplink:    a.noteUplink,
 		OnError:     a.noteRecorderError,
 	}
 
@@ -257,14 +265,19 @@ func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.Recor
 	if err != nil {
 		return protocol.RecordingInfo{}, wireError(err)
 	}
+	// 先挂上再 Start：openTrack 建好上行就会立刻回调链路状态，那时 noteUplink
+	// 已经需要拿到这场会话了。
+	a.rec.live.Store(sess)
 	if err := sess.Start(); err != nil {
+		a.rec.live.Store(nil)
 		return protocol.RecordingInfo{}, wireError(err)
 	}
 
 	a.rec.sess = sess
 	a.rec.finished = nil
 	a.rec.lastErr.Store("")
-	a.rec.uplink.Store(string(recorder.UplinkConnecting))
+	a.rec.micUplink.Store(string(recorder.UplinkConnecting))
+	a.rec.sysUplink.Store(string(recorder.UplinkConnecting))
 	a.rec.startLevelPump(a.sink)
 
 	return toWireRecording(sess.Meta(), sess.Dir()), nil
@@ -355,6 +368,7 @@ func (r *recorderCtl) finish(info *protocol.RecordingInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopLevelPump()
+	r.live.Store(nil)
 	r.sess = nil
 	r.finished = info
 }
@@ -404,31 +418,47 @@ func (r *recorderCtl) noteLevel(src recorder.Source, peak float32) {
 	r.sysLevel.Store(bits)
 }
 
-func (r *recorderCtl) noteUplink(_ recorder.Source, st recorder.UplinkState) {
-	cur, _ := r.uplink.Load().(string)
-	r.uplink.Store(worseUplink(cur, string(st)))
+// noteUplink 记下某条轨的链路状态，聚合结果变了就补一条状态事件。
+//
+// 必须补发。会话状态事件只在开始/暂停/恢复/结束那几个瞬间才有，而链路是自己
+// 在退避重连的——不发的话，「正在连接」会一直挂在界面上直到下一次有人按按钮，
+// 用户看不出到底连上了没有。这正是配错网关地址时最需要说清楚的一件事。
+func (a *App) noteUplink(src recorder.Source, st recorder.UplinkState) {
+	before := a.rec.uplinkState()
+	if src == recorder.SourceMic {
+		a.rec.micUplink.Store(string(st))
+	} else {
+		a.rec.sysUplink.Store(string(st))
+	}
+	if a.rec.uplinkState() == before {
+		return
+	}
+	// 读会话取当前时长与状态。这里**不能**碰 a.rec.mu：本回调跑在上行自己的
+	// goroutine 上，而 StartRecording 正持着 mu 调 Start()——要 mu 就是死锁。
+	// live 是原子指针，专为这条路存的。
+	if sess := a.rec.live.Load(); sess != nil {
+		a.emitRecorderState(sess.Meta())
+	}
 }
 
 func (r *recorderCtl) uplinkState() string {
-	s, _ := r.uplink.Load().(string)
-	return s
+	mic, _ := r.micUplink.Load().(string)
+	sys, _ := r.sysUplink.Load().(string)
+	return worstUplink(mic, sys)
 }
 
-// worseUplink 取两条轨里"更该让用户知道"的那个状态。
+// worstUplink 取两条轨里"更该让用户知道"的那个状态。
 //
 // 界面上只有一个指示灯，而两条轨可能一条通一条断。断了的那条才是要说的事——
 // 显示"已连接"而实际有一条轨在丢音，是最坏的呈现。
-func worseUplink(a, b string) string {
+func worstUplink(a, b string) string {
 	rank := map[string]int{
-		string(recorder.UplinkConnected):  0,
-		string(recorder.UplinkConnecting): 1,
-		string(recorder.UplinkStopped):    2,
-		string(recorder.UplinkOffline):    3,
+		string(recorder.UplinkConnected):  1,
+		string(recorder.UplinkConnecting): 2,
+		string(recorder.UplinkStopped):    3,
+		string(recorder.UplinkOffline):    4,
 	}
 	if rank[b] > rank[a] {
-		return b
-	}
-	if a == "" {
 		return b
 	}
 	return a

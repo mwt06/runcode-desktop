@@ -15,6 +15,7 @@ import { AccountSection } from './account'
 import { SessionSection } from './session'
 import { CustomModelsSection } from './custom-models'
 import { ProxySection } from './proxy'
+import { RecorderSection } from './recorder'
 import { ContextSection } from './context'
 import { ContextAuditSection } from './context-audit'
 import { InlineError } from '@/ui/feedback'
@@ -139,6 +140,7 @@ export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
         />
         <CustomModelsSection models={customModels} onChanged={setCustomModels} />
         <ProxySection />
+        <RecorderSection />
         <ContextSection
           maxTokens={maxTokens}
           onMaxTokens={setMaxTokens}

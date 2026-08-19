@@ -21,10 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"github.com/wt68/runcode/cmd/runcode-desktop/internal/audio"
 	"github.com/wt68/runcode/internal/desktop"
@@ -285,44 +283,17 @@ func main() {
 		Frameless: true,
 	})
 
-	// 验证开关下多带一个查询参数，让录音窗自己调一次 SetMode——这样不必靠人
-	// 去点就能验证「第二个窗口的 JS 能调到 Go 绑定」。
-	recorderURL := "/recorder.html"
-	spike := os.Getenv("RUNCODE_RECORDER_SPIKE") == "1"
-	if spike {
-		recorderURL += "?spike=mini"
-	}
-
 	// 录音窗。先建好但不显示——建窗要几百毫秒，等用户点「录音纪要」再建的话，
 	// 那几百毫秒正好卡在他最想立刻看到反馈的时刻。
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:  windowRecorder,
 		Title: "录音纪要",
-		URL:   recorderURL,
+		URL:   "/recorder.html",
 		Width: recorderWideW, Height: recorderWideH,
 		Frameless:   true,
 		AlwaysOnTop: true,
 		Hidden:      true,
 	})
-
-	// 验证开关：RUNCODE_RECORDER_SPIKE=1 时启动就把录音窗显示出来。
-	//
-	// 录音窗正常是 Hidden 的，由前端点「录音纪要」再叫出来（那部分属于 M2）。
-	// 在那之前，这个开关是唯一能看到第二个窗口的办法。接上录音入口后删掉。
-	if spike {
-		app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-			// 要等一下再 Show。ApplicationStarted 时以 Hidden 创建的窗口还没
-			// 实体化，此刻 Show() 落空（早先版本在这里跟着调 Focus() 直接
-			// 崩掉整个进程，同一个根因）。这是验证脚手架，用睡眠够了；产品
-			// 路径上录音窗由用户点「录音纪要」触发，那时早已实体化。
-			go func() {
-				time.Sleep(2 * time.Second)
-				if err := recWin.Show(); err != nil {
-					log.Printf("runcode-desktop: 显示录音窗: %v", err)
-				}
-			}()
-		})
-	}
 
 	deskApp.Startup()
 

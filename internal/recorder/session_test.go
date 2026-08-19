@@ -85,7 +85,11 @@ type fakeLink struct {
 	flushes int
 	stopped bool
 	aborted bool
-	stats   UplinkStats
+	// state 默认 connected；测「离线时结束不干等」要能把它拨到 offline。
+	state UplinkState
+	// stopDelay 让 Stop 真的慢下来，好证明离线那条路根本没走 Stop。
+	stopDelay time.Duration
+	stats     UplinkStats
 }
 
 func (l *fakeLink) Send(pcm []int16) {
@@ -94,7 +98,14 @@ func (l *fakeLink) Send(pcm []int16) {
 	l.sent = append(l.sent, append([]int16(nil), pcm...))
 }
 func (l *fakeLink) Flush() { l.mu.Lock(); l.flushes++; l.mu.Unlock() }
-func (l *fakeLink) Stop(context.Context) error {
+func (l *fakeLink) Stop(ctx context.Context) error {
+	if l.stopDelay > 0 {
+		select {
+		case <-time.After(l.stopDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.stopped = true
@@ -102,8 +113,17 @@ func (l *fakeLink) Stop(context.Context) error {
 }
 func (l *fakeLink) Abort()             { l.mu.Lock(); l.aborted = true; l.mu.Unlock() }
 func (l *fakeLink) Stats() UplinkStats { l.mu.Lock(); defer l.mu.Unlock(); return l.stats }
-func (l *fakeLink) State() UplinkState { return UplinkConnected }
-func (l *fakeLink) sentCount() int     { l.mu.Lock(); defer l.mu.Unlock(); return len(l.sent) }
+func (l *fakeLink) State() UplinkState {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.state == "" {
+		return UplinkConnected
+	}
+	return l.state
+}
+func (l *fakeLink) setState(s UplinkState) { l.mu.Lock(); l.state = s; l.mu.Unlock() }
+func (l *fakeLink) wasAborted() bool       { l.mu.Lock(); defer l.mu.Unlock(); return l.aborted }
+func (l *fakeLink) sentCount() int         { l.mu.Lock(); defer l.mu.Unlock(); return len(l.sent) }
 
 type fakeLinks struct {
 	mu    sync.Mutex
@@ -695,4 +715,37 @@ func (s *fakeStream) level(peak float32) {
 		return
 	}
 	s.onLvl(peak)
+}
+
+// TestSessionStopSkipsWaitWhenOffline 盯住「离线时结束不干等」。
+//
+// 网关地址填错、或转写服务没起，是这个功能最常见的第一次失败。那时点「结束」
+// 如果还要等满 stopGrace 再抛一句「等待服务端收尾超时」，用户会以为录音也出了
+// 问题——其实本地那份完好。链路离线时直接 Abort，立刻返回。
+func TestSessionStopSkipsWaitWhenOffline(t *testing.T) {
+	s, capt, links := newTestSession(t, nil)
+	if err := s.Start(); err != nil {
+		t.Fatalf("开始: %v", err)
+	}
+	capt.stream(SourceMic).push(frame(SourceMic, voice()))
+
+	for _, src := range []Source{SourceMic, SourceLoopback} {
+		links.get(src).setState(UplinkOffline)
+		links.get(src).stopDelay = time.Hour // 真去等就会超时，测试也就挂了
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := s.Stop(ctx); err != nil {
+		t.Fatalf("离线时结束不该报错: %v", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("离线时结束等了 %v，应当立刻返回", d)
+	}
+	for _, src := range []Source{SourceMic, SourceLoopback} {
+		if !links.get(src).wasAborted() {
+			t.Fatalf("%s 轨的链路应当被 Abort 而不是 Stop", src)
+		}
+	}
 }

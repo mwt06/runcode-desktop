@@ -514,7 +514,11 @@ func (tr *trackRun) close(ctx context.Context, clean bool) error {
 		tr.shutdownDisk()
 
 		if tr.link != nil {
-			if clean {
+			// 已经离线的链路没有什么可等的：那段音频服务端根本没收到，等它 flush
+			// 只会让「结束」按钮白挂十几秒，末了再抛一句「等待服务端收尾超时」——
+			// 而本地录音其实完好无损。网关地址填错、或转写服务没起，走的都是这条
+			// 路，不能让它看起来像出了大事。
+			if clean && tr.link.State() != UplinkOffline {
 				err = tr.link.Stop(ctx)
 			} else {
 				tr.link.Abort()

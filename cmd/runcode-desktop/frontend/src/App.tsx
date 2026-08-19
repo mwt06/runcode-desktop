@@ -3,7 +3,7 @@
 // session/ 下对应的 hook，需要改样子去 shell/ 或各页面。
 import { useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
-import { loadConfig, passportLogout, type SessionInfo } from '@/core/bridge'
+import { errText, loadConfig, passportLogout, type SessionInfo } from '@/core/bridge'
 import { passportDisplayName } from '@/core/passport-account'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
@@ -14,6 +14,7 @@ import { useConversation } from '@/session/use-conversation'
 import { usePlan } from '@/session/use-plan'
 import { useAutoPreview } from '@/session/use-auto-preview'
 import { useSession } from '@/session/use-session'
+import { useRecorder } from '@/session/use-recorder'
 import { usePassportStatus } from '@/session/use-passport'
 import { TitleBar } from '@/shell/title-bar'
 import { StatusBar } from '@/shell/status-bar'
@@ -22,6 +23,9 @@ import { PermissionModal } from '@/shell/permission-modal'
 import { PreviewSide } from '@/shell/preview-side'
 import { Sidebar } from '@/shell/sidebar'
 import { Composer } from '@/composer'
+import { type QuickSkill } from '@/composer/quick-skills'
+import { RecorderCard } from '@/chat/recorder-card'
+import { show as showRecorderWindow } from '@/recorder/window-api'
 import { PluginsPage } from '@/pages/plugins'
 import { PermissionsPage } from '@/pages/permissions'
 import { MemoryPage } from '@/pages/memory'
@@ -50,6 +54,28 @@ export default function App() {
   // （头像/用户名/退出登录）共用同一份订阅。未登录时名字为空串、头像为 undefined。
   const passport = usePassportStatus()
   const userName = passportDisplayName(passport)
+
+  // 录音纪要。状态在 Go 侧，这里只订阅——录音窗是另一个 WebView，两边各跑一份
+  // 这个 hook，看到的是同一份事实。
+  const recorder = useRecorder()
+  const startRecording = () => {
+    recorder
+      .start()
+      // 开录成功才把窗口叫出来：开不起来（没配服务地址、麦克风被占）时弹一个
+      // 空窗口，比一条错误提示更难懂。
+      .then(() => showRecorderWindow())
+      .catch((e: unknown) => toast.show(errText(e)))
+  }
+  const quickSkills: QuickSkill[] = [
+    {
+      id: 'recorder',
+      label: '录音纪要',
+      icon: 'mic',
+      title: recorder.recording ? '正在录音' : '开始录音，同时录下麦克风与系统声音',
+      disabled: recorder.recording || recorder.paused,
+      onPick: startRecording,
+    },
+  ]
 
   const conversation = useConversation({
     infoRef,
@@ -219,6 +245,7 @@ export default function App() {
                 onReviewEdit={preview.openDiff}
                 onUndoEdit={(id) => void conversation.undo(id)}
                 resolveFile={workspace.resolve}
+                recorderCard={<RecorderCard rec={recorder} onOpenWindow={() => void showRecorderWindow()} />}
               />
 
               {permissions.pending && (
@@ -247,6 +274,7 @@ export default function App() {
                 onChooseReasoning={(s) => void session.chooseReasoning(s)}
                 onChooseThinking={(t) => void session.chooseThinking(t)}
                 onPickModel={session.pickModel}
+                quickSkills={quickSkills}
               />
             </>
           )}

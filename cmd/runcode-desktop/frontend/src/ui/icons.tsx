@@ -427,6 +427,46 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M16.5 3.5a1.6 1.6 0 0 1 2.3 2.3L14 10.6l-3 .7.7-3z" />
         </svg>
       )
+    // 录音纪要：话筒、暂停、以及浮窗的展开/收起。
+    case 'mic':
+      return (
+        <svg {...common} {...stroke}>
+          <rect x="9" y="3" width="6" height="10" rx="3" />
+          <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+          <path d="M12 17.5V21" />
+        </svg>
+      )
+    case 'pause':
+      return (
+        <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden fill="currentColor">
+          <rect x="7" y="5.5" width="3.5" height="13" rx="1.4" />
+          <rect x="13.5" y="5.5" width="3.5" height="13" rx="1.4" />
+        </svg>
+      )
+    case 'play':
+      return (
+        <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden fill="currentColor">
+          <path d="M8 5.6v12.8a1 1 0 0 0 1.53.85l10-6.4a1 1 0 0 0 0-1.7l-10-6.4A1 1 0 0 0 8 5.6Z" />
+        </svg>
+      )
+    case 'expand':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M14 4h6v6" />
+          <path d="M20 4l-7 7" />
+          <path d="M10 20H4v-6" />
+          <path d="M4 20l7-7" />
+        </svg>
+      )
+    case 'shrink':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M20 10h-6V4" />
+          <path d="M14 10l6-6" />
+          <path d="M4 14h6v6" />
+          <path d="M10 14l-6 6" />
+        </svg>
+      )
     case 'undo':
       return (
         <svg {...common} {...stroke}>

@@ -392,21 +392,21 @@ func TestRecordingTitleAutoIncrements(t *testing.T) {
 	}
 }
 
-func TestWorseUplink(t *testing.T) {
+func TestWorstUplink(t *testing.T) {
 	connected := string(recorder.UplinkConnected)
 	offline := string(recorder.UplinkOffline)
 	connecting := string(recorder.UplinkConnecting)
 
 	// 一条通一条断时必须报断的那条：显示「已连接」而实际有一条轨在丢音，
 	// 是最坏的呈现。
-	if got := worseUplink(connected, offline); got != offline {
-		t.Fatalf("worseUplink(connected, offline) = %q", got)
+	if got := worstUplink(connected, offline); got != offline {
+		t.Fatalf("worstUplink(connected, offline) = %q", got)
 	}
-	if got := worseUplink(offline, connected); got != offline {
-		t.Fatalf("worseUplink(offline, connected) = %q", got)
+	if got := worstUplink(offline, connected); got != offline {
+		t.Fatalf("worstUplink(offline, connected) = %q", got)
 	}
-	if got := worseUplink("", connecting); got != connecting {
-		t.Fatalf("worseUplink(空, connecting) = %q", got)
+	if got := worstUplink("", connecting); got != connecting {
+		t.Fatalf("worstUplink(空, connecting) = %q", got)
 	}
 }
 
@@ -420,4 +420,42 @@ func waitFor(t *testing.T, limit time.Duration, cond func() bool, msg string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal(msg)
+}
+
+// TestUplinkChangeEmitsState 盯住链路状态变化会补一条事件。
+//
+// 会话状态事件只在开始/暂停/结束那几个瞬间才有，而链路自己在退避重连。不补发
+// 的话，「正在连接」会一直挂在界面上直到用户按下一个按钮——配错网关地址时，
+// 那恰恰是最需要立刻说清楚的一件事。
+func TestUplinkChangeEmitsState(t *testing.T) {
+	app, sink, _, up := newRecorderApp(t)
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{GatewayURL: "ws://x/ws"}); err != nil {
+		t.Fatalf("写设置: %v", err)
+	}
+	info, err := app.StartRecording(protocol.StartRecordingRequest{})
+	if err != nil {
+		t.Fatalf("StartRecording: %v", err)
+	}
+	defer func() { _, _ = app.StopRecording() }()
+
+	// 麦克风轨掉线：一条通一条断时要报断的那条。
+	up.link(t, recorder.SourceMic).cfg.OnState(recorder.UplinkOffline)
+	st, ok := payloadOf[protocol.RecorderState](t, sink, protocol.EventRecorderState)
+	if !ok {
+		t.Fatal("没有 recorder:state 事件")
+	}
+	if st.Uplink != string(recorder.UplinkOffline) {
+		t.Fatalf("链路状态是 %q，应为 offline", st.Uplink)
+	}
+	if st.ID != info.ID || st.State != string(recorder.SessionRecording) {
+		t.Fatalf("补发的事件丢了会话上下文：%+v", st)
+	}
+
+	// 重新连上：灯要变回去。原先的实现对时间取最差值，一旦掉过线就永远是红的。
+	up.link(t, recorder.SourceMic).cfg.OnState(recorder.UplinkConnected)
+	up.link(t, recorder.SourceLoopback).cfg.OnState(recorder.UplinkConnected)
+	st, _ = payloadOf[protocol.RecorderState](t, sink, protocol.EventRecorderState)
+	if st.Uplink != string(recorder.UplinkConnected) {
+		t.Fatalf("两条轨都连上了，链路状态却是 %q", st.Uplink)
+	}
 }

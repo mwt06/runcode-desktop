@@ -11,6 +11,7 @@ import { composerKeyAction } from './keymap'
 import { applyMention, computeMention, matchByNameOrDesc, rankFileMatches, type MentionTrigger } from './mention'
 import { AgentPicker, FilePicker, SkillPicker } from './mention-picker'
 import { ComposerToolbar } from './toolbar'
+import { QuickSkills, type QuickSkill } from './quick-skills'
 
 // Composer 的对外契约：input 受控于 App（插件页“使用技能/委派子代理”要往输入框
 // 追加文案并聚焦，故 input 与 taRef 由 App 持有）；files 归 App（文件浏览器/回复
@@ -32,6 +33,7 @@ export function Composer({
   onChooseReasoning,
   onChooseThinking,
   onPickModel,
+  quickSkills = [],
 }: {
   input: string
   onInputChange: (v: string) => void
@@ -49,6 +51,8 @@ export function Composer({
   onChooseReasoning: (scenario: string) => void
   onChooseThinking: (effort: string) => void
   onPickModel: (choice: ModelOption) => Promise<void> | void
+  // quickSkills 是输入框上方那排一键入口（目前只有「录音纪要」）。
+  quickSkills?: QuickSkill[]
 }) {
   const [mention, setMention] = useState<{ query: string; start: number; sel: number; trigger: MentionTrigger } | null>(null)
   const [attachments, setAttachments] = useState<string[]>([])
@@ -192,6 +196,7 @@ export function Composer({
           ))}
         </div>
       )}
+      <QuickSkills items={quickSkills} />
       <textarea
         ref={taRef}
         className="block w-full resize-none min-h-[46px] max-h-[200px] bg-surface text-ink border border-line2 border-b-0 rounded-t-[14px] px-4 py-3.5 outline-none placeholder:text-faint"

@@ -18,6 +18,13 @@ vars:
   #   wails3 task build APP_NAME=智开
   APP_NAME: "XRUN"
   BIN_DIR: "bin"
+  # 必须开 cgo：录音采集走 malgo（miniaudio 的 Go 绑定），关了 cgo 它整包退化成
+  # 空实现，链接时报 undefined: malgo.Device。v3 的模板默认 CGO_ENABLED=0，
+  # 在这里覆盖掉。
+  #
+  # 代价是 Windows 上要有 C 编译器（TDM-GCC / mingw-w64 都行）。这不是可选项——
+  # 系统回环采集只有 WASAPI 提供，而 WASAPI 只能经 cgo 拿到。
+  CGO_ENABLED: '{{.CGO_ENABLED | default "1"}}'
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # 目标平台默认取宿主 OS。Wails 不能交叉编译（三平台 WebView 各不相同），

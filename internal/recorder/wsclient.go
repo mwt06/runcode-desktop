@@ -300,6 +300,10 @@ func (u *Uplink) run(ctx context.Context) {
 		conn, err := u.dial(ctx)
 		if err != nil {
 			attempt++
+			// 首次就连不上也算离线。原先只有「连上过再断开」才置 offline，于是
+			// 「地址填错」「服务没起」这个最常见的情况会一直停在「正在连接」——
+			// 而那恰恰是用户最需要立刻知道真相的时刻：本地照录，但没有文字。
+			u.setState(UplinkOffline)
 			if !u.waitBackoff(ctx, attempt) {
 				return
 			}
