@@ -187,11 +187,27 @@ func TestRecorderDevicesLists(t *testing.T) {
 	}
 }
 
-func TestStartRecordingNeedsGateway(t *testing.T) {
-	app, _, _, _ := newRecorderApp(t)
+// TestStartRecordingUsesDefaultGateway 盯住「一次都没配也能录」。
+//
+// 这条原来盯的是反面（没配就拒绝开始）。有了内置默认地址之后「没配」不再存在：
+// 分发出去的包装完直接按录音，就该连上部署好的那台服务。StartRecording 里那道
+// 空地址的闸门留着给将来兜底（默认值被清空、或换成按环境注入），正常路径走不到。
+func TestStartRecordingUsesDefaultGateway(t *testing.T) {
+	app, _, _, up := newRecorderApp(t)
 
-	if _, err := app.StartRecording(protocol.StartRecordingRequest{}); err == nil {
-		t.Fatal("没配网关地址时必须拒绝开始——否则录一场发现全程离线才是最糟的")
+	if _, err := app.StartRecording(protocol.StartRecordingRequest{}); err != nil {
+		t.Fatalf("没配网关地址时应当退回内置默认地址开始录音，却失败了：%v", err)
+	}
+	defer func() { _, _ = app.StopRecording() }()
+
+	link := up.link(t, recorder.SourceMic)
+	if link.cfg.URL != defaultGatewayURL {
+		t.Fatalf("拨的是 %q，应为内置默认 %q", link.cfg.URL, defaultGatewayURL)
+	}
+	// 令牌同样得跟上。这台网关握手照样给 101，首帧一到才以 1008 unauthorized
+	// 断开，界面上只剩一句「离线录制中」——漏了令牌和漏了地址一样录不出字。
+	if link.cfg.Auth != defaultGatewayToken {
+		t.Fatalf("带的令牌是 %q，应为内置默认令牌", link.cfg.Auth)
 	}
 }
 
@@ -208,8 +224,8 @@ func TestRecorderSettingsRoundTrip(t *testing.T) {
 	}
 
 	want := protocol.RecorderSettings{
-		GatewayURL: "ws://127.0.0.1:8000/ws", SpeakerName: "马文涛",
-		Lang: "zh", KeepAudio: false, SummaryModel: "glm-5.1",
+		GatewayURL: "ws://127.0.0.1:8000/ws", GatewayToken: "tok-round-trip",
+		SpeakerName: "马文涛", Lang: "zh", KeepAudio: false, SummaryModel: "glm-5.1",
 	}
 	if err := app.SaveRecorderSettings(want); err != nil {
 		t.Fatalf("SaveRecorderSettings: %v", err)
@@ -531,6 +547,49 @@ func TestUplinkInitDoesNotClobberCallbacks(t *testing.T) {
 	}
 }
 
+// TestRecorderSettingsFallsBackToDefaultGateway 盯住内置默认的转写地址与令牌。
+//
+// 分发出去的包要装完就能录：没有配置文件、以及配置文件里这两栏是空的（内置默认
+// 值出现之前的老版本写下的），都得退回内置值；反过来，已经填过的显式值不许被默认
+// 值盖掉——那是用户指着别的服务在用。地址和令牌少哪个都连不上，所以一起盯。
+func TestRecorderSettingsFallsBackToDefaultGateway(t *testing.T) {
+	app, _, _, _ := newRecorderApp(t)
+
+	got, err := app.RecorderSettings()
+	if err != nil {
+		t.Fatalf("没有配置文件时读设置: %v", err)
+	}
+	if got.GatewayURL != defaultGatewayURL || got.GatewayToken != defaultGatewayToken {
+		t.Fatalf("没有配置文件时地址/令牌 = %q/%q，应为内置默认", got.GatewayURL, got.GatewayToken)
+	}
+
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{KeepAudio: true}); err != nil {
+		t.Fatalf("写空设置: %v", err)
+	}
+	if got, err = app.RecorderSettings(); err != nil {
+		t.Fatalf("读回留空的设置: %v", err)
+	}
+	if got.GatewayURL != defaultGatewayURL || got.GatewayToken != defaultGatewayToken {
+		t.Fatalf("留空时地址/令牌 = %q/%q，应为内置默认", got.GatewayURL, got.GatewayToken)
+	}
+
+	const (
+		mineURL = "ws://127.0.0.1:9000/ws"
+		mineTok = "my-own-token"
+	)
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{
+		GatewayURL: mineURL, GatewayToken: mineTok, KeepAudio: true,
+	}); err != nil {
+		t.Fatalf("写自定义地址: %v", err)
+	}
+	if got, err = app.RecorderSettings(); err != nil {
+		t.Fatalf("读回自定义设置: %v", err)
+	}
+	if got.GatewayURL != mineURL || got.GatewayToken != mineTok {
+		t.Fatalf("地址/令牌 = %q/%q，应保持 %q/%q", got.GatewayURL, got.GatewayToken, mineURL, mineTok)
+	}
+}
+
 // TestRecorderSettingsToleratesBOM 盯住带 BOM 的配置文件读得回来。
 //
 // 真实踩过：用 PowerShell 5.1 的 `Out-File -Encoding utf8` 改过一次
@@ -540,7 +599,10 @@ func TestUplinkInitDoesNotClobberCallbacks(t *testing.T) {
 func TestRecorderSettingsToleratesBOM(t *testing.T) {
 	app, _, _, _ := newRecorderApp(t)
 
-	want := protocol.RecorderSettings{GatewayURL: "ws://127.0.0.1:8000/ws", SpeakerName: "马文涛", KeepAudio: true}
+	want := protocol.RecorderSettings{
+		GatewayURL: "ws://127.0.0.1:8000/ws", GatewayToken: "tok-bom",
+		SpeakerName: "马文涛", KeepAudio: true,
+	}
 	if err := app.SaveRecorderSettings(want); err != nil {
 		t.Fatalf("SaveRecorderSettings: %v", err)
 	}

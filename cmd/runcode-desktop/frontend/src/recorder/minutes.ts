@@ -5,11 +5,14 @@
 import type { RecordingInfo } from '@/core/bridge'
 
 
-// RECORDING_MARKER 是纪要请求开头那行机器可读的标记。
+// RECORDING_MARKER 是纪要请求末尾那行机器可读的标记。
 //
 // 它存在的理由是「历史恢复」：对话历史由引擎回放，回放回来的只有消息原文，
-// 客户端那张录音卡片本身不在里面。把这场录音的要点编进消息第一行，恢复时就能
-// 原地把卡片重建出来——而不是让它变成一个飘在界面上、换条对话还赖着不走的浮层。
+// 客户端那张录音卡片本身不在里面。把这场录音的要点编进消息里，恢复时就能原地把
+// 卡片重建出来——而不是让它变成一个飘在界面上、换条对话还赖着不走的浮层。
+//
+// 放末尾不放开头：会话标题在模型生成之前会回落到消息首行，标记占了首行的话，
+// 侧栏里就是一串 JSON。
 //
 // 用 HTML 注释：模型会当它不存在，Markdown 渲染也不显示，而它又是消息的一部分，
 // 引擎存什么就回放什么，不需要额外的存储。
@@ -35,8 +38,8 @@ export function recordingMark(info: RecordingInfo): RecordingMark {
   }
 }
 
-export function recordingMarker(info: RecordingInfo): string {
-  return MARKER_PREFIX + JSON.stringify(recordingMark(info)) + MARKER_SUFFIX
+export function recordingMarker(mark: RecordingMark): string {
+  return MARKER_PREFIX + JSON.stringify(mark) + MARKER_SUFFIX
 }
 
 /**
@@ -44,11 +47,12 @@ export function recordingMarker(info: RecordingInfo): string {
  * 认不出返回 null——历史里绝大多数消息都不是纪要请求，这条路要便宜。
  */
 export function parseRecordingMarker(text: string): RecordingMark | null {
-  if (!text.startsWith(MARKER_PREFIX)) return null
-  const end = text.indexOf(MARKER_SUFFIX)
+  const at = text.indexOf(MARKER_PREFIX)
+  if (at < 0) return null
+  const end = text.indexOf(MARKER_SUFFIX, at)
   if (end < 0) return null
   try {
-    const mark = JSON.parse(text.slice(MARKER_PREFIX.length, end)) as RecordingMark
+    const mark = JSON.parse(text.slice(at + MARKER_PREFIX.length, end)) as RecordingMark
     return mark && typeof mark.id === 'string' && mark.id ? mark : null
   } catch {
     // 标记坏了就当没有：宁可少画一张卡片，也不能让一条历史消息渲染不出来。
@@ -111,7 +115,7 @@ export function buildMinutesPrompt(opts: {
 }): string {
   const { mark, transcript, skill, outPath } = opts
   const info = mark
-  const lines: string[] = [MARKER_PREFIX + JSON.stringify(mark) + MARKER_SUFFIX, '']
+  const lines: string[] = []
 
   if (skill) {
     lines.push(`请使用「${skill}」技能，按它的模板整理下面这场会议的纪要。`)
@@ -142,6 +146,11 @@ export function buildMinutesPrompt(opts: {
   lines.push('```')
   lines.push(transcript.trim())
   lines.push('```')
+
+  // 标记放**末尾**。放首行的话，会话标题在模型生成之前会回落到消息首行，
+  // 侧栏里就是一串 `<!-- runcode-recording {"id":…` 的 JSON —— 实测踩过。
+  lines.push('')
+  lines.push(recordingMarker(mark))
 
   return lines.join('\n')
 }

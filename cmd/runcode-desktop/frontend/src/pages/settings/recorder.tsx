@@ -61,7 +61,7 @@ export function RecorderSection() {
         onChange={(e) => patch({ gatewayUrl: e.target.value })}
       />
       <p className="text-[12px] text-faint -mt-1.5">
-        没填就不能开始录音。断线期间的音频按设计直接丢弃、不重放，所以断过的那一段在
+        清空保存会退回内置的默认地址。断线期间的音频按设计直接丢弃、不重放，所以断过的那一段在
         服务端没有文字——录完会在卡片上标出来，本地音频还在，可以之后补一次。
       </p>
 
@@ -69,13 +69,13 @@ export function RecorderSection() {
       <input
         className={FIELD_CLS}
         type="password"
-        placeholder="服务端的 FUNASR_AUTH_TOKEN；本机匿名部署可留空"
+        placeholder="服务端的 FUNASR_AUTH_TOKEN"
         value={s.gatewayToken}
         onChange={(e) => patch({ gatewayToken: e.target.value })}
       />
       <p className="text-[12px] text-faint -mt-1.5">
-        它认的是「你能不能用这台转写服务」，与登录用的通行证是两回事。留空时会退回
-        送通行证令牌——服务端开了鉴权就会被拒，界面上表现为「离线录制中」。
+        它认的是「你能不能用这台转写服务」，与登录用的通行证是两回事。清空保存会退回
+        内置的默认令牌；填错或服务端不认，界面上表现为「离线录制中」。
       </p>
 
       <label className="text-[12px] text-muted">我的显示名</label>

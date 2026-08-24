@@ -31,6 +31,22 @@ import (
 const (
 	// recorderSettingsFile 是录音设置的落盘文件名，与 disabled.json 同级。
 	recorderSettingsFile = "recorder.json"
+	// defaultGatewayURL 是转写服务的内置默认地址：分发出去的包装完就能录，
+	// 不必先让每个人去设置页抄一串地址。设置里填过的显式值优先，改这里不会
+	// 动到已经配好的机器——那种机器要换服务得自己在设置页改，或者清空那一栏。
+	//
+	// 路径必须带 /ws：这台网关上 / 与 /asr 都直接 403。
+	defaultGatewayURL = "ws://202.205.160.8:18016/ws"
+	// defaultGatewayToken 是上面那台网关的 FUNASR_AUTH_TOKEN。
+	//
+	// 它必须跟着地址一起内置：这台网关强制校验令牌，握手照样给 101，首帧一到
+	// 就以 close 1008 unauthorized 断开——界面上只剩一句「离线录制中」，没人能
+	// 从那句话猜到是缺令牌。「留空退回通行证令牌」的老路在这台服务上同样被拒。
+	//
+	// 代价说清楚：它跟着二进制分发，strings 一抓就有，等同于「拿到安装包的人
+	// 都能用这台转写服务」。这是这台内网服务当前的部署前提。哪天要收紧，改成
+	// 每人一枚令牌（设置页那一栏本来就是为此留的）或走通行证换发。
+	defaultGatewayToken = "1f6a46e72b3dbe13852683f43da57a96426a24f2628de5c7"
 	// levelEmitInterval 是电平事件的节奏。采集层已经把回调节流到约 20 Hz，
 	// 这里再定时聚合一次是为了把两条轨合成一条事件——而且发事件这件事绝不能
 	// 在音频线程上做。
@@ -243,8 +259,6 @@ func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.Recor
 		return protocol.RecordingInfo{}, wireError(err)
 	}
 
-	// 网关的鉴权用的就是通行证令牌。取不到不算致命：本地照录，转写那一路
-	// 会被服务端拒掉，界面上表现为「离线录制中」——比直接不让开始要好。
 	// 转写服务的令牌优先用设置里配的那个；没配就退回通行证令牌（本机匿名模式下
 	// 服务端不校验，照样能跑）。取不到也不算致命：本地照录，上行会被服务端拒掉，
 	// 界面上表现为「离线录制中」——比直接不让开始要好。
@@ -586,9 +600,20 @@ func recorderSettingsPath() (string, error) {
 	return filepath.Join(dir, "runcode", recorderSettingsFile), nil
 }
 
+// recorderDefaults 是没有配置文件、或配置文件读不出来时的录音设置。
+//
+// 默认保留音频：它是补转写唯一的依据，删早了没有第二次机会。
+// 默认转写地址与令牌见 defaultGatewayURL / defaultGatewayToken。
+func recorderDefaults() protocol.RecorderSettings {
+	return protocol.RecorderSettings{
+		KeepAudio:    true,
+		GatewayURL:   defaultGatewayURL,
+		GatewayToken: defaultGatewayToken,
+	}
+}
+
 func loadRecorderSettings() (protocol.RecorderSettings, error) {
-	// 默认保留音频：它是补转写唯一的依据，删早了没有第二次机会。
-	out := protocol.RecorderSettings{KeepAudio: true}
+	out := recorderDefaults()
 	path, err := recorderSettingsPath()
 	if err != nil {
 		return out, err
@@ -601,7 +626,16 @@ func loadRecorderSettings() (protocol.RecorderSettings, error) {
 		return out, err
 	}
 	if err := json.Unmarshal(stripBOM(b), &out); err != nil {
-		return protocol.RecorderSettings{KeepAudio: true}, fmt.Errorf("解析 %s: %w", recorderSettingsFile, err)
+		return recorderDefaults(), fmt.Errorf("解析 %s: %w", recorderSettingsFile, err)
+	}
+	// 配置文件里这两栏为空时补回默认值。空值有两个来源：内置默认值出现之前的
+	// 老版本写下的配置，以及用户自己把那一栏清空——两种都当成「用默认」，否则
+	// 升上来的机器会一直卡在「还没有配置转写服务地址」或「离线录制中」。
+	if strings.TrimSpace(out.GatewayURL) == "" {
+		out.GatewayURL = defaultGatewayURL
+	}
+	if strings.TrimSpace(out.GatewayToken) == "" {
+		out.GatewayToken = defaultGatewayToken
 	}
 	return out, nil
 }

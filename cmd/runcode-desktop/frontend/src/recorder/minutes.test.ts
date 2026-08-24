@@ -169,3 +169,13 @@ describe('minutesDisplayText', () => {
     expect(minutesDisplayText('')).toContain('《录音》')
   })
 })
+
+describe('标记的位置', () => {
+  it('在消息末尾，不占首行', () => {
+    // 首行会被当成会话标题的兜底来源——实测侧栏里出现过一串
+    // `<!-- runcode-recording {"id":…` 的 JSON。
+    const p = buildMinutesPrompt({ mark: info(), transcript: '**[00:03] S1**：喂', outPath: 'out.md' })
+    expect(p.split('\n')[0]).not.toContain('runcode-recording')
+    expect(p.trimEnd().split('\n').pop()).toContain('runcode-recording')
+  })
+})
