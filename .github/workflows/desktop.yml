@@ -257,12 +257,17 @@ jobs:
             macos-*)
               cp "bin/$app-macos.zip" "dist/$product-$version-macos-$arch.zip"
               ;;
-            linux-*)
+            linux-*|kylin10-*)
               # Linux 上应用名就是 ASCII 的产品标识（见打包脚本），所以这里直接用它。
+              # 两条 Linux 目标产物形状一样，只是名字里要标出给哪个麒麟——V10 与 V11
+              # 的 WebKit ABI 不同，装错那个的表现是「装得上、点了没反应」，光看
+              # 文件名分不出来是最容易发错包的地方。
+              flavor=linux
+              case "${{ matrix.target }}" in kylin10-*) flavor=kylin10 ;; esac
               for f in bin/*.deb; do
-                [ -f "$f" ] && cp "$f" "dist/$product-$version-linux-$arch.deb"
+                [ -f "$f" ] && cp "$f" "dist/$product-$version-$flavor-$arch.deb"
               done
-              [ -f "bin/$product" ] && cp "bin/$product" "dist/$product-$version-linux-$arch"
+              [ -f "bin/$product" ] && cp "bin/$product" "dist/$product-$version-$flavor-$arch"
               ;;
           esac
           ls -la dist
