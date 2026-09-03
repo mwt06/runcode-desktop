@@ -46,7 +46,31 @@
   ```
   产物：`cmd/runcode-desktop/build/bin/XRUN.exe`（应用名/输出名 `XRUN` 来自 `wails.json` 的 `outputfilename`）。
 - **仅 Go 侧快速编译检查**（不打包、不重建前端）：`go -C cmd/runcode-desktop build ./...`。
-- 跨平台：Wails **不能交叉编译**（各 OS WebView 不同——Windows WebView2 / Linux WebKitGTK / macOS WKWebView），需在目标平台原生构建；CI 见 `.github/workflows/desktop.yml`（Linux 加 `-tags webkit2_41 -clean`）。
+- 跨平台：Wails **不能交叉编译**（各 OS WebView 不同——Windows WebView2 / Linux WebKitGTK / macOS WKWebView），需在目标平台原生构建。CI 见 `.github/workflows/desktop.yml`，八个目标：Windows / macOS / 麒麟 V11 / 麒麟 V10，各两个架构。
+
+##### 两份外壳：v3 与 v2（麒麟 V10）
+
+`cmd/runcode-desktop` 里有**两个 main**，靠 `kylin` 构建标记二选一。业务逻辑、引擎与整个前端完全共用，只差这一个文件：
+
+| | `main.go`（`!kylin`） | `main_kylin.go`（`kylin`） |
+| --- | --- | --- |
+| Wails | v3 | v2 |
+| WebKitGTK | 4.1 / 6.0 | **4.0** |
+| 平台 | Windows、macOS、麒麟 V11 | 麒麟 V10 |
+| 窗口 | 双窗口（主窗 + 录音窗） | 单窗口 |
+
+为什么非得分两份：**麒麟 V10 的 WebKitGTK 只有 4.0 这个 ABI**（任何 V10 套件里都没有 libsoup3，装不上 4.1），而 Wails v3 只有 4.1 与 6.0 两条路径，连它的 `gtk3` 老路走的也是 4.1；v3 还调用了 `webkit_web_view_evaluate_javascript`，那是 WebKitGTK 2.40 才引入的。Wails v2 相反：默认就编到 `webkit2gtk-4.0`，用到的二十个 WebKit 函数全是老接口。V10 与 V11 因此**不可能是同一个二进制**。
+
+几条实测出来的纪律：
+
+- 品牌变量（`brandTitle` / `brandID`）住在**不带标记**的 `brand.go`，两份外壳共用。放回 `main.go` 的表现是另一份编译时报 undefined。
+- `go.mod` 同时 require v2 与 v3，无依赖冲突；`go mod tidy` 会保留 v2（自定义标记的文件它算得进去），只有被编进去的那套会进二进制。
+- v2 那条**整条链路不碰 wails3**：它的 CLI 自己就要 webkit2gtk-4.1，在 V10 的编译环境里装都装不上。`--kylin` 走 vite 构建 + `go build -tags kylin` + nfpm。
+- 编译机的 glibc 必须**不比目标新**（glibc 只向后兼容）。V10 是 2.31 → 只能在 `ubuntu:20.04` 容器里编（也是唯一还带 `libwebkit2gtk-4.0-dev` 的 Ubuntu）；V11 是 2.38 → `ubuntu-22.04`（2.35），不能用 24.04（2.39）。
+- Linux 上应用名自动换成 ASCII 的产品标识：它同时是 deb 包名、可执行文件名与 `.desktop` 文件名，而 deb 包名规范不接受中文。中文走 `.desktop` 的 `Name` 字段。
+- **`webkit2_41` 是 v2 时代的标记，v3 里不存在**，脚本里那个已清掉。v3 的老路径开关叫 `gtk3`，且在 v3.1 会被移除。
+
+**一个尚未在真机验证的前提**：V10 基础版的 WebKitGTK 是 2.28.1，而 `10.1-2403-updates` 源里是 2.38.6。2.38.6 支持 `@layer` 与 `color-mix()`，现有的 Tailwind v4 前端只损失 `@property`（被 `@supports` 包着，表现是渐变等效果打折）；停在 2.28.1 的机器则需要额外的样式降级。判定方法是在目标机器上跑 `apt policy libwebkit2gtk-4.0-37`。CI 只验证了能编译能出包，**没有任何一台真实麒麟跑过**。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
 - **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的六处开关——前端 `VITE_BRAND`、Go 窗口标题与单实例锁 `-ldflags`、应用名/产物名、`build/` 下的图标与 macOS `Info.plist`、以及**版本号与产品标识**（`-X internal/desktop.appVersion/.appProduct`，版本更新要用）——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails3 task build` 只会改到应用名，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
   ```bash
