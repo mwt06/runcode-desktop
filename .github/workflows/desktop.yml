@@ -40,7 +40,7 @@ on:
         description: 打哪些目标
         type: choice
         default: all
-        options: [all, windows-only, macos-only, linux-only]
+        options: [all, windows-only, macos-only, linux-only, kylin10-only]
   push:
     tags: ['v*']
   pull_request:
@@ -89,11 +89,17 @@ jobs:
           # 二进制到麒麟上就是一句 GLIBC_2.39 not found，装得上、跑不起来。
           # 22.04 是 2.35，比目标旧，安全。
           linux='{"target":"linux-amd64","os":"ubuntu-22.04"},{"target":"linux-arm64","os":"ubuntu-22.04-arm"}'
+          # 麒麟 V10 走 Wails v2（-tags kylin）：V10 的 WebKitGTK 只有 4.0 ABI，而 v3
+          # 没有 4.0 的代码路径。必须在 ubuntu:20.04 容器里编——V10 的 glibc 是 2.31，
+          # 而 runner 自身是 2.35，在宿主上编出来的到 V10 上跑不了。20.04 同时也是
+          # 唯一还带 libwebkit2gtk-4.0-dev 的 Ubuntu。
+          kylin='{"target":"kylin10-amd64","os":"ubuntu-22.04","container":"ubuntu:20.04"},{"target":"kylin10-arm64","os":"ubuntu-22.04-arm","container":"ubuntu:20.04"}'
           case "$TARGETS" in
             windows-only) targets="$win" ;;
             macos-only)   targets="$mac" ;;
             linux-only)   targets="$linux" ;;
-            *)            targets="$win,$mac,$linux" ;;
+            kylin10-only) targets="$kylin" ;;
+            *)            targets="$win,$mac,$linux,$kylin" ;;
           esac
 
           case "$BRAND" in
@@ -110,6 +116,8 @@ jobs:
     name: ${{ matrix.brand }} · ${{ matrix.target }}
     needs: plan
     runs-on: ${{ matrix.os }}
+    # 只有麒麟 V10 那两个目标带 container；其余目标这里求值为空，直接跑在 runner 上。
+    container: ${{ matrix.container || '' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -117,6 +125,17 @@ jobs:
       run:
         shell: bash
     steps:
+      # ubuntu:20.04 容器是裸的：没有 git（checkout 要用）、没有 curl、没有证书。
+      # 这一步必须排在 checkout 之前，否则 checkout 会退化成 REST API 下载，
+      # 拿不到 .git，后面读版本号那些步骤会莫名其妙地失败。
+      - name: 备好容器
+        if: matrix.container != ''
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates xz-utils build-essential pkg-config sudo libgtk-3-dev libwebkit2gtk-4.0-dev
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -153,9 +172,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
 
-      # Linux 上装 CLI 也要带 gtk3，跟后面真正构建时用的路径保持一致；不带的话它按
-      # GTK4 + WebKitGTK 6.0 找，而那套在 22.04 上没有。
+      # 麒麟 V10 那条走 Wails v2，整条链路不碰 wails3：前端用 npm 直接构建，Go 用
+      # go build -tags kylin，打包用 nfpm。装 v3 的 CLI 在 20.04 容器里还会失败——
+      # 它要 webkit2gtk-4.1，而 20.04 只有 4.0（这正是选它的原因）。
+      #
+      # 其余平台照旧。Linux 上装 CLI 也要带 gtk3，跟后面真正构建时用的路径保持一致；
+      # 不带的话它按 GTK4 + WebKitGTK 6.0 找，而那套在 22.04 上没有。
       - name: 安装 wails3 CLI
+        if: ${{ !startsWith(matrix.target, 'kylin10') }}
         run: |
           set -euo pipefail
           tags=""
@@ -206,6 +230,7 @@ jobs:
             windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer ;;
             macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip ;;
             linux-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --gtk3 ;;
+            kylin10-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --kylin ;;
           esac
 
       # 产物改成全 ASCII 的名字：应用名可能是中文（智开），而中文文件名在 artifact

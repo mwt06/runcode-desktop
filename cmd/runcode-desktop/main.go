@@ -1,3 +1,9 @@
+//go:build !kylin
+
+// 这份外壳是 Wails v3 的（Windows / macOS / 麒麟 V11）。麒麟 V10 那份在
+// main_kylin.go：它只有 WebKitGTK 的 4.0 ABI，而 v3 没有 4.0 的代码路径，只能退回
+// Wails v2——两份外壳因此靠 kylin 这个构建标记分开，业务逻辑与前端完全共用。
+
 // Command runcode-desktop is the Wails shell for the runcode desktop app. It is a
 // thin adapter: it supplies an EventSink backed by the Wails runtime, binds the
 // transport-agnostic desktop.App to the frontend, and embeds the built web UI.
@@ -31,29 +37,6 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-// brandTitle is the OS window title (taskbar / alt-tab; the frameless window has
-// no visible title bar — the frontend draws its own brand). It defaults to the
-// original and is overridden at build time to match the frontend brand, e.g.:
-//
-//	wails3 build -ldflags "-X main.brandTitle=智开"
-//
-// alongside VITE_BRAND=zhikai for the frontend. See frontend/src/core/brand.ts,
-// which is the source of truth for the in-app brand.
-var brandTitle = "XRUN"
-
-// brandID 是单实例锁的标识符，和 brandTitle 一样按品牌在构建时注入：
-//
-//	wails3 build -ldflags "-X main.brandID=cn.ouconline.ai.zhikai"
-//
-// **每个品牌必须不同**，理由和 macOS 的 CFBundleIdentifier 一模一样：相同标识符
-// 会让两个品牌被当成同一个应用。在 Windows 上它的表现尤其难查——装了智开的人
-// 只要 XRUN 还开着，双击智开就是**什么都不发生**：进程起来、发现锁被占、以退出码
-// 0 干净退出，没有窗口、没有报错、事件日志里也没有东西。
-//
-// 值取品牌的 bundle 标识符，与 scripts/build-desktop.sh 里的 BUNDLE_ID、
-// wails.json 的 productIdentifier、macOS Info.plist 保持同一个来源。
-var brandID = "cn.ouconline.ai.xrun"
 
 // 两个窗口的名字。v3 用名字定位窗口（app.Window.GetByName），是跨窗口操作的句柄。
 const (

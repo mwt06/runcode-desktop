@@ -25,16 +25,24 @@
 #   ./scripts/build-desktop.sh --test                       # 测试版:含"上下文审核"等仅测试版功能
 #   ./scripts/build-desktop.sh --local-engine               # 联动本地 ../agentloop(产物不可复现,勿发版)
 #   ./scripts/build-desktop.sh --brand zhikai --installer   # (在 Linux 上)出 .deb,给银河麒麟 V11
+#   ./scripts/build-desktop.sh --brand zhikai --installer --kylin  # 麒麟 V10(Wails v2)
 #
 # ---- Linux / 银河麒麟 ----------------------------------------------------------
-# 目标是**麒麟 V11**:它带 GTK4 与 WebKitGTK 2.44,正好是 Wails v3 的默认路径。
-# --installer 在 Linux 上出 .deb(麒麟桌面版是 deb 系)。
+# 两条互斥的路,因为 V10 与 V11 的 WebKit ABI 不同,不可能是同一个二进制:
 #
-# 麒麟 V10 打不了,而且不是配置问题:V10 只有 WebKitGTK 2.28(4.0 ABI),Wails v3 根本
-# 没有 4.0 的代码路径,连 --gtk3 那条老路走的也是 4.1。
+#   V11:默认路径。它带 GTK4 与 WebKitGTK 2.44,Wails v3 直接支持。CI 上加 --gtk3
+#       走 GTK3 + WebKitGTK 4.1(V11 两个 ABI 都带),因为编译机的 glibc 必须不比
+#       麒麟新,而带 6.0 的发行版都比它新。
 #
-# --gtk3 走 GTK3 + WebKitGTK 4.1 的老路径,给 Ubuntu 22.04 一代的发行版用;它在
-# Wails v3.1 会被移除,所以默认不开。
+#   V10:--kylin。它只有 WebKitGTK 的 4.0 ABI,而 Wails v3 没有 4.0 的代码路径,
+#       所以这条走 **Wails v2**(外壳在 main_kylin.go,-tags kylin)。整条链路不碰
+#       wails3:前端普通 vite 构建,Go 一句 go build,装包交给 nfpm。
+#       代价是单窗口(v2 没有多窗口),录音窗因此不建——而录音采集本来就只有
+#       Windows 有,Linux 上不损失已有能力。
+#       编译环境必须是 Ubuntu 20.04 一代(glibc 2.31,且只有它还带
+#       libwebkit2gtk-4.0-dev)。
+#
+# --gtk3 走 GTK3 + WebKitGTK 4.1 的老路径;它在 Wails v3.1 会被移除,所以默认不开。
 #
 # Linux 上应用名会自动换成 ASCII 的产品标识(xrun / zhikai):它同时是 deb 包名、
 # 可执行文件名与 .desktop 文件名,而 deb 包名规范不接受中文。桌面菜单里显示的仍是
@@ -81,6 +89,7 @@ DO_INSTALLER=0
 INSTALL_SCOPE=machine
 LOCAL_ENGINE=0
 LINUX_GTK3=0
+KYLIN10=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -94,7 +103,8 @@ while [ $# -gt 0 ]; do
     --install-scope) INSTALL_SCOPE="${2:-}"; shift 2 ;;
     --local-engine) LOCAL_ENGINE=1; shift ;;
     --gtk3) LINUX_GTK3=1; shift ;;
-    -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
+    --kylin) KYLIN10=1; shift ;;
+    -h|--help) sed -n '2,62p' "$0"; exit 0 ;;
     *) echo "未知参数: $1(用 --help 看用法)" >&2; exit 2 ;;
   esac
 done
@@ -135,15 +145,22 @@ case "${PLATFORM%%/*}" in
   windows) TARGET=windows ;;
 esac
 
+if [ "$KYLIN10" = 1 ]; then
+  TARGET=linux
+fi
 if [ "$TARGET" = linux ]; then
   APP_NAME="$PRODUCT"
 fi
 
-command -v wails3 >/dev/null 2>&1 || {
-  echo "找不到 wails3 CLI。安装:" >&2
-  echo "  go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.9" >&2
-  exit 1
-}
+# 麒麟 V10 那条走 Wails v2，整条链路不碰 wails3——而且它的 CLI 自己就要
+# webkit2gtk-4.1，在 V10 的编译环境里根本装不上，所以这里必须跳过检查。
+if [ "$KYLIN10" != 1 ]; then
+  command -v wails3 >/dev/null 2>&1 || {
+    echo "找不到 wails3 CLI。安装:" >&2
+    echo "  go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.9" >&2
+    exit 1
+  }
+fi
 
 # ---- 临时套用品牌资产,退出时一律还原 ------------------------------------------
 # 打包资产在仓库里保存的是默认品牌的版本,换品牌打包时就地覆盖、构建完还原,
@@ -349,6 +366,52 @@ fi
 
 echo "▶ 品牌=$BRAND  应用名=$APP_NAME  版本=$APP_VERSION  产品=$PRODUCT  平台=$TARGET  任务=$TASK$TEST_LABEL"
 export VITE_BRAND="$VITE_BRAND_VALUE"
+
+# ---- 麒麟 V10：Wails v2 那条路，整条链路都不碰 wails3 --------------------------
+#
+# 为什么单独一条：V10 的 WebKitGTK 只有 4.0 ABI，只能用 Wails v2（见 main_kylin.go）。
+# 而 wails3 的 CLI 自己就要 webkit2gtk-4.1 才编得起来，在这种机器上装都装不上。
+# 好在 v2 这条根本不需要任何 Wails CLI：前端是普通的 vite 构建，Go 那边就是一句
+# go build -tags kylin，装包交给 nfpm。三步都直接调，反而比走 task 少一层。
+if [ "$KYLIN10" = 1 ]; then
+  echo "▶ 麒麟 V10 模式：Wails v2 + webkit2gtk-4.0，单窗口"
+
+  (cd frontend && npm ci && npm run build)
+
+  # -tags kylin 选中 main_kylin.go 那份外壳；CGO 必须开，WebKitGTK 的绑定是 cgo。
+  CGO_ENABLED=1 go build -tags kylin -trimpath -buildvcs=false \
+    -ldflags "-w -s $LDFLAGS_EXTRA" -o "bin/$APP_NAME"
+  echo "▶ 已编译 bin/$APP_NAME"
+
+  if [ "$DO_INSTALLER" = 1 ]; then
+    # .desktop 手写而不是让 wails3 生成——那个生成器也在 CLI 里。字段与
+    # build/linux/desktop 那份模板一致，Name 用中文显示名。
+    mkdir -p build/linux
+    cat > "build/linux/$APP_NAME.desktop" <<DESKTOP
+[Desktop Entry]
+Version=1.0
+Name=$DISPLAY_NAME
+Comment=AI 办公助手（桌面版）
+Exec=/usr/local/bin/$APP_NAME %u
+Terminal=false
+Type=Application
+Icon=$APP_NAME
+Categories=Office;Utility;
+StartupWMClass=$APP_NAME
+DESKTOP
+    command -v nfpm >/dev/null 2>&1 || go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+    nfpm package -f build/linux/nfpm/nfpm.yaml -p deb -t bin/
+    echo "▶ 已出 deb"
+  fi
+
+  restore
+  echo "✅ 完成:bin/$APP_NAME"
+  for f in bin/*.deb; do
+    [ -f "$f" ] && echo "✅ 安装包:$f（麒麟 V10）"
+  done
+  exit 0
+fi
+
 wails3 task "$TASK" \
   APP_NAME="$APP_NAME" \
   DISPLAY_NAME="$DISPLAY_NAME" \
