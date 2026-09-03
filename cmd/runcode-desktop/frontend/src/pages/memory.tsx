@@ -1,5 +1,5 @@
 // MemoryPage shows the two forms of persistent context: the workspace's project
-// instructions (CLAUDE.md / RUNCODE.md, editable) and the agent's memory (read-only
+// instructions (AGENT.md / RUNCODE.md, editable) and the agent's memory (read-only
 // — the model maintains it via its memory tool).
 import { useEffect, useState } from 'react'
 import { BTN, BTN_PRIMARY } from '@/ui/tokens'

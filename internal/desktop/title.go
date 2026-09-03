@@ -28,11 +28,15 @@ type titleGenerator interface {
 // turn goroutine right after the turn:end envelope. Per the hook's contract it
 // must not block, so it only launches the title refresh goroutine.
 func (a *App) onTurnEnd(sctx host.SessionContext, _ turn.Result) {
+	// 按信封里的会话 id 取,而不是"是不是当前那个":后台会话的回合也该有标题。
+	// 会话若已被替换,条目在新会话开出来时就被清了,这里取到 nil,自然跳过。
 	a.mu.Lock()
-	text := a.lastUserText
-	current := a.currentID
+	text := ""
+	if e := a.entryLocked(sctx.ID); e != nil {
+		text = e.lastUserText
+	}
 	a.mu.Unlock()
-	if sctx.ID != current || strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(text) == "" {
 		return
 	}
 	go a.refreshTitle(sctx, text)
@@ -59,11 +63,13 @@ func (a *App) refreshTitle(sctx host.SessionContext, userText string) {
 		return
 	}
 	a.mu.Lock()
-	ws := a.workspace
-	current := a.currentID
+	ws := ""
+	if e := a.entryLocked(sctx.ID); e != nil && !e.closed {
+		ws = e.workspace
+	}
 	a.mu.Unlock()
 	// Skip if the session was replaced (new/resumed/closed) while generating.
-	if current != sctx.ID || ws == "" {
+	if ws == "" {
 		return
 	}
 	if err := sessions.SaveTitle(ws, sctx.ID, title); err != nil {

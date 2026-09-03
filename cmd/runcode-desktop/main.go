@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"github.com/wt68/runcode/cmd/runcode-desktop/internal/audio"
 	"github.com/wt68/runcode/internal/desktop"
@@ -40,6 +41,19 @@ var assets embed.FS
 // alongside VITE_BRAND=zhikai for the frontend. See frontend/src/core/brand.ts,
 // which is the source of truth for the in-app brand.
 var brandTitle = "XRUN"
+
+// brandID 是单实例锁的标识符，和 brandTitle 一样按品牌在构建时注入：
+//
+//	wails3 build -ldflags "-X main.brandID=cn.ouconline.ai.zhikai"
+//
+// **每个品牌必须不同**，理由和 macOS 的 CFBundleIdentifier 一模一样：相同标识符
+// 会让两个品牌被当成同一个应用。在 Windows 上它的表现尤其难查——装了智开的人
+// 只要 XRUN 还开着，双击智开就是**什么都不发生**：进程起来、发现锁被占、以退出码
+// 0 干净退出，没有窗口、没有报错、事件日志里也没有东西。
+//
+// 值取品牌的 bundle 标识符，与 scripts/build-desktop.sh 里的 BUNDLE_ID、
+// wails.json 的 productIdentifier、macOS Info.plist 保持同一个来源。
+var brandID = "cn.ouconline.ai.xrun"
 
 // 两个窗口的名字。v3 用名字定位窗口（app.Window.GetByName），是跨窗口操作的句柄。
 const (
@@ -137,6 +151,19 @@ func (d *wailsDialog) PickImage(title string) (string, error) {
 	}).PromptForSingleSelection()
 }
 
+// wailsQuit 把「退出应用」这件事交给 desktop.App —— 版本更新装完要用（拉起安装器
+// 之后必须退出，否则 NSIS 覆盖不了正在运行的 exe，单实例锁也还攥在手里）。
+//
+// 与 Dialoger 同一个模式：退出是 Wails 的东西，而 internal/desktop 对 Wails 零依赖
+// 是整个分层的地基，所以那边定接口、这边给实现。
+type wailsQuit struct{ app *application.App }
+
+func (q *wailsQuit) Quit() {
+	if q.app != nil {
+		q.app.Quit()
+	}
+}
+
 // RecorderWindow 是录音窗的控制面，作为一个独立服务绑给前端。
 //
 // 为什么不挂在 desktop.App 上：窗口控制天生是 Wails 的东西，而 internal/desktop
@@ -227,6 +254,20 @@ func devtoolsArgs() []string {
 }
 
 func main() {
+	// 更新看门模式：必须在这里、在**任何东西之前**处理掉。
+	//
+	// 它是同一个二进制的另一副面孔——应用为了让安装器覆盖自己而退出时，留下一份自己
+	// 的副本，由它等新版本落地后再把应用拉起来（整套理由见 internal/desktop 的
+	// update_watch.go）。
+	//
+	// 为什么必须排在最前：下面 application.New 的 SingleInstance 是按品牌全局唯一的
+	// 一把锁。看门进程一旦走到那里，轻则发现锁被占后静默退出（于是没人拉起新版本，
+	// 应用关掉再也不回来），重则它抢在前面，把用户真正的那次启动挡在门外——而那次
+	// 启动的表现是「双击图标什么都没发生」。
+	if desktop.IsUpdateWatch(os.Args) {
+		os.Exit(desktop.RunUpdateWatch(os.Args))
+	}
+
 	sink := &eventSink{}
 	dlg := &wailsDialog{}
 	deskApp := desktop.New(sink)
@@ -248,7 +289,10 @@ func main() {
 
 	recWin := &RecorderWindow{}
 
-	app := application.New(application.Options{
+	// 先声明再赋值：下面的 OnSecondInstanceLaunch 回调要用到 app 本身，
+	// 而 `app := application.New(...)` 时 app 在字面量里还不存在。
+	var app *application.App
+	app = application.New(application.Options{
 		Name: brandTitle,
 		Services: []application.Service{
 			application.NewService(deskApp),
@@ -259,19 +303,42 @@ func main() {
 			Handler: application.BundledAssetFileServer(dist),
 		},
 		// 桌面只允许开一个实例：两个进程同时开会抢同一份会话记录与配置。
-		SingleInstance: &application.SingleInstanceOptions{UniqueID: "cn.ouconline.ai.runcode"},
+		// 锁按品牌分（见 brandID）——共用一把会让不同品牌互相挡住启动。
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: brandID,
+			// 再次启动时，把已经开着的那个窗口叫到前面来。
+			//
+			// 不接这个回调，第二个进程发现锁被占就直接退出：没有窗口、没有提示、
+			// 退出码 0。用户看到的是「双击图标什么都没发生」——而这恰恰是他判定
+			// 程序坏了的那一刻，尽管窗口很可能只是被别的窗口盖住或者最小化了。
+			//
+			// 同一台机器上装了正式版、又留着开发版在跑时，症状一模一样：两者
+			// brandID 相同（本来就该相同——它们共用同一份配置、令牌与会话记录，
+			// 真让两个同时跑起来才是坏事），于是后启动的那个默默把控制权交出去
+			// 就退了。锁没做错，缺的是让这次交接被看见。
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				w, ok := app.Window.GetByName(windowMain)
+				if !ok {
+					return
+				}
+				w.UnMinimise() // 最小化时先还原，否则 Focus 只是在任务栏上闪一下
+				w.Show()
+				w.Focus()
+			},
+		},
 		OnShutdown: func() {
 			deskApp.Shutdown()
-			_ = deskApp.CloseSession()
+			_ = deskApp.CloseAllSessions()
 		},
 		Windows: application.WindowsOptions{AdditionalBrowserArgs: devtoolsArgs()},
 	})
 	sink.setApp(app)
 	dlg.setApp(app)
+	deskApp.SetQuitter(&wailsQuit{app: app})
 	recWin.app = app
 
 	// 主窗。无边框，标题栏由前端自绘。
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	mainWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:  windowMain,
 		Title: brandTitle,
 		URL:   "/",
@@ -281,6 +348,30 @@ func main() {
 		Width: 1280, Height: 820,
 		MinWidth: 1024, MinHeight: 680,
 		Frameless: true,
+		// 允许把文件拖进窗口。Windows 上这是**必需**的:关着的时候 Wails 的前端
+		// runtime 会给外部文件拖拽显示"禁止放置"光标并吞掉 drop 事件(见
+		// @wailsio/runtime 的 window.js:enableFileDrop 那几处判断),输入框自己的
+		// drop 处理器根本收不到东西。
+		//
+		// 开着也不等于窗口里到处都能放:runtime 只认带 data-file-drop-target 属性的
+		// 元素,本应用只有输入区标了它。
+		EnableFileDrop: true,
+	})
+
+	// 关掉主窗 = 退出应用。
+	//
+	// Wails 自己有「最后一个窗口关掉就退出」的规则，但它数的是**注册过的**窗口，
+	// 不是看得见的窗口（application_windows.go 的 unregisterWindow：windowMap 空了
+	// 才 PostQuitMessage）。而下面那个录音窗为了省下建窗的几百毫秒是开机就建、只
+	// 挂着 Hidden——窗口表于是永远不为空，主窗关掉之后进程还活着，没有任何窗口，
+	// 也永远不会自己退出。
+	//
+	// 后果不止是多一个后台进程：单实例锁（上面的 SingleInstance）攥在它手里，再点
+	// 图标只会把启动交给这个没有窗口的进程然后自己退出——表现就是「双击了没反应，
+	// 应用打不开」，而任务管理器里那个进程看着一切正常。修在这里而不是把录音窗改成
+	// 懒加载：预建是为了那几百毫秒的手感，退出的语义不该由「有没有预建过窗口」决定。
+	mainWin.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
+		app.Quit()
 	})
 
 	// 录音窗。先建好但不显示——建窗要几百毫秒，等用户点「录音纪要」再建的话，

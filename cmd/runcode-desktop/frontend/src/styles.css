@@ -121,6 +121,12 @@
 }
 
 /* Ring spinner for in-flight tool rows and the progress pill. */
+/* .indeterminate 是长度未知时的进度条：一小段来回扫，表达「在动，但不知道还剩多少」。
+   服务端没给 Content-Length 时用（见 composer/install-overlay）。 */
+@keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+.indeterminate { animation: indeterminate 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .indeterminate { animation: none; } }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin-ring { animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spin-ring { animation-duration: 2.4s; } }
@@ -159,6 +165,15 @@
 .cl.diff_add { background: var(--color-greenbg); color: #167a48; }
 .cl.diff_del { background: var(--color-redbg); color: #bf3a2d; }
 .cl.diff_context { color: var(--color-muted); }
+
+/* .no-scrollbar 藏掉滚动条但保留滚动能力。给「横向滚一行」这种条用（场景分类行）：
+   那种地方一根 10px 的横条会把一行 30px 的 chip 挤变形。滚动本身照常——键盘、滚轮、
+   触控板都能用。
+   注意：藏了滚动条就必须另外把「还有内容」画出来，否则切断点落在两个 chip 之间时
+   整排看起来就是"只有这几项"。别裸用这个类，用 ui/h-scroll 的 HScroll——淡出与翻页
+   箭头在那里。 */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #d7dae4; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }

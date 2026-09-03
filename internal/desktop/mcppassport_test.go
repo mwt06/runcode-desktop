@@ -260,7 +260,8 @@ func TestReloadMCPServersGuards(t *testing.T) {
 		t.Fatalf("no session: got (%v, %v), want (false, nil)", reloaded, err)
 	}
 
-	busy := &App{currentID: "s1", turnActive: true}
+	busy := &App{}
+	focusOn(busy, "s1", "").turnActive = true
 	busy.config.Model = "m"
 	reloaded, err = busy.ReloadMCPServers()
 	if reloaded || err == nil {

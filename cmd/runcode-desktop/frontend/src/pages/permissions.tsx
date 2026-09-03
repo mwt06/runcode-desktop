@@ -1,5 +1,6 @@
 // PermissionsPage: pick a mode (the hero), then scan the operation × mode matrix for
 // exactly what each mode does. Clicking a mode switches the live session to it.
+import { HIDDEN_PERMISSION_MODES, type PermissionMode } from '@/core/permission-modes'
 
 // PERM_CHIP maps a permission outcome to its label + color. 'auto' is an allow the
 // smart mode grants without asking (workspace mutations); it reads green with an
@@ -31,6 +32,19 @@ const PERM_MODES = [
   { key: 'flight', zh: '飞行', en: 'flight', level: 4, tone: 'bg-red', essence: '全部放行,连高危命令也不拦,不审计。' },
 ]
 
+// SHOWN_MODES 是本页实际展示的模式，**带着它在 PERM_MODES 里的原始下标**。
+//
+// 下标必须带上：下面那张矩阵的 cells 是按 PERM_MODES 的原始顺序一一写死的，隐藏
+// 一列之后若还按新数组的位置去取，整张表会**错位一列**——而错位后的表格看着完全
+// 正常，只是每个格子说的是隔壁那个模式的事。这种错误没有任何症状可循。
+const SHOWN_MODES = PERM_MODES
+  .map((m, at) => ({ ...m, at }))
+  .filter((m) => !HIDDEN_PERMISSION_MODES.includes(m.key as PermissionMode))
+
+// 卡片列数跟着模式数走。Tailwind 不能拼动态类名，所以按数量查一张小表——
+// 恢复隐藏的模式时它自己会跟着变回四列。
+const MODE_GRID: Record<number, string> = { 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' }
+
 // PERM_ROWS is the operation × mode matrix, verified against internal/permissions.
 // cells are ordered [安全, 交互, 智能, 飞行].
 const PERM_ROWS: { op: string; q: string; cells: string[] }[] = [
@@ -55,7 +69,8 @@ const PERM_CHOICES: [string, string, boolean][] = [
 ]
 
 const PERM_RULES: [string, string, string][] = [
-  ['计划模式', 'text-primaryink bg-primarysoft', '规划阶段任何会改动东西的动作都被拒绝,让 AI 先想清楚——与四种模式叠加。'],
+  ['计划模式', 'text-primaryink bg-primarysoft', '规划阶段拒绝破坏性动作:删除文件、外部/MCP 调用、非只读命令;新建与修改文件按常规权限走,方案可以边规划边落成文档——与四种模式叠加。'],
+  ['应用自己的目录', 'text-green bg-greenbg', '本应用的数据目录(技能、子代理、MCP 配置、通行证等)读写不再弹"项目外授权";安装目录只放行读——里面是正在运行的程序本体。删除与 shell 命令不在此列,照旧要你点头。'],
   ['危害审查', 'text-amber bg-amber/15', '智能模式对命令 / 联网 / MCP 先判危害:安全放行,有害弹窗并附原因,评估失败也弹窗,绝不静默放行。'],
   ['并发队列', 'text-green bg-greenbg', '只读类工具并行执行;多个授权请求排队逐个弹出、互不覆盖;同一批里问题相同的请求只弹一次、共用答复;批次里任一被拒绝同样停止本回合。'],
   ['越界授权按目录记', 'text-amber bg-amber/15', '批准一个项目外的文件 = 批准它所在目录及其子目录;读与写分开记,写授权蕴含读,读授权不含写。项目内那条"文件改动"授权永远不会外溢到项目之外。'],
@@ -91,8 +106,8 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
             <span className="text-[15px] font-semibold text-ink">选择模式</span>
             <span className="text-[13px] text-faint">点一下即切换当前会话</span>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {PERM_MODES.map((m) => {
+          <div className={`grid grid-cols-2 ${MODE_GRID[SHOWN_MODES.length] ?? 'lg:grid-cols-4'} gap-3.5`}>
+            {SHOWN_MODES.map((m) => {
               const active = mode === m.key
               return (
                 <button
@@ -132,7 +147,7 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
               <thead>
                 <tr>
                   <th className="text-left font-medium text-[13px] text-faint px-6 py-4">操作</th>
-                  {PERM_MODES.map((m) => {
+                  {SHOWN_MODES.map((m) => {
                     const on = m.key === mode
                     return (
                       <th key={m.key} className={`px-3 py-4 text-center align-bottom ${on ? 'bg-primarysoft/50' : ''}`}>
@@ -150,9 +165,10 @@ export function PermissionsPage({ mode, onPickMode }: { mode?: string; onPickMod
                       <div className="text-ink text-[14px]">{r.op}</div>
                       <div className="font-mono text-[12px] text-faint mt-1">{r.q}</div>
                     </td>
-                    {r.cells.map((c, ci) => (
-                      <td key={ci} className={`px-3 py-4 text-center ${PERM_MODES[ci].key === mode ? 'bg-primarysoft/40' : ''}`}>
-                        <PermChip kind={c} />
+                    {/* 按 m.at 取格子，不是按渲染下标——见 SHOWN_MODES 的注释。 */}
+                    {SHOWN_MODES.map((m) => (
+                      <td key={m.key} className={`px-3 py-4 text-center ${m.key === mode ? 'bg-primarysoft/40' : ''}`}>
+                        <PermChip kind={r.cells[m.at]} />
                       </td>
                     ))}
                   </tr>

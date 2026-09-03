@@ -71,6 +71,19 @@ describe('matchByNameOrDesc', () => {
   it('returns everything for an empty query', () => {
     expect(matchByNameOrDesc(items, '')).toHaveLength(3)
   })
+  it('中文展示名/展示描述也能搜到——市场装来的技能，用户只认得那两句', () => {
+    const withDisplay = [{
+      name: 'cn-docx', displayName: '中文公文',
+      displayDescription: '规范化参考文献',
+      description: 'Use when normalizing academic references',
+    }]
+    const hit = (q: string) => matchByNameOrDesc(withDisplay, q).map((i) => i.name)
+    expect(hit('公文')).toEqual(['cn-docx'])     // 展示名
+    expect(hit('规范化')).toEqual(['cn-docx'])   // 展示描述
+    expect(hit('docx')).toEqual(['cn-docx'])     // 真实 name
+    expect(hit('normalizing')).toEqual(['cn-docx']) // 给模型看的那句
+    expect(hit('路由器')).toEqual([])
+  })
 })
 
 describe('applyMention', () => {

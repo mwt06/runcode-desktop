@@ -429,10 +429,8 @@ func cloneRun(run protocol.PlanRun) protocol.PlanRun {
 
 // PlanStatus returns the active session's planning run, so the UI can render the
 // board on load and after a resume (a plan waiting for approval outlives a restart).
-func (a *App) PlanStatus() (PlanRun, error) {
-	a.mu.Lock()
-	plans, id := a.plans, a.currentID
-	a.mu.Unlock()
+func (a *App) PlanStatus(sessionID string) (PlanRun, error) {
+	plans, id := a.plansAndSessionOf(sessionID)
 	if id == "" || plans == nil {
 		return PlanRun{State: protocol.PlanStateIdle}, nil
 	}
@@ -441,10 +439,8 @@ func (a *App) PlanStatus() (PlanRun, error) {
 
 // PlanUpdate stores the user's edits to the checklist (reordering, rewriting, adding
 // or dropping steps) while it waits for approval.
-func (a *App) PlanUpdate(doc PlanDoc) (PlanRun, error) {
-	a.mu.Lock()
-	plans, id := a.plans, a.currentID
-	a.mu.Unlock()
+func (a *App) PlanUpdate(sessionID string, doc PlanDoc) (PlanRun, error) {
+	plans, id := a.plansAndSessionOf(sessionID)
 	if id == "" || plans == nil {
 		return PlanRun{}, wireError(errNoSession)
 	}
@@ -463,10 +459,8 @@ func (a *App) PlanUpdate(doc PlanDoc) (PlanRun, error) {
 // prompt through its normal send path, so the busy state, the user's own bubble in
 // the transcript, and the whole turn lifecycle stay on the one code path that
 // already handles them.
-func (a *App) PlanApprove(req PlanApproveRequest) (PlanApproveResult, error) {
-	a.mu.Lock()
-	plans, id := a.plans, a.currentID
-	a.mu.Unlock()
+func (a *App) PlanApprove(sessionID string, req PlanApproveRequest) (PlanApproveResult, error) {
+	plans, id := a.plansAndSessionOf(sessionID)
 	if id == "" || plans == nil {
 		return PlanApproveResult{}, wireError(errNoSession)
 	}
@@ -489,7 +483,7 @@ func (a *App) PlanApprove(req PlanApproveRequest) (PlanApproveResult, error) {
 	if err := a.mgr.SetPlanMode(id, false); err != nil {
 		return PlanApproveResult{}, wireError(err)
 	}
-	info, err := a.Status()
+	info, err := a.Status(id)
 	if err != nil {
 		return PlanApproveResult{}, err
 	}
@@ -499,10 +493,14 @@ func (a *App) PlanApprove(req PlanApproveRequest) (PlanApproveResult, error) {
 // PlanCancel abandons the planning run. A turn still producing stages is interrupted
 // — cancelling while the model keeps writing would leave the user watching a plan
 // they already rejected.
-func (a *App) PlanCancel() (PlanRun, error) {
-	a.mu.Lock()
-	plans, id, busy := a.plans, a.currentID, a.turnActive
-	a.mu.Unlock()
+func (a *App) PlanCancel(sessionID string) (PlanRun, error) {
+	plans, id := a.plansAndSessionOf(sessionID)
+	busy := false
+	if e, err := a.entryOf(sessionID); err == nil {
+		a.mu.Lock()
+		busy = e.turnActive
+		a.mu.Unlock()
+	}
 	if id == "" || plans == nil {
 		return PlanRun{}, wireError(errNoSession)
 	}

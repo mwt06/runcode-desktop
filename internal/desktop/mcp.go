@@ -161,8 +161,14 @@ func (a *App) ReloadMCPServers() (bool, error) {
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
 	a.mu.Lock()
-	id, cfg, busy := a.currentID, a.config, a.turnActive
+	id, busy, ws := "", false, ""
+	if e := a.liveEntryLocked(); e != nil {
+		id, busy, ws = e.id, e.turnActive, e.workspace
+	}
 	a.mu.Unlock()
+	// 原地重建这条会话，必须重建在**它自己的目录**里——a.config 记的可能是另一个
+	// 工作区（在别处开过会话之后）。搬了家的话，重载 MCP 会让对话连同工作区一起漂走。
+	cfg := a.configForWorkspace(ws)
 	if id == "" || cfg.Model == "" {
 		return false, nil
 	}

@@ -96,6 +96,23 @@ type CompactResult struct {
 	OutputTokens int `json:"outputTokens"`
 }
 
+// OpenSessionInfo 描述**此刻开着**的一条会话，供界面画会话列表。
+//
+// 与 SessionSummary 的分工：那个是工作区里**存下来**的历史会话（标题、时间、
+// 回合数），这个是当前进程里活着的会话。界面上是两栏：「打开中」与「历史」。
+//
+// 只带后端独有的事实。标题走 session:renamed 事件与 SessionSummary，待审批数在
+// 前端的授权队列里——都不必在这里重复一遍，重复就会出现两个版本互相矛盾。
+type OpenSessionInfo struct {
+	SessionID string `json:"sessionId"`
+	// Workspace 是这条会话的工作目录。多个会话可以各在各的目录。
+	Workspace string `json:"workspace"`
+	// Running 表示它有回合在跑（界面上的运行指示）。
+	Running bool `json:"running"`
+	// Focused 表示它是当前看得见的那条。
+	Focused bool `json:"focused"`
+}
+
 // SessionSummary describes a saved session for the sidebar's recent list.
 type SessionSummary struct {
 	ID    string `json:"id"`

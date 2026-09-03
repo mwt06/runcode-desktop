@@ -70,6 +70,7 @@ type (
 	StartSessionRequest = protocol.StartSessionRequest
 	SessionRenamed      = protocol.SessionRenamed
 	CompactResult       = protocol.CompactResult
+	OpenSessionInfo     = protocol.OpenSessionInfo
 	SessionSummary      = protocol.SessionSummary
 	ResumedBlock        = protocol.ResumedBlock
 	ResumedTool         = protocol.ResumedTool

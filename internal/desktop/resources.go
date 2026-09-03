@@ -94,6 +94,22 @@ func collapseLine(s string) string {
 // frontmatterName extracts the name from a "--- ... ---" frontmatter block, as
 // used by both SKILL.md and a sub-agent's .md.
 func frontmatterName(content string) string {
+	return frontmatterValue(content, "name")
+}
+
+// frontmatterValue returns the first of keys present in the "--- ... ---" block
+// (case-insensitive). Several spellings are accepted per call because the same
+// datum arrives under different conventions — the platform's API says
+// display_name, a hand-written SKILL.md follows the allowed-tools style and says
+// display-name — and neither is worth rejecting a file over.
+//
+// Not a YAML parser: frontmatter here is line-based `key: value`, which is all
+// the engine's own parser reads too. A real one would accept nesting and block
+// scalars this format never uses.
+func frontmatterValue(content string, keys ...string) string {
+	// Tolerate the BOM some Windows editors prepend — the engine's parser does,
+	// so a file it loads fine must not read as "no frontmatter" here.
+	content = strings.TrimPrefix(content, string(utf8BOM))
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return ""
@@ -103,8 +119,13 @@ func frontmatterName(content string) string {
 			break
 		}
 		key, value, ok := strings.Cut(lines[i], ":")
-		if ok && strings.EqualFold(strings.TrimSpace(key), "name") {
-			return strings.Trim(strings.TrimSpace(value), `"'`)
+		if !ok {
+			continue
+		}
+		for _, want := range keys {
+			if strings.EqualFold(strings.TrimSpace(key), want) {
+				return strings.Trim(strings.TrimSpace(value), `"'`)
+			}
 		}
 	}
 	return ""

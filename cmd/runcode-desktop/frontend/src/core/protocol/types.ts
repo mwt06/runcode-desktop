@@ -21,10 +21,12 @@ export const Events = {
   RecorderTranscript: 'recorder:transcript',
   Retry: 'llm:retry',
   SessionRenamed: 'session:renamed',
+  SkillInstall: 'skill:install',
   ToolEvent: 'tool:event',
   TurnEnd: 'turn:end',
   TurnError: 'turn:error',
   TurnQueued: 'turn:queued',
+  Update: 'update:status',
   Warning: 'warning',
 } as const;
 
@@ -91,6 +93,33 @@ export const PlanStates = {
 
 // PlanState is the closed set of planning-run states.
 export type PlanState = (typeof PlanStates)[keyof typeof PlanStates];
+
+// Mirrors the protocol.SkillInstall* constants. Stages of installing a market skill, in order; the values of SkillInstallProgress.stage.
+export const SkillInstallStages = {
+  Detail: 'detail',
+  Done: 'done',
+  Download: 'download',
+  Extract: 'extract',
+  Verify: 'verify',
+} as const;
+
+// SkillInstallStage is the closed set of install stages — the shell drives this pipeline itself, so an unknown value is a bug, not a newer peer.
+export type SkillInstallStage = (typeof SkillInstallStages)[keyof typeof SkillInstallStages];
+
+// Mirrors the protocol.Update* constants. Stages of the version updater; the values of UpdateInfo.stage.
+export const UpdateStages = {
+  Available: 'available',
+  Checking: 'checking',
+  Downloading: 'downloading',
+  Failed: 'failed',
+  Idle: 'idle',
+  Latest: 'latest',
+  Ready: 'ready',
+  Verifying: 'verifying',
+} as const;
+
+// UpdateStage is the closed set of updater stages — the shell drives this state machine itself, so an unknown value is a bug, not a newer peer.
+export type UpdateStage = (typeof UpdateStages)[keyof typeof UpdateStages];
 
 // Mirrors protocol.AgentInfo. AgentInfo is one sub-agent for the UI's sub-agent manager.
 export interface AgentInfo {
@@ -282,6 +311,20 @@ export interface MCPToolBrief {
   description?: string;
 }
 
+// Mirrors protocol.MarketSkill. MarketSkill 是技能市场（lea-config / lea-gateway）里的一条。 与本包里其它 DTO 一样，它是**桌面自己的线上形状**，不是上游 API 的原样转发： 上游返回 snake_case 且带一堆界面用不到的列（is_builtin / can_edit / pending_publish / system_prompt 全文 …），照抄进前端只会让市场页跟着上游的表结构 走。这里只留画得出来、装得上的那几个字段，上游加列不必动前端。
+export interface MarketSkill {
+  id: number;
+  name: string;
+  displayName: string;
+  description: string;
+  category: string;
+  version: string;
+  allowedTools: string[] | null;
+  hasBundle: boolean;
+  installedUser: boolean;
+  installedProject: boolean;
+}
+
 // Mirrors protocol.McpMarketEntry. McpMarketEntry is one installable MCP server from the platform market (bridge GET /api/mcp/market).
 export interface McpMarketEntry {
   id: string;
@@ -297,6 +340,14 @@ export interface McpMarketEntry {
 export interface MemoryInfo {
   user: string[] | null;
   project: string[] | null;
+}
+
+// Mirrors protocol.OpenSessionInfo. OpenSessionInfo 描述**此刻开着**的一条会话，供界面画会话列表。 与 SessionSummary 的分工：那个是工作区里**存下来**的历史会话（标题、时间、 回合数），这个是当前进程里活着的会话。界面上是两栏：「打开中」与「历史」。 只带后端独有的事实。标题走 session:renamed 事件与 SessionSummary，待审批数在 前端的授权队列里——都不必在这里重复一遍，重复就会出现两个版本互相矛盾。
+export interface OpenSessionInfo {
+  sessionId: string;
+  workspace: string;
+  running: boolean;
+  focused: boolean;
 }
 
 // Mirrors protocol.OutputLine. OutputLine is a single sanitized, bounded line of tool output for UI display.
@@ -382,7 +433,7 @@ export interface PlanStep {
   files?: string[] | null;
 }
 
-// Mirrors protocol.ProjectContextInfo. ProjectContextInfo is the workspace's project-instructions file (RUNCODE.md or CLAUDE.md), for viewing and editing.
+// Mirrors protocol.ProjectContextInfo. ProjectContextInfo is the workspace's project-instructions file (RUNCODE.md or AGENT.md), for viewing and editing.
 export interface ProjectContextInfo {
   path: string;
   name: string;
@@ -423,6 +474,7 @@ export interface RecorderSettings {
   keepAudio: boolean;
   summaryModel: string;
   root?: string;
+  version: number;
 }
 
 // Mirrors protocol.RecorderState. RecorderState 是录音状态的变化。
@@ -567,6 +619,8 @@ export interface SessionSummary {
 // Mirrors protocol.SkillInfo. SkillInfo is one project skill for the UI's skill manager.
 export interface SkillInfo {
   name: string;
+  displayName: string;
+  displayDescription: string;
   description: string;
   body: string;
   source: string;
@@ -574,6 +628,15 @@ export interface SkillInfo {
   editable: boolean;
   disabledUser: boolean;
   disabledProject: boolean;
+}
+
+// Mirrors protocol.SkillInstallProgress. SkillInstallProgress 是一次安装的实时进度。 它报的是**真的发生了什么**，不是按定时器推的假进度：Stage 由各步骤自己发， Received/Total 来自 HTTP 响应体的实际字节数与 Content-Length。假进度条在快的 时候显得慢、在卡住的时候还在动，等于把唯一能判断"是不是死了"的信号也抹掉。
+export interface SkillInstallProgress {
+  id: number;
+  name: string;
+  stage: string;
+  received: number;
+  total: number;
 }
 
 // Mirrors protocol.SkillList. SkillList is the skill manager's view: loaded skills plus load problems.
@@ -591,6 +654,14 @@ export interface SkillLoad {
   truncated?: boolean;
 }
 
+// Mirrors protocol.SkillMarketPage. SkillMarketPage 是市场页一次要画的全部东西。 Categories 由这一批技能的 category 去重得来，而不是另开一个接口：上游没有分类 接口，分类本来就只是技能表里的一列，从数据里长出来的页签永远和内容对得上。
+export interface SkillMarketPage {
+  skills: MarketSkill[] | null;
+  categories: string[] | null;
+  total: number;
+  fetchedAt: string;
+}
+
 // Mirrors protocol.SkillProblem. SkillProblem reports a skill directory that failed to load.
 export interface SkillProblem {
   dir: string;
@@ -601,6 +672,8 @@ export interface SkillProblem {
 export interface SkillSaveRequest {
   originalName: string;
   name: string;
+  displayName: string;
+  displayDescription: string;
   description: string;
   body: string;
   scope: string;
@@ -697,6 +770,23 @@ export interface TurnError {
 
 // Mirrors protocol.TurnQueued. TurnQueued announces that a submitted turn is waiting for a concurrency slot.
 export interface TurnQueued {
+}
+
+// Mirrors protocol.UpdateInfo. UpdateInfo 是更新器的完整状态，也是唯一的对外形状。 它同时是 UpdateStatus()（纯读，不联网）的返回值和 EventUpdate 的载荷：读一次拿到 的东西和后续推送过来的东西是同一种，前端不必为「初始态」和「更新态」写两套解析。
+export interface UpdateInfo {
+  current: string;
+  stage: UpdateStage;
+  latest: string;
+  notes: string;
+  publishedAt: string;
+  size: number;
+  received: number;
+  checkedAt: string;
+  error: string;
+  installError: string;
+  canInstall: boolean;
+  file: string;
+  autoRestart: boolean;
 }
 
 // Mirrors protocol.Warning. Warning is a non-fatal diagnostic surfaced to the UI.

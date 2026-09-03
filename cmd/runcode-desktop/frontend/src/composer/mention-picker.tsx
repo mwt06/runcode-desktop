@@ -6,7 +6,9 @@ import { SourceBadge } from '@/ui/badges'
 import { classifyPreview, fileColor, kindIcon } from '@/preview/classify'
 import { type AgentInfo, type SkillInfo } from '@/core/bridge'
 
-function PickerPanel({ title, children }: { title: string; children: ReactNode }) {
+// PickerPanel 也给场景面板用（scenario-bar）：都是「浮在输入框正上方、占满输入区
+// 宽度」的那一块，共用一个外壳，位置与滚动行为才不会各走各的。
+export function PickerPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="absolute left-6 right-6 bottom-full mb-1.5 z-10 bg-surface border border-line2 rounded-xl shadow-card overflow-hidden max-h-[300px] overflow-y-auto">
       <div className="px-3.5 pt-2 pb-1 text-[12px] text-faint">{title}</div>
@@ -38,10 +40,12 @@ export function SkillPicker({ items, sel, selRef, onHover, onPick }: {
           <span className="text-primaryink flex-none mt-px"><Icon name="book" size={15} /></span>
           <div className="min-w-0">
             <div className="text-[13px] text-ink flex items-center gap-1.5">
-              {sk.name}
+              {sk.displayName || sk.name}
+              {/* 有中文展示名时把真实 name 跟在后面：插进输入框的是它，看得见才对得上。 */}
+              {sk.displayName && sk.displayName !== sk.name && <span className="font-mono text-[11px] text-faint">{sk.name}</span>}
               <SourceBadge source={sk.source} />
             </div>
-            <div className="text-[12px] text-faint truncate">{sk.description}</div>
+            <div className="text-[12px] text-faint truncate">{sk.displayDescription || sk.description}</div>
           </div>
         </div>
       ))}

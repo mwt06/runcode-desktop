@@ -12,15 +12,17 @@ permissions:
 # go.work exists for local development only; CI builds each module through the
 # go.mod replace chain so the workspace file can never mask a broken module.
 #
-# TODO(agentloop fetch): the engine is required as a tagged module
-# (gitlab.ouc-online.com.cn/aibase/agentloop, no replace) and resolves via
-# GOPRIVATE + git credentials with network reach to the internal GitLab.
-# GitHub-hosted runners cannot reach that intranet host, so these jobs cannot
-# resolve the engine module here — the likely endgame is moving this repo's CI
-# to the internal GitLab (where a runner and CI config already exist for the
-# engine repo).
+# 引擎（agentloop）是独立的私有仓库。CI 上既不能靠 go.work（那指着本地才有的同级
+# 目录），也不能按 go.mod 的 gitlab 路径去拉（GitHub 的机器够不着内网）——2026-07-20
+# 起这里全红一个半月就是这么来的。现在引擎在 GitHub 上，由 .github/actions/setup-engine
+# 取出并 replace 过去，那个 action 里写了为什么这样接。
+#
+# 它需要仓库 secret ENGINE_REPO_TOKEN：一个对 mwt06/agentloop 有读权限的令牌。
+# GITHUB_TOKEN 不行，它的权限只覆盖当前仓库。
 env:
-  GOWORK: off
+  # 必须带引号：YAML 会把裸 off 解析成布尔假，环境变量于是变成 "false"——那不是
+  # GOWORK 认得的值（它只认 "off" 或一个 go.work 路径），等于这行白写。
+  GOWORK: "off"
 
 jobs:
   lint:
@@ -36,6 +38,11 @@ jobs:
           go-version: '1.26.x'
           cache: true
           cache-dependency-path: '**/go.sum'
+
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: golangci-lint (root)
         uses: golangci/golangci-lint-action@v6
@@ -61,6 +68,11 @@ jobs:
           cache: true
           cache-dependency-path: '**/go.sum'
 
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
+
       - name: Test (root module)
         run: go test -race ./...
 
@@ -83,6 +95,11 @@ jobs:
           go-version: '1.26.x'
           cache: true
           cache-dependency-path: '**/go.sum'
+
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: Build (server skeleton)
         run: go -C cmd/runcode-server build ./...
@@ -109,6 +126,11 @@ jobs:
           go-version: '1.26.x'
           cache: true
           cache-dependency-path: '**/go.sum'
+
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: Set up Node
         uses: actions/setup-node@v4

@@ -1,0 +1,3 @@
+
+# vitest 在被调用的目录下建缓存（src/ 里跑过一次 npx vitest 就会有），是构建垃圾。
+src/node_modules/

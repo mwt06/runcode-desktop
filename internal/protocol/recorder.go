@@ -96,7 +96,8 @@ type RecorderSettings struct {
 	SpeakerName string `json:"speakerName"`
 	// Lang 是默认识别语言，空 = 自动。
 	Lang string `json:"lang"`
-	// MicDiarize 打开后麦克风轨也做说话人分离，供面对面开会用。默认关。
+	// MicDiarize 打开后麦克风轨也做说话人分离，供面对面开会用。**默认开**。
+	// 代价：开着时服务端只回 S1/S2 这类聚类编号，不再回显说话人姓名。
 	MicDiarize bool `json:"micDiarize"`
 	// MicDeviceID / SysDeviceID 记住上次选的设备，空 = 系统默认。
 	MicDeviceID string `json:"micDeviceId"`
@@ -109,6 +110,10 @@ type RecorderSettings struct {
 	SummaryModel string `json:"summaryModel"`
 	// Root 是录音落盘根目录。空 = 平台默认（见 desktop.recorderRoot）。
 	Root string `json:"root,omitempty"`
+	// Version 是配置文件的迁移版本，**由后端独占**：读到落后的版本就跑一次
+	// 一次性迁移（见 desktop.migrateRecorderSettings），保存时后端自己盖当前值、
+	// 不采信前端回传的数字。界面上没有对应的控件，前端只需原样带着走。
+	Version int `json:"version"`
 }
 
 // RecorderTranscript 是网关下行的一条转写事件。

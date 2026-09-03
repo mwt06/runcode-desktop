@@ -21,6 +21,19 @@ describe('pickMinutesSkill', () => {
   it('挑不到就返回空串，让调用方退回通用提示', () => {
     expect(pickMinutesSkill(['深度研究', 'ppt'])).toBe('')
   })
+
+  it('内置的国开纪要技能按确切名字认，且优先级最高', () => {
+    // 它叫 guokai-huiyijiyao-format —— 拼音，「纪要」「minutes」一个都不沾，
+    // 靠关键词永远匹配不上。产品答应的就是"按国开模板出纪要"，得指名道姓。
+    expect(pickMinutesSkill(['guokai-huiyijiyao-format'])).toBe('guokai-huiyijiyao-format')
+    expect(pickMinutesSkill(['国开会议纪要', 'guokai-huiyijiyao-format']))
+      .toBe('guokai-huiyijiyao-format')
+  })
+
+  it('内置那个被停用/删掉时退回关键词匹配', () => {
+    // 调用方只传启用着的技能名，所以"不在列表里"同时覆盖了删除和停用两种情况。
+    expect(pickMinutesSkill(['国开会议纪要', '深度研究'])).toBe('国开会议纪要')
+  })
 })
 
 describe('minutesFileName', () => {

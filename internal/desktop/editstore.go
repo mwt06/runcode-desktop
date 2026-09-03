@@ -375,26 +375,29 @@ func readCapped(path string) (content []byte, existed bool, ok bool) {
 // session it is an unbound store that records nothing and knows no edits, and
 // after a close it keeps serving the closed session's records until a new
 // session replaces it.
-func (a *App) editStore() *editStore {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.edits
+func (a *App) editStore() *editStore { return a.editStoreOf("") }
+
+// editStoreOf 是指定会话的编辑存储(空串 = 聚焦会话)。会话不存在时给兜底存储,
+// 而不是报错:「已编辑」卡片在会话关闭后仍要能打开,报错会让它整片消失。
+func (a *App) editStoreOf(sessionID string) *editStore {
+	edits, _, _ := a.storesOf(sessionID)
+	return edits
 }
 
 // RevertEdit restores the file for snapshotID to its turn baseline (Wails binding).
-func (a *App) RevertEdit(snapshotID string) error {
-	return wireError(a.editStore().Revert(snapshotID))
+func (a *App) RevertEdit(sessionID, snapshotID string) error {
+	return wireError(a.editStoreOf(sessionID).Revert(snapshotID))
 }
 
 // ReviewEdit returns the baseline-vs-latest red/green diff for snapshotID (Wails binding).
-func (a *App) ReviewEdit(snapshotID string) (EditDiff, error) {
-	d, err := a.editStore().Diff(snapshotID)
+func (a *App) ReviewEdit(sessionID, snapshotID string) (EditDiff, error) {
+	d, err := a.editStoreOf(sessionID).Diff(snapshotID)
 	return d, wireError(err)
 }
 
 // ListEdits returns every recorded edit for the active session, so a resumed
 // session can re-render its "已编辑" cards (Wails binding).
-func (a *App) ListEdits() []EditRecord { return a.editStore().List() }
+func (a *App) ListEdits(sessionID string) []EditRecord { return a.editStoreOf(sessionID).List() }
 
 // resolveForWrite resolves a workspace-relative path to an absolute path for
 // writing/deleting, tolerating a not-yet-existing target: it rejects lexical

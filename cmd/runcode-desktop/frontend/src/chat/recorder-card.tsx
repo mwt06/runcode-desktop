@@ -36,8 +36,12 @@ const SHELL = 'rounded-xl border border-line2 bg-surface overflow-hidden max-w-[
 
 export function LiveRecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenWindow: () => void }) {
   const info = rec.info
-  // 只画「正在录」。录完那一刻它就该消失，接手的是历史里的 RecordingCard。
-  if (!info || !(rec.recording || rec.paused)) return null
+  // 只画「正在录」（含收尾那几秒）。真正录完那一刻它才消失，接手的是历史里的
+  // RecordingCard。
+  //
+  // 收尾也要画：按下结束之后，服务端还要几秒把最后一块刷出来。少了这一段，卡片
+  // 当场消失、纪要要等几秒才冒出来，中间那几秒界面上什么都没有。
+  if (!info || !(rec.recording || rec.paused || rec.stopping)) return null
   const line = lastLine(rec.transcript)
 
   return (
@@ -52,7 +56,9 @@ export function LiveRecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenW
         <LevelBar mic={rec.levels.mic} sys={rec.levels.sys} active={rec.recording} height={20} />
       </div>
       <div className="px-4 pt-1.5 pb-3 text-[13px] leading-[1.6] text-ink min-h-[38px]">
-        {line || <span className="text-faint">{rec.paused ? '已暂停' : '正在听…'}</span>}
+        {rec.stopping
+          ? <span className="text-faint">正在收尾：录音已停，正在等服务端把最后一句刷出来并校正前面的文字。</span>
+          : line || <span className="text-faint">{rec.paused ? '已暂停' : '正在听…'}</span>}
       </div>
       {rec.uplink === 'offline' && (
         <div className="px-4 pb-3">
@@ -65,16 +71,18 @@ export function LiveRecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenW
         </button>
         <div className="flex-1" />
         <button
-          className="text-[12px] text-muted hover:text-ink px-2 py-1 rounded hover:bg-surface2"
+          className="text-[12px] text-muted hover:text-ink px-2 py-1 rounded hover:bg-surface2 disabled:opacity-40"
           onClick={() => void (rec.paused ? rec.resume() : rec.pause())}
+          disabled={rec.stopping}
         >
           {rec.paused ? '继续' : '暂停'}
         </button>
         <button
-          className="px-2.5 py-1 rounded text-[12px] text-white bg-red hover:opacity-90"
+          className="px-2.5 py-1 rounded text-[12px] text-white bg-red hover:opacity-90 disabled:opacity-40"
           onClick={() => void rec.stop()}
+          disabled={rec.stopping}
         >
-          结束录音转写
+          {rec.stopping ? '收尾中…' : '结束录音转写'}
         </button>
       </div>
     </div>

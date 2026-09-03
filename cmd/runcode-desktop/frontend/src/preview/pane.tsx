@@ -1,5 +1,6 @@
 // 预览侧栏的外壳：顶部标签条 + 当前标签对应的面板（文件预览或编辑审核）。
 import { Icon } from '@/ui/icons'
+import { HScroll } from '@/ui/h-scroll'
 import { basename } from '@/core/paths'
 import { classifyPreview, fileColor, kindIcon } from './classify'
 import { tabKey, type PreviewTab } from './tabs'
@@ -11,7 +12,7 @@ import { DiffPanel } from './diff-panel'
 // carries its color-coded type icon (diff tabs use a neutral diff glyph).
 export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: PreviewTab[]; active: string | null; onSelect: (key: string) => void; onClose: (key: string) => void }) {
   return (
-    <div className="flex-none flex items-center gap-0.5 h-[38px] px-1.5 overflow-x-auto bg-surface">
+    <HScroll className="flex-none flex items-center h-[38px] px-1.5 bg-surface" rowClassName="gap-0.5">
       {tabs.map((t) => {
         const key = tabKey(t)
         const name = basename(t.relPath)
@@ -36,7 +37,7 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: { tabs: Preview
           </div>
         )
       })}
-    </div>
+    </HScroll>
   )
 }
 

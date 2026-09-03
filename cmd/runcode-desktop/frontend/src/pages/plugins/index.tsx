@@ -9,6 +9,7 @@ import { Toggle } from '@/ui/toggle'
 import { sourceLabel } from '@/ui/badges'
 import { BUILTIN_TOOLS, toolLabel } from '@/core/tool-catalog'
 import {
+  deleteSkill,
   errText,
   importAgent, importSkill,
   listAgents, listSkills, listTools,
@@ -19,6 +20,7 @@ import { MCPPage } from '../mcp'
 import { BUILTIN_AGENTS } from './builtin-agents'
 import { AgentDetail } from './agent-detail'
 import { SkillDetail } from './skill-detail'
+import { ConfirmDialog } from '@/ui/confirm-dialog'
 import { InlineError } from '@/ui/feedback'
 import { Placeholder } from '@/ui/layout'
 
@@ -34,6 +36,9 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   // 导入范围显式选择(不复用上面的「停用范围」——那个只管开关的作用域)，
   // 与「新建」在详情页里选范围的做法保持一致。
   const [importMenu, setImportMenu] = useState(false)
+  // 待确认删除的那个技能。列表里的删除按钮紧挨着开关，而删除会把整个技能文件夹
+  // (SKILL.md 连同 references/、scripts/)删掉、撤不回来——必须先问一句。
+  const [confirmDel, setConfirmDel] = useState<SkillInfo | null>(null)
 
   const reloadTools = async () => { try { setToolList((await listTools()) ?? []) } catch { /* ignore */ } }
   const reloadAgents = async () => { try { const l = await listAgents(); setAgentList(l?.agents ?? []) } catch { /* ignore */ } }
@@ -66,6 +71,14 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   const toggleTool = toggle(setToolEnabled, reloadTools)
   const toggleAgent = toggle(setAgentEnabled, reloadAgents)
   const toggleSkill = toggle(setSkillEnabled, reloadSkills)
+  // 删的是技能**自己所在**的那个范围(s.source)，不是顶上那个「停用范围」开关。
+  // 那个开关管的是"在哪个范围里停用"，和"这份文件躺在哪"是两件事：拿它去删，
+  // 全局技能会在选着「本项目」时被删到项目目录里去——那儿根本没有这个技能，
+  // 于是删除静默地什么也没发生。
+  const removeSkill = async (s: SkillInfo) => {
+    setErr('')
+    try { await deleteSkill(s.name, s.source); await reloadSkills() } catch (e) { setErr(errText(e)) }
+  }
 
   const q = query.trim().toLowerCase()
   const hit = (a: string, b: string, name: string) => !q || name.toLowerCase().includes(q) || a.toLowerCase().includes(q) || b.toLowerCase().includes(q)
@@ -80,7 +93,10 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
   const scopedSkills = skillList.filter((s) => inScope(s.source))
   const shownTools = toolList.filter((t) => t.toggleable && t.source !== 'builtin').filter((t) => { const z = BUILTIN_TOOLS[t.name]; return hit(toolLabel(t.name), z?.desc ?? t.description, t.name) })
   const shownAgents = scopedAgents.filter((a) => hit('', a.description, a.name))
-  const shownSkills = scopedSkills.filter((s) => hit(s.name, s.description, s.name))
+  // 搜索四样都认：给人看的名字/描述、以及真实 name 和给模型看的描述。用户记得住
+  // 的可能是任何一个,少认一个就是「搜不到」。
+  const skillText = (s: SkillInfo) => [s.displayName, s.displayDescription, s.description].join(' ')
+  const shownSkills = scopedSkills.filter((s) => hit(skillText(s), s.description, s.name))
 
   const tabs: { k: typeof tab; label: string; n?: number }[] = [
     { k: 'tools', label: '工具', n: toolList.filter((t) => t.toggleable && t.source !== 'builtin').length },
@@ -93,25 +109,46 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
     <button type="button" onClick={() => setScope(s)} className={`px-3.5 py-1 text-[13px] transition ${scope === s ? 'bg-primary text-white' : 'text-muted hover:text-ink'}`}>{text}</button>
   )
 
-  // 一张能力卡片：图标 + 名称(+原名/徽章) + 描述 + [使用] + iOS 开关。可点击项进入详情。
-  const card = (key: string, icon: string, title: string, raw: string, tag: string, desc: string, on: boolean, otherOff: string, onToggle: (n: boolean) => void, onClick?: () => void, onUse?: () => void) => (
+  // 一张能力卡片：图标 + 名称(+原名/徽章) + 描述 + [使用] + iOS 开关 (+ 删除)。
+  // 可点击项进入详情。
+  //
+  // 参数收成一个对象而不是排一长串位置参数：调用点原先要靠 '' 占位对齐(工具行没有
+  // 原名、子代理行没有徽章…)，多加一个动作就得数着逗号往里塞——错位了 TS 也未必
+  // 拦得住，因为相邻几个恰好都是 string。
+  const card = (p: {
+    key: string; icon: string; title: string; raw?: string; tag?: string; desc: string
+    on: boolean; otherOff?: string; onToggle: (n: boolean) => void
+    onClick?: () => void; onUse?: () => void; onDelete?: () => void
+  }) => (
     <div
-      key={key}
-      onClick={onClick}
-      className={`bg-surface border border-line2 rounded-card px-5 py-4 flex items-center gap-4 transition ${onClick ? 'cursor-pointer hover:border-primary hover:shadow-xs' : ''} ${on ? '' : 'opacity-60'}`}
+      key={p.key}
+      onClick={p.onClick}
+      className={`bg-surface border border-line2 rounded-card px-5 py-4 flex items-center gap-4 transition ${p.onClick ? 'cursor-pointer hover:border-primary hover:shadow-xs' : ''} ${p.on ? '' : 'opacity-60'}`}
     >
-      <span className="w-10 h-10 rounded-btn bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={icon} size={19} /></span>
+      <span className="w-10 h-10 rounded-btn bg-surface2 border border-line2 flex items-center justify-center flex-none text-muted"><Icon name={p.icon} size={19} /></span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-[15px] text-ink truncate">{title}</span>
-          {raw && <span className="font-mono text-[12px] text-faint flex-none">{raw}</span>}
-          {tag && <span className="text-[11px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{tag}</span>}
+          <span className="font-semibold text-[15px] text-ink truncate">{p.title}</span>
+          {p.raw && <span className="font-mono text-[12px] text-faint flex-none">{p.raw}</span>}
+          {p.tag && <span className="text-[11px] text-faint border border-line2 rounded px-1.5 py-px flex-none">{p.tag}</span>}
         </div>
-        <div className="text-[13px] text-muted mt-1 line-clamp-2 leading-relaxed">{desc}</div>
+        <div className="text-[13px] text-muted mt-1 line-clamp-2 leading-relaxed">{p.desc}</div>
       </div>
-      {otherOff && <span className="text-[11px] text-red/70 flex-none">{otherOff}</span>}
-      {onUse && <button type="button" className="text-[12px] text-muted hover:text-primary flex-none" onClick={(e) => { e.stopPropagation(); onUse() }}>使用</button>}
-      <Toggle on={on} onChange={onToggle} />
+      {p.otherOff && <span className="text-[11px] text-red/70 flex-none">{p.otherOff}</span>}
+      {p.onUse && <button type="button" className="text-[12px] text-muted hover:text-primary flex-none" onClick={(e) => { e.stopPropagation(); p.onUse!() }}>使用</button>}
+      <Toggle on={p.on} onChange={p.onToggle} />
+      {p.onDelete && (
+        // 常显，不做悬停才显形——那会在指针底下凭空冒出来，恰好又紧挨着开关。
+        // 真正的护栏是后面那个确认框：删的是整个技能文件夹，撤不回来。
+        <button
+          type="button"
+          title="删除"
+          onClick={(e) => { e.stopPropagation(); p.onDelete!() }}
+          className="flex-none w-7 h-7 rounded-btn text-faint/70 hover:text-red hover:bg-surface2 inline-flex items-center justify-center transition"
+        >
+          <Icon name="trash" size={15} />
+        </button>
+      )}
     </div>
   )
 
@@ -189,24 +226,58 @@ export function PluginsPage({ onUseSkill, onUseAgent }: { onUseSkill: (name: str
               const z = BUILTIN_TOOLS[t.name]
               // 有中文名时把原始工具名放到副标题(MCP 工具同理),便于对照模型看到的名字。
               const label = toolLabel(t.name)
-              return card('t/' + t.name, TOOL_ICON[t.name] ?? 'grid', label, label !== t.name ? t.name : '', t.source === 'mcp' ? (t.server ?? 'MCP') : '', z?.desc ?? t.description, scopeOn(t.disabledUser, t.disabledProject), otherOffLabel(t.disabledUser, t.disabledProject), (n) => toggleTool(t.name, n))
+              return card({
+                key: 't/' + t.name, icon: TOOL_ICON[t.name] ?? 'grid',
+                title: label, raw: label !== t.name ? t.name : '',
+                tag: t.source === 'mcp' ? (t.server ?? 'MCP') : '', desc: z?.desc ?? t.description,
+                on: scopeOn(t.disabledUser, t.disabledProject), otherOff: otherOffLabel(t.disabledUser, t.disabledProject),
+                onToggle: (n) => toggleTool(t.name, n),
+              })
             })}
             {tab === 'agents' && shownAgents.map((a) => {
               const z = a.source === 'builtin' ? BUILTIN_AGENTS[a.name] : undefined
               const badge = sourceLabel(a.source)
               // 内置子代理不可查看详情(只读)；用户/项目的点击进入编辑。所有子代理都可「使用」。
               const onClick = a.source === 'builtin' ? undefined : () => setDetail({ k: 'agent', item: a })
-              return card('a/' + a.source + '/' + a.name, TOOL_ICON[a.name] ?? 'bot', z?.label ?? a.name, z ? a.name : '', badge, z?.desc ?? a.description, scopeOn(a.disabledUser, a.disabledProject), otherOffLabel(a.disabledUser, a.disabledProject), (n) => toggleAgent(a.name, n), onClick, () => onUseAgent(a.name))
+              return card({
+                key: 'a/' + a.source + '/' + a.name, icon: TOOL_ICON[a.name] ?? 'bot',
+                title: z?.label ?? a.name, raw: z ? a.name : '', tag: badge, desc: z?.desc ?? a.description,
+                on: scopeOn(a.disabledUser, a.disabledProject), otherOff: otherOffLabel(a.disabledUser, a.disabledProject),
+                onToggle: (n) => toggleAgent(a.name, n), onClick, onUse: () => onUseAgent(a.name),
+              })
             })}
             {tab === 'skills' && shownSkills.map((s) => {
               const badge = sourceLabel(s.source)
-              return card('s/' + s.source + '/' + s.name, 'book', s.name, '', badge, s.description, scopeOn(s.disabledUser, s.disabledProject), otherOffLabel(s.disabledUser, s.disabledProject), (n) => toggleSkill(s.name, n), () => setDetail({ k: 'skill', item: s }))
+              // 有展示名(市场装来的技能带中文名)就把它当标题,kebab-case 的真实 name
+              // 退到副标题——认得出是哪个技能靠的是那句中文,而 name 仍要露出来:
+              // 它是磁盘上的目录名,也是排查时唯一对得上的那个标识。
+              const label = s.displayName || s.name
+              return card({
+                key: 's/' + s.source + '/' + s.name, icon: 'book',
+                title: label, raw: label !== s.name ? s.name : '', tag: badge,
+                // 列表里显示市场目录那句中文;没有就退回 frontmatter 的 description——
+                // 那句是写给模型判断何时加载用的,读着像说明书,但总比空着强。
+                desc: s.displayDescription || s.description,
+                on: scopeOn(s.disabledUser, s.disabledProject), otherOff: otherOffLabel(s.disabledUser, s.disabledProject),
+                onToggle: (n) => toggleSkill(s.name, n),
+                onClick: () => setDetail({ k: 'skill', item: s }),
+                onDelete: () => setConfirmDel(s),
+              })
             })}
             {tab === 'tools' && shownTools.length === 0 && <Placeholder pad="lg">{q ? '没有匹配的工具' : '还没有自定义工具（内置工具已隐藏，模型仍可使用；连接 MCP 服务器可在此管理其工具）'}</Placeholder>}
             {tab === 'agents' && shownAgents.length === 0 && <Placeholder pad="lg">{q ? '没有匹配的子代理' : '还没有自定义子代理，点右上「新建」创建（内置子代理已隐藏，仍可在对话中委派）'}</Placeholder>}
             {tab === 'skills' && shownSkills.length === 0 && <Placeholder pad="lg">还没有技能，点右上「新建」创建，或「导入」一个已有的技能文件夹（含 SKILL.md 及相关文件）</Placeholder>}
           </div>
         </div>
+      )}
+      {confirmDel && (
+        <ConfirmDialog
+          title="删除技能"
+          message={<>确定删除「<b className="text-ink font-semibold">{confirmDel.displayName || confirmDel.name}</b>」？整个技能文件夹（含 references/、scripts/ 等随附文件）会被删掉，此操作不可撤销。</>}
+          confirmLabel="删除"
+          onConfirm={() => { const s = confirmDel; setConfirmDel(null); void removeSkill(s) }}
+          onCancel={() => setConfirmDel(null)}
+        />
       )}
     </div>
   )

@@ -6,8 +6,17 @@ import { GhostBtn } from '@/ui/ghost-btn'
 import { Popover } from '@/ui/popover'
 import { ModelPickerPopover, toModelOptions, type ModelOption } from '@/ui/model-picker'
 import { listCustomModels, sessionModels, type SessionInfo } from '@/core/bridge'
+import { DEFAULT_MODE, MODE_LABEL } from '@/core/permission-modes'
 
-const MODE_LABEL: Record<string, string> = { safe: '安全模式', interactive: '交互模式', judge: '智能模式', flight: '飞行模式' }
+// modeLabel 是工具条上那个按钮的字。
+//
+// 认得**全部**模式，包括暂时隐藏的——会话可能就停在隐藏模式上（旧配置、旧会话），
+// 那时按钮得如实说它是什么。没有会话信息时落到真正的默认模式；这里原先写死回落
+// 「安全模式」，而后端 defaultRequest() 从来就是 interactive，那句话从没对过。
+function modeLabel(mode: string | undefined): string {
+  return MODE_LABEL[mode ?? ''] ?? MODE_LABEL[DEFAULT_MODE]
+}
+
 
 // "Thinking model" options for the in-conversation picker.
 const REASONING: { value: string; label: string }[] = [
@@ -156,13 +165,13 @@ export function ComposerToolbar({
         </div>
         {/* The mode label is the last to go: unlike the toggles below, the shield
             icon alone carries no hint of which mode is active. */}
-        <GhostBtn className="flex-none whitespace-nowrap" onClick={onToggleMode} title={`点击切换权限模式\n当前：${MODE_LABEL[info?.permissionMode ?? ''] ?? '安全模式'}`}>
+        <GhostBtn className="flex-none whitespace-nowrap" onClick={onToggleMode} title={`点击切换权限模式\n当前：${modeLabel(info?.permissionMode)}`}>
           <Icon name="shield" size={16} />
-          {!tinyBar && (MODE_LABEL[info?.permissionMode ?? ''] ?? '安全模式')}
+          {!tinyBar && modeLabel(info?.permissionMode)}
         </GhostBtn>
         <button
           onClick={onTogglePlan}
-          title="计划模式：只调研、产出方案，不做任何修改"
+          title="计划模式：先调研、产出方案；可新建和修改文件，不删除、不执行命令"
           className={`border text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 flex-none whitespace-nowrap transition ${info?.planMode ? 'border-primary text-primaryink bg-primarysoft font-medium' : 'border-transparent bg-transparent text-muted hover:bg-surface2 hover:text-ink'}`}
         >
           <Icon name="compass" size={16} />

@@ -1,13 +1,20 @@
 // useSession 拥有"哪一个会话"：启动、新建、恢复、切工作区、删除，以及运行中可
 // 变的会话设置(权限模式/计划模式/思考强度/模型)。对话内容归 use-conversation，
 // 这里只在会话被替换时调它的 reset / applyResumed。
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteSession,
   errText,
   listSessions,
   loadConfig,
   newSession,
+  openSession,
+  openSessions,
+  focusSession,
+  closeSession,
+  sessionStatus,
+  onEnvelope,
+  Events,
   pickWorkspaceFolder,
   resumeSession,
   setPermissionMode,
@@ -16,32 +23,29 @@ import {
   setThinkingEffort,
   startSession,
   switchModel,
-  switchWorkspace,
   type ResumedSession,
   type SessionInfo,
+  type OpenSessionInfo,
   type SessionSummary,
   type StartSessionRequest,
 } from '@/core/bridge'
 import { type ModelOption } from '@/ui/model-picker'
+import { nextMode } from '@/core/permission-modes'
 
-// 权限模式的循环顺序（工具条上点一下切下一个）。
-const MODE_ORDER = ['safe', 'interactive', 'judge', 'flight']
 
 export type Session = ReturnType<typeof useSession>
 
-export function useSession({ busy, conversation, showToast, onEnterChat, onWorkspaceChanged }: {
+export function useSession({ busy, conversation, showToast, onEnterChat }: {
   busy: boolean
   conversation: {
     reset: () => void
     applyResumed: (r: ResumedSession, isStale: () => boolean) => Promise<void>
     pushError: (text: string) => void
+    // dropSession 丢掉一条会话的对话状态——关掉会话时用。
+    dropSession: (id: string) => void
   }
   showToast: (text: string) => void
   onEnterChat: () => void
-  // 工作区被换掉时调用。预览标签是"工作区"生命周期的(存的是工作区相对路径 +
-  // 编辑快照 id),换工作区后这些引用全部失效——不清掉的话,同名文件会在旧标签里
-  // 静默显示成新工作区的内容。新建/恢复会话不触发:那是同一个工作区。
-  onWorkspaceChanged: () => void
 }) {
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [started, setStarted] = useState(false)
@@ -87,6 +91,35 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
     if (!isStale()) setSwitching(false)
   }
 
+  // ---- 多会话：同时开着的那些 ---------------------------------------------
+
+  // openList 是"此刻开着哪几条会话"，**后端是唯一权威**。
+  //
+  // 前端自己记账迟早对不上：替换式打开（新建 / 切工作区 / 恢复历史）会关掉当前
+  // 那条再开一条，失败的打开又不会留下任何东西。每次生命周期动作之后回读一次，
+  // 比维护一份影子清单可靠得多，代价只是一次进程内调用。
+  const [openList, setOpenList] = useState<OpenSessionInfo[]>([])
+  // titles 是会话标题，来自 session:renamed（自动标题每个回合结束后刷新一次）。
+  // 后端的 OpenSessionInfo 刻意不带标题——那会变成第二个事实源。
+  const [titles, setTitles] = useState<Record<string, string>>({})
+
+  const refreshOpen = useCallback(async () => {
+    try {
+      setOpenList((await openSessions()) ?? [])
+    } catch {
+      /* 读不到就保持原样：这只是列表，不该把一次失败变成对话里的错误块 */
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshOpen()
+  }, [refreshOpen])
+
+  useEffect(() => onEnvelope(Events.SessionRenamed, (env) => {
+    const r = env.payload
+    if (r?.id) setTitles((m) => ({ ...m, [r.id]: r.title }))
+  }), [])
+
   // runSwitch 是三个切换动作共用的骨架：代际防护 + 失败落一条错误块 + 收尾。
   async function runSwitch(action: (isStale: () => boolean) => Promise<void>) {
     const isStale = beginSwitch()
@@ -107,6 +140,10 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
       setInfo(i)
       setInitialReq(req)
       setStarted(true)
+      // 首个会话也要进「打开中」列表。漏掉这一句的后果不只是列表空着：
+      // 侧栏的「新建对话」曾按 openList 是否为空来决定"加开"还是"替换式打开"，
+      // 列表空的时候它会走替换，把正在跑的回合当场关掉。
+      void refreshOpen()
       // 回读配置:最近工作区(MRU)是后端在保存本次请求时合并出来的,表单里的 req 不含
       // 刚打开的这个目录。不回读,侧栏的「历史工作区」会一直停在启动前的那份。
       loadConfig().then((c) => { if (c) setInitialReq(c) }).catch(() => {})
@@ -136,22 +173,26 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
       setInfo(i)
       conversation.reset()
       void refreshRecents()
+      void refreshOpen()
     })
 
-  // Pick a different folder and open a fresh session there (a new workspace).
-  // 成功与失败都回到对话视图——失败时那条错误块就在对话里等着看；过期的响应
-  // 两件事都不做，由那个更新的切换自己收尾。
-  async function switchToWorkspace(dir: string) {
+  // openWorkspace 在**另一个目录**开一条会话，已经开着的那些一条都不动。
+  //
+  // 它以前叫 switchToWorkspace，语义是"把整个应用换到另一个目录"——先关掉当前
+  // 会话（正在跑的回合当场没了），再在新目录重开。多工作区并行之后换目录只是
+  // 「再开一条，开在别处」，两个项目可以同时挂着。要腾地方就从「打开中」里关，
+  // 那是一个明确的动作。
+  async function openWorkspace(dir: string) {
     const isStale = beginSwitch()
     try {
-      const i = await switchWorkspace(dir)
+      const i = await openSession(dir)
       if (isStale()) return
       setInfo(i)
-      conversation.reset()
-      onWorkspaceChanged()
       onEnterChat()
+      // 「最近对话」是按工作区列的，换了目录就是另一份；「历史工作区」(MRU) 由后端
+      // 在打开时合并出来，得回读配置才能看到刚加进去的这个目录。
       void refreshRecents()
-      // refresh recent-workspace MRU
+      void refreshOpen()
       loadConfig().then((c) => { if (c && !isStale()) setInitialReq(c) }).catch(() => {})
     } catch (e) {
       if (isStale()) return
@@ -162,15 +203,23 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
     }
   }
 
-  async function pickWorkspaceAndSwitch() {
+  async function pickWorkspaceAndOpen() {
     try {
       const dir = await pickWorkspaceFolder()
-      if (dir) await switchToWorkspace(dir)
+      if (dir) await openWorkspace(dir)
     } catch { /* cancelled */ }
   }
 
+  // 点「最近对话」里的一条：把它**也开起来**，已经开着的那些一条都不动
+  // （后端的 ResumeSession 现在是加开一条，不再是替换式打开）。
+  //
+  // 这份列表与「打开中」天然重合——同一条会话既是工作区里存着的记录，也可能此刻
+  // 正开着——所以先按"开着没有"分流：开着就只是切过去。后端也拦了同一件事
+  // （focusIfAlreadyOpenHeld），这里拦是为了省掉那趟无谓的往返，顺带省掉一次把
+  // 对话状态从引擎历史重放一遍（正在跑的回合尤其亏）。
   const openRecent = (id: string) => {
     if (id === info?.sessionId) return Promise.resolve()
+    if (openList.some((s) => s.sessionId === id)) return focusOn(id)
     return runSwitch(async (isStale) => {
       const r = await resumeSession(id)
       if (isStale()) return
@@ -178,8 +227,70 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
       await conversation.applyResumed(r, isStale)
       if (isStale()) return
       void refreshRecents()
+      void refreshOpen()
     })
   }
+
+  // openAnother 在当前工作区**再开**一条会话，不关掉已经开着的那些。
+  // 与 newChat 的区别就在这一句——那个是替换式打开。
+  const openAnother = () =>
+    runSwitch(async (isStale) => {
+      const i = await openSession('')
+      if (isStale()) return
+      setInfo(i)
+      void refreshRecents()
+      void refreshOpen()
+    })
+
+  // focusOn 切到另一条**已经开着**的会话。
+  //
+  // 它不重建任何对话状态：状态按会话存着（见 session/conversation-state），切过去
+  // 就是换一个键去读。这正是 P1a 那次分流的直接收益——在此之前切会话必须重放历史。
+  const focusOn = (id: string) => {
+    if (!id || id === info?.sessionId) return Promise.resolve()
+    return runSwitch(async (isStale) => {
+      const i = await focusSession(id)
+      if (isStale()) return
+      setInfo(i)
+      void refreshOpen()
+      // 「最近对话」是**按工作区**列的。切到另一个目录的会话后不重读的话，侧栏还挂着
+      // 上一个目录的清单——点它一条就等于拿着甲目录的会话 id 去乙目录里恢复，
+      // 结果是开出一条空对话。跨工作区并行之后这是必须的，同目录时它只是一次空转。
+      void refreshRecents()
+    })
+  }
+
+  // closeOne 关掉一条开着的会话。后端会把聚焦顺势落到还活着的另一条上，这里按
+  // 回读到的结果采纳。
+  //
+  // **关掉最后一条时开一条新的空会话，而不是退回起始页。** 起始页是"首屏"——它会
+  // 整个重挂载、重跑登录门与工作区选择、清掉界面上的一切。而用户做的只是"把手上
+  // 这条对话收掉"，工作区、连接、模型一样都没变，凭什么要他从头再来一遍。这与
+  // 浏览器关掉最后一个标签页给你一个新标签页是同一个道理。
+  // 只有连新会话都开不出来（没有工作区/没有可用模型，比如还没真正启动过）才回首屏。
+  const closeOne = (id: string) =>
+    runSwitch(async (isStale) => {
+      await closeSession(id)
+      conversation.dropSession(id)
+      const list = (await openSessions()) ?? []
+      if (isStale()) return
+      setOpenList(list)
+      const next = list.find((s) => s.focused) ?? list[0]
+      if (next) {
+        setInfo(await sessionStatus(next.sessionId))
+        return
+      }
+      try {
+        const fresh = await openSession('')
+        if (isStale()) return
+        setInfo(fresh)
+        void refreshOpen()
+      } catch {
+        if (isStale()) return
+        setInfo(null)
+        setStarted(false)
+      }
+    })
 
   async function deleteRecent(id: string) {
     try {
@@ -204,16 +315,18 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
     }
   }
 
-  const togglePlan = () => applyUpdate(() => setPlanMode(!info?.planMode))
-  const chooseReasoning = (scenario: string) => applyUpdate(() => setReasoningScenario(scenario))
-  const chooseThinking = (effort: string) => applyUpdate(() => setThinkingEffort(effort))
+  // 这几个都作用于当前这条会话；info 还没到位时用空串，后端会退回聚焦会话。
+  const sid = () => info?.sessionId ?? ''
+  const togglePlan = () => applyUpdate(() => setPlanMode(sid(), !info?.planMode))
+  const chooseReasoning = (scenario: string) => applyUpdate(() => setReasoningScenario(sid(), scenario))
+  const chooseThinking = (effort: string) => applyUpdate(() => setThinkingEffort(sid(), effort))
 
   // pickMode activates a specific permission mode (used by the permissions page's
   // mode cards), keeping the local session info in sync with the backend.
   async function pickMode(mode: string) {
     if (!info || info.permissionMode === mode) return
     try {
-      await setPermissionMode(mode)
+      await setPermissionMode(sid(), mode)
       setInfo({ ...info, permissionMode: mode })
     } catch (e) {
       conversation.pushError(errText(e))
@@ -221,7 +334,8 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
   }
   const toggleMode = () => {
     if (!info) return
-    void pickMode(MODE_ORDER[(MODE_ORDER.indexOf(info.permissionMode || 'safe') + 1) % MODE_ORDER.length])
+    // 顺序与「哪几种可选」都在 core/permission-modes：隐藏一种模式时这里不必改。
+    void pickMode(nextMode(info.permissionMode))
   }
 
   async function pickModel(choice: ModelOption) {
@@ -230,7 +344,7 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
       // session, which rebinds the preview server to a new port — so previewBaseURL
       // (and sessionId) must be refreshed, not just the model, or the preview iframe
       // keeps loading the dead port and shows “拒绝连接”.
-      const st = await switchModel(choice.kind, choice.id)
+      const st = await switchModel(info?.sessionId ?? '', choice.kind, choice.id)
       setInfo((prev) => (st ? { ...prev, ...st } : prev))
       // The backend persists the switched connection; refresh the cached start-form
       // values so the Settings page (and start page) reflect the new connection
@@ -250,7 +364,8 @@ export function useSession({ busy, conversation, showToast, onEnterChat, onWorks
 
   return {
     info, setInfo, started, starting, startError, recents, initialReq, setInitialReq, switching,
-    start, newChat, openRecent, switchToWorkspace, pickWorkspaceAndSwitch, deleteRecent, returnToStart,
+    openList, titles, openAnother, focusOn, closeOne,
+    start, newChat, openRecent, openWorkspace, pickWorkspaceAndOpen, deleteRecent, returnToStart,
     togglePlan, chooseReasoning, chooseThinking, pickMode, toggleMode, pickModel,
   }
 }

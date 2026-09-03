@@ -177,7 +177,7 @@ func (a *App) setDisabled(scope, kind string, enabled bool, name string) error {
 }
 
 // refreshDisabledInConfig 把当前工作区的有效关闭名单同步进 a.config，让复用
-// a.config 的 NewSession/ResumeSession/SwitchWorkspace 立即采用新名单。
+// a.config 的 NewSession/ResumeSession/OpenSession 立即采用新名单。
 func (a *App) refreshDisabledInConfig() {
 	a.mu.Lock()
 	ws := a.workspace

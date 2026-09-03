@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '17 3 * * 1'
 
+env:
+  # 必须带引号：YAML 会把裸 off 解析成布尔假，环境变量于是变成 "false"——那不是
+  # GOWORK 认得的值（它只认 "off" 或一个 go.work 路径），等于这行白写。
+  GOWORK: "off"
+
 permissions:
   security-events: write
   packages: read
@@ -21,6 +26,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Autobuild 要真的把代码编出来才能分析，所以这里同样得先把引擎接上
+      # （见 .github/actions/setup-engine）。CodeQL 自 2026-07-20 起一直失败，
+      # 与 CI/Desktop 是同一个根因，不是规则本身的问题。
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3

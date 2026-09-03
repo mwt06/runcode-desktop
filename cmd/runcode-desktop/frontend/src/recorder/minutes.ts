@@ -59,12 +59,29 @@ export function parseRecordingMarker(text: string): RecordingMark | null {
     return null
   }
 }
-// SKILL_HINTS 是用来认「会议纪要」类技能的关键词。命中就让模型走那个技能，
-// 拿到的是机构自己的模板，而不是模型即兴发挥的格式。
+// MINUTES_SKILL 是内置的国开会议纪要技能，随应用一起发布（见
+// internal/desktop/builtinskills）。录音纪要收尾时**优先**用它。
+//
+// 必须按确切的名字认，不能靠下面那组关键词：它叫 guokai-huiyijiyao-format，是拼音，
+// 「纪要」「minutes」一个都不沾。产品上这条链路答应的就是"按国开模板出纪要"，那就
+// 得指名道姓，而不是指望模糊匹配碰巧命中。
+const MINUTES_SKILL = 'guokai-huiyijiyao-format'
+
+// SKILL_HINTS 是用来认「会议纪要」类技能的关键词。内置那个不在时的兜底——用户自己
+// 装了或写了一个纪要技能，也该被用上，拿到的是机构自己的模板，而不是模型即兴发挥
+// 的格式。
 const SKILL_HINTS = ['会议纪要', '纪要', 'minutes']
 
-/** pickMinutesSkill 从技能列表里挑一个像「会议纪要」的。挑不到返回空串。 */
+/**
+ * pickMinutesSkill 从**可用的**技能名里挑一个整理纪要用的：先认内置那个确切的名字，
+ * 再退回关键词匹配。挑不到返回空串，此时模型按通用要求整理。
+ *
+ * 传进来的必须是已启用的技能。停用的技能引擎根本不会加载，点名它只会换来一句
+ * "找不到这个技能"——比不点名更糟。过滤在调用方（App）做，因为启用与否是两个作用域
+ * 的标志位算出来的，这里只认名字。
+ */
 export function pickMinutesSkill(names: string[]): string {
+  if (names.includes(MINUTES_SKILL)) return MINUTES_SKILL
   for (const hint of SKILL_HINTS) {
     const hit = names.find((n) => n.includes(hint))
     if (hit) return hit

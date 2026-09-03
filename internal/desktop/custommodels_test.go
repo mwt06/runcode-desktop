@@ -327,7 +327,7 @@ func TestResolveCustomModelRequestDoesNotExposeOrInheritCredentials(t *testing.T
 func TestSwitchModelGuards(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	app := New(&recordingSink{})
-	if _, err := app.SwitchModel("platform", "   "); err == nil {
+	if _, err := app.SwitchModel("", "platform", "   "); err == nil {
 		t.Fatal("want error for empty model name")
 	}
 	wantNoSession := func(err error, what string) {
@@ -337,9 +337,9 @@ func TestSwitchModelGuards(t *testing.T) {
 			t.Fatalf("%s = %v, want protocol error with code %q", what, err, protocol.ErrCodeNoSession)
 		}
 	}
-	_, err := app.SwitchModel("platform", "glm-4.6")
+	_, err := app.SwitchModel("", "platform", "glm-4.6")
 	wantNoSession(err, "SwitchModel without session")
-	_, err = app.SwitchModel("custom", "本地 Ollama")
+	_, err = app.SwitchModel("", "custom", "本地 Ollama")
 	wantNoSession(err, "SwitchModel custom without session")
 }
 
@@ -359,7 +359,7 @@ func TestSaveCustomModelReappliesLiveConnection(t *testing.T) {
 	if _, err := app.StartSession(StartSessionRequest{CWD: t.TempDir(), CustomModelName: "M"}); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	defer app.CloseSession()
+	defer app.CloseSession("")
 
 	app.mu.Lock()
 	live := app.liveConfig

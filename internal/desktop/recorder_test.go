@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -226,6 +227,8 @@ func TestRecorderSettingsRoundTrip(t *testing.T) {
 	want := protocol.RecorderSettings{
 		GatewayURL: "ws://127.0.0.1:8000/ws", GatewayToken: "tok-round-trip",
 		SpeakerName: "马文涛", Lang: "zh", KeepAudio: false, SummaryModel: "glm-5.1",
+		// 版本戳由后端在保存时盖上，读回来必然是当前版本。
+		Version: recorderSettingsVersion,
 	}
 	if err := app.SaveRecorderSettings(want); err != nil {
 		t.Fatalf("SaveRecorderSettings: %v", err)
@@ -562,6 +565,10 @@ func TestRecorderSettingsFallsBackToDefaultGateway(t *testing.T) {
 	if got.GatewayURL != defaultGatewayURL || got.GatewayToken != defaultGatewayToken {
 		t.Fatalf("没有配置文件时地址/令牌 = %q/%q，应为内置默认", got.GatewayURL, got.GatewayToken)
 	}
+	// 全新机器上麦克风说话人分离默认开着：主要场景是面对面开会。
+	if !got.MicDiarize {
+		t.Fatal("没有配置文件时麦克风说话人分离应当默认开启")
+	}
 
 	if err := app.SaveRecorderSettings(protocol.RecorderSettings{KeepAudio: true}); err != nil {
 		t.Fatalf("写空设置: %v", err)
@@ -590,6 +597,164 @@ func TestRecorderSettingsFallsBackToDefaultGateway(t *testing.T) {
 	}
 }
 
+// writeLegacyRecorderJSON 写一份「内置默认值出现之前」的配置：没有 version 键。
+func writeLegacyRecorderJSON(t *testing.T, body string) string {
+	t.Helper()
+	path, err := recorderSettingsPath()
+	if err != nil {
+		t.Fatalf("配置路径: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("建配置目录: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("写老配置: %v", err)
+	}
+	return path
+}
+
+// TestRecorderSettingsMigratesLegacyConfig 盯住一次性迁移。
+//
+// 存量机器的痛点：内置默认值只在那一栏**为空**时才生效，而老配置里那一栏是有值
+// 的——上一版的内置默认值早写进去了。换服务器时光改默认值，装了新包的机器一台
+// 都不会跟着变（真踩过：换了地址，装上还是连旧的）。迁移就是补这个缺口。
+func TestRecorderSettingsMigratesLegacyConfig(t *testing.T) {
+	app, _, _, _ := newRecorderApp(t)
+	path := writeLegacyRecorderJSON(t, `{"gatewayUrl":"`+legacyGatewayURLs[0]+
+		`","speakerName":"马文涛","micDiarize":false,"keepAudio":true}`)
+
+	got, err := app.RecorderSettings()
+	if err != nil {
+		t.Fatalf("读设置: %v", err)
+	}
+	if got.GatewayURL != defaultGatewayURL {
+		t.Fatalf("作废的内置地址没被升级：%q", got.GatewayURL)
+	}
+	if !got.MicDiarize {
+		t.Fatal("麦克风说话人分离该被打开——面对面开会是主要场景，不开整场只标一个人")
+	}
+	if got.SpeakerName != "马文涛" || !got.KeepAudio {
+		t.Fatalf("迁移动了不该动的字段：%+v", got)
+	}
+	if got.Version != recorderSettingsVersion {
+		t.Fatalf("版本戳没盖上：%d", got.Version)
+	}
+
+	// 必须落盘。只改内存里那份的话，每次启动都要重迁一遍，用户在设置页做的
+	// 相反选择会被永远压住。
+	raw, err := os.ReadFile(path) //nolint:gosec // 测试自己写的临时路径
+	if err != nil {
+		t.Fatalf("读回配置文件: %v", err)
+	}
+	var onDisk protocol.RecorderSettings
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatalf("解析写回的配置: %v", err)
+	}
+	if onDisk.Version != recorderSettingsVersion || !onDisk.MicDiarize {
+		t.Fatalf("迁移结果没写回文件：%+v", onDisk)
+	}
+
+	// 只跑一次：用户之后自己关掉的开关不许再被打开（纯线上会议就该关）。
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{
+		GatewayURL: defaultGatewayURL, MicDiarize: false, KeepAudio: true,
+	}); err != nil {
+		t.Fatalf("用户关掉开关: %v", err)
+	}
+	again, err := app.RecorderSettings()
+	if err != nil {
+		t.Fatalf("再读设置: %v", err)
+	}
+	if again.MicDiarize {
+		t.Fatal("迁移跑了第二遍，把用户自己关掉的开关又打开了")
+	}
+}
+
+// TestRecorderSettingsDoesNotPersistBuiltinGateway 盯住「等于内置默认值的网关地址
+// 不落盘」。
+//
+// 这是三次「改了默认值却不生效」事故的根治：文件里躺着一份和当时内置默认值一模
+// 一样的显式值，换服务器时它反过来把新默认值遮住。不写进去，换服务器就只要改一个
+// 常量，所有机器自动跟上。
+func TestRecorderSettingsDoesNotPersistBuiltinGateway(t *testing.T) {
+	app, _, _, _ := newRecorderApp(t)
+
+	// 设置页的真实行为：把后端补好默认值的那份原样送回来保存。
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{
+		GatewayURL: defaultGatewayURL, GatewayToken: defaultGatewayToken,
+		SpeakerName: "马文涛", KeepAudio: true, MicDiarize: true,
+	}); err != nil {
+		t.Fatalf("保存设置: %v", err)
+	}
+
+	path, err := recorderSettingsPath()
+	if err != nil {
+		t.Fatalf("配置路径: %v", err)
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // 测试自己写的临时路径
+	if err != nil {
+		t.Fatalf("读配置文件: %v", err)
+	}
+	var onDisk protocol.RecorderSettings
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatalf("解析配置: %v", err)
+	}
+	if onDisk.GatewayURL != "" || onDisk.GatewayToken != "" {
+		t.Fatalf("内置默认的地址/令牌不该落盘：%q / %q", onDisk.GatewayURL, onDisk.GatewayToken)
+	}
+	// 用户偏好必须照旧留显式值——发版翻转默认值时不能把人家的选择静默改掉。
+	if onDisk.SpeakerName != "马文涛" || !onDisk.MicDiarize {
+		t.Fatalf("用户偏好没有原样落盘：%+v", onDisk)
+	}
+
+	// 界面上看不出区别：读回来仍然是当前默认值。
+	got, err := app.RecorderSettings()
+	if err != nil {
+		t.Fatalf("读设置: %v", err)
+	}
+	if got.GatewayURL != defaultGatewayURL || got.GatewayToken != defaultGatewayToken {
+		t.Fatalf("读回来的地址/令牌 = %q / %q，应补成内置默认", got.GatewayURL, got.GatewayToken)
+	}
+
+	// 反过来：用户自己填的地址必须原样存下来，否则下次启动就丢了。
+	const mine = "ws://my-own-asr.internal:9000/ws"
+	if err := app.SaveRecorderSettings(protocol.RecorderSettings{
+		GatewayURL: mine, GatewayToken: "my-token", KeepAudio: true,
+	}); err != nil {
+		t.Fatalf("保存自定义地址: %v", err)
+	}
+	if raw, err = os.ReadFile(path); err != nil { //nolint:gosec // 同上
+		t.Fatalf("读配置文件: %v", err)
+	}
+	onDisk = protocol.RecorderSettings{}
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatalf("解析配置: %v", err)
+	}
+	if onDisk.GatewayURL != mine || onDisk.GatewayToken != "my-token" {
+		t.Fatalf("用户自己填的地址/令牌没落盘：%q / %q", onDisk.GatewayURL, onDisk.GatewayToken)
+	}
+}
+
+// TestRecorderMigrationLeavesCustomGatewayAlone 盯住迁移不碰用户自己填的地址。
+//
+// 升级作废的**内置**地址是好事，顺手把别人指向另一台服务的配置也改掉就是事故。
+func TestRecorderMigrationLeavesCustomGatewayAlone(t *testing.T) {
+	app, _, _, _ := newRecorderApp(t)
+	const mine = "ws://my-own-asr.internal:9000/ws"
+	writeLegacyRecorderJSON(t, `{"gatewayUrl":"`+mine+`","gatewayToken":"my-token","micDiarize":false}`)
+
+	got, err := app.RecorderSettings()
+	if err != nil {
+		t.Fatalf("读设置: %v", err)
+	}
+	if got.GatewayURL != mine || got.GatewayToken != "my-token" {
+		t.Fatalf("用户自己填的地址/令牌被迁移改掉了：%q / %q", got.GatewayURL, got.GatewayToken)
+	}
+	// 开关仍然按这一版的决定打开——它与「地址是谁的」无关。
+	if !got.MicDiarize {
+		t.Fatal("麦克风说话人分离该被打开")
+	}
+}
+
 // TestRecorderSettingsToleratesBOM 盯住带 BOM 的配置文件读得回来。
 //
 // 真实踩过：用 PowerShell 5.1 的 `Out-File -Encoding utf8` 改过一次
@@ -601,7 +766,7 @@ func TestRecorderSettingsToleratesBOM(t *testing.T) {
 
 	want := protocol.RecorderSettings{
 		GatewayURL: "ws://127.0.0.1:8000/ws", GatewayToken: "tok-bom",
-		SpeakerName: "马文涛", KeepAudio: true,
+		SpeakerName: "马文涛", KeepAudio: true, Version: recorderSettingsVersion,
 	}
 	if err := app.SaveRecorderSettings(want); err != nil {
 		t.Fatalf("SaveRecorderSettings: %v", err)

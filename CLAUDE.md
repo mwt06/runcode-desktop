@@ -32,7 +32,7 @@
 两个大包，各自一个包内按职责分文件（Go 里"目录结构"就是包，包内靠文件名分工），外加一个只放类型的 `internal/protocol`：
 
 - **`internal/protocol`**（桌面自己的 wire 类型：设置表单、通行证、技能/子代理/MCP/工具管理页、编辑复审、harm 提示）。**加字段、加 DTO 请加在这里，不要加进引擎**——引擎的 `agentloop/protocol` 只负责"跑一个回合"的契约（assistant delta / 工具事件 / 审批 / 回合结果 / 会话状态 / 错误 / envelope），且与 `cmd/runcode-server` 共享。判据是"谁产生它"：引擎 `host` 包产生或消费的归引擎，只有本外壳用的归这里，**没有例外**。命令清单 `CommandKinds` 就在这里（`internal/protocol/commands.go`）——**新增一个 Wails 命令只改本仓**，引擎不必发版；引擎只保留分类词汇 `protocol.CommandKind` 与三个常量（"query 意味着什么"两端必须一致，"有哪些命令"各自声明，`cmd/runcode-server` 另有自己的一份）。两个包由 `tools/protogen` 合并生成同一份 TS，重名会直接报错。
-- **`internal/desktop`**（桌面核心，Wails 把 `App` 的导出方法绑给前端，所以命令必须都挂在同一个类型上，不能拆包）：`app.go` 只留 App 结构与会话开关；回合在 `turn.go`、自动标题在 `title.go`、运行中可变的会话设置在 `session_settings.go`；其余按功能各自成文件（`skills` / `agents` / `mcp` / `passport` / `oauth` / `tokens` / `preview` / `editstore` / `plan`（阶段化计划模式的阶段机与审批闸门）/ `custommodels` / `config` / `store` / `disabled` / `harm` / …）。技能与子代理共用的作用域目录解析与命名规则在 `resources.go`（`resourceRoot(kindSkills|kindAgents, scope)`），别再各写一份。
+- **`internal/desktop`**（桌面核心，Wails 把 `App` 的导出方法绑给前端，所以命令必须都挂在同一个类型上，不能拆包）：`app.go` 只留 App 结构与会话开关；回合在 `turn.go`、自动标题在 `title.go`、运行中可变的会话设置在 `session_settings.go`；其余按功能各自成文件（`skills` / `agents` / `mcp` / `passport` / `oauth` / `tokens` / `preview` / `editstore` / `plan`（阶段化计划模式的阶段机与审批闸门）/ `custommodels` / `config` / `store` / `disabled` / `harm` / `appdirs`（本应用自己的安装/数据目录不再走"项目外授权"，包一层 `permissions.Policy`）/ `update`（版本更新的状态机：查网关清单 → 下载 → 校验 sha256 → 拉起安装器；`version.go` 是版本号与产品标识，两者都由打包脚本经 `-ldflags` 注入）/ `download`（带进度与 sha256 的大文件下载，更新与技能市场共用）/ …）。技能与子代理共用的作用域目录解析与命名规则在 `resources.go`（`resourceRoot(kindSkills|kindAgents, scope)`），别再各写一份。
 - **`internal/ui`**（CLI 的 TUI）：`model.go` 是 bubbletea 生命周期；工具事件归并在 `tool_events.go`、异步命令工厂在 `tea_commands.go`（与 `slash_commands.go` 的斜杠命令是两回事）；渲染分 `render.go`（组装）/ `render_approval.go` / `render_tools.go` / `markdown.go` / `format.go`，调色板集中在 `render.go`。包说明见 `doc.go`。
 
 自检：`go build ./...`、`go test -race ./internal/... ./cmd/runcode/...`、`golangci-lint run ./...`。**lint 存量已清零，新增告警一律当回归处理**（不再有"既有基线"可推诿）。豁免只有两种合法形式：`.golangci.yml` 里按类别写明理由的排除（G104/G304/G301、测试排除），或单点 `//nolint:linter // 原因`。加新的豁免前先确认不是真问题。
@@ -48,12 +48,13 @@
 - **仅 Go 侧快速编译检查**（不打包、不重建前端）：`go -C cmd/runcode-desktop build ./...`。
 - 跨平台：Wails **不能交叉编译**（各 OS WebView 不同——Windows WebView2 / Linux WebKitGTK / macOS WKWebView），需在目标平台原生构建；CI 见 `.github/workflows/desktop.yml`（Linux 加 `-tags webkit2_41 -clean`）。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
-- **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的四处开关——前端 `VITE_BRAND`、Go 窗口标题 `-ldflags`、`wails.json` 的应用名/产物名、`build/` 下的图标与 macOS `Info.plist`——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails build` 只会改到前两处，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
+- **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的六处开关——前端 `VITE_BRAND`、Go 窗口标题与单实例锁 `-ldflags`、应用名/产物名、`build/` 下的图标与 macOS `Info.plist`、以及**版本号与产品标识**（`-X internal/desktop.appVersion/.appProduct`，版本更新要用）——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails3 task build` 只会改到应用名，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
   ```bash
   ./scripts/build-desktop.sh --brand zhikai              # 当前平台
   ./scripts/build-desktop.sh --brand zhikai --universal --zip   # macOS 通用二进制 + 可分发 zip
   ./scripts/build-desktop.sh --test                      # 测试版（含上下文审核）
   ```
+  **版本号的唯一事实来源是 `build/config.yml` 的 `info.version`**：它已经在喂 Windows 版本资源、NSIS 安装包与 macOS `Info.plist`，打包脚本再把它注进二进制供"检查更新"比对。发版时改那一处即可；在 Go 里另写一个数的下场是"关于里写 0.2.0、添加删除程序里写 0.1.0"这种装完机才看得见的错配。未经脚本的开发构建版本是 `0.0.0-dev`（比任何正式版都旧，所以更新链路在开发机上也能整条走通）。
 - **测试版构建（`--test`）**：注入 `internal/desktop.testBuild` 标记（`internal/desktop/testbuild.go`），解锁仅测试版的"上下文审核"——设置页多一个开关，开启后引擎每次发给模型的完整请求上下文（系统提示词、消息历史、工具清单）按会话落 JSONL 到 `<UserConfigDir>/runcode/context-audit/`，并起一个仅监听 127.0.0.1 的查看页（`internal/desktop/contextaudit*.go`，数据链路是引擎 `Options.LLMRequestObserver`）。前端不用 VITE 开关：设置区块按后端 `ContextAuditStatus().supported` 决定渲染，单一事实来源。正式分发包一律不带 `--test`，此时功能整体不存在（命令拒绝开启、观测器不接线）。
 
 ##### macOS 打包
@@ -81,9 +82,9 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 | `hooks/` | 跨模块通用钩子：`use-stick-to-bottom`、`use-persistent-state` |
 | `chat/` | 对话渲染层：`blocks`（分组/合并纯逻辑）、`tool-text`（工具事件→中文，纯函数）+ 各类卡片组件 |
 | `preview/` | 预览：`classify`/`tabs`（纯逻辑）、`file-panel`/`diff-panel`/`pane`/`file-browser`，Office 查看器在 `viewers/` |
-| `composer/` | 输入区：`keymap`（按键归属：输入法组字 > 候选框 > 发送/换行，纯函数）、`mention`（触发解析与候选排序，纯函数）、`mention-picker`、`toolbar`、`index` |
+| `composer/` | 输入区：`keymap`（按键归属：输入法组字 > 候选框 > 发送/换行，纯函数）、`mention`（触发解析与候选排序，纯函数）、`paste`（粘贴/拖放的附件：收哪些、怎么命名、非图片文件怎么写进正文，纯函数；拖放另需 `main.go` 的 `EnableFileDrop` 与输入区的 `data-file-drop-target`）、`mention-picker`、`toolbar`、`index` |
 | `pages/` | 整页：`plugins/`、`permissions`、`mcp`、`memory`、`start/`、`settings/` |
-| `session/` | 应用状态与副作用钩子：`use-conversation`（引擎事件订阅在此）、`use-session`、`use-plan`（阶段化计划模式的运行状态与审批草稿）、`use-permission-queue`、`use-preview-panel`、`use-workspace-files`、`use-auto-preview`、`use-toast` |
+| `session/` | 应用状态与副作用钩子：`use-conversation`（引擎事件订阅在此）、`use-session`、`use-plan`（阶段化计划模式的运行状态与审批草稿）、`use-permission-queue`、`use-preview-panel`、`use-workspace-files`、`use-auto-preview`、`use-toast`、`use-update`（版本更新；状态在 Go 侧，这里只做它的镜子） |
 | `shell/` | 外壳组件：`title-bar`、`status-bar`、`chat-pane`、`preview-side`、`permission-modal`、`sidebar` |
 | `dev/` | 预览页，不进正常流程：`?preview=ui` 公共组件画廊（**改样式后的视觉回归就看它**——自动化检查证明不了观感）、`?preview=tools` 工具卡、`?preview=thinking` 思考面板 |
 
@@ -97,4 +98,4 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 4. **管理页用 `PageShell`**（mcp / memory / settings）。plugins 与 permissions 有各自的固定页头与更宽版心，不套这层。
 5. **把 Enter / 方向键当快捷键前先过 `isComposingKey`**，否则中日韩输入法组字时会被抢键。
 
-前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`chat/plan-draft`（审批区清单的增删/排序/整理）、`preview/classify`、`preview/tabs`、`composer/mention`、`composer/keymap`、`ui/keys`、`ui/model-picker`（`toModelOptions`：平台+自定义候选合并，输入框与设置页共用）、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`、`core/brand`）都有单测，新增纯函数请一并补测。
+前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`chat/plan-draft`（审批区清单的增删/排序/整理）、`preview/classify`、`preview/tabs`、`composer/mention`、`composer/keymap`、`composer/paste`、`ui/keys`、`ui/model-picker`（`toModelOptions`：平台+自定义候选合并，输入框与设置页共用）、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`、`core/brand`）都有单测，新增纯函数请一并补测。

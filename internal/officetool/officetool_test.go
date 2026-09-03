@@ -358,3 +358,48 @@ func nextOffset(out string) (int, bool) {
 	}
 	return n, true
 }
+
+// TestExtraRootsWidenReadsButKeepBoundary 覆盖宿主注入的额外只读根。
+//
+// 这条存在的理由是一个真会踩的洞：粘贴进输入框的附件落在应用数据目录，不在工作区
+// 里。ReadOffice 的边界守卫会把它拒掉，而 Office 文件除了 ReadOffice 没有别的读法
+// （Read 只会吐 ZIP 的二进制），于是"粘一个 Word 进来让模型看看"整条路走不通。
+//
+// 放开一个根不等于放开所有：第三个目录既不是工作区也不在注入之列，必须照旧被拒。
+func TestExtraRootsWidenReadsButKeepBoundary(t *testing.T) {
+	t.Parallel()
+	ws := t.TempDir()
+	pasted := t.TempDir()
+	elsewhere := t.TempDir()
+	writeZip(t, ws, "in-ws.docx", map[string]string{"word/document.xml": docxDoc, "word/styles.xml": docxStyles})
+	writeZip(t, pasted, "attached.docx", map[string]string{"word/document.xml": docxDoc, "word/styles.xml": docxStyles})
+	writeZip(t, elsewhere, "other.docx", map[string]string{"word/document.xml": docxDoc, "word/styles.xml": docxStyles})
+
+	ctx := &tool.Context{WorkingDirectory: ws}
+	run := func(tl tool.Tool, path string) error {
+		raw, _ := json.Marshal(map[string]any{"path": path})
+		_, err := tl.Run(context.Background(), raw, ctx, nil)
+		return err
+	}
+
+	// 没有注入任何额外根时，工作区之外一律读不到——原有边界不变。
+	plain := New()
+	if err := run(plain, filepath.Join(pasted, "attached.docx")); err == nil {
+		t.Error("没注入额外根时，工作区外的文件仍应被拒")
+	}
+
+	widened := New(pasted)
+	if err := run(widened, filepath.Join(pasted, "attached.docx")); err != nil {
+		t.Errorf("注入的根内读不到: %v", err)
+	}
+	if err := run(widened, "in-ws.docx"); err != nil {
+		t.Errorf("工作区内的相对路径读不到: %v", err)
+	}
+	if err := run(widened, filepath.Join(elsewhere, "other.docx")); err == nil {
+		t.Error("既不在工作区也不在注入根里的文件应被拒")
+	}
+	// 注入的根不等于把它的上级也放开：拿它的父目录去拼别处必须仍被拒。
+	if err := run(widened, filepath.Join(pasted, "..", filepath.Base(elsewhere), "other.docx")); err == nil {
+		t.Error("经 .. 跳出注入根应被拒")
+	}
+}

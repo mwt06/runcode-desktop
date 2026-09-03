@@ -7,7 +7,7 @@ import {
   Events,
   PlanStates,
   errText,
-  onEvent,
+  onEnvelope,
   planApprove,
   planCancel,
   planStatus,
@@ -50,13 +50,22 @@ export function usePlan({ sessionId, onSend, onApproved, showToast }: {
   }, [run])
 
   // 事件订阅只注册一次：引擎/外壳事件是进程级的，重订阅会漏事件。
-  useEffect(() => onEvent(Events.PlanUpdated, (r) => setRun(r ?? IDLE)), [])
+  //
+  // 只收**当前这条会话**的计划更新。计划板是后端权威状态（切会话时下面那个
+  // effect 会回读一次），所以前端不必再按会话缓存一份；但必须挡住别的会话——
+  // 后台会话记一个阶段就把前台的板子盖掉，用户会看到一份不属于这条对话的方案。
+  const sidRef = useRef(sessionId)
+  sidRef.current = sessionId
+  useEffect(() => onEnvelope(Events.PlanUpdated, (env) => {
+    if ((env.sessionId ?? '') !== (sidRef.current ?? '')) return
+    setRun(env.payload ?? IDLE)
+  }), [])
 
   // 换会话（含恢复历史会话）时回读一次：等待审批的计划能跨重启活下来，界面必须
   // 跟着回到那道闸门前。
   useEffect(() => {
     let stale = false
-    planStatus()
+    planStatus(sessionId ?? '')
       .then((r) => { if (!stale) { baseAt.current = ''; setRun(r ?? IDLE) } })
       .catch(() => { if (!stale) setRun(IDLE) })
     return () => { stale = true }
@@ -66,7 +75,7 @@ export function usePlan({ sessionId, onSend, onApproved, showToast }: {
   // 可能停留很久，中途关掉应用不该丢掉用户已经排好的顺序。
   const commit = useCallback((next: PlanDoc) => {
     if (!dirty(next, run.doc)) return
-    planUpdate(cleanDoc(next)).catch((e) => showToast(`计划保存失败：${errText(e)}`))
+    planUpdate(sidRef.current ?? '', cleanDoc(next)).catch((e) => showToast(`计划保存失败：${errText(e)}`))
   }, [run.doc, showToast])
 
   // edit 是所有编辑动作的统一入口：先更新本地草稿（输入不能有延迟），需要时同步后端。
@@ -94,7 +103,7 @@ export function usePlan({ sessionId, onSend, onApproved, showToast }: {
     if (!draft || approving) return
     setApproving(true)
     try {
-      const res = await planApprove({ doc: cleanDoc(draft), permissionMode })
+      const res = await planApprove(sidRef.current ?? '', { doc: cleanDoc(draft), permissionMode })
       // 先采纳状态再发消息：计划模式必须在这一轮开始前就是关闭的，否则工具栏会闪一下
       // 「计划模式」，后端也会把这条执行指令当成新一轮规划的开端。
       if (res?.info) onApproved(res.info)
@@ -115,7 +124,7 @@ export function usePlan({ sessionId, onSend, onApproved, showToast }: {
 
   async function cancel() {
     try {
-      setRun(await planCancel())
+      setRun(await planCancel(sidRef.current ?? ''))
     } catch (e) {
       showToast(`取消计划失败：${errText(e)}`)
     }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +48,12 @@ const (
 	// 都能用这台转写服务」。这是这台内网服务当前的部署前提。哪天要收紧，改成
 	// 每人一枚令牌（设置页那一栏本来就是为此留的）或走通行证换发。
 	defaultGatewayToken = "1f6a46e72b3dbe13852683f43da57a96426a24f2628de5c7"
+	// recorderSettingsVersion 是录音设置的迁移版本。
+	//
+	// 每当「内置默认值变了、但已经装过的机器必须跟着变」时 +1，并在
+	// migrateRecorderSettings 里补上这一版要做的事。落后的配置读到时迁移一次
+	// 并写回，之后用户自己在设置页怎么改都不会再被覆盖。
+	recorderSettingsVersion = 3
 	// levelEmitInterval 是电平事件的节奏。采集层已经把回调节流到约 20 Hz，
 	// 这里再定时聚合一次是为了把两条轨合成一条事件——而且发事件这件事绝不能
 	// 在音频线程上做。
@@ -147,6 +154,10 @@ func (a *App) RecorderSettings() (protocol.RecorderSettings, error) {
 
 // SaveRecorderSettings 写回录音设置。
 func (a *App) SaveRecorderSettings(s protocol.RecorderSettings) error {
+	// 版本戳由后端独占，不采信前端回传的数字：设置页在 recorderSettings() 还没
+	// 返回时就保存的话会送来 0，那会让一次性迁移再跑一遍，把用户刚打开的开关又
+	// 关掉。界面上本来也没有这个字段的控件。
+	s.Version = recorderSettingsVersion
 	if err := saveRecorderSettings(s); err != nil {
 		return wireError(err)
 	}
@@ -350,12 +361,31 @@ func (a *App) StopRecording() (protocol.RecordingInfo, error) {
 	defer cancel()
 	stopErr := sess.Stop(ctx)
 
-	info := toWireRecording(sess.Meta(), sess.Dir())
+	meta, dir := sess.Meta(), sess.Dir()
+	info := toWireRecording(meta, dir)
 	a.rec.finish(&info)
 
 	if stopErr != nil {
 		return info, wireError(stopErr)
 	}
+	// 录完在工作区留一份（音频 + 转写 + meta，见 recorder_archive.go）。放在 Stop
+	// 成功之后：这时会话目录才是完整的。
+	//
+	// 异步做：一小时双轨是几百 MB，同步复制会把「停止」这一下卡上几秒，而用户按下
+	// 停止之后紧接着就是自动生成纪要，本来就还要等。复制走的是"临时目录 + 改名"，
+	// 所以中途被关掉也不会在工作区留下半截目录。
+	//
+	// 失败不报成"停止失败"——录音本体好端端在应用数据目录里，那才是要紧的东西，
+	// 所以只发一条警告说清楚工作区这份没存上。
+	go func() {
+		dest, err := a.archiveRecording(dir, meta)
+		switch {
+		case err != nil:
+			a.sink.Emit(EventWarning, Warning{Message: "录音没能在工作区存一份（原件仍在录音目录里）：" + err.Error()})
+		case dest != "":
+			debugLog("recording archived to workspace: %s", dest)
+		}
+	}()
 	return info, nil
 }
 
@@ -603,10 +633,12 @@ func recorderSettingsPath() (string, error) {
 // recorderDefaults 是没有配置文件、或配置文件读不出来时的录音设置。
 //
 // 默认保留音频：它是补转写唯一的依据，删早了没有第二次机会。
+// 默认开启麦克风说话人分离：主要场景是面对面开会，代价见 migrateRecorderSettings。
 // 默认转写地址与令牌见 defaultGatewayURL / defaultGatewayToken。
 func recorderDefaults() protocol.RecorderSettings {
 	return protocol.RecorderSettings{
 		KeepAudio:    true,
+		MicDiarize:   true,
 		GatewayURL:   defaultGatewayURL,
 		GatewayToken: defaultGatewayToken,
 	}
@@ -628,6 +660,16 @@ func loadRecorderSettings() (protocol.RecorderSettings, error) {
 	if err := json.Unmarshal(stripBOM(b), &out); err != nil {
 		return recorderDefaults(), fmt.Errorf("解析 %s: %w", recorderSettingsFile, err)
 	}
+	// 一次性迁移只对**已经存在的配置文件**做。没有文件时走上面的早返回，什么都
+	// 不写——否则新装的机器一启动就把当前内置值固化成显式值，下次换服务器时它又
+	// 成了要迁移的陈旧值，等于自己给自己制造存量。
+	if migrateRecorderSettings(&out) {
+		// 写不回去不算致命：本次读到的已经是迁移后的值，功能是对的，只是下次
+		// 启动还要再迁一次。比因为写不动配置就让整个录音不可用要好。
+		if err := saveRecorderSettings(out); err != nil {
+			debugLog("recorder: 迁移后的设置写回失败: %v", err)
+		}
+	}
 	// 配置文件里这两栏为空时补回默认值。空值有两个来源：内置默认值出现之前的
 	// 老版本写下的配置，以及用户自己把那一栏清空——两种都当成「用默认」，否则
 	// 升上来的机器会一直卡在「还没有配置转写服务地址」或「离线录制中」。
@@ -640,7 +682,89 @@ func loadRecorderSettings() (protocol.RecorderSettings, error) {
 	return out, nil
 }
 
+// legacyGatewayURLs 是历史上内置过、现在已经作废的转写地址。
+//
+// 为什么需要这张表：内置默认值只在设置里那一栏**为空**时才生效，而绝大多数机器
+// 上那一栏是有值的——上一版的内置默认值早就被写进去了。换服务器时光改默认值，
+// 这些机器一台都不会跟着变，症状是「装了新包还是连旧地址」。所以把作废的地址列
+// 在这里，迁移时原样升级成当前默认值。用户自己手填的地址不在表里，不会被动到。
+//
+// v3 起新写下的配置不会再出现这种陈旧值（落盘前会归一化掉，见
+// normalizeRecorderSettings），这张表是给「跨过多个版本才升上来」的存量机器兜底的：
+// 它们文件里那个值等于某个**历史**默认值，归一化只认当前默认值，认不出来。
+//
+// 换服务器的完整动作因此只剩两步：改 defaultGatewayURL、把旧值追加到这张表
+// （版本号只在需要重写存量文件时才动）。
+var legacyGatewayURLs = []string{
+	"ws://202.205.160.8:8000/ws",
+}
+
+// legacyGatewayTokens 同理，令牌轮换时把作废的那串追加进来。
+var legacyGatewayTokens []string
+
+// migrateRecorderSettings 把落后版本的配置升级到当前版本，返回是否动过。
+//
+// 迁移每台机器只跑一次（跑完写回版本戳），所以这里可以做「一次性的决定」——
+// 比如替用户关掉某个开关；用户之后自己再打开，不会被反复覆盖。
+func migrateRecorderSettings(s *protocol.RecorderSettings) bool {
+	if s.Version >= recorderSettingsVersion {
+		return false
+	}
+	if s.Version < 1 {
+		if slices.Contains(legacyGatewayURLs, strings.TrimSpace(s.GatewayURL)) {
+			s.GatewayURL = defaultGatewayURL
+		}
+		if slices.Contains(legacyGatewayTokens, strings.TrimSpace(s.GatewayToken)) {
+			s.GatewayToken = defaultGatewayToken
+		}
+		// v1 曾在这里关掉麦克风说话人分离，v2 又把它打开了（见下）。这一行留着
+		// 只为让版本链读起来完整——从 0 迁上来的机器会连着跑 v1、v2，净结果是开。
+		s.MicDiarize = false
+	}
+	if s.Version < 2 {
+		// 默认开启麦克风说话人分离：主要场景是几个人围着一台电脑面对面开会，
+		// 不开的话整场会被标成你一个人。
+		//
+		// 代价是明确的、实测过的：服务端一旦对某条轨做盲聚类，就不再回显姓名，
+		// 只给 S1/S2 这类编号——你自己说的话在字幕和纪要里都不会显示姓名
+		// （对比见 recorder_test 里那两条注释）。纯线上会议用不上它，可以在
+		// 设置页关掉；关掉之后麦克风轨会直接带上你的姓名。
+		s.MicDiarize = true
+	}
+	// v3 没有自己的动作块：它要的效果全在 saveRecorderSettings 的归一化里
+	// （见 normalizeRecorderSettings）。版本号 +1 的作用就是让存量配置被重写一遍，
+	// 把等于内置默认值的网关地址/令牌清掉。
+	s.Version = recorderSettingsVersion
+	return true
+}
+
+// normalizeRecorderSettings 在落盘前把「与内置默认值相同的部署字段」清空。
+//
+// 只对部署事实（网关地址与令牌）这么做，绝不碰用户偏好——两类字段在「内置默认值
+// 变了」时该有相反的行为：
+//
+//   - 部署事实：换服务器时所有机器都该跟着走。文件里不留显式值，内置默认就能生效，
+//     不必再靠 legacyGatewayURLs 一条条追。这两天连着踩的三次「改了默认不生效」
+//     全是因为文件里躺着一份和当时默认值一模一样的显式值。
+//   - 用户偏好（micDiarize / keepAudio / speakerName / 设备选择）：发版翻转默认值
+//     时，用户当初特意做的选择不该被静默改掉，所以必须留显式值。micDiarize 刚从
+//     「默认关」翻成「默认开」，若省略存储，特意关掉它的人会连带被改回开。
+//
+// 界面上看不出区别：读设置时空值会被补回当前默认值（见 loadRecorderSettings），
+// 设置页照样显示当前用的是哪台服务。
+func normalizeRecorderSettings(s *protocol.RecorderSettings) {
+	if strings.TrimSpace(s.GatewayURL) == defaultGatewayURL {
+		s.GatewayURL = ""
+	}
+	if strings.TrimSpace(s.GatewayToken) == defaultGatewayToken {
+		s.GatewayToken = ""
+	}
+}
+
 func saveRecorderSettings(s protocol.RecorderSettings) error {
+	// 入参是值拷贝，归一化只影响落盘的那一份——调用方手里的设置不受影响，
+	// 界面照旧显示当前用的是哪台服务。
+	normalizeRecorderSettings(&s)
 	path, err := recorderSettingsPath()
 	if err != nil {
 		return err

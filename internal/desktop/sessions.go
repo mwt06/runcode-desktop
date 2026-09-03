@@ -119,7 +119,10 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 func (a *App) DeleteSession(id string) error {
 	a.mu.Lock()
 	ws := a.workspace
-	current := a.currentID
+	current := ""
+	if e := a.liveEntryLocked(); e != nil {
+		current = e.id
+	}
 	a.mu.Unlock()
 	id = strings.TrimSpace(id)
 	if ws == "" || id == "" {
@@ -145,20 +148,34 @@ func (a *App) DeleteSession(id string) error {
 
 // ResumeSession reopens a saved session by id (reusing the active session's
 // provider/model/credentials) and returns its prior conversation for display.
+//
+// **它是加开一条，不关掉任何已经开着的会话。** 曾经是替换式打开（先关掉聚焦的那条
+// 再按 id 重建），于是"点一下「最近对话」"会把正在跑的活当场停掉——这是同一个坑的
+// 第三次报障（前两次是「新建对话」与「换工作区」）。要恢复的那条本来就开着时只
+// 切聚焦（focusIfAlreadyOpenHeld），重复点不会重建。
+//
+// 代价是会话会攒起来：每点开一条历史对话就多一条活着的会话（各自占着 MCP 连接与
+// 会话存储句柄）。这是可见且可撤销的——它们都列在「打开中」里，关掉是一个明确的
+// 动作；而"悄悄弄丢正在跑的活"既不可见也不可撤销。上限留给 host.Limits.MaxSessions。
 func (a *App) ResumeSession(id string) (ResumedSession, error) {
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
 	a.mu.Lock()
-	cfg := a.config
 	ws := a.workspace
 	a.mu.Unlock()
+	// 「最近对话」列的是**聚焦这个工作区**里存着的会话（ListSessions 读 a.workspace），
+	// 所以恢复也必须在这个目录里进行——不能照抄 a.config 里那份可能已经过期的 CWD。
+	cfg := a.configForWorkspace(ws)
 	if cfg.Model == "" || ws == "" {
 		return ResumedSession{}, wireError(errNoSession)
 	}
 	cfg.Resume = strings.TrimSpace(id)
 	cfg.Continue = false
 	cfg.SessionID = ""
-	info, err := a.openSessionHeld(cfg)
+	a.mu.Lock()
+	passport, tenant := a.configPassport, a.passportTenant
+	a.mu.Unlock()
+	info, err := a.addSessionHeld(cfg, passport, tenant)
 	if err != nil {
 		return ResumedSession{}, wireError(err)
 	}
@@ -174,7 +191,7 @@ func (a *App) ResumeSession(id string) (ResumedSession, error) {
 }
 
 // PickWorkspaceFolder opens a native directory picker and returns the chosen path
-// ("" when cancelled). The frontend passes the result to SwitchWorkspace.
+// ("" when cancelled). The frontend passes the result to OpenSession.
 func (a *App) PickWorkspaceFolder() (string, error) {
 	a.mu.Lock()
 	dialog := a.dialog
@@ -186,58 +203,44 @@ func (a *App) PickWorkspaceFolder() (string, error) {
 	return dir, wireError(err)
 }
 
-// SwitchWorkspace closes the current session and opens a fresh one in dir,
-// reusing the active session's provider/model/credentials. The chosen directory
-// is persisted so the next launch reopens it.
-func (a *App) SwitchWorkspace(dir string) (SessionInfo, error) {
+// resolveWorkspaceDir 把用户选的目录归一成绝对路径并确认它真的是个目录。
+//
+// 换工作区曾经是 SwitchWorkspace（关掉当前会话、在新目录重开一条）。多工作区并行
+// 之后它整个让位给 OpenSession(workspace)——换目录不再要求先丢掉手上的会话，
+// 而"关掉一条会话"有它自己的明确入口（CloseSession）。这个函数是那次搬家里唯一
+// 值得留下的部分。
+func resolveWorkspaceDir(dir string) (string, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
-		return SessionInfo{}, wireError(errors.New("未选择目录"))
+		return "", errors.New("未选择目录")
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return SessionInfo{}, wireError(fmt.Errorf("解析目录: %w", err))
+		return "", fmt.Errorf("解析目录: %w", err)
 	}
 	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-		return SessionInfo{}, wireError(fmt.Errorf("目录不存在: %s", abs))
+		return "", fmt.Errorf("目录不存在: %s", abs)
 	}
-	a.startMu.Lock()
-	defer a.startMu.Unlock()
-	a.mu.Lock()
-	cfg := a.config
-	a.mu.Unlock()
-	if cfg.Model == "" {
-		return SessionInfo{}, wireError(errNoSession)
-	}
-	cfg.CWD = abs
-	cfg.Resume = ""
-	cfg.Continue = false
-	cfg.SessionID = ""
-	// Record the workspace before the build so session listing tracks the new
-	// directory even when the open fails (pre-host behavior).
-	a.mu.Lock()
-	a.workspace = abs
-	a.mu.Unlock()
-	info, err := a.openSessionHeld(cfg)
-	if err != nil {
-		return SessionInfo{}, wireError(err)
-	}
-	// Persist the new workspace so the next launch prefills/reopens it.
-	req := a.LoadConfig()
-	req.CWD = abs
-	saveConfig(req)
-	return info, nil
+	return abs, nil
 }
 
 // NewSession opens a fresh session in the same workspace (a new id, empty
 // history), reusing the active session's provider/model/credentials.
+//
+// **它是替换式打开：先关掉当前那条会话，正在跑的回合会被当场取消。** 多会话之后
+// 界面上的「新建对话」走的是 OpenSession（加开一条，不动已开的）；这条留给"我要
+// 换一条干净的对话、旧的不要了"那个语义。
+//
+// 两个命令长得像而后果差很远，真踩过：界面上曾按 openList 是否为空来二选一，而
+// 首个会话还没进那个列表，于是点「新建对话」走成了这一条，用户刚发出去的回合
+// 当场停掉。判据后来换成了"有没有会话"（session.info），不再依赖异步回读的列表。
 func (a *App) NewSession() (SessionInfo, error) {
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
 	a.mu.Lock()
-	cfg := a.config
 	ws := a.workspace
 	a.mu.Unlock()
+	cfg := a.configForWorkspace(ws) // 在**聚焦这条会话的目录**里开，不是 a.config 记的那个
 	if cfg.Model == "" || ws == "" {
 		return SessionInfo{}, wireError(errNoSession)
 	}

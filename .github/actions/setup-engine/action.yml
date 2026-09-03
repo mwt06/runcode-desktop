@@ -1,0 +1,62 @@
+name: Setup engine
+description: 按 go.mod 里的版本取出引擎仓库，并把三个模块的依赖指过去。
+
+# 引擎（agentloop）是独立仓库，且是私有的。CI 上有两条路都走不通：go.work 指着一个
+# 不存在的同级目录（本地开发才有），而引擎原来的 module 路径在内网 GitLab 上，
+# GitHub 的机器够不着那个域名——2026-07-20 起线上一个半月没出过包就是这么来的。
+#
+# 这里的做法是把引擎 checkout 到 .engine，再用 go mod edit -replace 指过去。
+# 关键点：replace 到本地目录时，Go 校验的是"目标 go.mod 声明的 module 路径 ==
+# replace 左侧"。引擎声明的仍是 gitlab 那个路径，两边一致，所以引擎仓库不用改
+# module 行，本仓所有 import 也不用动。
+#
+# 用它的 job 必须先 setup-go：这里要跑 go mod edit。
+
+inputs:
+  token:
+    description: 对引擎仓库有读权限的令牌（GITHUB_TOKEN 不行，它只覆盖当前仓库）
+    required: true
+  path:
+    description: 引擎 checkout 到哪
+    required: false
+    default: .engine
+
+outputs:
+  version:
+    description: 实际取出的引擎版本
+    value: ${{ steps.engine.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    # 版本以 go.mod 为准，不在别处另写一个数——两处各写一遍的下场是 CI 编的是一个
+    # 版本、go.mod 说的是另一个，而产物上看不出来。
+    - id: engine
+      shell: bash
+      run: |
+        set -euo pipefail
+        version=$(sed -n 's|^[[:space:]]*gitlab\.ouc-online\.com\.cn/aibase/agentloop[[:space:]]\{1,\}\(v[^[:space:]]*\).*|\1|p' go.mod | head -1)
+        [ -n "$version" ] || { echo "go.mod 里找不到 agentloop 的 require 行" >&2; exit 1; }
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "引擎版本: $version"
+
+    - uses: actions/checkout@v4
+      with:
+        repository: mwt06/agentloop
+        ref: ${{ steps.engine.outputs.version }}
+        path: ${{ inputs.path }}
+        token: ${{ inputs.token }}
+        persist-credentials: false
+
+    # 三个模块都要指：根（CLI/TUI + 桌面核心）、桌面外壳、服务端骨架。漏掉一个的
+    # 表现是那个模块的命令单独失败，而另外两个是绿的。
+    - shell: bash
+      env:
+        ENGINE_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        engine=gitlab.ouc-online.com.cn/aibase/agentloop
+        go mod edit -replace "$engine=./$ENGINE_PATH"
+        go -C cmd/runcode-desktop mod edit -replace "$engine=../../$ENGINE_PATH"
+        go -C cmd/runcode-server mod edit -replace "$engine=../../$ENGINE_PATH"
+        echo "已把三个模块的 $engine 指向 ./$ENGINE_PATH"

@@ -16,12 +16,10 @@ import (
 )
 
 // SetPermissionMode switches the permission mode at runtime.
-func (a *App) SetPermissionMode(mode string) error {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
-		return wireError(errNoSession)
+func (a *App) SetPermissionMode(sessionID, mode string) error {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return wireError(err)
 	}
 	return wireError(a.mgr.SetPermissionMode(id, mode))
 }
@@ -93,14 +91,14 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 			if isPassport {
 				a.passportTenant = strings.TrimSpace(resolvedReq.TenantID)
 			}
-			sameLiveConnection := a.currentID != "" && isPassport == a.livePassport
+			sameLiveConnection := a.liveEntryLocked() != nil && isPassport == a.livePassport
 			if sameLiveConnection && isPassport {
 				sameLiveConnection = strings.TrimSpace(resolvedReq.TenantID) == a.livePassportTenant
 			}
 			a.mu.Unlock()
 			if sameLiveConnection && strings.TrimSpace(req.CustomModelName) == "" {
 				if m := strings.TrimSpace(req.Model); m != "" {
-					_ = a.SetModel(m)
+					_ = a.SetModel("", m)
 					a.mu.Lock()
 					a.liveConfig.Model = m
 					a.mu.Unlock()
@@ -111,10 +109,10 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 
 	// Permission mode is connection-independent and can always be applied live.
 	if req.PermissionMode != "" {
-		_ = a.SetPermissionMode(req.PermissionMode)
+		_ = a.SetPermissionMode("", req.PermissionMode)
 	}
 
-	info, err := a.Status()
+	info, err := a.Status("")
 	if err != nil {
 		return SessionInfo{}, nil
 	}
@@ -122,12 +120,10 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 }
 
 // SetModel switches the model used for subsequent turns.
-func (a *App) SetModel(model string) error {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
-		return wireError(errNoSession)
+func (a *App) SetModel(sessionID, model string) error {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return wireError(err)
 	}
 	return wireError(a.mgr.SetModel(id, strings.TrimSpace(model)))
 }
@@ -144,7 +140,7 @@ func (a *App) SetModel(model string) error {
 // A connection-changing switch is refused mid-turn, since the rebuild would
 // discard the running turn; the picker is disabled while a turn is in flight, so
 // this only guards against races.
-func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
+func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 	kind = strings.TrimSpace(kind)
 	name = strings.TrimSpace(name)
 	debugLog("SwitchModel kind=%q name=%q", kind, name)
@@ -153,10 +149,13 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 	}
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
+	e, err := a.entryOf(sessionID)
+	if err != nil {
+		return SessionInfo{}, wireError(err)
+	}
 	a.mu.Lock()
-	id := a.currentID
+	id, busy := e.id, e.turnActive
 	cfg := a.liveConfig
-	busy := a.turnActive
 	livePassport := a.livePassport
 	liveTenant := a.livePassportTenant
 	nextTenant := a.passportTenant
@@ -206,7 +205,7 @@ func (a *App) SwitchModel(kind, name string) (SessionInfo, error) {
 		}
 		a.mu.Unlock()
 		persistConnectionChoice("passport", name, "")
-		return a.Status()
+		return a.Status("")
 	}
 	// Rebuild as a passport/bridge session on the target tenant, re-wiring the token
 	// source (mirrors applyPassport, which reads the request).
@@ -267,6 +266,10 @@ func (a *App) rebuildResumingWithConnectionHeld(cfg engine.Config, resumeID stri
 	cfg.Resume = resumeID
 	cfg.Continue = false
 	cfg.SessionID = ""
+	// 目录取**被重建的这条会话**记着的那个：cfg 来自 liveConfig（进程级的"当前
+	// 连接"），它的 CWD 是上一次建会话时的快照，多工作区并行之后可能是别人的目录。
+	// 照抄的话，换一次模型就会把这条会话搬到另一个工作区里去。
+	cfg.CWD = a.workspaceOfSession(resumeID)
 	info, err := a.openSessionWithConnectionHeld(cfg, passport, tenantID)
 	if err != nil {
 		return SessionInfo{}, wireError(err)
@@ -276,12 +279,10 @@ func (a *App) rebuildResumingWithConnectionHeld(cfg engine.Config, resumeID stri
 
 // SetPlanMode toggles plan mode on the active session and returns the updated
 // status so the UI reflects it.
-func (a *App) SetPlanMode(on bool) (SessionInfo, error) {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
-		return SessionInfo{}, wireError(errNoSession)
+func (a *App) SetPlanMode(sessionID string, on bool) (SessionInfo, error) {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return SessionInfo{}, wireError(err)
 	}
 	if err := a.mgr.SetPlanMode(id, on); err != nil {
 		return SessionInfo{}, wireError(err)
@@ -291,40 +292,34 @@ func (a *App) SetPlanMode(on bool) (SessionInfo, error) {
 	// Approval takes the other door (PlanApprove calls the manager directly), which
 	// is why its executing run is not affected here.
 	if !on {
-		a.mu.Lock()
-		plans := a.plans
-		a.mu.Unlock()
+		_, plans := a.focusedStores()
 		if plans != nil {
 			plans.CancelIfPlanning()
 		}
 	}
-	return a.Status()
+	return a.Status(id)
 }
 
 // SetReasoningScenario switches the in-conversation "thinking model"
 // (off/auto/<scenario>) and returns the updated status.
-func (a *App) SetReasoningScenario(scenario string) (SessionInfo, error) {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
-		return SessionInfo{}, wireError(errNoSession)
+func (a *App) SetReasoningScenario(sessionID, scenario string) (SessionInfo, error) {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return SessionInfo{}, wireError(err)
 	}
 	if err := a.mgr.SetReasoningScenario(id, scenario); err != nil {
 		return SessionInfo{}, wireError(err)
 	}
-	return a.Status()
+	return a.Status(id)
 }
 
 // SetThinkingEffort switches provider-native reasoning strength
 // (off/low/medium/high) at runtime and returns the updated status. This is the
 // knob that makes a reasoning model emit the reasoning content shown in the UI.
-func (a *App) SetThinkingEffort(effort string) (SessionInfo, error) {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
-		return SessionInfo{}, wireError(errNoSession)
+func (a *App) SetThinkingEffort(sessionID, effort string) (SessionInfo, error) {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return SessionInfo{}, wireError(err)
 	}
 	if err := a.mgr.SetThinkingEffort(id, effort); err != nil {
 		return SessionInfo{}, wireError(err)
@@ -338,5 +333,5 @@ func (a *App) SetThinkingEffort(effort string) (SessionInfo, error) {
 	a.config.Thinking = llm.ThinkingConfig{Effort: parsed}
 	a.mu.Unlock()
 	a.persistThinkingEffort(string(parsed))
-	return a.Status()
+	return a.Status(id)
 }

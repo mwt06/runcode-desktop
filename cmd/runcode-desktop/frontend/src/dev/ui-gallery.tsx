@@ -15,6 +15,7 @@ import { CheckMark, Spinner, WarnTriangle } from '@/ui/glyphs'
 import { CollapsibleGroup } from '@/ui/collapsible-group'
 import { ConfirmDialog } from '@/ui/confirm-dialog'
 import { GhostBtn } from '@/ui/ghost-btn'
+import { HScroll } from '@/ui/h-scroll'
 import { Icon } from '@/ui/icons'
 import { Popover } from '@/ui/popover'
 import { Toggle } from '@/ui/toggle'
@@ -198,6 +199,18 @@ export function UIGallery() {
           {['shield', 'bot', 'book', 'hash', 'paperclip', 'plus', 'send', 'stop', 'search', 'trash', 'undo', 'compass'].map((n) => (
             <span key={n} className="text-muted" title={n}><Icon name={n} size={18} /></span>
           ))}
+        </Row>
+        <Row label="HScroll">
+          {/* 故意给一条装不下的宽度：这个件要看的就是"装不下时两端长什么样"。 */}
+          <div className="w-[300px] border border-dashed border-line2 rounded-field p-2">
+            <HScroll rowClassName="gap-2">
+              {['录音纪要', '公文写作', '数据分析', '教学设计', '会议安排', '课程建设'].map((n) => (
+                <span key={n} className="flex-none inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-line2 bg-surface text-ink text-[13px] whitespace-nowrap">
+                  <Icon name="sparkles" size={14} />{n}
+                </span>
+              ))}
+            </HScroll>
+          </div>
         </Row>
         <Row label="CollapsibleGroup">
           <div className="w-full">

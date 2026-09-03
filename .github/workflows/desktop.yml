@@ -1,105 +1,220 @@
 name: Desktop
 
-# Build and package the Wails desktop app (cmd/runcode-desktop) natively on each
-# platform — Wails can't cross-compile because each OS uses a different WebView
-# (WebView2 on Windows, WebKitGTK on Linux, WKWebView on macOS).
+# 桌面版（cmd/runcode-desktop）的多平台打包。
+#
+# Wails 不能交叉编译（三平台 WebView 各不相同：Windows WebView2 / macOS WKWebView
+# / Linux WebKitGTK），所以每个目标都在自己那种机器上原生构建，架构也一样——arm64
+# 的包就在 arm64 机器上打，不做交叉。
+#
+# ---- 为什么这份文件被整个重写过 ------------------------------------------------
+# 2026-07-20 起线上全线失败，一个半月没出过包。两个原因叠在一起：
+#
+#   1. go.work 提交进了仓库，而这里没设 GOWORK=off。CI 上没有 ../agentloop 那个同级
+#      目录，于是任何 go 命令都以 "cannot load module ../../../agentloop listed in
+#      go.work" 收场——连编译都到不了。
+#   2. 引擎当时只在内网 GitLab，GitHub 的机器根本够不着那个域名。
+#
+# 现在引擎在 GitHub 上（私有，同一所有者），所以第 2 条有解了：把引擎 checkout 下来，
+# 用 go mod edit -replace 指过去。引擎的 module 声明仍是 gitlab 路径，而 replace 到
+# 本地目录时 Go 校验的正是"目标 go.mod 声明的路径 == replace 左侧"，两边一致，所以
+# 引擎仓库和本仓的 import 路径都不用改。
+#
+# 这条链路需要一个仓库 secret：ENGINE_REPO_TOKEN，一个对 mwt06/agentloop 有读权限的
+# 令牌（fine-grained PAT，Contents: Read 即可）。GITHUB_TOKEN 不行——它的权限只覆盖
+# 当前仓库，拉不到另一个私有仓库。
+#
+# ---- 触发与成本 ---------------------------------------------------------------
+# macOS 机器按 10 倍分钟数计费，ARM64 机器在私有仓库里也计入配额，所以**不在每次推
+# main 时打全量包**（旧版那么做过）。正式包只在打 tag 时出；日常想要包就手动触发。
+# PR 上只跑一个 windows-amd64，用最便宜的方式确认改动能编译。
 
 on:
   workflow_dispatch:
+    inputs:
+      brand:
+        description: 打哪个品牌
+        type: choice
+        default: zhikai
+        options: [zhikai, runcode, all]
+      targets:
+        description: 打哪些目标
+        type: choice
+        default: all
+        options: [all, windows-only, macos-only]
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write # attach binaries to a Release on tag builds
+  contents: write # 打 tag 时把产物挂到 Release 上
+
+# go.work 只服务本地开发（它把 ../agentloop 联动进来）。CI 一律走 go.mod + replace，
+# 否则 workspace 会掩盖掉模块本身的问题——这也正是之前一个半月都没出包的直接原因。
+env:
+  # 必须带引号：YAML 会把裸 off 解析成布尔假，环境变量于是变成 "false"——那不是
+  # GOWORK 认得的值（它只认 "off" 或一个 go.work 路径），等于这行白写。
+  GOWORK: "off"
+  GO_VERSION: '1.26.x'
+  NODE_VERSION: '20'
+  WAILS_VERSION: v3.0.0-beta.9
 
 jobs:
+  # 目标矩阵按输入裁剪。手动触发以外的场景（tag / PR）用不到 inputs，各自有默认。
+  plan:
+    name: 定目标
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BRAND: ${{ inputs.brand || 'zhikai' }}
+          TARGETS: ${{ inputs.targets || 'all' }}
+        run: |
+          set -euo pipefail
+          # PR 只验编译：一个最便宜的目标就够，不为每个 PR 烧 macOS 的分钟数。
+          if [ "$EVENT" = pull_request ]; then
+            echo 'matrix={"include":[{"target":"windows-amd64","os":"windows-2022","brand":"zhikai"}]}' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          win='{"target":"windows-amd64","os":"windows-2022"},{"target":"windows-arm64","os":"windows-11-arm"}'
+          # macos-13 已退役；Intel 版用 macos-15-intel（Intel 机器整体在 2027 秋停供）。
+          mac='{"target":"macos-arm64","os":"macos-15"},{"target":"macos-amd64","os":"macos-15-intel"}'
+          case "$TARGETS" in
+            windows-only) targets="$win" ;;
+            macos-only)   targets="$mac" ;;
+            *)            targets="$win,$mac" ;;
+          esac
+
+          case "$BRAND" in
+            all) brands='"zhikai","runcode"' ;;
+            *)   brands="\"$BRAND\"" ;;
+          esac
+
+          # 目标 × 品牌 的笛卡尔积。jq 比在 shell 里拼 JSON 可靠得多。
+          matrix=$(jq -cn --argjson t "[$targets]" --argjson b "[$brands]" \
+            '{include: [$t[] as $x | $b[] as $y | ($x + {brand: $y})]}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build (${{ matrix.name }})
+    name: ${{ matrix.brand }} · ${{ matrix.target }}
+    needs: plan
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux
-            build: wails build -tags webkit2_41 -clean
-            artifact: XRUN-linux-amd64
-          - os: windows-latest
-            name: windows
-            build: wails build -clean
-            artifact: XRUN-windows-amd64.exe
-          - os: macos-latest
-            name: macos
-            build: wails build -platform darwin/universal -clean
-            artifact: XRUN-macos.zip
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     defaults:
       run:
         shell: bash
-        working-directory: cmd/runcode-desktop
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # setup-go 必须在接引擎之前：那一步要跑 go mod edit，而 windows-11-arm 这类
+      # 镜像不保证预装 Go。
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
-          cache: true
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: '**/go.sum'
+
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: cmd/runcode-desktop/frontend/package-lock.json
 
-      - name: Install Linux WebView deps
-        if: matrix.name == 'linux'
+      - name: 安装 wails3 CLI
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
-
-      - name: Install Wails CLI
-        run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+          set -euo pipefail
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      # Type-check before packaging: vite build does not run tsc, so this is
-      # the frontend's only type gate.
-      - name: Frontend typecheck
+      # NSIS 出 Windows 安装包。打包脚本会自己去 Program Files 找 makensis，所以这里
+      # 只负责"装上"，不去动 PATH。
+      - name: 装 NSIS
+        if: startsWith(matrix.target, 'windows')
+        run: |
+          set -euo pipefail
+          if [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || [ -x "/c/Program Files/NSIS/makensis.exe" ]; then
+            echo "NSIS 已在镜像里"
+          else
+            choco install nsis -y --no-progress
+          fi
+
+      # 前端类型检查：vite build 不跑 tsc，这是唯一的类型闸门。放在打包之前，
+      # 让类型错误以一条清楚的报错结束，而不是等打完包才发现。
+      - name: 前端自检
         working-directory: cmd/runcode-desktop/frontend
         run: |
+          set -euo pipefail
           npm ci
           npm run typecheck
+          npm run lint
+          npx vitest run
 
-      - name: Build
-        run: ${{ matrix.build }}
-
-      - name: Package
+      # 打包一律走 scripts/build-desktop.sh，不直接调 wails3 task：品牌有六处开关
+      # （前端、窗口标题、单实例锁、应用名、打包元数据、版本与产品标识），脚本一次
+      # 配齐并在构建后还原。手敲 task 只会改到应用名，成品会出现"界面是智开、bundle
+      # 标识符还是 XRUN"这类装机后才看得出的错配。
+      - name: 打包
+        working-directory: cmd/runcode-desktop
         run: |
-          cd build/bin
-          case "${{ matrix.name }}" in
-            windows) mv XRUN.exe "${{ matrix.artifact }}" ;;
-            linux)   mv XRUN "${{ matrix.artifact }}" ;;
-            macos)   zip -r "${{ matrix.artifact }}" XRUN.app ;;
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer ;;
+            macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip ;;
           esac
-          ls -la
 
-      - name: Upload artifact
+      # 产物改成全 ASCII 的名字：应用名可能是中文（智开），而中文文件名在 artifact
+      # 上传、浏览器下载与 Release 资产那几段链路上都可能被转义成乱码。
+      - name: 整理产物
+        id: collect
+        working-directory: cmd/runcode-desktop
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^  version: "\(.*\)"[[:space:]]*$/\1/p' build/config.yml | head -1)
+          case "${{ matrix.brand }}" in
+            zhikai)  app=智开; product=zhikai ;;
+            runcode) app=XRUN; product=xrun ;;
+          esac
+          arch="${{ matrix.target }}"; arch="${arch##*-}"
+          mkdir -p dist
+          case "${{ matrix.target }}" in
+            windows-*)
+              cp "bin/$app.exe" "dist/$product-$version-windows-$arch.exe"
+              for f in bin/"$app"-*-installer.exe; do
+                [ -f "$f" ] && cp "$f" "dist/$product-$version-windows-$arch-setup.exe"
+              done
+              ;;
+            macos-*)
+              cp "bin/$app-macos.zip" "dist/$product-$version-macos-$arch.zip"
+              ;;
+          esac
+          ls -la dist
+          echo "name=$product-$version-${{ matrix.target }}" >> "$GITHUB_OUTPUT"
+
+      - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: XRUN-${{ matrix.name }}
-          path: cmd/runcode-desktop/build/bin/${{ matrix.artifact }}
+          name: ${{ steps.collect.outputs.name }}
+          path: cmd/runcode-desktop/dist/*
           if-no-files-found: error
 
-      - name: Attach to release
+      - name: 挂到 Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: cmd/runcode-desktop/build/bin/${{ matrix.artifact }}
-          # Mark tags with a pre-release suffix (e.g. v0.1.0-preview) as pre-releases
-          # so they don't become the "latest" release.
+          files: cmd/runcode-desktop/dist/*
+          # 带后缀的 tag（v1.0.0-rc.1）算预发布，不占 latest。
           prerelease: ${{ contains(github.ref_name, '-') }}

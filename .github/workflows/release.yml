@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
 
+# go.work 指着本地才有的同级目录，CI 上必须关掉（见 .github/actions/setup-engine）。
+env:
+  # 必须带引号：YAML 会把裸 off 解析成布尔假，环境变量于是变成 "false"——那不是
+  # GOWORK 认得的值（它只认 "off" 或一个 go.work 路径），等于这行白写。
+  GOWORK: "off"
+
 permissions:
   contents: write
 
@@ -23,6 +29,11 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
+
+      - name: 接上引擎
+        uses: ./.github/actions/setup-engine
+        with:
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

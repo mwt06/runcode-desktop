@@ -38,7 +38,7 @@ func (a *App) fetchMarket(timeout time.Duration) ([]McpMarketEntry, error) {
 
 // syncMarketOnce refreshes the market-declared Passport flags at most once per
 // run: the platform's list changes on its own schedule, not per session, so
-// re-fetching for every New/Resume/SwitchWorkspace would put a network
+// re-fetching for every New/Resume/Open would put a network
 // round-trip on the session-open path for nothing.
 //
 // It runs on startup and again right after a login (a cold start with no stored

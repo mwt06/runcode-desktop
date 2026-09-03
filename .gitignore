@@ -65,3 +65,7 @@ sess_*.meta.json
 /cmd/runcode-desktop/core.cfg
 /cmd/runcode-desktop/core-tools.cfg
 /cmd/runcode-server/runcode-server.exe
+
+# CI 把引擎仓库 checkout 到这里再 replace 过去（见 .github/actions/setup-engine）。
+# 本地照同样步骤复现 CI 时也会生成它，别让它进版本库。
+/.engine/

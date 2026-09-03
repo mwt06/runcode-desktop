@@ -50,10 +50,20 @@ type input struct {
 const Name = "ReadOffice"
 
 // Tool is the ReadOffice tool.
-type Tool struct{}
+type Tool struct {
+	// extraRoots are directories outside the workspace this tool may still read
+	// from. The host injects them; this package deliberately does not know what
+	// they mean — only the shell knows which directories are its own.
+	//
+	// 桌面用它交代"本应用自己的目录"(粘贴进输入框的附件就落在那儿)。没有这条口子
+	// 的话,粘一个 .docx 进来,模型调 ReadOffice 会直接被边界守卫拒掉——而 Read 对
+	// Office 文件又只能吐二进制垃圾,于是那个文件谁也读不了。
+	extraRoots []string
+}
 
-// New returns the ReadOffice tool.
-func New() tool.Tool { return Tool{} }
+// New returns the ReadOffice tool. extraRoots are read-only directories outside
+// the workspace that it may also open (see Tool.extraRoots).
+func New(extraRoots ...string) tool.Tool { return Tool{extraRoots: extraRoots} }
 
 // Name is the tool name the model calls.
 func (Tool) Name() string { return Name }
@@ -70,15 +80,18 @@ func (Tool) Description() string {
 		"the first line of every result states which lines it covers and whether the document ends there. " +
 		"When it does not, the result ends with the exact offset to pass back — call again with that offset " +
 		"to get the next page, and repeat until the header says 已到末尾. " +
-		"Never treat a page as the whole document. The path is workspace-relative."
+		"Never treat a page as the whole document. " +
+		"Paths are workspace-relative; an absolute path the user handed you (a pasted attachment, say) works too."
 }
 
-// InputSchema declares the workspace-relative path plus the line window.
+// InputSchema declares the file path plus the line window.
 func (Tool) InputSchema() tool.Schema {
 	return tool.Schema{
 		Type: tool.SchemaTypeObject,
 		Properties: map[string]tool.Schema{
-			"path": {Type: tool.SchemaTypeString, Description: "Workspace-relative path of the .docx/.xlsx/.pptx file to read."},
+			// 绝对路径这一句是给"粘贴进来的附件"用的：它落在应用数据目录，不在
+			// 工作区里，只说 workspace-relative 会让模型不敢把那条路径递进来。
+			"path": {Type: tool.SchemaTypeString, Description: "Path of the .docx/.xlsx/.pptx file to read: workspace-relative, or an absolute path the user gave you (such as a pasted attachment)."},
 			"offset": {
 				Type: tool.SchemaTypeInteger,
 				Description: "1-based line to start from, using the line numbers in this tool's own output. " +
@@ -99,7 +112,7 @@ func (Tool) IsConcurrencySafe() bool { return true }
 
 // Run resolves the workspace-relative path, dispatches by extension, and returns
 // the extracted structured text.
-func (Tool) Run(_ context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
+func (t Tool) Run(_ context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return tool.Result{}, fmt.Errorf("parse ReadOffice input: %w", err)
@@ -108,7 +121,7 @@ func (Tool) Run(_ context.Context, raw json.RawMessage, tctx *tool.Context, _ ch
 		return tool.Result{}, errors.New("path is required")
 	}
 
-	abs, err := resolveInWorkspace(in.Path, tctx)
+	abs, err := t.resolveReadable(in.Path, tctx)
 	if err != nil {
 		return tool.Result{}, err
 	}
@@ -181,21 +194,18 @@ func (c *capBuf) header(name string) string {
 // this tool exists.
 const continuationMarker = "…[未完：文档在此之后仍有内容。用 offset=%d 再次调用 ReadOffice 继续读取。]"
 
-// resolveInWorkspace resolves a workspace-relative path to an absolute one and
-// verifies it exists, is a regular file, and stays inside the workspace — the
-// same containment guard previewtool applies, since ReadOffice is authorized as
+// resolveReadable resolves the given path to an absolute one and verifies it
+// exists, is a regular file, and sits somewhere this tool may read — the same
+// containment guard previewtool applies, since ReadOffice is authorized as
 // side-effect-free management rather than through the read-path resolver.
-func resolveInWorkspace(path string, tctx *tool.Context) (string, error) {
-	ws, err := toolpath.WorkspaceRoot(tctx)
-	if err != nil {
-		return "", err
-	}
+//
+// "可读"= 工作区内,或者宿主明确交代过的额外只读根之一(见 Tool.extraRoots)。
+func (t Tool) resolveReadable(path string, tctx *tool.Context) (string, error) {
 	abs, err := toolpath.Resolve(path, tctx)
 	if err != nil {
 		return "", err
 	}
-	within, err := toolpath.IsWithinResolved(ws, abs)
-	if err != nil || !within {
+	if !t.readable(abs, tctx) {
 		return "", fmt.Errorf("path is outside the workspace: %s", path)
 	}
 	info, err := os.Stat(abs)
@@ -206,6 +216,28 @@ func resolveInWorkspace(path string, tctx *tool.Context) (string, error) {
 		return "", fmt.Errorf("path is a directory: %s", path)
 	}
 	return abs, nil
+}
+
+// readable reports whether abs is inside the workspace or one of the injected
+// extra roots. Containment is judged with the engine's own resolved check, so
+// "inside" means the same thing here as at the workspace boundary — symlinks
+// resolved on both sides, which is what stops a link planted under a root from
+// pointing the standing access somewhere else entirely.
+func (t Tool) readable(abs string, tctx *tool.Context) bool {
+	roots := t.extraRoots
+	// 工作区取不到不算错:那多半是会话还没配好,而绝对路径的附件本来就不需要它。
+	if ws, err := toolpath.WorkspaceRoot(tctx); err == nil {
+		roots = append([]string{ws}, roots...)
+	}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		if within, err := toolpath.IsWithinResolved(root, abs); err == nil && within {
+			return true
+		}
+	}
+	return false
 }
 
 // capBuf collects the extracted text as numbered lines, keeping only the window

@@ -14,8 +14,10 @@ import {
 } from '@/core/bridge'
 import { Section } from './section'
 
+// version 是后端独占的配置迁移版本，界面上没有对应控件；这里给 0 只是占位，
+// 保存时后端会盖成当前值（见 desktop.SaveRecorderSettings）。
 const EMPTY: RecorderSettings = {
-  gatewayUrl: '', speakerName: '', lang: '',
+  gatewayUrl: '', speakerName: '', lang: '', version: 0,
   micDeviceId: '', sysDeviceId: '', keepAudio: true, summaryModel: '', gatewayToken: '', micDiarize: false,
 }
 
@@ -102,9 +104,10 @@ export function RecorderSection() {
         <span className="min-w-0">
           <span className="text-[13px]">麦克风也区分说话人</span>
           <span className="block text-[12px] text-muted mt-0.5">
-            几个人围着一台电脑面对面开会时打开，否则整场会被标成你一个人。线上会议
-            不用开——对方的声音走「系统声音」那一路，那边一直开着。单麦分离的准确率
-            明显低于双轨，而且要多花 GPU。
+            默认开着，几个人围着一台电脑面对面开会要靠它，否则整场会被标成你一个人。
+            纯线上会议可以关掉——对方的声音走「系统声音」那一路，那边一直开着。
+            关掉之后你自己说的话会直接标上姓名；开着时服务端只给 S1、S2 这样的聚类
+            编号，认不出是谁。单麦分离的准确率也明显低于双轨，而且要多花 GPU。
           </span>
         </span>
         <Toggle on={s.micDiarize} onChange={(v) => patch({ micDiarize: v })} />

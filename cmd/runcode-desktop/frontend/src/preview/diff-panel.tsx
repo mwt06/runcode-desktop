@@ -15,7 +15,8 @@ export function DiffPanel({ snapshotId, relPath, onClose }: { snapshotId: string
     let ignore = false
     setDiff(null)
     setErr('')
-    reviewEdit(snapshotId)
+    // 空串 = 聚焦会话：复审面板永远跟着用户正在看的那条对话走。
+    reviewEdit('', snapshotId)
       .then((d) => { if (!ignore) setDiff(d) })
       .catch((e) => { if (!ignore) setErr(errText(e)) })
     return () => { ignore = true }

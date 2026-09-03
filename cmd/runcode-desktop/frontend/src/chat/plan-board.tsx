@@ -6,6 +6,7 @@
 import { Icon } from '@/ui/icons'
 import { CheckMark, Spinner } from '@/ui/glyphs'
 import { BTN, BTN_PRIMARY } from '@/ui/tokens'
+import { HScroll } from '@/ui/h-scroll'
 import { PlanStages, PlanStates, type PlanDoc, type PlanRun, type PlanStep } from '@/core/bridge'
 import { canApprove } from './plan-draft'
 
@@ -41,7 +42,7 @@ export function PlanStageBar({ run, busy, onResume, onCancel }: {
   return (
     <div className="flex-none flex items-center gap-3 px-6 py-2 border-b border-line2 bg-surface2">
       <span className="text-[13px] text-muted flex-none">计划模式</span>
-      <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto">
+      <HScroll rowClassName="gap-1.5">
         {STAGES.map((stage, i) => (
           <div key={stage.key} className="flex items-center gap-1.5 flex-none">
             {i > 0 && <span className={`w-4 h-px ${i <= done ? 'bg-primary' : 'bg-line2'}`} />}
@@ -59,7 +60,7 @@ export function PlanStageBar({ run, busy, onResume, onCancel }: {
             </span>
           </div>
         ))}
-      </div>
+      </HScroll>
       <div className="flex-1" />
       {stalled && (
         <button onClick={onResume} className="flex-none text-[13px] text-primaryink font-medium hover:brightness-110 cursor-pointer">

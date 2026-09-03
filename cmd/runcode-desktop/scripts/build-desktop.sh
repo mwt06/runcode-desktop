@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
 #
 # 按品牌打包桌面应用(Wails v3)。同一套代码内置多套品牌(见 frontend/src/core/brand.ts),
-# 品牌在构建时选定,本脚本把四处开关一次配齐,避免"前端是智开、图标和 bundle 还是 XRUN"
+# 品牌在构建时选定,本脚本把六处开关一次配齐,避免"前端是智开、图标和 bundle 还是 XRUN"
 # 这类只在成品上才看得出的错配:
 #
 #   1. 前端          VITE_BRAND 环境变量
 #   2. 窗口标题       -ldflags -X main.brandTitle=...  (经 LDFLAGS_EXTRA 传进 Taskfile)
-#   3. 应用名/产物名   wails3 task ... APP_NAME=...
-#   4. 打包元数据      build/config.yml + build/windows/info.json + build/darwin/Info.plist
+#   3. 单实例锁       -ldflags -X main.brandID=...     (同上;共用一把锁会让品牌互相挡住启动)
+#   4. 应用名/产物名   wails3 task ... APP_NAME=...
+#   5. 打包元数据      build/config.yml + build/windows/info.json + build/darwin/Info.plist
+#   6. 版本与产品标识  -ldflags -X internal/desktop.appVersion / .appProduct  (版本更新要用)
+#
+# 第 6 处的版本号**不是在这里定的**:它读自 build/config.yml 的 info.version。本脚本再把
+# 它写进 Windows 的版本资源(info.json)、macOS 的 Info.plist 与 NSIS 安装包,并注入二进制。
+# 发版时改那一处即可 —— 各处各写一遍的下场是"关于里写 0.2.0、添加删除程序里写 0.1.0、
+# exe 属性里写 0.1.0.0"这种装完机才看得见的错配。
 #
 # 用法(在 cmd/runcode-desktop 下执行):
 #   ./scripts/build-desktop.sh                              # 默认品牌(XRUN),当前平台
 #   ./scripts/build-desktop.sh --brand zhikai               # 智开,当前平台
 #   ./scripts/build-desktop.sh --brand zhikai --universal   # 智开,macOS 通用二进制
 #   ./scripts/build-desktop.sh --brand zhikai --zip         # 打完再压成可分发的 zip(macOS)
+#   ./scripts/build-desktop.sh --brand zhikai --installer   # 智开,连 Windows 安装包(NSIS)
 #   ./scripts/build-desktop.sh --test                       # 测试版:含"上下文审核"等仅测试版功能
+#   ./scripts/build-desktop.sh --local-engine               # 联动本地 ../agentloop(产物不可复现,勿发版)
+#
+# --installer 出 NSIS 安装包(仅 Windows;macOS 走 .app + --zip)。需要 makensis:
+#   winget install --id NSIS.NSIS -e
+# 默认装到 C:\Program Files\Ouc\desk_agent(要管理员;目录定在 build/windows/nsis/project.nsi
+# 的 InstallDir)。加 --install-scope user 改成装进用户目录、免 UAC。
 #
 # --test 注入 internal/desktop.testBuild 标记(见 internal/desktop/testbuild.go):
 # 设置页出现"上下文审核"开关,可落盘并查看每次发给模型的完整上下文。正式分发包
@@ -48,6 +62,9 @@ PLATFORM=""
 DO_ZIP=0
 DO_CLEAN=0
 TEST_BUILD=0
+DO_INSTALLER=0
+INSTALL_SCOPE=machine
+LOCAL_ENGINE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -57,7 +74,10 @@ while [ $# -gt 0 ]; do
     --zip) DO_ZIP=1; shift ;;
     --clean) DO_CLEAN=1; shift ;;
     --test) TEST_BUILD=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    --installer) DO_INSTALLER=1; shift ;;
+    --install-scope) INSTALL_SCOPE="${2:-}"; shift 2 ;;
+    --local-engine) LOCAL_ENGINE=1; shift ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     *) echo "未知参数: $1(用 --help 看用法)" >&2; exit 2 ;;
   esac
 done
@@ -67,11 +87,14 @@ done
 #
 # BUNDLE_ID 必须每个品牌都不同:相同标识符会让 macOS 把两个品牌当成同一个应用,
 # 偏好设置、通知授权与 Gatekeeper 记录互相覆盖。
+# PRODUCT 是更新清单里的产品标识(GET .../releases/latest?product=...)。必须每个品牌
+# 都不同,而且**只能用 ASCII**:它要进 URL 查询参数与本地安装包的文件名。给智开推
+# XRUN 的安装包等于把用户的应用换成另一个牌子。
 case "$BRAND" in
   runcode)
-    APP_NAME="XRUN"; WIN_TITLE="XRUN"; VITE_BRAND_VALUE=""; BUNDLE_ID="cn.ouconline.ai.xrun" ;;
+    APP_NAME="XRUN"; WIN_TITLE="XRUN"; VITE_BRAND_VALUE=""; BUNDLE_ID="cn.ouconline.ai.xrun"; PRODUCT="xrun" ;;
   zhikai)
-    APP_NAME="智开"; WIN_TITLE="智开"; VITE_BRAND_VALUE="zhikai"; BUNDLE_ID="cn.ouconline.ai.zhikai" ;;
+    APP_NAME="智开"; WIN_TITLE="智开"; VITE_BRAND_VALUE="zhikai"; BUNDLE_ID="cn.ouconline.ai.zhikai"; PRODUCT="zhikai" ;;
   *)
     echo "未知品牌: $BRAND(可用: runcode, zhikai)" >&2; exit 2 ;;
 esac
@@ -101,7 +124,7 @@ command -v wails3 >/dev/null 2>&1 || {
 # 这样工作区不会因为打了一次别的品牌就留下脏改动。
 BACKUP_DIR="$(mktemp -d)"
 RESTORED=0
-BRANDED_FILES="build/config.yml build/windows/info.json build/appicon.png build/darwin/Info.plist"
+BRANDED_FILES="build/config.yml build/windows/info.json build/appicon.png build/darwin/Info.plist build/windows/nsis/project.nsi"
 restore() {
   [ "$RESTORED" = 1 ] && return 0
   RESTORED=1
@@ -146,7 +169,58 @@ if [ -f "$BRAND_DIR/Info.plist" ]; then
 fi
 
 # ---- 构建 ---------------------------------------------------------------------
-LDFLAGS_EXTRA="-X main.brandTitle=$WIN_TITLE"
+# brandID 是单实例锁的标识符,必须跟着品牌走。共用一把锁的后果是:XRUN 开着的时候
+# 双击智开什么都不发生(进程发现锁被占就以 0 退出,无窗口无报错),反之亦然。
+# ---- 引擎按已发布 tag 解析,不吃本地 checkout ------------------------------------
+# 默认 GOWORK=off。仓库根的 go.work 把 ../agentloop 联动进来,那对改引擎时的开发很好用,
+# 但**发版时是个陷阱**:构建会把本地 checkout 的代码(可能是未提交的、任何 tag 里都没有的)
+# 编进成品,而成品看不出这件事。真出过一次——0.1.2 的包里带着只存在于一台机器上的引擎
+# 改动,谁也复现不出来。CLAUDE.md 写的"CI/发布链路一律 GOWORK=off"就是这条,这里把它
+# 从约定变成脚本保证。
+#
+# GOPRIVATE 必须一起设:引擎在内网 GitLab,不设的话 go 会去公网 proxy 找它然后失败。
+#
+# 要临时联动本地引擎(比如验证一个还没打 tag 的引擎改动),加 --local-engine——
+# 那样出来的包不可复现,别拿去发版。
+if [ "$LOCAL_ENGINE" = 1 ]; then
+  echo "⚠️  --local-engine:走 go.work 联动 ../agentloop,产物不可复现,勿用于发版"
+else
+  export GOWORK=off
+  export GOPRIVATE="${GOPRIVATE:-gitlab.ouc-online.com.cn}"
+fi
+
+# 版本号从打包元数据里读(唯一事实来源,见脚本头部第 6 条)。读不到就停:一个没有版本号
+# 的构建在"检查更新"面前只会一直自称 0.0.0-dev,于是每次都提示有新版。
+cfg_get() { sed -n "s/^  $1: \"\(.*\)\"[[:space:]]*$/\1/p" build/config.yml | head -1; }
+APP_VERSION="$(cfg_get version)"
+[ -n "$APP_VERSION" ] || { echo "读不出 build/config.yml 的 info.version" >&2; exit 1; }
+
+# 版本号同样要落进 Windows 版本资源与 macOS 包清单。这两份文件存的是字面量(v3 不做模板
+# 替换,见脚本头部),仓库里那份随手就落后于 config.yml——真出过:config.yml 已经是
+# 0.1.3.4,exe 右键「详细信息」还写 0.1.0.0。这里按 config.yml 就地覆盖,构建完还原。
+#
+# Windows 的 fixed 版本(file_version / product_version)必须是四段纯数字:去掉预发布
+# 后缀,不足四段补 0,多于四段截断。macOS 的 CFBundleVersion 也只认数字和点。
+APP_CORE_VERSION="${APP_VERSION%%-*}"
+WIN_FILE_VERSION="$(printf '%s' "$APP_CORE_VERSION" | awk -F. '{
+  for (i = 1; i <= 4; i++) {
+    n = (i <= NF && $i ~ /^[0-9]+$/) ? $i + 0 : 0
+    printf "%s%d", (i > 1 ? "." : ""), n
+  }
+}')"
+subst build/windows/info.json \
+  -e "s/\"file_version\": \"[^\"]*\"/\"file_version\": \"$WIN_FILE_VERSION\"/" \
+  -e "s/\"product_version\": \"[^\"]*\"/\"product_version\": \"$WIN_FILE_VERSION\"/" \
+  -e "s/\"ProductVersion\": \"[^\"]*\"/\"ProductVersion\": \"$APP_VERSION\"/" \
+  -e "s/\"FileVersion\": \"[^\"]*\"/\"FileVersion\": \"$APP_VERSION\"/"
+# plist 里 <key> 与 <string> 分两行:命中键那行后用 n 跳到下一行再替换。
+subst build/darwin/Info.plist \
+  -e "/<key>CFBundleVersion<\/key>/{n;s|<string>[^<]*</string>|<string>$APP_CORE_VERSION</string>|;}" \
+  -e "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$APP_CORE_VERSION</string>|;}"
+
+DESKTOP_PKG="github.com/wt68/runcode/internal/desktop"
+LDFLAGS_EXTRA="-X main.brandTitle=$WIN_TITLE -X main.brandID=$BUNDLE_ID"
+LDFLAGS_EXTRA="$LDFLAGS_EXTRA -X $DESKTOP_PKG.appVersion=$APP_VERSION -X $DESKTOP_PKG.appProduct=$PRODUCT"
 TEST_LABEL=""
 if [ "$TEST_BUILD" = 1 ]; then
   LDFLAGS_EXTRA="$LDFLAGS_EXTRA -X github.com/wt68/runcode/internal/desktop.testBuild=1"
@@ -159,23 +233,80 @@ if [ "$TARGET" = linux ]; then
   EXTRA_TAGS="webkit2_41"
 fi
 
-# 目标任务:Windows 出 exe 就够了;macOS 还要包成 .app(通用二进制走 package:universal)。
+# 目标任务:Windows 默认出 exe 就够了(--installer 才做 NSIS 安装包);macOS 一律要包成
+# .app(通用二进制走 package:universal)。
 TASK="build"
 if [ "$TARGET" = darwin ]; then
   TASK="package"
   [ "$PLATFORM" = "darwin/universal" ] && TASK="package:universal"
+elif [ "$DO_INSTALLER" = 1 ]; then
+  TASK="package"
 fi
+
+# ---- Windows 安装包:makensis 与品牌定义 ---------------------------------------
+if [ "$TARGET" = windows ] && [ "$DO_INSTALLER" = 1 ]; then
+  case "$INSTALL_SCOPE" in
+    user|machine) ;;
+    *) echo "未知 --install-scope: $INSTALL_SCOPE(可用: machine, user)" >&2; exit 2 ;;
+  esac
+
+  # NSIS 的安装器不改 PATH,而 Taskfile 里就是一句裸 makensis。装了却找不到会以
+  # 一句 "executable file not found" 结束,看不出缺的是什么,所以这里自己找、
+  # 自己把目录塞进 PATH——不去动系统的环境变量。
+  if ! command -v makensis >/dev/null 2>&1; then
+    for d in "/c/Program Files (x86)/NSIS" "/c/Program Files/NSIS" "$PROGRAMFILES/NSIS" "${PROGRAMFILES:-}/NSIS"; do
+      if [ -x "$d/makensis.exe" ]; then PATH="$d:$PATH"; export PATH; break; fi
+    done
+  fi
+  command -v makensis >/dev/null 2>&1 || {
+    echo "找不到 makensis(NSIS)。安装:" >&2
+    echo "  winget install --id NSIS.NSIS -e" >&2
+    exit 1
+  }
+
+  # 安装包的元信息走 project.nsi 顶部的 !define,不用 makensis 的 -D 命令行参数。
+  #
+  # 两个原因。其一,wails_tools.nsh 是 wails 生成的,里面那几个默认值还是模板占位
+  # ("My Company" / "My Product"),而 nsis 打包这条链路**不会**重新生成它——照它走
+  # 出来的安装包会自称 My Product。其二,产品名是中文:命令行参数要经过控制台代码页,
+  # 在这台机器上是 GBK,一路传下去很容易变成乱码,而 .nsi 文件可以带 UTF-8 BOM 让
+  # makensis 明确按 UTF-8 读。两处 !ifndef 都在 wails_tools.nsh 里,先定义的赢。
+  #
+  # UNINST_KEY_NAME 必须跟着品牌走(默认是 公司名+产品名 拼出来的)。共用一个键的
+  # 后果和共用 bundle 标识符一样:两个品牌在「添加或删除程序」里是同一条,装了一个
+  # 另一个的卸载入口就被顶掉。这里直接用 bundle 标识符,天然每个品牌不同。
+  NSIS_COMPANY="$(cfg_get companyName)"
+  NSIS_VERSION="$APP_VERSION"
+  NSIS_COPYRIGHT="$(cfg_get copyright)"
+  {
+    printf '\xEF\xBB\xBF'   # UTF-8 BOM:makensis 靠它认出编码,没有它中文按系统代码页读
+    printf 'Unicode true\n\n'
+    printf '# 以下 !define 由 scripts/build-desktop.sh 按品牌生成,构建完会还原。\n'
+    printf '!define INFO_PROJECTNAME    "%s"\n' "$APP_NAME"
+    printf '!define INFO_PRODUCTNAME    "%s"\n' "$APP_NAME"
+    printf '!define INFO_COMPANYNAME    "%s"\n' "$NSIS_COMPANY"
+    printf '!define INFO_PRODUCTVERSION "%s"\n' "$NSIS_VERSION"
+    printf '!define INFO_COPYRIGHT      "%s"\n' "$NSIS_COPYRIGHT"
+    printf '!define PRODUCT_EXECUTABLE  "%s.exe"\n' "$APP_NAME"
+    printf '!define UNINST_KEY_NAME     "%s"\n\n' "$BUNDLE_ID"
+    tail -n +2 "$BACKUP_DIR/build_windows_nsis_project.nsi"   # 原文第一行就是 Unicode true
+  } > "$BACKUP_DIR/nsi.out"
+  mv "$BACKUP_DIR/nsi.out" build/windows/nsis/project.nsi
+  SCOPE_ARG="INSTALL_SCOPE=$INSTALL_SCOPE"
+fi
+SCOPE_ARG="${SCOPE_ARG:-}"
 
 if [ "$DO_CLEAN" = 1 ]; then
   rm -rf bin
 fi
 
-echo "▶ 品牌=$BRAND  应用名=$APP_NAME  平台=$TARGET  任务=$TASK$TEST_LABEL"
+echo "▶ 品牌=$BRAND  应用名=$APP_NAME  版本=$APP_VERSION  产品=$PRODUCT  平台=$TARGET  任务=$TASK$TEST_LABEL"
 export VITE_BRAND="$VITE_BRAND_VALUE"
 wails3 task "$TASK" \
   APP_NAME="$APP_NAME" \
   LDFLAGS_EXTRA="$LDFLAGS_EXTRA" \
-  ${EXTRA_TAGS:+EXTRA_TAGS="$EXTRA_TAGS"}
+  ${EXTRA_TAGS:+EXTRA_TAGS="$EXTRA_TAGS"} \
+  ${SCOPE_ARG:+"$SCOPE_ARG"}
 
 # ---- macOS:签名与公证(都可选,未配置则跳过) ----------------------------------
 # v3 的产物在 bin/ 而不是 v2 的 build/bin/。
@@ -214,4 +345,10 @@ if [ "$TARGET" = darwin ]; then
   echo "✅ 完成:$APP_PATH"
 else
   echo "✅ 完成:bin/$APP_NAME.exe"
+  if [ "$DO_INSTALLER" = 1 ]; then
+    # 安装包名里的 amd64 来自 project.nsi 的 OutFile,跟着构建架构走。
+    for f in bin/"$APP_NAME"-*-installer.exe; do
+      [ -f "$f" ] && echo "✅ 安装包:$f($INSTALL_SCOPE 范围)"
+    done
+  fi
 fi

@@ -100,13 +100,13 @@ func TestConfigureSessionWiresOptions(t *testing.T) {
 	}
 	app.mu.Lock()
 	pending := app.pendingEdits
-	active := app.edits
 	app.mu.Unlock()
+	active, _ := app.focusedStores()
 	if pending != es {
 		t.Fatal("the new edit store was not parked as pendingEdits")
 	}
 	if active == es {
-		t.Fatal("the pending edit store leaked into App.edits before Create succeeded")
+		t.Fatal("the pending edit store leaked into the focused session before Create succeeded")
 	}
 	// The store is bound to the session's edit directory (BeginSession ran).
 	es.mu.Lock()

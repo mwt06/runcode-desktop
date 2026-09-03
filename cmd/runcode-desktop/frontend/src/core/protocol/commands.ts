@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo } from './types';
+import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -25,16 +25,34 @@ export function activeTenant(): Promise<string> {
   return call<string>('ActiveTenant');
 }
 
-// CloseSession ends the session and releases its resources.
+// CancelUpdateDownload 取消正在跑的下载（或检查）。重复调用是安全的：没有在跑的 时候它什么也不做，只把当前状态回给调用方。
+// kind: idempotent-set
+export function cancelUpdateDownload(): Promise<UpdateInfo> {
+  return call<UpdateInfo>('CancelUpdateDownload');
+}
+
+// CheckUpdate 向网关要一次清单，把结果落成状态机的新状态并返回。
+// kind: query
+export function checkUpdate(): Promise<UpdateInfo> {
+  return call<UpdateInfo>('CheckUpdate');
+}
+
+// CloseAllSessions 关掉所有开着的会话。退出时用：多会话之后「关掉当前那条」不再 等于「收干净」，漏掉的会话会带着未收尾的回合和未落盘的记录一起被进程带走。
 // kind: trigger
-export function closeSession(): Promise<void> {
-  return call<void>('CloseSession');
+export function closeAllSessions(): Promise<void> {
+  return call<void>('CloseAllSessions');
+}
+
+// CloseSession 关掉一条会话（空串 = 聚焦的那条）。 与替换式打开时的关闭不同：那时条目要留着（界面上旧对话还在，「已编辑」卡片 得能继续复审）；用户主动关掉一条会话时它从界面上整个消失，条目一并移除， 聚焦顺势落到还开着的另一条上。
+// kind: trigger
+export function closeSession(sessionID: string): Promise<void> {
+  return call<void>('CloseSession', sessionID);
 }
 
 // Compact summarizes the oldest turns now and reports the message counts.
 // kind: trigger
-export function compact(): Promise<CompactResult> {
-  return call<CompactResult>('Compact');
+export function compact(sessionID: string): Promise<CompactResult> {
+  return call<CompactResult>('Compact', sessionID);
 }
 
 // ContextAuditStatus 报告上下文审核的当前状态（是否测试版、开关、查看地址、目录）。
@@ -85,6 +103,18 @@ export function discardRecording(): Promise<void> {
   return call<void>('DiscardRecording');
 }
 
+// DownloadUpdate 下载并校验安装包，成功后状态变成「待安装」。 它会一直跑到下完为止（几分钟量级），期间进度经 EventUpdate 推给前端——与技能 安装同一种形状：命令的 promise 表示「这件事成没成」，过程走事件。
+// kind: trigger
+export function downloadUpdate(): Promise<UpdateInfo> {
+  return call<UpdateInfo>('DownloadUpdate');
+}
+
+// FocusSession 把聚焦切到指定会话，并返回它的状态。 聚焦不只是界面高亮：没带会话 id 的命令都打给它（见 entryOf），而工作区寻址的 那批命令（文件列表、技能、子代理、MCP、记忆、会话列表）读的是 a.workspace， 所以这里必须一并把工作区搬过去——否则切到另一个目录的会话后，文件浏览器还 停在上一条会话的目录上，而且不会有任何报错。
+// kind: trigger
+export function focusSession(sessionID: string): Promise<SessionInfo> {
+  return call<SessionInfo>('FocusSession', sessionID);
+}
+
 // GetProtocolInfo reports the wire-protocol version this host implements, so a frontend built against a different protocol can detect the mismatch instead of failing on a missing field.
 // kind: query
 export function getProtocolInfo(): Promise<Info> {
@@ -105,20 +135,32 @@ export function importSkill(scope: string): Promise<SkillList> {
 
 // InjectMessage delivers text into the in-flight turn as mid-turn steering: the engine splices it into the running turn so the model sees it at the next iteration boundary (after the current tool round), instead of only next turn.
 // kind: trigger
-export function injectMessage(text: string): Promise<boolean> {
-  return call<boolean>('InjectMessage', text);
+export function injectMessage(sessionID: string, text: string): Promise<boolean> {
+  return call<boolean>('InjectMessage', sessionID, text);
 }
 
 // InjectMessageWithImages is InjectMessage for a message carrying image attachments: it injects into the in-flight turn as mid-turn steering, falling back to a fresh turn if none is running (returning startedTurn=true).
 // kind: trigger
-export function injectMessageWithImages(text: string, paths: string[]): Promise<boolean> {
-  return call<boolean>('InjectMessageWithImages', text, paths);
+export function injectMessageWithImages(sessionID: string, text: string, paths: string[]): Promise<boolean> {
+  return call<boolean>('InjectMessageWithImages', sessionID, text, paths);
+}
+
+// InstallMarketSkill 把市场里的一个技能装到 scope 指定的技能目录（"user" 全局 / "project" 本工作区），并返回更新后的技能表。 装到哪由调用方给，不再一律装全局：同一个市场技能，有人想全项目通用，有人只想给 手头这个项目配上（还要能随项目一起提交进 .runcode/）。两种都是正当用法，客户端 替用户决定只会逼他装完再手工搬目录。 两条路：有 bundle 的下 zip 校验解压；纯提示词型（has_bundle=false）按详情里的 system_prompt 就地生成 SKILL.md。重复安装等于**更新**：先解到临时目录，成了再 整体替换，中途失败不会留下一个半截的技能目录。
+// kind: trigger
+export function installMarketSkill(id: number, scope: string): Promise<SkillList> {
+  return call<SkillList>('InstallMarketSkill', id, scope);
+}
+
+// InstallUpdate 拉起安装器。Windows 上安装器起来之后本应用会自己退出（见 quitSoon）； 不支持直接安装的平台（macOS）则打开安装包所在的文件夹，由用户自己接手。
+// kind: trigger
+export function installUpdate(): Promise<void> {
+  return call<void>('InstallUpdate');
 }
 
 // Interrupt cancels the in-flight turn and denies any pending approval prompts.
 // kind: trigger
-export function interrupt(): Promise<void> {
-  return call<void>('Interrupt');
+export function interrupt(sessionID: string): Promise<void> {
+  return call<void>('Interrupt', sessionID);
 }
 
 // ListAgents loads built-in, user, and project sub-agents (the same set the AI sees), so the manager mirrors the catalog.
@@ -135,8 +177,8 @@ export function listCustomModels(): Promise<CustomModel[] | null> {
 
 // ListEdits returns every recorded edit for the active session, so a resumed session can re-render its "已编辑" cards (Wails binding).
 // kind: query
-export function listEdits(): Promise<EditRecord[] | null> {
-  return call<EditRecord[] | null>('ListEdits');
+export function listEdits(sessionID: string): Promise<EditRecord[] | null> {
+  return call<EditRecord[] | null>('ListEdits', sessionID);
 }
 
 // ListFiles returns the active session workspace's files as sorted, slash-style relative paths, for the composer's @-mention file picker.
@@ -197,6 +239,18 @@ export function newSession(): Promise<SessionInfo> {
 // kind: trigger
 export function openExternal(relPath: string): Promise<void> {
   return call<void>('OpenExternal', relPath);
+}
+
+// OpenSession **再开**一条会话，不关掉已经开着的那些。 workspace 为空是"就在当前工作区再开一条"；给了目录就在那个目录开——这是 **多工作区并行**的唯一入口。每条会话记着自己的目录（sessionEntry.workspace）， 工作区寻址的那批命令跟着聚焦走（见 focusLocked），预览服务器按目录共享并计数 （见 previewRef）。 它同时取代了原来的 SwitchWorkspace（关掉当前那条、在新目录重开一条）：换目录 不再意味着丢掉手上正在跑的会话。真要丢，从「打开中」里关掉它——那是一个明确的 动作，而不是换目录的副作用。 复用当前会话的 provider / 模型 / 凭据（与 NewSession 同一套 a.config），所以 并行的几条会话共用同一条连接——每会话独立连接不在本期范围内，见 docs/multi-session.md。模型倒是每会话可以不同：SetModel 本来就按会话生效。
+// kind: trigger
+export function openSession(workspace: string): Promise<SessionInfo> {
+  return call<SessionInfo>('OpenSession', workspace);
+}
+
+// OpenSessions 列出此刻**开着**的会话，供界面画会话列表。 只报后端独有的事实：是谁、在哪个目录、有没有回合在跑、哪条是聚焦的。标题走 session:renamed 事件与 ListSessions（工作区里存下来的标题），待审批数在前端的 授权队列里（usePermissionQueue 的 waiting）——都不必在这里重复一遍。 **按打开先后排序，不是按 map 的遍历序。** Go 的 map 遍历是随机的：不排的话， 界面每回读一次列表，行就重新洗一次牌。用户点一行、列表跳一下、再点同一个位置 就点到了别人身上——而这一栏里每行右侧都有一颗关闭按钮，代价是关掉一条正在跑 的会话，没有任何报错。
+// kind: query
+export function openSessions(): Promise<OpenSessionInfo[] | null> {
+  return call<OpenSessionInfo[] | null>('OpenSessions');
 }
 
 // PassportCancelLogin 取消进行中的登录等待。
@@ -261,26 +315,26 @@ export function pickWorkspaceFolder(): Promise<string> {
 
 // PlanApprove crosses the approval gate: it records the user's final checklist, leaves plan mode for the chosen permission mode, and returns both the new session status and the execution instruction to send as the next message.
 // kind: idempotent-set
-export function planApprove(req: PlanApproveRequest): Promise<PlanApproveResult> {
-  return call<PlanApproveResult>('PlanApprove', req);
+export function planApprove(sessionID: string, req: PlanApproveRequest): Promise<PlanApproveResult> {
+  return call<PlanApproveResult>('PlanApprove', sessionID, req);
 }
 
 // PlanCancel abandons the planning run.
 // kind: idempotent-set
-export function planCancel(): Promise<PlanRun> {
-  return call<PlanRun>('PlanCancel');
+export function planCancel(sessionID: string): Promise<PlanRun> {
+  return call<PlanRun>('PlanCancel', sessionID);
 }
 
 // PlanStatus returns the active session's planning run, so the UI can render the board on load and after a resume (a plan waiting for approval outlives a restart).
 // kind: query
-export function planStatus(): Promise<PlanRun> {
-  return call<PlanRun>('PlanStatus');
+export function planStatus(sessionID: string): Promise<PlanRun> {
+  return call<PlanRun>('PlanStatus', sessionID);
 }
 
 // PlanUpdate stores the user's edits to the checklist (reordering, rewriting, adding or dropping steps) while it waits for approval.
 // kind: idempotent-set
-export function planUpdate(doc: PlanDoc): Promise<PlanRun> {
-  return call<PlanRun>('PlanUpdate', doc);
+export function planUpdate(sessionID: string, doc: PlanDoc): Promise<PlanRun> {
+  return call<PlanRun>('PlanUpdate', sessionID, doc);
 }
 
 // ReadArtifact returns the UTF-8 text of a workspace file for React-rendered previews (Markdown/code/text).
@@ -345,8 +399,8 @@ export function renderOfficePDF(relPath: string): Promise<string> {
 
 // Reset clears the in-memory working history (the on-disk log is untouched).
 // kind: trigger
-export function reset(): Promise<void> {
-  return call<void>('Reset');
+export function reset(sessionID: string): Promise<void> {
+  return call<void>('Reset', sessionID);
 }
 
 // ResolveArtifactPath returns the absolute path of a workspace file, for the UI's "copy path" action.
@@ -357,8 +411,8 @@ export function resolveArtifactPath(relPath: string): Promise<string> {
 
 // ResolvePermission delivers the user's decision for a pending approval request.
 // kind: idempotent-set
-export function resolvePermission(id: string, decision: string): Promise<void> {
-  return call<void>('ResolvePermission', id, decision);
+export function resolvePermission(sessionID: string, id: string, decision: string): Promise<void> {
+  return call<void>('ResolvePermission', sessionID, id, decision);
 }
 
 // ResumeRecording 恢复。
@@ -381,14 +435,14 @@ export function revealInFolder(relPath: string): Promise<void> {
 
 // RevertEdit restores the file for snapshotID to its turn baseline (Wails binding).
 // kind: trigger
-export function revertEdit(snapshotID: string): Promise<void> {
-  return call<void>('RevertEdit', snapshotID);
+export function revertEdit(sessionID: string, snapshotID: string): Promise<void> {
+  return call<void>('RevertEdit', sessionID, snapshotID);
 }
 
 // ReviewEdit returns the baseline-vs-latest red/green diff for snapshotID (Wails binding).
 // kind: trigger
-export function reviewEdit(snapshotID: string): Promise<EditDiff> {
-  return call<EditDiff>('ReviewEdit', snapshotID);
+export function reviewEdit(sessionID: string, snapshotID: string): Promise<EditDiff> {
+  return call<EditDiff>('ReviewEdit', sessionID, snapshotID);
 }
 
 // SaveAgent writes a sub-agent's <name>.md to its scope's root and returns the list.
@@ -409,7 +463,13 @@ export function saveMCPServer(in_: MCPServerInput): Promise<void> {
   return call<void>('SaveMCPServer', in_);
 }
 
-// SaveProjectContext writes the project-instructions file, targeting the same file ReadProjectContext surfaced (the existing RUNCODE.md/CLAUDE.md, or a new CLAUDE.md in the workspace root).
+// SavePastedFile 把前端从剪贴板读出的字节落盘,返回附件的绝对路径。 name 只用来给文件起名,一律当**不可信输入**处理:目录成分、控制字符与 Windows 的 保留字符全部剔掉,清不出东西来就退回 attachment。每次粘贴各自落进一个带时间戳的 子目录,于是文件名可以保持原样(界面上附件芯片显示的就是它),同名文件也不会互相 覆盖。
+// kind: trigger
+export function savePastedFile(name: string, dataB64: string): Promise<string> {
+  return call<string>('SavePastedFile', name, dataB64);
+}
+
+// SaveProjectContext writes the project-instructions file, targeting the same file ReadProjectContext surfaced (the existing RUNCODE.md/AGENT.md/CLAUDE.md, or a new AGENT.md in the workspace root).
 // kind: idempotent-set
 export function saveProjectContext(content: string): Promise<void> {
   return call<void>('SaveProjectContext', content);
@@ -435,14 +495,14 @@ export function saveSkill(req: SkillSaveRequest): Promise<SkillList> {
 
 // SendMessage runs one user turn asynchronously.
 // kind: trigger
-export function sendMessage(text: string): Promise<void> {
-  return call<void>('SendMessage', text);
+export function sendMessage(sessionID: string, text: string): Promise<void> {
+  return call<void>('SendMessage', sessionID, text);
 }
 
 // SendMessageWithImages runs one user turn whose message carries the images at the given paths.
 // kind: trigger
-export function sendMessageWithImages(text: string, paths: string[]): Promise<void> {
-  return call<void>('SendMessageWithImages', text, paths);
+export function sendMessageWithImages(sessionID: string, text: string, paths: string[]): Promise<void> {
+  return call<void>('SendMessageWithImages', sessionID, text, paths);
 }
 
 // SessionModels 返回当前通行证会话所选租户的平台模型，供对话内模型选择器使用； 未登录返回空。
@@ -477,26 +537,26 @@ export function setMCPServerEnabled(name: string, enabled: boolean): Promise<voi
 
 // SetModel switches the model used for subsequent turns.
 // kind: idempotent-set
-export function setModel(model: string): Promise<void> {
-  return call<void>('SetModel', model);
+export function setModel(sessionID: string, model: string): Promise<void> {
+  return call<void>('SetModel', sessionID, model);
 }
 
 // SetPermissionMode switches the permission mode at runtime.
 // kind: idempotent-set
-export function setPermissionMode(mode: string): Promise<void> {
-  return call<void>('SetPermissionMode', mode);
+export function setPermissionMode(sessionID: string, mode: string): Promise<void> {
+  return call<void>('SetPermissionMode', sessionID, mode);
 }
 
 // SetPlanMode toggles plan mode on the active session and returns the updated status so the UI reflects it.
 // kind: idempotent-set
-export function setPlanMode(on: boolean): Promise<SessionInfo> {
-  return call<SessionInfo>('SetPlanMode', on);
+export function setPlanMode(sessionID: string, on: boolean): Promise<SessionInfo> {
+  return call<SessionInfo>('SetPlanMode', sessionID, on);
 }
 
 // SetReasoningScenario switches the in-conversation "thinking model" (off/auto/<scenario>) and returns the updated status.
 // kind: idempotent-set
-export function setReasoningScenario(scenario: string): Promise<SessionInfo> {
-  return call<SessionInfo>('SetReasoningScenario', scenario);
+export function setReasoningScenario(sessionID: string, scenario: string): Promise<SessionInfo> {
+  return call<SessionInfo>('SetReasoningScenario', sessionID, scenario);
 }
 
 // SetSkillEnabled 在 scope("user"/"project")开关一个技能。下次新建会话生效。
@@ -507,8 +567,8 @@ export function setSkillEnabled(name: string, scope: string, enabled: boolean): 
 
 // SetThinkingEffort switches provider-native reasoning strength (off/low/medium/high) at runtime and returns the updated status.
 // kind: idempotent-set
-export function setThinkingEffort(effort: string): Promise<SessionInfo> {
-  return call<SessionInfo>('SetThinkingEffort', effort);
+export function setThinkingEffort(sessionID: string, effort: string): Promise<SessionInfo> {
+  return call<SessionInfo>('SetThinkingEffort', sessionID, effort);
 }
 
 // SetToolEnabled 在 scope("user"/"project")开关一个工具。下次新建会话生效。
@@ -521,6 +581,12 @@ export function setToolEnabled(name: string, scope: string, enabled: boolean): P
 // kind: idempotent-set
 export function setWebProxy(v: string): Promise<string> {
   return call<string>('SetWebProxy', v);
+}
+
+// SkillMarket 返回市场页要画的全部内容（全平台可见的那批技能）。 refresh 为 false 时命中缓存就直接返回；「已安装」标记每次都重算——它是本地事实， 与清单的新鲜度无关，装完一个技能不该还要等缓存过期才变。
+// kind: query
+export function skillMarket(refresh: boolean): Promise<SkillMarketPage> {
+  return call<SkillMarketPage>('SkillMarket', refresh);
 }
 
 // StartRecording 开一场录音。同一时刻只允许一场。
@@ -537,8 +603,8 @@ export function startSession(req: StartSessionRequest): Promise<SessionInfo> {
 
 // Status returns the current session's display state.
 // kind: query
-export function status(): Promise<SessionInfo> {
-  return call<SessionInfo>('Status');
+export function status(sessionID: string): Promise<SessionInfo> {
+  return call<SessionInfo>('Status', sessionID);
 }
 
 // StopRecording 结束录音，返回这一场的最终记录。 会等服务端 flush 最后一块（上限 stopTimeout）——实测「说完话 → 出确认文本」 约 1.5 秒，等这一下换来的是最后一句话不丢。
@@ -549,14 +615,14 @@ export function stopRecording(): Promise<RecordingInfo> {
 
 // SwitchModel changes the model for the running session, spanning both platform (passport) and custom direct-connection models so the in-chat picker can offer either.
 // kind: trigger
-export function switchModel(kind: string, name: string): Promise<SessionInfo> {
-  return call<SessionInfo>('SwitchModel', kind, name);
+export function switchModel(sessionID: string, kind: string, name: string): Promise<SessionInfo> {
+  return call<SessionInfo>('SwitchModel', sessionID, kind, name);
 }
 
-// SwitchWorkspace closes the current session and opens a fresh one in dir, reusing the active session's provider/model/credentials.
-// kind: trigger
-export function switchWorkspace(dir: string): Promise<SessionInfo> {
-  return call<SessionInfo>('SwitchWorkspace', dir);
+// UpdateStatus 返回更新器此刻的状态。纯读、不联网：界面打开时先画它，联网那一步 由启动时的自动检查或用户点「检查更新」负责。
+// kind: query
+export function updateStatus(): Promise<UpdateInfo> {
+  return call<UpdateInfo>('UpdateStatus');
 }
 
 // WebProxy 返回联网工具(WebFetch/WebSearch)使用的代理地址(空 = 直连)。

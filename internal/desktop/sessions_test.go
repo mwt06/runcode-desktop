@@ -13,7 +13,8 @@ import (
 func TestDeleteSessionRefusesActiveSession(t *testing.T) {
 	t.Parallel()
 
-	a := &App{workspace: t.TempDir(), currentID: "sess-live"}
+	a := &App{workspace: t.TempDir()}
+	focusOn(a, "sess-live", "")
 	err := a.DeleteSession("sess-live")
 	if err == nil {
 		t.Fatal("deleting the active session must be refused")
@@ -28,7 +29,8 @@ func TestDeleteSessionRefusesActiveSession(t *testing.T) {
 func TestDeleteSessionAllowsOtherSessions(t *testing.T) {
 	t.Parallel()
 
-	a := &App{workspace: t.TempDir(), currentID: "sess-live"}
+	a := &App{workspace: t.TempDir()}
+	focusOn(a, "sess-live", "")
 	if err := a.DeleteSession("sess-other"); err != nil {
 		t.Fatalf("deleting a non-active session must pass the guard, got %v", err)
 	}

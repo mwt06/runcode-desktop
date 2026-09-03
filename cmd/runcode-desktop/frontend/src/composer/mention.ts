@@ -43,10 +43,17 @@ export function rankFileMatches(files: string[], query: string, limit = MENTION_
 }
 
 // matchByNameOrDesc filters skills ('@') / sub-agents ('/') by name or description.
-export function matchByNameOrDesc<T extends { name: string; description: string }>(items: T[], query: string, limit = MENTION_LIMIT): T[] {
+//
+// The display* fields are optional because sub-agents have none; skills installed
+// from the market do, and they are usually the only wording the user knows them
+// by — a picker that shows 「中文公文」 but only matches "cn-docx" is a picker you
+// cannot search. Matching is over whatever the row can show plus what it hides.
+export function matchByNameOrDesc<T extends { name: string; description: string; displayName?: string; displayDescription?: string }>(items: T[], query: string, limit = MENTION_LIMIT): T[] {
   const q = query.toLowerCase()
+  if (!q) return items.slice(0, limit)
   return items
-    .filter((it) => !q || it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q))
+    .filter((it) => [it.name, it.description, it.displayName, it.displayDescription]
+      .some((f) => (f ?? '').toLowerCase().includes(q)))
     .slice(0, limit)
 }
 

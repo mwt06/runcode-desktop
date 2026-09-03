@@ -29,6 +29,7 @@ export type {
   FileReference,
   HarmAutoAllow,
   Info,
+  MarketSkill,
   MCPServerInfo,
   MCPServerInput,
   McpMarketEntry,
@@ -43,6 +44,8 @@ export type {
   PlanRun,
   PlanStage,
   PlanState,
+  SkillInstallProgress,
+  SkillMarketPage,
   PlanStep,
   ProjectContextInfo,
   RecorderDevice,
@@ -60,6 +63,7 @@ export type {
   SaveCustomModelRequest,
   SessionInfo,
   SessionRenamed,
+  OpenSessionInfo,
   SessionSummary,
   SkillInfo,
   SkillList,
@@ -72,13 +76,15 @@ export type {
   ToolInfo,
   TurnEnd,
   TurnError,
+  UpdateInfo,
+  UpdateStage,
   Warning,
 } from './protocol/types'
 // The generated wire error type is named `Error`, which shadows the global Error;
 // expose it under a collision-free name (the old handwritten bridge exported no
 // error type, so nothing depends on the bare name).
 export type { Error as ProtocolError } from './protocol/types'
-export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, ProtocolVersion } from './protocol/types'
+export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, SkillInstallStages, UpdateStages, ProtocolVersion } from './protocol/types'
 
 export type { PassportTenant } from './protocol/types'
 
@@ -110,7 +116,14 @@ export {
   listTools,
   loadConfig,
   mcpMarket,
+  skillMarket,
+  installMarketSkill,
   newSession,
+  status as sessionStatus,
+  openSession,
+  openSessions,
+  focusSession,
+  closeSession,
   openExternal,
   passportCancelLogin,
   passportLogin,
@@ -173,12 +186,17 @@ export {
   setToolEnabled,
   setWebProxy,
   startSession,
-  switchWorkspace,
+  updateStatus,
+  checkUpdate,
+  downloadUpdate,
+  cancelUpdateDownload,
+  installUpdate,
   webProxy,
 } from './protocol/commands'
 
 import { Browser, Clipboard } from '@wailsio/runtime'
 import {
+  savePastedFile as savePastedFileCmd,
   readArtifactBytes as readArtifactBytesCmd,
   switchModel as switchModelCmd,
 } from './protocol/commands'
@@ -189,8 +207,8 @@ import type { EditRecord, SessionInfo } from './protocol/types'
 // session while preserving conversation history. kind is 'custom' (name = the
 // custom model's display name) or 'platform' (name = the model id). The wire
 // command takes a plain string; this wrapper keeps the kind union checked.
-export const switchModel = (kind: 'platform' | 'custom', name: string): Promise<SessionInfo> =>
-  switchModelCmd(kind, name)
+export const switchModel = (sessionID: string, kind: 'platform' | 'custom', name: string): Promise<SessionInfo> =>
+  switchModelCmd(sessionID, kind, name)
 
 // readArtifactBytes returns a workspace file's raw bytes for renderers that need the
 // binary (Office docs). It goes through the bridge (base64) rather than the loopback
@@ -275,4 +293,29 @@ export interface PlanSnapshot {
   items: PlanItem[]
   done: number
   total: number
+}
+
+// savePastedFile 把粘贴进来的文件交给后端落盘，返回可当附件用的绝对路径。
+//
+// 为什么要走这一趟而不是直接拿路径：WebView 里粘贴到的只有字节。剪贴板里的截图
+// 本来就不是文件，而从资源管理器复制来的文件，浏览器的安全模型也不把真实路径交给
+// 页面——File 对象上没有它。所以字节经 base64 送到 Go 那边落盘（见 SavePastedFile），
+// 之后这个路径和"选一张图"得到的路径完全等价。
+export const savePastedFile = async (file: File, name: string): Promise<string> => {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  return savePastedFileCmd(name, base64(bytes))
+}
+
+// base64 分块编码。
+//
+// 不能写成 String.fromCharCode(...bytes)：展开运算符是按实参传的，一张几 MB 的截图
+// 就是几百万个实参，直接爆栈（RangeError: too many arguments）。分块之后每次调用的
+// 实参数是固定的，多大的文件都只是多循环几轮。
+function base64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
 }

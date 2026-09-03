@@ -7,7 +7,17 @@ import { Icon } from '@/ui/icons'
 import { Banner } from '@/ui/feedback'
 import { LABEL_CLS, SelectField } from '@/ui/fields'
 import { ModelSelect, type ModelOption } from '@/ui/model-picker'
+import { offeredModes } from '@/core/permission-modes'
 import { Section } from './section'
+
+// MODE_OPTION_TEXT 是下拉里那句带解释的长名。与 core/permission-modes 的 label 分开：
+// 那份是工具条上的短名（「交互模式」），这里要的是「交互（逐项询问）」。
+const MODE_OPTION_TEXT: Record<string, string> = {
+  safe: '安全（拒绝高危）',
+  interactive: '交互（逐项询问）',
+  judge: '智能（模型审查命令）',
+  flight: '飞行（不审计，全部放行）',
+}
 
 export function SessionSection({ currentModel, switchOpts, onSwitchModel, busy, permissionMode, onPermissionMode, harmJudgeModel, onHarmJudgeModel, harmJudgeVotes, onHarmJudgeVotes, modelOpts }: {
   currentModel: string
@@ -35,11 +45,12 @@ export function SessionSection({ currentModel, switchOpts, onSwitchModel, busy, 
         {busy && <span className="text-[12px] text-muted">对话进行中，暂不能切换模型。</span>}
       </div>
       <label className={LABEL_CLS}>权限模式
+        {/* 选项由 offeredModes 决定：隐藏的模式不出现，但**当前就是它**时照样列出来
+            ——否则下拉框显示空白，用户一动就把模式改掉了。 */}
         <SelectField value={permissionMode} onChange={onPermissionMode}>
-          <option value="interactive">交互（逐项询问）</option>
-          <option value="judge">智能（模型审查命令）</option>
-          <option value="safe">安全（拒绝高危）</option>
-          <option value="flight">飞行（不审计，全部放行）</option>
+          {offeredModes(permissionMode).map((m) => (
+            <option key={m.key} value={m.key}>{MODE_OPTION_TEXT[m.key]}</option>
+          ))}
         </SelectField>
       </label>
       {permissionMode === 'flight' && (

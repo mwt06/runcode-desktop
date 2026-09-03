@@ -199,13 +199,15 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	// model. A connection change can't be applied mid-turn (the rebuild would discard
 	// the running turn), so a busy session keeps the saved edit for the next switch.
 	a.mu.Lock()
-	id := a.currentID
+	id, busy := "", false
+	if e := a.liveEntryLocked(); e != nil {
+		id, busy = e.id, e.turnActive
+	}
 	livePassport := a.livePassport
-	busy := a.turnActive
 	a.mu.Unlock()
 	liveIsEdited := id != "" && !livePassport && strings.TrimSpace(loadRawConfig().CustomModelName) == req.Name
 	if liveIsEdited && !busy {
-		if _, err := a.SwitchModel("custom", req.Name); err != nil {
+		if _, err := a.SwitchModel("", "custom", req.Name); err != nil {
 			// Best-effort: the edit is already saved. If the live rebuild fails, fall
 			// back to the prior behavior — the change applies on the next manual
 			// re-select — rather than failing the save itself.

@@ -18,13 +18,17 @@ import { ProxySection } from './proxy'
 import { RecorderSection } from './recorder'
 import { ContextSection } from './context'
 import { ContextAuditSection } from './context-audit'
+import { AboutSection } from './about'
 import { InlineError } from '@/ui/feedback'
 import { PageShell } from '@/ui/layout'
+import { type UpdateController } from '@/session/use-update'
 
-export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
+export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchModel }: {
   initial: Partial<StartSessionRequest>
   info: SessionInfo | null
   busy: boolean
+  // update 由 App 持有（侧栏那颗小红点也读它），这里只是把它交给「关于与更新」。
+  update: UpdateController
   onSaved: (info: SessionInfo) => void
   // Switch the live session's model/connection in place (platform ↔ custom), the same
   // path the composer's in-chat picker uses — no new session, history preserved.
@@ -151,6 +155,8 @@ export function SettingsPage({ initial, info, busy, onSaved, onSwitchModel }: {
         />
 
         <ContextAuditSection />
+
+        <AboutSection update={update} />
 
         <Section title="工作区">
           <div className="font-mono text-[13px] text-muted break-all">{info?.cwd || '—'}</div>

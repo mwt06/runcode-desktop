@@ -1,7 +1,7 @@
 package protocol
 
 // ProjectContextInfo is the workspace's project-instructions file (RUNCODE.md or
-// CLAUDE.md), for viewing and editing.
+// AGENT.md), for viewing and editing.
 type ProjectContextInfo struct {
 	Path    string `json:"path"`    // absolute path (where a save writes); empty only when no workspace
 	Name    string `json:"name"`    // basename shown in the UI

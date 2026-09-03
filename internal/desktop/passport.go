@@ -33,9 +33,20 @@ func passportConfig() passportSettings {
 	authority := strings.TrimRight(envOr("RUNCODE_PASSPORT_AUTHORITY", "https://passport-ai.ouchn.edu.cn"), "/")
 	bridge := strings.TrimRight(envOr("RUNCODE_BRIDGE_BASE_URL", "https://bridge-aibase.ouc-online.com.cn"), "/")
 	return passportSettings{
-		Authority:     authority,
-		ClientID:      envOr("RUNCODE_PASSPORT_CLIENT_ID", "runcode-desktop"),
-		Scopes:        "openid profile offline_access passportapi",
+		Authority: authority,
+		ClientID:  envOr("RUNCODE_PASSPORT_CLIENT_ID", "runcode-desktop"),
+		// manageapi 是技能市场那条链路要的：网关拿用户令牌去查租户成员关系，而那个
+		// 接口只认 manageapi 的受众——少了它，任何租户都会被判成 selected tenant is
+		// invalid（网关对"没带租户头"和"租户不认"返回同一句话，所以报错完全指不出
+		// 是这个原因，这一条是实测比对两份令牌的 aud 才找出来的）。
+		//
+		// 授权范围只在**登录**时申请，刷新令牌不会补上。所以升到带 manageapi 的版本
+		// 之后，老的登录态仍然缺它，要退出重登一次——skillmarket.go 的 marketGet 会
+		// 认出这种情况并直说，而不是甩一个看不懂的 403。
+		//
+		// 可覆盖：万一通行证那边没给这个客户端放开 manageapi，登录会直接
+		// invalid_scope 失败；那时用环境变量退回旧的一串即可，不必等新包。
+		Scopes:        envOr("RUNCODE_PASSPORT_SCOPES", "openid profile offline_access passportapi manageapi"),
 		BridgeBaseURL: bridge,
 		RedirectURI:   bridge + "/oauth/callback",
 	}
@@ -160,6 +171,10 @@ func (a *App) PassportLogin(scheme string) (PassportStatus, error) {
 	a.sink.Emit(EventPassportChanged, st)
 	// 首次登录（冷启动时无令牌，启动那次同步取不到）在此补上，之后本次运行不再拉。
 	go a.syncMarketOnce()
+	// 更新检查同理补一次。它本身不要求登录（见 update.go），但**这个部署**可能要求，
+	// 那时启动那趟会被 401/403 挡住；登录恰好是它唯一的转机，所以在这里重试一次。
+	// 已经成功查过就是空操作（autoCheckUpdate 自己判 autoDone）。
+	go a.autoCheckUpdate(0)
 	return st, nil
 }
 
@@ -233,7 +248,7 @@ func (a *App) SessionModels() ([]PassportModel, error) {
 	}
 	a.mu.Lock()
 	tid := a.passportTenant
-	if a.currentID != "" && a.livePassport {
+	if a.liveEntryLocked() != nil && a.livePassport {
 		tid = a.livePassportTenant
 	}
 	a.mu.Unlock()

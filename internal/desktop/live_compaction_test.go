@@ -53,7 +53,7 @@ func TestReopenCarriesConfiguredContextBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	defer app.CloseSession()
+	defer app.CloseSession("")
 	t.Logf("persisted budget %d → session reports %d", want, info.MaxContextTokens)
 	if info.MaxContextTokens != want {
 		t.Fatalf("session budget = %d, want persisted %d", info.MaxContextTokens, want)
@@ -133,7 +133,7 @@ func TestLiveDesktopAutoCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	defer app.CloseSession()
+	defer app.CloseSession("")
 
 	const turns = 7
 	prompts := []string{
@@ -144,7 +144,7 @@ func TestLiveDesktopAutoCompaction(t *testing.T) {
 	}
 	deadline := time.Now().Add(240 * time.Second)
 	for i := 0; i < turns; i++ {
-		if err := app.SendMessage(prompts[i]); err != nil {
+		if err := app.SendMessage("", prompts[i]); err != nil {
 			t.Fatalf("SendMessage %d: %v", i, err)
 		}
 		waitForTurns(t, sink, i+1, deadline) // serialize: one turn at a time

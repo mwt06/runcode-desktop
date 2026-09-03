@@ -8,6 +8,7 @@
 // 拼错或未知的值一律回落 DEFAULT_BRAND,绝不因为一个笔误就静默换掉品牌。
 import zhikaiLogo from '@/assets/zhikai-logo.png'
 import zhikaiMascot from '@/assets/zhikai-mascot.gif'
+import zhikaiComposerMascot from '@/assets/zhikai-composer.gif'
 
 // BrandLogo 决定品牌标记怎么画:'mark' 用内置的 X 双笔画 SVG(原品牌矢量标),
 // 'image' 用一张位图(如智开的 logo.png,构建时打包进产物,运行期不联网)。
@@ -18,6 +19,13 @@ export type BrandLogo = { kind: 'mark' } | { kind: 'image'; src: string; alt: st
 // 形状与背景,按原图放大直出、不套框,否则会双重描边且细节糊成一团。不设的品牌
 // 沿用带框的 logo。
 export type GreetingMark = { src: string; alt: string; size: number }
+
+// ComposerMark 是钉在输入框上方的品牌插画。与 greetingMark 的分工:那个只在空对话
+// 时出现在问候语上方,对话一开始就没了;这个从头到尾都在输入区上边。不设的品牌
+// (原品牌 XRUN)什么都不画,输入区与以前完全一致。
+//
+// height 是显示高度(px),宽度按原图比例自适应——换一张不同比例的图不用改代码。
+export type ComposerMark = { src: string; alt: string; height: number }
 
 // GreetingStyle 决定空对话时的欢迎语形态,由 chat-pane 按此渲染:
 //   'explore' —— 面向编程:让 <助手> 在 <工作区> 中探索、修改或运行点什么。
@@ -37,6 +45,8 @@ export type Brand = {
   logo: BrandLogo
   // greetingMark 覆盖空对话问候语上方的标记;不设则用带框的 logo。
   greetingMark?: GreetingMark
+  // composerMark 是输入框上方的插画;不设则输入区上方什么都不画。
+  composerMark?: ComposerMark
 }
 
 // 想换品牌:改这里,或设 VITE_BRAND。
@@ -59,6 +69,7 @@ const BRANDS: Record<string, Brand> = {
     greeting: 'welcome',
     logo: { kind: 'image', src: zhikaiLogo, alt: '智开' },
     greetingMark: { src: zhikaiMascot, alt: '智开', size: 96 },
+    composerMark: { src: zhikaiComposerMascot, alt: '智开', height: 64 },
   },
 }
 

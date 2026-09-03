@@ -44,9 +44,9 @@ func TestLiveDesktopEmitsThinking(t *testing.T) {
 	if _, err := app.StartSession(req); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	defer app.CloseSession()
+	defer app.CloseSession("")
 
-	if err := app.SendMessage("9.11 和 9.9 哪个大？一步步推理再回答。"); err != nil {
+	if err := app.SendMessage("", "9.11 和 9.9 哪个大？一步步推理再回答。"); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 

@@ -30,8 +30,14 @@ func desktopConfigPath() (string, error) {
 // defaultRequest is the start form's seed when nothing has been saved yet.
 func defaultRequest() StartSessionRequest {
 	return StartSessionRequest{
-		Provider:       "openai",
-		BaseURL:        "https://tenantapi-ai.ouchn.edu.cn/v1",
+		Provider: "openai",
+		BaseURL:  "https://tenantapi-ai.ouchn.edu.cn/v1",
+		// 交互模式：每个动作都问人，模型不代替用户放行任何东西。
+		//
+		// 记一笔它的代价，省得下次又当成 bug 去查：引擎 authorizerForMode 在这个模式
+		// 下会把 HarmJudge 摘掉，所以 harm 判定链路上挂着的东西默认都不跑——包括把被
+		// 执行脚本的内容读进判定的那条（harm_script.go）。要用得上，用户得自己切到
+		// 智能模式。这是有意的取舍，不是漏接线。
 		PermissionMode: "interactive",
 		// Arm automatic compaction by default so long sessions don't overflow the
 		// context window; 128k suits most modern models. The user can change it (or

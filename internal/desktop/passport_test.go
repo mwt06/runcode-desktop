@@ -247,8 +247,8 @@ func TestSessionModelsKeepLiveTenantAfterNextTenantChanges(t *testing.T) {
 
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
+	focusOn(app, "live-session", "")
 	app.mu.Lock()
-	app.currentID = "live-session"
 	app.livePassport = true
 	app.livePassportTenant = "tenant-a"
 	app.passportTenant = "tenant-b"

@@ -17,6 +17,7 @@ import {
   type StartRecordingRequest,
 } from '@/core/bridge'
 import { applyTranscript, emptyTranscript, type TranscriptState } from '@/recorder/transcript'
+import { hide as hideRecorderWindow } from '@/recorder/window-api'
 
 // LEVEL_DECAY 是电平条的回落系数。事件停了（安静下来）之后条要自己掉下去，
 // 停在最后一次的高度上会让人以为还在收音。
@@ -36,6 +37,14 @@ export interface Recorder {
   /** recording / paused 是两个界面要分开呈现的状态。 */
   recording: boolean
   paused: boolean
+  /**
+   * stopping 是「已经按了结束、正在等服务端把最后一块刷出来」那几秒。
+   *
+   * 必须单独暴露出来：这段时间里 recording 和 paused 都是 false（按钮该禁用），
+   * 可字幕还在变——服务端 flush 的同时会补发精修过的确认段（rev 2/3）。界面上
+   * 没有任何说明的话，看起来就像「按了结束它又重新识别了一遍」。
+   */
+  stopping: boolean
   /** elapsedMS 是已录时长，不含暂停。 */
   elapsedMS: number
   transcript: TranscriptState
@@ -64,6 +73,7 @@ export function useRecorder(): Recorder {
 
   const recording = info?.state === 'recording'
   const paused = info?.state === 'paused'
+  const stopping = info?.state === 'stopping'
 
   const adopt = useCallback((audioMS: number, state: string) => {
     baseMS.current = audioMS
@@ -177,12 +187,26 @@ export function useRecorder(): Recorder {
     return s
   }, [adopt])
 
+  // stop 结束这一场，**并把录音窗收起来**。
+  //
+  // 收窗放在这里而不是各个按钮上，是因为漏一个就会留下一个关不掉的窗口：主窗那张
+  // 卡片上的「结束录音转写」原先只停录音、不收窗，而录音窗此刻很可能正缩成浮在
+  // 所有应用之上的小条——录音一停，小条上的「结束」就因为"没有在录"变成禁用，
+  // 于是那个条永远浮在屏幕最上层，关不掉。
+  //
+  // 停止失败也照样收：后端在报错之前就已经把这一场收尾了（StopRecording 先 finish
+  // 再返回错误），错误说的是收尾过程中的问题，不是"还在录"。真要显示这个错误，
+  // 由调用方决定怎么摆（录音窗会重新展开成大窗把它显示出来）。
   const stop = useCallback(async () => {
-    const s = await stopRecording()
-    knownState.current = s.state
-    setInfo(s)
-    adopt(s.audioMs, s.state)
-    return s
+    try {
+      const s = await stopRecording()
+      knownState.current = s.state
+      setInfo(s)
+      adopt(s.audioMs, s.state)
+      return s
+    } finally {
+      void hideRecorderWindow().catch(() => {})
+    }
   }, [adopt])
 
   const discard = useCallback(async () => {
@@ -192,7 +216,7 @@ export function useRecorder(): Recorder {
   }, [])
 
   return {
-    info, recording, paused, elapsedMS, transcript, levels,
+    info, recording, paused, stopping, elapsedMS, transcript, levels,
     uplink: info?.uplink ?? '', error,
     start,
     pause: () => pauseRecording(),

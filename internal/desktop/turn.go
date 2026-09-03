@@ -15,8 +15,8 @@ import (
 // SendMessage runs one user turn asynchronously. It returns immediately; the
 // turn's result arrives as an EventTurnEnd or EventTurnError. It errors only when
 // there is no session or a turn is already running.
-func (a *App) SendMessage(text string) error {
-	return wireError(a.sendUserTurn(text, nil, false))
+func (a *App) SendMessage(sessionID, text string) error {
+	return wireError(a.sendUserTurn(sessionID, text, nil, false))
 }
 
 // InjectMessage delivers text into the in-flight turn as mid-turn steering: the
@@ -26,27 +26,25 @@ func (a *App) SendMessage(text string) error {
 // a fresh turn and returns startedTurn=true so the frontend can flip its busy
 // state; a successful mid-turn injection returns false (the running turn's
 // lifecycle already drives busy).
-func (a *App) InjectMessage(text string) (bool, error) {
-	return a.injectOrSend(text, nil, false)
+func (a *App) InjectMessage(sessionID, text string) (bool, error) {
+	return a.injectOrSend(sessionID, text, nil, false)
 }
 
 // injectOrSend tries to inject into the live turn and, on ErrNoActiveTurn, sends
 // the message as a fresh turn instead. Shared by InjectMessage and
 // InjectMessageWithImages.
-func (a *App) injectOrSend(text string, images []llm.ImageSource, withImages bool) (bool, error) {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
-		return false, wireError(errNoSession)
+func (a *App) injectOrSend(sessionID, text string, images []llm.ImageSource, withImages bool) (bool, error) {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return false, wireError(err)
 	}
-	err := a.mgr.Inject(id, text, images)
+	err = a.mgr.Inject(id, text, images)
 	if err == nil {
 		return false, nil // spliced into the running turn
 	}
 	if errors.Is(err, host.ErrNoActiveTurn) {
 		// The turn ended before the injection landed; send it as a new turn.
-		if serr := a.sendUserTurn(text, images, withImages); serr != nil {
+		if serr := a.sendUserTurn(sessionID, text, images, withImages); serr != nil {
 			return false, wireError(serr)
 		}
 		return true, nil
@@ -57,26 +55,25 @@ func (a *App) injectOrSend(text string, images []llm.ImageSource, withImages boo
 // sendUserTurn submits one user turn to the active session via the manager,
 // maintaining the desktop-side turn bookkeeping: the in-flight mirror, the
 // auto-title text, and the per-turn edit baseline reset.
-func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages bool) error {
+func (a *App) sendUserTurn(sessionID, text string, images []llm.ImageSource, withImages bool) error {
+	e, err := a.entryOf(sessionID)
+	if err != nil {
+		return err
+	}
 	a.mu.Lock()
-	id := a.currentID
-	edits := a.edits
-	plans := a.plans
 	provider, model := a.liveConfig.Provider, a.liveConfig.Model
 	livePassport := a.livePassport
 	a.mu.Unlock()
-	if id == "" {
-		return errNoSession
-	}
+	// 只读字段,取到条目后脱锁用(见 sessionEntry 的并发约定)。
+	id, edits, plans := e.id, e.edits, e.plans
 
 	a.mu.Lock()
-	prevText := a.lastUserText
-	a.lastUserText = text
-	a.turnActive = true
+	prevText := e.lastUserText
+	e.lastUserText = text
+	e.turnActive = true
 	a.mu.Unlock()
 
 	debugLog("turn submit: provider=%s model=%s passport=%v withImages=%v textLen=%d", provider, model, livePassport, withImages, len(text))
-	var err error
 	if withImages {
 		err = a.mgr.SendMessageWithImages(id, text, images)
 	} else {
@@ -84,10 +81,10 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 	}
 	if err != nil {
 		a.mu.Lock()
-		a.lastUserText = prevText
+		e.lastUserText = prevText
 		// A busy rejection means another turn is still running; any other
 		// failure means nothing is in flight.
-		a.turnActive = errors.Is(err, host.ErrBusy)
+		e.turnActive = errors.Is(err, host.ErrBusy)
 		a.mu.Unlock()
 		debugLog("turn submit rejected: %v", err)
 		return err
@@ -107,11 +104,9 @@ func (a *App) sendUserTurn(text string, images []llm.ImageSource, withImages boo
 }
 
 // Interrupt cancels the in-flight turn and denies any pending approval prompts.
-func (a *App) Interrupt() error {
-	a.mu.Lock()
-	id := a.currentID
-	a.mu.Unlock()
-	if id == "" {
+func (a *App) Interrupt(sessionID string) error {
+	id, err := a.sessionIDOf(sessionID)
+	if err != nil {
 		return nil // interrupting nothing is a no-op (pre-host behavior)
 	}
 	if err := a.mgr.Interrupt(id); err != nil && !errors.Is(err, host.ErrSessionNotFound) {
@@ -121,19 +116,19 @@ func (a *App) Interrupt() error {
 }
 
 // ResolvePermission delivers the user's decision for a pending approval request.
-func (a *App) ResolvePermission(id, decision string) error {
-	a.mu.Lock()
-	sessionID := a.currentID
-	a.mu.Unlock()
-	if sessionID == "" {
-		return wireError(errNoSession)
+// 会话必须显式指定的理由在 entryOf 的注释里:并行之后按"当前是哪条"去解,会把
+// B 会话的授权解到 A 头上。
+func (a *App) ResolvePermission(sessionID, id, decision string) error {
+	sid, err := a.sessionIDOf(sessionID)
+	if err != nil {
+		return wireError(err)
 	}
-	return wireError(a.mgr.ResolvePermission(sessionID, id, decision))
+	return wireError(a.mgr.ResolvePermission(sid, id, decision))
 }
 
 // Compact summarizes the oldest turns now and reports the message counts.
-func (a *App) Compact() (CompactResult, error) {
-	session, err := a.engineSession()
+func (a *App) Compact(sessionID string) (CompactResult, error) {
+	session, err := a.engineSessionOf(sessionID)
 	if err != nil {
 		return CompactResult{}, wireError(err)
 	}

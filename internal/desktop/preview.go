@@ -119,18 +119,26 @@ func (a *App) ReadArtifactBytes(relPath string) (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// startPreview (re)starts the workspace preview server. It replaces any running
-// one so a workspace switch is clean. Failures are non-fatal (previews of
-// text-based types still work via ReadArtifact).
+// previewRef 是一个工作区的预览服务器加它的引用数。
+//
+// 按工作区共享而不是按会话:同一目录开两个会话没有理由起两台服务器(两个端口、
+// 两份文件句柄),而且两边看到的 URL 应该一致。refs 归零才真的停。
+type previewRef struct {
+	srv  *previewServer
+	url  string
+	refs int
+}
+
+// startPreview 为 workspace 取一台预览服务器:已经有就加一次引用,没有才起。
+// 失败不致命(文本类预览走 ReadArtifact,不依赖这台服务器)。
 func (a *App) startPreview(workspace string) {
+	if workspace == "" {
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.preview != nil {
-		a.preview.stop()
-		a.preview = nil
-		a.previewURL = ""
-	}
-	if workspace == "" {
+	if ref := a.previews[workspace]; ref != nil {
+		ref.refs++
 		return
 	}
 	ps := newPreviewServer()
@@ -138,22 +146,43 @@ func (a *App) startPreview(workspace string) {
 	if err != nil {
 		return
 	}
-	a.preview = ps
-	a.previewURL = url
+	if a.previews == nil {
+		a.previews = map[string]*previewRef{}
+	}
+	a.previews[workspace] = &previewRef{srv: ps, url: url, refs: 1}
 }
 
-func (a *App) stopPreview() {
+// stopPreview 释放一次引用;归零时停掉服务器并从表里删掉。
+// 传空工作区(会话本来就没开起来)是 no-op。
+func (a *App) stopPreview(workspace string) {
+	if workspace == "" {
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.preview != nil {
-		a.preview.stop()
-		a.preview = nil
-		a.previewURL = ""
+	ref := a.previews[workspace]
+	if ref == nil {
+		return
 	}
+	ref.refs--
+	if ref.refs > 0 {
+		return
+	}
+	ref.srv.stop()
+	delete(a.previews, workspace)
 }
 
+// previewBaseURL 是**聚焦会话**那个工作区的预览地址;没有会话或没起成服务器时
+// 是空串(SessionInfo 里这一栏为空,前端据此退回 ReadArtifact 那条路)。
 func (a *App) previewBaseURL() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.previewURL
+	e := a.entryLocked(a.focused)
+	if e == nil {
+		return ""
+	}
+	if ref := a.previews[e.workspace]; ref != nil {
+		return ref.url
+	}
+	return ""
 }
