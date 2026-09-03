@@ -171,6 +171,14 @@ jobs:
         working-directory: cmd/runcode-desktop
         run: |
           set -euo pipefail
+          # windows-11-arm 镜像里的 gcc 是 x86 的，拿它编译 runtime/cgo 的 ARM64
+          # 汇编会逐条报 "no such instruction: stp x29,x30"。CGO 在本项目里关不掉
+          # （录音采集走 malgo），所以改用镜像自带的 LLVM——它是原生 arm64，认得
+          # 那些指令。
+          if [ "${{ matrix.target }}" = windows-arm64 ]; then
+            export CC=clang CXX=clang++
+            clang --version | head -2
+          fi
           case "${{ matrix.target }}" in
             windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer ;;
             macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip ;;
