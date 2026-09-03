@@ -140,10 +140,16 @@ jobs:
           cache: npm
           cache-dependency-path: cmd/runcode-desktop/frontend/package-lock.json
 
+      # CLI 自己也要编译 Wails 的包，于是也要满足图形栈的 pkg-config。它默认按
+      # GTK4 + WebKitGTK 6.0 找，而编译机是 Ubuntu 22.04（glibc 必须比麒麟旧，见
+      # 矩阵那段），那上面根本没有 6.0 的开发包。所以 Linux 上装 CLI 也要带 gtk3，
+      # 跟后面真正构建时用的路径保持一致。
       - name: 安装 wails3 CLI
         run: |
           set -euo pipefail
-          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+          tags=""
+          case "${{ matrix.target }}" in linux-*) tags="-tags gtk3" ;; esac
+          go install $tags github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       # GTK3 + WebKitGTK 4.1 的开发库。用 4.1 而不是 6.0 的原因见矩阵那段注释：
