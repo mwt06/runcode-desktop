@@ -7,10 +7,13 @@
 #   wails3 task run                       构建并运行
 #   wails3 task --list                    看全部任务
 #
-# 只保留 windows / darwin 两个平台的 include。模板默认还带 linux / ios / android，
-# 但那些资产没搬进仓库——include 一个不存在的 Taskfile 会让 task 直接解析失败，
-# 所以要跟着裁。将来要支持 Linux，先 `wails3 generate build-assets` 生成
-# build/linux/ 再把 include 加回来。
+# 保留 windows / darwin / linux 三个平台的 include。模板默认还带 ios / android，
+# 那些资产没搬进仓库——include 一个不存在的 Taskfile 会让 task 直接解析失败，所以
+# 要跟着裁。
+#
+# Linux 这套是为银河麒麟 V11 加的：它带 GTK4 与 WebKitGTK 2.44，正是 Wails v3 的
+# 默认路径。麒麟 V10 不在射程内——它只有 WebKitGTK 2.28（4.0 ABI），而 v3 没有 4.0
+# 的代码路径。
 version: '3'
 
 vars:
@@ -35,6 +38,7 @@ includes:
   common: ./build/Taskfile.yml
   windows: ./build/windows/Taskfile.yml
   darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
 
 tasks:
   build:

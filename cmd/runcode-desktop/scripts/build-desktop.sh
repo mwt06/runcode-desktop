@@ -24,6 +24,21 @@
 #   ./scripts/build-desktop.sh --brand zhikai --installer   # 智开,连 Windows 安装包(NSIS)
 #   ./scripts/build-desktop.sh --test                       # 测试版:含"上下文审核"等仅测试版功能
 #   ./scripts/build-desktop.sh --local-engine               # 联动本地 ../agentloop(产物不可复现,勿发版)
+#   ./scripts/build-desktop.sh --brand zhikai --installer   # (在 Linux 上)出 .deb,给银河麒麟 V11
+#
+# ---- Linux / 银河麒麟 ----------------------------------------------------------
+# 目标是**麒麟 V11**:它带 GTK4 与 WebKitGTK 2.44,正好是 Wails v3 的默认路径。
+# --installer 在 Linux 上出 .deb(麒麟桌面版是 deb 系)。
+#
+# 麒麟 V10 打不了,而且不是配置问题:V10 只有 WebKitGTK 2.28(4.0 ABI),Wails v3 根本
+# 没有 4.0 的代码路径,连 --gtk3 那条老路走的也是 4.1。
+#
+# --gtk3 走 GTK3 + WebKitGTK 4.1 的老路径,给 Ubuntu 22.04 一代的发行版用;它在
+# Wails v3.1 会被移除,所以默认不开。
+#
+# Linux 上应用名会自动换成 ASCII 的产品标识(xrun / zhikai):它同时是 deb 包名、
+# 可执行文件名与 .desktop 文件名,而 deb 包名规范不接受中文。桌面菜单里显示的仍是
+# 中文,那个走 .desktop 的 Name 字段。
 #
 # --installer 出 NSIS 安装包(仅 Windows;macOS 走 .app + --zip)。需要 makensis:
 #   winget install --id NSIS.NSIS -e
@@ -65,6 +80,7 @@ TEST_BUILD=0
 DO_INSTALLER=0
 INSTALL_SCOPE=machine
 LOCAL_ENGINE=0
+LINUX_GTK3=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -77,7 +93,8 @@ while [ $# -gt 0 ]; do
     --installer) DO_INSTALLER=1; shift ;;
     --install-scope) INSTALL_SCOPE="${2:-}"; shift 2 ;;
     --local-engine) LOCAL_ENGINE=1; shift ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    --gtk3) LINUX_GTK3=1; shift ;;
+    -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
     *) echo "未知参数: $1(用 --help 看用法)" >&2; exit 2 ;;
   esac
 done
@@ -99,6 +116,11 @@ case "$BRAND" in
     echo "未知品牌: $BRAND(可用: runcode, zhikai)" >&2; exit 2 ;;
 esac
 
+# Linux 上应用名必须是 ASCII:它同时当二进制名、deb 包名与 .desktop 的文件名,而
+# deb 包名规范只允许小写字母数字加 -+. ——「智开」放进去直接是非法包名。中文改走
+# DISPLAY_NAME,只出现在桌面菜单里显示的那一行。
+DISPLAY_NAME="$APP_NAME"
+
 OS="$(uname -s)"
 case "$OS" in
   Darwin) HOST=darwin ;;
@@ -113,6 +135,10 @@ case "${PLATFORM%%/*}" in
   windows) TARGET=windows ;;
 esac
 
+if [ "$TARGET" = linux ]; then
+  APP_NAME="$PRODUCT"
+fi
+
 command -v wails3 >/dev/null 2>&1 || {
   echo "找不到 wails3 CLI。安装:" >&2
   echo "  go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.9" >&2
@@ -124,7 +150,7 @@ command -v wails3 >/dev/null 2>&1 || {
 # 这样工作区不会因为打了一次别的品牌就留下脏改动。
 BACKUP_DIR="$(mktemp -d)"
 RESTORED=0
-BRANDED_FILES="build/config.yml build/windows/info.json build/appicon.png build/darwin/Info.plist build/windows/nsis/project.nsi"
+BRANDED_FILES="build/config.yml build/windows/info.json build/appicon.png build/darwin/Info.plist build/windows/nsis/project.nsi build/linux/nfpm/nfpm.yaml"
 restore() {
   [ "$RESTORED" = 1 ] && return 0
   RESTORED=1
@@ -156,6 +182,13 @@ subst build/config.yml \
 subst build/windows/info.json \
   -e "s/\"ProductName\": \"[^\"]*\"/\"ProductName\": \"$APP_NAME\"/" \
   -e "s/\"FileDescription\": \"[^\"]*\"/\"FileDescription\": \"$APP_NAME\"/"
+
+# Linux 包的元数据。nfpm.yaml 里出现的每一个 xrun 都是同一个概念——ASCII 产品标识:
+# deb 包名、/usr/local/bin 下的可执行文件名、图标名、.desktop 文件名。它们必须一致,
+# 不一致的表现是装完之后菜单里有图标、点下去启动不了。
+if [ "$TARGET" = linux ]; then
+  subst build/linux/nfpm/nfpm.yaml -e "s/\bxrun\b/$PRODUCT/g"
+fi
 
 BRAND_DIR="build/brands/$BRAND"
 # 品牌可以有自己的应用图标;没有就沿用 build/appicon.png —— 这也是当前智开的选择,
@@ -218,6 +251,10 @@ subst build/darwin/Info.plist \
   -e "/<key>CFBundleVersion<\/key>/{n;s|<string>[^<]*</string>|<string>$APP_CORE_VERSION</string>|;}" \
   -e "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$APP_CORE_VERSION</string>|;}"
 
+# nfpm 按 ${APP_VERSION} 展开环境变量取版本号（同它自带的 arch: ${GOARCH}），
+# 所以这里要导出，否则 deb 的版本会是字面量 ${APP_VERSION}。
+export APP_VERSION
+
 DESKTOP_PKG="github.com/wt68/runcode/internal/desktop"
 LDFLAGS_EXTRA="-X main.brandTitle=$WIN_TITLE -X main.brandID=$BUNDLE_ID"
 LDFLAGS_EXTRA="$LDFLAGS_EXTRA -X $DESKTOP_PKG.appVersion=$APP_VERSION -X $DESKTOP_PKG.appProduct=$PRODUCT"
@@ -227,10 +264,16 @@ if [ "$TEST_BUILD" = 1 ]; then
   TEST_LABEL="  [测试版]"
 fi
 
-# Linux 的 WebKitGTK 在新发行版上是 4.1,需要构建标签。
+# Linux 的 GTK/WebKit 路径。
+#
+# 默认走 Wails v3 的默认路径:GTK4 + WebKitGTK 6.0(麒麟 V11 带的是 2.44,正好)。
+# webkit2_41 是 **v2 时代**的标记,v3 里根本不存在——留着它只是白加一个没人认的
+# tag,真正的老路径开关叫 gtk3(GTK3 + WebKitGTK 4.1),那条在 v3.1 会被移除。
+#
+# 麒麟 V10 两条都不行:它只有 WebKitGTK 2.28(4.0 ABI),而 v3 没有 4.0 的代码路径。
 EXTRA_TAGS=""
-if [ "$TARGET" = linux ]; then
-  EXTRA_TAGS="webkit2_41"
+if [ "$TARGET" = linux ] && [ "$LINUX_GTK3" = 1 ]; then
+  EXTRA_TAGS="gtk3"
 fi
 
 # 目标任务:Windows 默认出 exe 就够了(--installer 才做 NSIS 安装包);macOS 一律要包成
@@ -239,6 +282,10 @@ TASK="build"
 if [ "$TARGET" = darwin ]; then
   TASK="package"
   [ "$PLATFORM" = "darwin/universal" ] && TASK="package:universal"
+elif [ "$TARGET" = linux ] && [ "$DO_INSTALLER" = 1 ]; then
+  # 麒麟桌面版是 deb 系(V10/V11 都基于 Ubuntu 血统),所以只出 deb;要 rpm/AppImage
+  # 的话 build/linux/Taskfile.yml 里有现成的 create:rpm / create:appimage。
+  TASK="linux:create:deb"
 elif [ "$DO_INSTALLER" = 1 ]; then
   TASK="package"
 fi
@@ -304,6 +351,7 @@ echo "▶ 品牌=$BRAND  应用名=$APP_NAME  版本=$APP_VERSION  产品=$PRODU
 export VITE_BRAND="$VITE_BRAND_VALUE"
 wails3 task "$TASK" \
   APP_NAME="$APP_NAME" \
+  DISPLAY_NAME="$DISPLAY_NAME" \
   LDFLAGS_EXTRA="$LDFLAGS_EXTRA" \
   ${EXTRA_TAGS:+EXTRA_TAGS="$EXTRA_TAGS"} \
   ${SCOPE_ARG:+"$SCOPE_ARG"}
@@ -343,6 +391,11 @@ fi
 restore
 if [ "$TARGET" = darwin ]; then
   echo "✅ 完成:$APP_PATH"
+elif [ "$TARGET" = linux ]; then
+  echo "✅ 完成:bin/$APP_NAME"
+  for f in bin/*.deb; do
+    [ -f "$f" ] && echo "✅ 安装包:$f"
+  done
 else
   echo "✅ 完成:bin/$APP_NAME.exe"
   if [ "$DO_INSTALLER" = 1 ]; then

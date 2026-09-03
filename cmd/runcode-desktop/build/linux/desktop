@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=XRUN
+Comment=AI 办公助手（桌面版）
+Exec=/usr/local/bin/xrun %u
+Terminal=false
+Type=Application
+Icon=xrun
+Categories=Office;Utility;
+StartupWMClass=xrun

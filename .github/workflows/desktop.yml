@@ -40,7 +40,7 @@ on:
         description: 打哪些目标
         type: choice
         default: all
-        options: [all, windows-only, macos-only]
+        options: [all, windows-only, macos-only, linux-only]
   push:
     tags: ['v*']
   pull_request:
@@ -84,10 +84,16 @@ jobs:
           win='{"target":"windows-amd64","os":"windows-2022"},{"target":"windows-arm64","os":"windows-11-arm"}'
           # macos-13 已退役；Intel 版用 macos-15-intel（Intel 机器整体在 2027 秋停供）。
           mac='{"target":"macos-arm64","os":"macos-15"},{"target":"macos-amd64","os":"macos-15-intel"}'
+          # Linux 目标是银河麒麟 V11。**必须用 ubuntu-22.04 而不是 24.04**:24.04 的
+          # glibc 是 2.39，比麒麟 V11 的 2.38 还新，而 glibc 只向后兼容——拿新系统编的
+          # 二进制到麒麟上就是一句 GLIBC_2.39 not found，装得上、跑不起来。
+          # 22.04 是 2.35，比目标旧，安全。
+          linux='{"target":"linux-amd64","os":"ubuntu-22.04"},{"target":"linux-arm64","os":"ubuntu-22.04-arm"}'
           case "$TARGETS" in
             windows-only) targets="$win" ;;
             macos-only)   targets="$mac" ;;
-            *)            targets="$win,$mac" ;;
+            linux-only)   targets="$linux" ;;
+            *)            targets="$win,$mac,$linux" ;;
           esac
 
           case "$BRAND" in
@@ -140,6 +146,15 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # GTK3 + WebKitGTK 4.1 的开发库。用 4.1 而不是 6.0 的原因见矩阵那段注释：
+      # 编译机的 glibc 必须不比麒麟 V11 新，而带 6.0 的发行版都比它新。
+      - name: 装 Linux 图形栈
+        if: startsWith(matrix.target, 'linux')
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
+
       # NSIS 出 Windows 安装包。打包脚本会自己去 Program Files 找 makensis，所以这里
       # 只负责"装上"，不去动 PATH。
       - name: 装 NSIS
@@ -182,6 +197,7 @@ jobs:
           case "${{ matrix.target }}" in
             windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer ;;
             macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip ;;
+            linux-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --gtk3 ;;
           esac
 
       # 产物改成全 ASCII 的名字：应用名可能是中文（智开），而中文文件名在 artifact
@@ -207,6 +223,13 @@ jobs:
               ;;
             macos-*)
               cp "bin/$app-macos.zip" "dist/$product-$version-macos-$arch.zip"
+              ;;
+            linux-*)
+              # Linux 上应用名就是 ASCII 的产品标识（见打包脚本），所以这里直接用它。
+              for f in bin/*.deb; do
+                [ -f "$f" ] && cp "$f" "dist/$product-$version-linux-$arch.deb"
+              done
+              [ -f "bin/$product" ] && cp "bin/$product" "dist/$product-$version-linux-$arch"
               ;;
           esac
           ls -la dist
