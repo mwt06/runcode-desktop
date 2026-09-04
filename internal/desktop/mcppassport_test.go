@@ -22,9 +22,10 @@ import (
 // puts on every request. A regression here is what makes the OA server answer
 // 401, and it is invisible in the per-function tests above.
 func TestPassportInjectionEndToEndFromConfig(t *testing.T) {
-	home := t.TempDir()
-	isolateConfigDirAt(t, home)
-	cfgDir := filepath.Join(home, "runcode")
+	// 配置根用 isolateConfigDir 的返回值，不能按临时目录直接拼：macOS 的
+	// os.UserConfigDir 是 $HOME/Library/Application Support，与 HOME 差着两层，
+	// 按 HOME 拼出来的路径在那边永远读不到。
+	cfgDir := filepath.Join(isolateConfigDir(t), "runcode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -194,9 +195,10 @@ func TestSyncMarketOnceSkipsWhenLoggedOutOrAlreadySynced(t *testing.T) {
 // config.toml opt-in that grants the identity headers. Miss it and every platform
 // MCP call prompts for approval, which is invisible in the per-layer tests.
 func TestConfigureSessionTrustsPlatformMCPServers(t *testing.T) {
-	home := t.TempDir()
-	isolateConfigDirAt(t, home)
-	cfgDir := filepath.Join(home, "runcode")
+	// 配置根用 isolateConfigDir 的返回值，不能按临时目录直接拼：macOS 的
+	// os.UserConfigDir 是 $HOME/Library/Application Support，与 HOME 差着两层，
+	// 按 HOME 拼出来的路径在那边永远读不到。
+	cfgDir := filepath.Join(isolateConfigDir(t), "runcode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
