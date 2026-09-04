@@ -33,7 +33,7 @@ func TestPassportConfigDefaultsAndEnvOverride(t *testing.T) {
 }
 
 func TestApplyPassportProvider(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir()) // 隔离 passport.json，New() 的 loadPersisted 不读真实登录
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
 
@@ -70,7 +70,7 @@ func TestPassportModels(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
-	t.Setenv("APPDATA", t.TempDir()) // 隔离 passport.json
+	isolateConfigDir(t)
 
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
@@ -93,7 +93,7 @@ func TestPassportModelsForTenant(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
@@ -118,7 +118,7 @@ func TestPassportTenants(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", srv.URL)
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
@@ -135,7 +135,7 @@ func TestPassportTenants(t *testing.T) {
 }
 
 func TestApplyPassportTenantScopedBaseURL(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "http://bridge.local:8199")
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
@@ -152,7 +152,7 @@ func TestApplyPassportTenantScopedBaseURL(t *testing.T) {
 }
 
 func TestSetActiveTenantPersistsAndRestores(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	if err := app.SetActiveTenant(" child "); err != nil {
@@ -180,7 +180,7 @@ func TestSetActiveTenantPersistsAndRestores(t *testing.T) {
 }
 
 func TestNewRestoresPersistedActiveTenant(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	if err := updateRawConfig(func(raw *StartSessionRequest) error {
 		raw.TenantID = " persisted "
 		return nil
@@ -193,7 +193,7 @@ func TestNewRestoresPersistedActiveTenant(t *testing.T) {
 }
 
 func TestSetActiveTenantUpdatesBridgeBaseURL(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "http://bridge.local:8199")
 	app := New(&recordingSink{})
 	app.mu.Lock()
@@ -214,7 +214,7 @@ func TestSetActiveTenantUpdatesBridgeBaseURL(t *testing.T) {
 }
 
 func TestSetActiveTenantLeavesCustomBridgeLikeURLUnchanged(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "https://bridge.example")
 	app := New(&recordingSink{})
 	app.mu.Lock()
@@ -235,7 +235,7 @@ func TestSetActiveTenantLeavesCustomBridgeLikeURLUnchanged(t *testing.T) {
 }
 
 func TestSessionModelsKeepLiveTenantAfterNextTenantChanges(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -263,7 +263,7 @@ func TestSessionModelsKeepLiveTenantAfterNextTenantChanges(t *testing.T) {
 }
 
 func TestPassportLogoutClearsAndEmits(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir()) // 隔离：PassportLogout 会删除 passport.json，不能碰真实登录
+	isolateConfigDir(t)
 	sink := &recordingSink{}
 	app := New(sink)
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
@@ -277,7 +277,7 @@ func TestPassportLogoutClearsAndEmits(t *testing.T) {
 }
 
 func TestSaveSettingsKeepsPassportWiring(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
 
@@ -303,7 +303,7 @@ func TestSaveSettingsKeepsPassportWiring(t *testing.T) {
 }
 
 func TestSaveSettingsForNextTenantDoesNotChangeLiveModel(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	app.tokens.setInMemory(tokenSet{AccessToken: "AT", Expiry: time.Now().Add(time.Hour)})
 
@@ -335,7 +335,7 @@ func TestSaveSettingsForNextTenantDoesNotChangeLiveModel(t *testing.T) {
 }
 
 func TestStartSessionPassportRequiresLogin(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	req := StartSessionRequest{CWD: t.TempDir(), Provider: "passport", Model: "qwen-max"}
 	if _, err := app.StartSession(req); err == nil {
@@ -344,7 +344,7 @@ func TestStartSessionPassportRequiresLogin(t *testing.T) {
 }
 
 func TestPassportStatusRetriesFetchMeAfterFailure(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	fail := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if fail {

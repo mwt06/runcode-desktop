@@ -17,7 +17,7 @@ import (
 // — what this package accepts must be exactly what BuildProvider can construct,
 // not a list of strings that can drift from it.
 func TestCustomModelResponsesProvider(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	list, err := app.SaveCustomModel(SaveCustomModelRequest{
@@ -45,7 +45,7 @@ func TestCustomModelResponsesProvider(t *testing.T) {
 // TestUnsupportedProviderErrorNamesAlternatives keeps the rejection actionable:
 // a typo should tell the user what the valid ids actually are.
 func TestUnsupportedProviderErrorNamesAlternatives(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	_, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "n", Provider: "openai-response", Model: "m"})
 	if err == nil {
@@ -59,7 +59,7 @@ func TestUnsupportedProviderErrorNamesAlternatives(t *testing.T) {
 }
 
 func TestCustomModelsCRUDRoundTrip(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if got := app.ListCustomModels(); len(got) != 0 {
 		t.Fatalf("initial = %+v, want empty", got)
@@ -98,7 +98,7 @@ func TestCustomModelsCRUDRoundTrip(t *testing.T) {
 }
 
 func TestSaveCustomModelProviderAndInputValidation(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	for _, tc := range []struct {
 		name string
@@ -122,7 +122,7 @@ func TestSaveCustomModelProviderAndInputValidation(t *testing.T) {
 }
 
 func TestSaveCustomModelRenamesAndRejectsConflict(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	for _, req := range []SaveCustomModelRequest{
 		{Name: "A", Model: "model-a"},
@@ -165,7 +165,7 @@ func TestSaveCustomModelRenamesAndRejectsConflict(t *testing.T) {
 }
 
 func TestDeleteCustomModelClearsSelectedProfileReference(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "selected", Model: "m"}); err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestDeleteCustomModelClearsSelectedProfileReference(t *testing.T) {
 }
 
 func TestSaveCustomModelSecretIntentAndRedaction(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	// Seed an opaque protected value directly. Keep/clear semantics must not depend
@@ -252,7 +252,7 @@ func TestSaveCustomModelSecretIntentAndRedaction(t *testing.T) {
 }
 
 func TestListCustomModelsLegacyProviderDefaultsToOpenAI(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
 		cfg.CustomModels = []CustomModel{{Name: "legacy", Model: "m"}}
 		return nil
@@ -267,7 +267,7 @@ func TestListCustomModelsLegacyProviderDefaultsToOpenAI(t *testing.T) {
 }
 
 func TestLoadConfigDoesNotExposeCustomModelStorage(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
 		cfg.CustomModels = []CustomModel{{Name: "secured", Model: "m", APIKey: "legacy-plaintext", APIKeyProtected: "ciphertext"}}
 		return nil
@@ -303,7 +303,7 @@ func TestCustomModelPersistenceRequestDropsExpandedCredentials(t *testing.T) {
 }
 
 func TestResolveCustomModelRequestDoesNotExposeOrInheritCredentials(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	t.Setenv("ANTHROPIC_BASE_URL", "https://env.invalid")
 	t.Setenv("ANTHROPIC_API_KEY", "env-secret")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
@@ -325,7 +325,7 @@ func TestResolveCustomModelRequestDoesNotExposeOrInheritCredentials(t *testing.T
 }
 
 func TestSwitchModelGuards(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if _, err := app.SwitchModel("", "platform", "   "); err == nil {
 		t.Fatal("want error for empty model name")
@@ -348,7 +348,7 @@ func TestSwitchModelGuards(t *testing.T) {
 // the new connection immediately, so the change takes effect without a manual
 // re-select in the model picker.
 func TestSaveCustomModelReappliesLiveConnection(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	if _, err := app.SaveCustomModel(SaveCustomModelRequest{
@@ -386,7 +386,7 @@ func TestSaveCustomModelReappliesLiveConnection(t *testing.T) {
 // TestSaveCustomModelNoLiveSessionDoesNotRebuild guards the guard: with no live
 // session, saving must simply persist (never reach the no-session rebuild path).
 func TestSaveCustomModelNoLiveSessionDoesNotRebuild(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "M", Model: "m"}); err != nil {
 		t.Fatalf("save without session: %v", err)
@@ -394,7 +394,7 @@ func TestSaveCustomModelNoLiveSessionDoesNotRebuild(t *testing.T) {
 }
 
 func TestCustomModelStoredJSONShape(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "plain", Provider: "anthropic", Model: "m"}); err != nil {
 		t.Fatal(err)

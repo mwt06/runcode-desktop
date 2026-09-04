@@ -249,8 +249,7 @@ func writeSkill(t *testing.T, dir, name string) {
 // 于是那份确实躺在 .runcode/skills 下的目录连卸载入口都没有。
 func TestMarketInstalledTracksBothScopes(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("APPDATA", cfg)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateConfigDirAt(t, cfg)
 
 	app, _, _ := newParallelApp(t)
 	ws := t.TempDir()

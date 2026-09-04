@@ -6,7 +6,7 @@ import "testing"
 // backend-owned — survives an ordinary session-start config save that carries no
 // such field, so starting a session can never silently blank it.
 func TestSaveSettingsPersistsSkipLoginAndCarriesForward(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	if app.LoadConfig().SkipLogin {
@@ -38,7 +38,7 @@ func TestSaveSettingsPersistsSkipLoginAndCarriesForward(t *testing.T) {
 // a restart reopens on this model and a later SaveSettings of other fields reads it
 // through its persisted-profile override instead of reverting the connection.
 func TestPersistConnectionChoiceCustomModel(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
 		cfg.Provider = "passport"
 		cfg.Model = "glm-4.6"
@@ -77,7 +77,7 @@ func TestPersistConnectionChoiceCustomModel(t *testing.T) {
 // A live switch back to a platform model clears the custom-profile reference; the
 // tenant is left exactly as it was, because SetActiveTenant is its only writer.
 func TestPersistConnectionChoicePlatformModel(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
 		cfg.Provider = "openai"
 		cfg.CustomModelName = "GPT-5"

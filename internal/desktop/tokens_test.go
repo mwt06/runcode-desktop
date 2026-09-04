@@ -11,7 +11,7 @@ import (
 )
 
 func TestTokenReturnsValidAccessToken(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	tm := newTokenManager("http://unused", "c", http.DefaultClient, nil)
 	tm.setInMemory(tokenSet{AccessToken: "AT", RefreshToken: "RT", Expiry: time.Now().Add(time.Hour)})
 	tok, err := tm.Token()
@@ -21,7 +21,7 @@ func TestTokenReturnsValidAccessToken(t *testing.T) {
 }
 
 func TestTokenRefreshesNearExpiry(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"AT2","refresh_token":"RT2","expires_in":3600}`))
@@ -40,7 +40,7 @@ func TestTokenRefreshesNearExpiry(t *testing.T) {
 }
 
 func TestTokenRefreshFailureLogsOut(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
@@ -59,7 +59,7 @@ func TestTokenRefreshFailureLogsOut(t *testing.T) {
 }
 
 func TestTokenWithoutLoginErrors(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	tm := newTokenManager("http://unused", "c", http.DefaultClient, nil)
 	if _, err := tm.Token(); err == nil {
 		t.Fatal("want error when not logged in")
@@ -67,7 +67,7 @@ func TestTokenWithoutLoginErrors(t *testing.T) {
 }
 
 func TestTokenEmptyAccessWithRefreshTriggersRefresh(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"AT2","refresh_token":"RT2","expires_in":3600}`))
@@ -82,7 +82,7 @@ func TestTokenEmptyAccessWithRefreshTriggersRefresh(t *testing.T) {
 }
 
 func TestTokenConcurrentCallersSingleRefresh(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&calls, 1)

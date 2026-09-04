@@ -23,8 +23,7 @@ import (
 // 401, and it is invisible in the per-function tests above.
 func TestPassportInjectionEndToEndFromConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("APPDATA", home) // os.UserConfigDir() on Windows
-	t.Setenv("XDG_CONFIG_HOME", home)
+	isolateConfigDirAt(t, home)
 	cfgDir := filepath.Join(home, "runcode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -132,8 +131,7 @@ func TestPassportHeadersPropagatesTokenError(t *testing.T) {
 // anything by hand.
 func TestMarketInstallPersistsPassportFlag(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("APPDATA", home)
-	t.Setenv("XDG_CONFIG_HOME", home)
+	isolateConfigDirAt(t, home)
 
 	app := &App{}
 	// Exactly what the market's 安装 button sends for the OA entry.
@@ -197,8 +195,7 @@ func TestSyncMarketOnceSkipsWhenLoggedOutOrAlreadySynced(t *testing.T) {
 // MCP call prompts for approval, which is invisible in the per-layer tests.
 func TestConfigureSessionTrustsPlatformMCPServers(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("APPDATA", home) // os.UserConfigDir() on Windows
-	t.Setenv("XDG_CONFIG_HOME", home)
+	isolateConfigDirAt(t, home)
 	cfgDir := filepath.Join(home, "runcode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)

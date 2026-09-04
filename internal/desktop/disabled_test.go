@@ -5,7 +5,7 @@ import (
 )
 
 func TestSetToolEnabledUserScopePersistsAndReflects(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	// 关闭 Bash(用户级) → 有效关闭名单包含 Bash，工具页对应行标记 disabledUser。
@@ -40,7 +40,7 @@ func TestSetToolEnabledUserScopePersistsAndReflects(t *testing.T) {
 }
 
 func TestBuildConfigCarriesDisabledSets(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if err := app.SetToolEnabled("WebSearch", "user", false); err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestBuildConfigCarriesDisabledSets(t *testing.T) {
 }
 
 func TestProjectScopeToggleRequiresWorkspace(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{}) // no workspace set
 	if err := app.SetToolEnabled("Bash", "project", false); err == nil {
 		t.Fatal("project-scope toggle without a workspace must error")

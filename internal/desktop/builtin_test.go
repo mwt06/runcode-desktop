@@ -13,8 +13,7 @@ import (
 func builtinTestHome(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("APPDATA", dir)
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	isolateConfigDirAt(t, dir)
 }
 
 // TestBuiltinSkillsShipTheMinutesSkill 盯住「录音纪要要用的那个技能确实在包里」。

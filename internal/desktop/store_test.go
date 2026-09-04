@@ -57,7 +57,7 @@ func TestMergeRecentWorkspaces(t *testing.T) {
 // 三路写入方各改各的字段并发跑，结束后任何一路的改动都不能被别人的旧快照覆盖。
 // 修复前（无锁 + saveRawConfig 直写）本测试会因丢更新而不稳定地失败。
 func TestConfigMutatorsConcurrentNoLostUpdate(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir()) // 隔离 desktop.json（Windows: os.UserConfigDir 读 APPDATA）
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	const n = 20
@@ -103,7 +103,7 @@ func TestConfigMutatorsConcurrentNoLostUpdate(t *testing.T) {
 // 并发回归：用户级 disabled.json 的开关同样是读改写循环，靠 disabledMu 串行化。
 // 并发关闭 n 个不同工具，结束后必须全部在关闭名单里。
 func TestSetDisabledConcurrentNoLostUpdate(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 
 	const n = 16
@@ -130,7 +130,7 @@ func TestSetDisabledConcurrentNoLostUpdate(t *testing.T) {
 // 落盘就会把已选租户抹掉，多租户用户下次启动被迫重选——这正是"每次打开都要重新选
 // 租户和模型"的后半截。
 func TestSaveConfigKeepsTenantWhenRequestHasNone(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir()) // 隔离 desktop.json
+	isolateConfigDir(t)
 
 	// 用户选定了租户（走 SetActiveTenant 的持久化路径）。
 	if err := updateRawConfig(func(raw *StartSessionRequest) error {
@@ -152,7 +152,7 @@ func TestSaveConfigKeepsTenantWhenRequestHasNone(t *testing.T) {
 
 // 反向：请求带了租户就该覆盖，否则切换租户后开会话会被旧值粘住。
 func TestSaveConfigOverwritesTenantWhenRequestHasOne(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	if err := updateRawConfig(func(raw *StartSessionRequest) error {
 		raw.TenantID = "old"

@@ -29,7 +29,7 @@ func TestNormalizeProxy(t *testing.T) {
 }
 
 func TestSetWebProxyPersists(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if got := app.WebProxy(); got != "" {
 		t.Fatalf("initial = %q, want empty", got)
@@ -56,7 +56,7 @@ func TestSetWebProxyPersists(t *testing.T) {
 // SetWebProxy 不再改进程环境变量；生效通道是 buildConfig 把持久化值注入
 // engine.Config.WebProxy（按会话隔离，下个新建/恢复会话采用）。
 func TestBuildConfigInjectsWebProxy(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	app := New(&recordingSink{})
 	if _, err := app.SetWebProxy("127.0.0.1:7890"); err != nil {
 		t.Fatal(err)

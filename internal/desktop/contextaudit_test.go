@@ -76,7 +76,7 @@ func TestBuildAuditRecordSnapshotsRequest(t *testing.T) {
 }
 
 func TestContextAuditStoreAppendAndRead(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir()) // 隔离审核目录（Windows: os.UserConfigDir 读 APPDATA）
+	isolateConfigDir(t)
 
 	store, err := newContextAuditStore()
 	if err != nil {
@@ -119,7 +119,7 @@ func TestContextAuditStoreAppendAndRead(t *testing.T) {
 }
 
 func TestContextAuditServerServesPageAndAPI(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	store, err := newContextAuditStore()
 	if err != nil {
@@ -183,7 +183,7 @@ func TestContextAuditServerServesPageAndAPI(t *testing.T) {
 }
 
 func TestSetContextAuditRefusedOutsideTestBuild(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	app := New(&recordingSink{})
 	if info, _ := app.ContextAuditStatus(); info.Supported || info.Enabled {
@@ -199,7 +199,7 @@ func TestSetContextAuditRefusedOutsideTestBuild(t *testing.T) {
 }
 
 func TestSetContextAuditEnablesPersistsAndDisables(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 	asTestBuild(t)
 
 	app := New(&recordingSink{})
@@ -228,7 +228,7 @@ func TestSetContextAuditEnablesPersistsAndDisables(t *testing.T) {
 }
 
 func TestConfigureSessionWiresObserverOnlyInTestBuild(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	app := New(&recordingSink{})
 	cfg := engine.Config{CWD: t.TempDir(), PermissionMode: "safe"}
@@ -247,7 +247,7 @@ func TestConfigureSessionWiresObserverOnlyInTestBuild(t *testing.T) {
 }
 
 func TestContextAuditObserverRespectsSwitch(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateConfigDir(t)
 
 	m := newContextAuditManager()
 	observe := m.observer("sess_c")

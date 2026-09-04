@@ -316,8 +316,8 @@ func TestOpenSessionKeepsExistingOnesOpen(t *testing.T) {
 // 项目的任务无声消失。
 func TestOpenSessionInAnotherWorkspace(t *testing.T) {
 	// 换目录会把它记进最近工作区（MRU）——写的是用户配置目录，测试里隔离掉。
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	app, _, built := newParallelApp(t)
 	defer func() { _ = app.mgr.CloseAll(context.Background()) }()
@@ -381,8 +381,8 @@ func TestOpenSessionInAnotherWorkspace(t *testing.T) {
 // 这是同一个坑的第三次报障：「新建对话」「换工作区」都改成加开之后，只剩恢复历史
 // 还是替换式打开——聚焦在正跑着活的会话上，点一下「最近对话」，活当场停。
 func TestResumeKeepsRunningSessionOpen(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	app, _, built := newParallelApp(t)
 	defer func() { _ = app.mgr.CloseAll(context.Background()) }()
@@ -423,8 +423,8 @@ func TestResumeKeepsRunningSessionOpen(t *testing.T) {
 // 而 dir1 那条正跑着的会话已经被替换式打开关掉了。用户看到的是"点了最近对话，
 // 内容空了，原来那条也没了"。
 func TestResumeUsesTheFocusedWorkspace(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	app, _, built := newParallelApp(t)
 	defer func() { _ = app.mgr.CloseAll(context.Background()) }()

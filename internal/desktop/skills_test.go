@@ -28,8 +28,8 @@ func TestImportSkill(t *testing.T) {
 	// 隔离用户配置目录：ListSkills 永远会把**用户级**技能算进来，不隔离的话这些
 	// 断言就取决于开发机上全局装了什么——从市场装一个技能就会让它们红。
 	// （因此不能 t.Parallel：t.Setenv 与并行测试互斥。）
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	// A single skill folder with a related file under references/.
 	src := t.TempDir()
@@ -66,8 +66,8 @@ func TestImportSkillBatchFromContainer(t *testing.T) {
 	// 隔离用户配置目录：ListSkills 永远会把**用户级**技能算进来，不隔离的话这些
 	// 断言就取决于开发机上全局装了什么——从市场装一个技能就会让它们红。
 	// （因此不能 t.Parallel：t.Setenv 与并行测试互斥。）
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	// A container (like .claude/skills) holding several skill subdirectories.
 	container := t.TempDir()
@@ -91,8 +91,8 @@ func TestSkillManagerRoundTrip(t *testing.T) {
 	// 隔离用户配置目录：ListSkills 永远会把**用户级**技能算进来，不隔离的话这些
 	// 断言就取决于开发机上全局装了什么——从市场装一个技能就会让它们红。
 	// （因此不能 t.Parallel：t.Setenv 与并行测试互斥。）
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	a := &App{workspace: t.TempDir()}
 
@@ -162,8 +162,8 @@ func TestSkillManagerRoundTrip(t *testing.T) {
 // 这两栏，用户去改一次正文就会把中文名连带抹掉——列表随即退回一串 kebab-case 加
 // 一句 "Use when…"，而没人会把这件事和"刚才编辑过"联系起来。
 func TestSkillDisplayMetaSurvivesEdit(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfigDir(t)
+	isolateConfigDir(t)
 
 	a := &App{workspace: t.TempDir()}
 	root, _ := a.resourceRoot(kindSkills, "project")

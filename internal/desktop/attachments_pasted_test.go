@@ -10,14 +10,13 @@ import (
 )
 
 // isolatePastedRoot 把粘贴附件的落盘目录指到临时目录，返回它。
-// 两个环境变量都设：os.UserConfigDir 在 Windows 上读 APPDATA，其它平台读
-// XDG_CONFIG_HOME，而这套测试三平台都要跑（CI 就是三平台）。
+//
+// 路径由 isolateConfigDir 的返回值拼出来，**不能**按临时目录直接拼：macOS 的
+// os.UserConfigDir 是 $HOME/Library/Application Support，与 HOME 差着两层，
+// 按 HOME 拼出来的路径在那边永远对不上（这条测试起初就是这么挂在 macOS 上的）。
 func isolatePastedRoot(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("APPDATA", home)
-	t.Setenv("XDG_CONFIG_HOME", home)
-	return filepath.Join(home, "runcode", "pasted")
+	return filepath.Join(isolateConfigDir(t), "runcode", "pasted")
 }
 
 // TestSavePastedFileWritesBytesUnderAppData 落盘的基本契约：内容一字不差，文件名
