@@ -45,9 +45,19 @@ jobs:
           token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
       - name: golangci-lint (root)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # 必须固定 v2.x，且不能写 latest。
+          #
+          # action@v6 的 "latest" 解析到 golangci-lint v1.64.8，那个是用 Go 1.24 编的，
+          # 而本仓 go.mod 要求 1.26，于是它连配置都读不出来就退出：
+          #   can't load config: the Go language version (go1.24) used to build
+          #   golangci-lint is lower than the targeted Go version (1.26)
+          # 报错发生在 lint 真正开始之前，所以看起来像配置坏了，其实是版本错配。
+          #
+          # v2 需要 action@v8（v6/v7 只认 v1 的命令行）。这里跟本地开发用的版本对齐，
+          # 免得"本机干净、CI 报一堆"或者反过来。
+          version: v2.1.6
           args: --timeout=5m
 
   test:
