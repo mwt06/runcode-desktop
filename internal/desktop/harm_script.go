@@ -100,9 +100,16 @@ func resolveScriptWithinWorkspace(ws, script string) (string, error) {
 
 // interpreterName 取命令首词的程序名:去目录、去 .exe、转小写,好让 `/usr/bin/python3`
 // 和 `C:\Python\python.exe` 都归到 "python3" / "python"。
+//
+// 两种分隔符都自己切,不用 filepath.Base——它只认**当前平台**那一种。在 Linux 上
+// `C:\Python\python.exe` 会被它整个当成文件名,于是认不出这是 python,而上面那句
+// 承诺的恰恰是认得出。后果不是显示问题:认不出解释器就等于这条命令不进脚本审读
+// 那条链路,harm 判定少看一眼它到底要跑什么。
 func interpreterName(tok string) string {
-	name := strings.ToLower(filepath.Base(filepath.FromSlash(tok)))
-	return strings.TrimSuffix(name, ".exe")
+	if i := strings.LastIndexAny(tok, `/\`); i >= 0 {
+		tok = tok[i+1:]
+	}
+	return strings.TrimSuffix(strings.ToLower(tok), ".exe")
 }
 
 // hasShellComposition 报告命令是否含改变"执行什么"的 shell 组合或替换。故意不含

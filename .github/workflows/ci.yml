@@ -44,21 +44,23 @@ jobs:
         with:
           token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
+      # 自己编译 golangci-lint，不用官方发布的二进制，也不用 golangci-lint-action。
+      #
+      # golangci-lint 有一条硬性限制：**它自身构建时的 Go 版本不能低于被检查项目的
+      # go 指令版本**，否则连配置都读不出来就退出：
+      #   can't load config: the Go language version (go1.24) used to build
+      #   golangci-lint is lower than the targeted Go version (1.26)
+      # 而官方发布的 v2.1.6 二进制是用 Go 1.24 编的，本仓要求 1.26，正好卡在这条上。
+      # 报错发生在 lint 开始之前，所以看起来像配置坏了，其实是版本错配——CI 的 Lint
+      # 因此一直红着。
+      #
+      # go install 用的是上面 setup-go 装的那个 Go，版本天然对得上。代价是多花一两
+      # 分钟编译，有 module 缓存兜底。版本与本地开发用的对齐，免得两边结论不一致。
       - name: golangci-lint (root)
-        uses: golangci/golangci-lint-action@v8
-        with:
-          # 必须固定 v2.x，且不能写 latest。
-          #
-          # action@v6 的 "latest" 解析到 golangci-lint v1.64.8，那个是用 Go 1.24 编的，
-          # 而本仓 go.mod 要求 1.26，于是它连配置都读不出来就退出：
-          #   can't load config: the Go language version (go1.24) used to build
-          #   golangci-lint is lower than the targeted Go version (1.26)
-          # 报错发生在 lint 真正开始之前，所以看起来像配置坏了，其实是版本错配。
-          #
-          # v2 需要 action@v8（v6/v7 只认 v1 的命令行）。这里跟本地开发用的版本对齐，
-          # 免得"本机干净、CI 报一堆"或者反过来。
-          version: v2.1.6
-          args: --timeout=5m
+        run: |
+          set -euo pipefail
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout=5m
 
   test:
     name: Test (${{ matrix.os }})
