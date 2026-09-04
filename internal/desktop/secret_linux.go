@@ -17,13 +17,21 @@ package desktop
 // 机器上，安全性并不比不存更好。
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// keyringTimeout 给 secret-tool 的上限，理由同 macOS 那边：钥匙串被锁或没有会话
+// 总线时它会挂着等，把调用方一起拖住。超时按"取不到"处理。
+const keyringTimeout = 5 * time.Second
 
 // keyringGet 查一条密码。查不到时 secret-tool 以非零退出。
 func keyringGet(service, account string) (string, bool) {
-	out, err := exec.Command("secret-tool", "lookup",
+	ctx, cancel := context.WithTimeout(context.Background(), keyringTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "secret-tool", "lookup",
 		"service", service, "account", account).Output()
 	if err != nil {
 		return "", false
@@ -41,7 +49,9 @@ func keyringGet(service, account string) (string, bool) {
 // secret-tool store 从 **stdin** 读密码，所以密钥不会出现在进程命令行里
 // （ps 看不到）——这一点比 macOS 那边的 security 好，那个只能用参数传。
 func keyringSet(service, account, secret string) bool {
-	cmd := exec.Command("secret-tool", "store",
+	ctx, cancel := context.WithTimeout(context.Background(), keyringTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "secret-tool", "store",
 		"--label=runcode desktop master key",
 		"service", service, "account", account)
 	cmd.Stdin = strings.NewReader(secret)

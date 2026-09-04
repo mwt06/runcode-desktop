@@ -10,13 +10,25 @@ package desktop
 // 进程开销。security 是系统组件，macOS 上必然存在。
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// keyringTimeout 给钥匙串命令的上限。
+//
+// 不设的后果实测过：钥匙串被锁、或者根本没有图形会话时（CI、ssh 进去的机器），
+// security 会挂在那里等一个永远不会来的交互授权，把调用方一起拖住——表现是应用
+// 启动到读配置那一步就不动了，没有任何报错。超时后按"取不到"处理，凭据不落盘，
+// 与没有钥匙串时的行为一致。
+const keyringTimeout = 5 * time.Second
 
 // keyringGet 读一条通用密码。找不到时 security 以非零退出，视作「没有」。
 func keyringGet(service, account string) (string, bool) {
-	out, err := exec.Command("security", "find-generic-password",
+	ctx, cancel := context.WithTimeout(context.Background(), keyringTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "security", "find-generic-password",
 		"-s", service, "-a", account, "-w").Output()
 	if err != nil {
 		return "", false
@@ -34,7 +46,9 @@ func keyringGet(service, account string) (string, bool) {
 // 一把随机主密钥而不是用户凭据本身，且只在首次运行时发生一次。要彻底避免得用
 // stdin，而 security 的 add-generic-password 不从 stdin 读密码。
 func keyringSet(service, account, secret string) bool {
-	err := exec.Command("security", "add-generic-password",
+	ctx, cancel := context.WithTimeout(context.Background(), keyringTimeout)
+	defer cancel()
+	err := exec.CommandContext(ctx, "security", "add-generic-password",
 		"-s", service, "-a", account, "-w", secret,
 		"-U",     // update if exists
 		"-T", "", // 不预授权任何程序访问，读取时按系统策略走
