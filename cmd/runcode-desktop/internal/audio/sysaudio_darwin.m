@@ -219,3 +219,14 @@ void rc_sysaudio_stop(void *capture) {
     self_.stream = nil;
   }
 }
+
+// ---- Go 桥接 -----------------------------------------------------------------
+//
+// 放在这里而不是 Go 文件的 cgo 前言里：它要把 Go 侧那个 //export 函数当函数指针
+// 传进去，而那个函数的声明由 cgo 生成在 _cgo_export.h 中。include 它，签名就由
+// cgo 自己保证一致——在前言里手写一份去对它，差一个 const 都会编译失败。
+#include "_cgo_export.h"
+
+int rc_start_bridge(uintptr_t handle, int rate, int channels, void **out, char *err, int errlen) {
+  return rc_sysaudio_start(handle, rcSysAudioTrampoline, rate, channels, out, err, errlen);
+}

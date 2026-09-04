@@ -15,13 +15,13 @@ package audio
 #include <stdlib.h>
 #include "sysaudio_darwin.h"
 
-// 在 C 侧包一层，好把 Go 导出的函数当函数指针传进去——cgo 不允许直接取
-// //export 函数的地址。
-void rcSysAudioTrampoline(uintptr_t handle, const float *samples, int frames, int channels);
-
-static int rc_start_bridge(uintptr_t handle, int rate, int channels, void **out, char *err, int errlen) {
-    return rc_sysaudio_start(handle, rcSysAudioTrampoline, rate, channels, out, err, errlen);
-}
+// rc_start_bridge 的**定义**在 sysaudio_darwin.m 里，不在这里。
+//
+// 它要把下面那个 //export 函数当函数指针传进去，而导出函数的签名由 cgo 生成、
+// 只在 _cgo_export.h 里可见。在这段前言里手写一份声明去对它，等于猜 cgo 的生成
+// 结果——猜错一个 const 就是编译期 "conflicting types"，而且报在一个看不出所以然
+// 的位置。让 .m 那边 include 生成的头文件，签名由 cgo 自己保证一致。
+int rc_start_bridge(uintptr_t handle, int rate, int channels, void **out, char *err, int errlen);
 */
 import "C"
 

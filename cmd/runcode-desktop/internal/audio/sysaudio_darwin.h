@@ -14,7 +14,11 @@
 
 // rc_sysaudio_cb 在音频线程上被调用，必须快速返回。
 // frames 是每声道的采样点数，channels 是声道数，samples 长度 = frames * channels。
-typedef void (*rc_sysaudio_cb)(uintptr_t handle, const float *samples, int frames, int channels);
+//
+// samples 故意**不加 const**：这个类型要接住 cgo 为 Go 导出函数生成的那个声明，
+// 而 cgo 对 *C.float 生成的就是 float*。加了 const 的后果是编译期
+// "conflicting types for rcSysAudioTrampoline"——两份签名差一个限定符。
+typedef void (*rc_sysaudio_cb)(uintptr_t handle, float *samples, int frames, int channels);
 
 // rc_sysaudio_start 启动一路系统音频捕获。
 //
