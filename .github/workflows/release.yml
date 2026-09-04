@@ -35,10 +35,19 @@ jobs:
         with:
           token: ${{ secrets.ENGINE_REPO_TOKEN }}
 
+      # --skip=validate 跳过 GoReleaser 的 git 洁净检查。
+      #
+      # 必须跳，而且不是在掩盖问题：上一步「接上引擎」按设计就要改 go.mod（把私有
+      # 引擎指到 checkout 出来的目录，见 .github/actions/setup-engine），于是工作区
+      # 必然是「脏」的，GoReleaser 会以 "git is currently in a dirty state" 拒绝发布。
+      # 这不是未提交的源码改动，是 CI 的接线本身。
+      #
+      # 代价是同时跳过了「tag 是否指向当前 commit」那条校验。这里可以接受：本
+      # workflow 只由 tag 推送触发（on.push.tags），checkout 出来的就是那个 tag。
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: release --clean --skip=validate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
