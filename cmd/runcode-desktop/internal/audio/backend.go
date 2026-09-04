@@ -46,6 +46,17 @@ type backend struct {
 	// 而不是打开一个只有麦克风的"系统声音"轨——那种错法录出来的两轨内容一样，
 	// 等用户听回放才会发现。
 	loopbackSupported bool
+
+	// openLoopback 非 nil 时表示回环**根本不走 malgo**，由它自己开一路。
+	//
+	// 只有 macOS 用得上：CoreAudio 不提供回环，那边走的是 ScreenCaptureKit
+	// （见 sysaudio_darwin.go）。返回的 Stream 与 malgo 那条路在下游完全等价——
+	// 两者喂进的是同一条 DSP 链。
+	openLoopback func(recorder.OpenConfig) (recorder.Stream, error)
+
+	// loopbackDevices 在 openLoopback 非 nil 时提供设备列表。ScreenCaptureKit 那条
+	// 路没有"设备"可选，给一条固定项，好让界面上的下拉框不至于是空的。
+	loopbackDevices func() []recorder.DeviceInfo
 }
 
 // keepAll 是「枚举出来的都算」，给靠设备种类就能分开音源的平台用。

@@ -77,6 +77,10 @@ func (c *Capturer) Devices(src recorder.Source) ([]recorder.DeviceInfo, error) {
 	if src == recorder.SourceLoopback && !b.loopbackSupported {
 		return nil, fmt.Errorf("%s上还不支持录系统声音", b.label)
 	}
+	// 回环另走一套系统接口时（macOS 的 ScreenCaptureKit），没有设备可枚举。
+	if src == recorder.SourceLoopback && b.loopbackDevices != nil {
+		return b.loopbackDevices(), nil
+	}
 
 	infos, err := ctx.Devices(b.enumKind(src))
 	if err != nil {
@@ -111,8 +115,14 @@ func (c *Capturer) Open(cfg recorder.OpenConfig) (recorder.Stream, error) {
 	}
 
 	b := c.backend
-	if cfg.Source == recorder.SourceLoopback && !b.loopbackSupported {
-		return nil, fmt.Errorf("%s上还不支持录系统声音", b.label)
+	if cfg.Source == recorder.SourceLoopback {
+		if !b.loopbackSupported {
+			return nil, fmt.Errorf("%s上还不支持录系统声音", b.label)
+		}
+		// 回环不走 malgo 的平台在这里分道（macOS）。
+		if b.openLoopback != nil {
+			return b.openLoopback(cfg)
+		}
 	}
 	dc := malgo.DefaultDeviceConfig(b.openKind(cfg.Source))
 
