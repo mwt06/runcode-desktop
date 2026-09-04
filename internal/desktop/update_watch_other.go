@@ -2,7 +2,7 @@
 
 package desktop
 
-// RunUpdateWatch: 非 Windows 上不存在看门模式——那边根本不由应用接管安装
+// RunUpdateWatch 在非 Windows 上是空实现：那边根本不由应用接管安装
 // （见 update_other.go 的 canLaunchInstaller），也就没有"应用退出之后谁把它拉回来"
 // 这个问题。
 //
