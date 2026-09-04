@@ -38,6 +38,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/wt68/runcode/cmd/runcode-desktop/internal/audio"
 	"github.com/wt68/runcode/internal/desktop"
 )
 
@@ -172,8 +173,15 @@ func main() {
 	deskApp := desktop.New(sink)
 	deskApp.SetDialoger(dlg)
 	deskApp.SetQuitter(quit)
-	// 采集实现只有 Windows 有，这里必然拿不到，录音入口会自己置灰。不调
-	// SetCapturer 与调了一个空实现等价，少一层无谓的包装。
+
+	// 麒麟是 Linux，麦克风与系统声音（PulseAudio 的 monitor 源）都录得到，所以这里
+	// 与 v3 那份一样要把采集实现注进去。拿不到不算致命：没跑 PulseAudio 的环境下
+	// 录音入口会置灰，其余功能照常。
+	if capt, err := audio.New(); err != nil {
+		log.Printf("runcode-desktop: 录音采集不可用: %v", err)
+	} else {
+		deskApp.SetCapturer(capt)
+	}
 
 	dist, err := fs.Sub(kylinAssets, "frontend/dist")
 	if err != nil {

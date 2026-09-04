@@ -256,7 +256,9 @@ func main() {
 	deskApp := desktop.New(sink)
 	deskApp.SetDialoger(dlg)
 
-	// 采集实现要 cgo 且只有 Windows 有，所以住在外壳里注进去（同 Dialoger）。
+	// 采集实现要 cgo，所以住在外壳里注进去（同 Dialoger）。三个平台都有麦克风，
+	// 系统声音则只有 Windows 与 Linux（macOS 的 CoreAudio 不提供回环，见
+	// internal/audio/backend_darwin.go）。
 	// 拿不到不算致命：录音入口会以「当前系统不支持」置灰，其余功能照常。
 	if capt, err := audio.New(); err != nil {
 		log.Printf("runcode-desktop: 录音采集不可用: %v", err)

@@ -1,13 +1,12 @@
-//go:build !windows
+//go:build !cgo || (!windows && !linux && !darwin)
 
-// 非 Windows 平台的占位实现。
+// 占位实现：三大桌面平台之外，**以及关掉 cgo 时**。
 //
-// 一期只发 Windows（见方案 §12）。macOS 的系统回环要走 ScreenCaptureKit 或引导
-// 用户装 BlackHole 这类虚拟声卡，Linux 走 PulseAudio monitor 源——都不是把
-// malgo 换个后端就能了事的，所以这里不假装支持，直接明确报错。
+// 采集走 malgo（miniaudio 的 cgo 绑定），CGO_ENABLED=0 下它一个符号都没有。没有这条
+// !cgo 分支的话，关掉 cgo 的构建不是退化成"没有录音"，而是整包编译失败——而
+// CGO_ENABLED=0 正是各处做快速语法检查时的常用配置。
 //
-// 麦克风一路其实 malgo 在三个平台都能开，但只有麦克风的「会议纪要」录不到对方，
-// 产品上没有意义，因此也不在这里悄悄提供半个功能。
+// 这里不假装支持，直接明确报错——录音入口会因此置灰，其余功能照常。
 package audio
 
 import (
@@ -17,23 +16,23 @@ import (
 	"github.com/wt68/runcode/internal/recorder"
 )
 
-// Capturer 在非 Windows 平台上不可用。
+// Capturer 在这些平台上不可用。
 type Capturer struct{}
 
-// New 在非 Windows 平台上直接报错。
+// New 直接报错。
 func New() (*Capturer, error) {
-	return nil, fmt.Errorf("录音纪要目前只支持 Windows（当前 %s）", runtime.GOOS)
+	return nil, fmt.Errorf("录音纪要不支持当前系统（%s）", runtime.GOOS)
 }
 
 // Close 无事可做。
 func (c *Capturer) Close() error { return nil }
 
-// Devices 在非 Windows 平台上不可用。
+// Devices 不可用。
 func (c *Capturer) Devices(recorder.Source) ([]recorder.DeviceInfo, error) {
-	return nil, fmt.Errorf("录音纪要目前只支持 Windows（当前 %s）", runtime.GOOS)
+	return nil, fmt.Errorf("录音纪要不支持当前系统（%s）", runtime.GOOS)
 }
 
-// Open 在非 Windows 平台上不可用。
+// Open 不可用。
 func (c *Capturer) Open(recorder.OpenConfig) (recorder.Stream, error) {
-	return nil, fmt.Errorf("录音纪要目前只支持 Windows（当前 %s）", runtime.GOOS)
+	return nil, fmt.Errorf("录音纪要不支持当前系统（%s）", runtime.GOOS)
 }

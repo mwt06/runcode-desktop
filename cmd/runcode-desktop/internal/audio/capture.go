@@ -1,7 +1,11 @@
-//go:build windows
+//go:build cgo && (windows || linux || darwin)
 
-// Package audio 是 recorder.Capturer 的 Windows 实现，基于 malgo（miniaudio 的
-// cgo 绑定）走 WASAPI。
+// Package audio 是 recorder.Capturer 的桌面实现，基于 malgo（miniaudio 的 cgo 绑定）。
+//
+// 三个平台录「系统声音」的机制完全不同，但只差三件事：用哪个 miniaudio 后端、
+// 回环算哪种设备、以及怎么从设备表里挑出属于这一路的设备。那三件事收在 backend
+// 里（backend_windows.go / backend_linux.go / backend_darwin.go），本文件是共用的
+// 那部分——上下文生命周期、格式协商、以及整条 DSP 链。
 //
 // 它住在桌面嵌套 module 里而不是核心的 internal/recorder，理由与 Wails 完全相同：
 // 根模块的 `go build ./...` 与 CI 不能被音频 cgo 依赖污染。核心模块只定义
@@ -25,21 +29,24 @@ import (
 //
 // 上下文初始化要枚举设备、起 COM，开销不小，不能每开一路采集建一个。
 type Capturer struct {
-	mu  sync.Mutex
-	ctx *malgo.AllocatedContext
+	mu      sync.Mutex
+	ctx     *malgo.AllocatedContext
+	backend backend
 }
 
-// New 初始化 WASAPI 上下文。
+// New 初始化音频上下文。
 //
-// 显式只挂 WASAPI 后端：miniaudio 默认会依次尝试 WASAPI → DirectSound → WinMM，
-// 而**只有 WASAPI 支持 loopback**。让它悄悄回落到 DirectSound 的后果是回环轨
-// 打不开，而报错信息只会说「设备不可用」，非常难查。
+// 后端**显式指定**，不让 miniaudio 自己挑：它会按内置顺序逐个尝试，而回环能不能
+// 录恰恰取决于挑中了哪个。Windows 上只有 WASAPI 支持 loopback，回落到 DirectSound
+// 的表现是回环轨打不开、报错却只说「设备不可用」；Linux 上只有 PulseAudio 提供
+// monitor 源，回落到 ALSA 同样录不到系统声音。见各平台的 backend。
 func New() (*Capturer, error) {
-	ctx, err := malgo.InitContext([]malgo.Backend{malgo.BackendWasapi}, malgo.ContextConfig{}, nil)
+	b := platformBackend()
+	ctx, err := malgo.InitContext(b.contextBackends, malgo.ContextConfig{}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("初始化 WASAPI: %w", err)
+		return nil, fmt.Errorf("初始化音频后端: %w", err)
 	}
-	return &Capturer{ctx: ctx}, nil
+	return &Capturer{ctx: ctx, backend: b}, nil
 }
 
 // Close 释放上下文。所有 Stream 都关掉之后再调。
@@ -57,31 +64,33 @@ func (c *Capturer) Close() error {
 
 // Devices 列出该音源可用的设备。
 //
-// 注意回环轨枚举的是**播放**设备：WASAPI loopback 的语义是「录下某个输出端点
-// 正在播的东西」，所以要选的是扬声器/耳机，不是麦克风。这一点每次读代码都会
-// 想反一次，所以写在这里。
+// 「该音源的设备」在三个平台上是不同的东西，所以枚举哪一类、以及枚举出来之后留哪些，
+// 都问 backend：Windows 的回环枚举的是**播放**端点（loopback 的语义是"录下某个输出
+// 端点正在播的东西"），而 Linux 的回环是采集端点里那些 .monitor 源。
 func (c *Capturer) Devices(src recorder.Source) ([]recorder.DeviceInfo, error) {
-	kind := malgo.Capture
-	if src == recorder.SourceLoopback {
-		kind = malgo.Playback
-	}
-
 	c.mu.Lock()
-	ctx := c.ctx
+	ctx, b := c.ctx, c.backend
 	c.mu.Unlock()
 	if ctx == nil {
 		return nil, fmt.Errorf("采集上下文已关闭")
 	}
+	if src == recorder.SourceLoopback && !b.loopbackSupported {
+		return nil, fmt.Errorf("%s上还不支持录系统声音", b.label)
+	}
 
-	infos, err := ctx.Devices(kind)
+	infos, err := ctx.Devices(b.enumKind(src))
 	if err != nil {
 		return nil, fmt.Errorf("枚举设备: %w", err)
 	}
 	out := make([]recorder.DeviceInfo, 0, len(infos))
 	for i := range infos {
+		name := infos[i].Name()
+		if !b.keep(src, name) {
+			continue
+		}
 		out = append(out, recorder.DeviceInfo{
 			ID:        infos[i].ID.String(),
-			Name:      infos[i].Name(),
+			Name:      name,
 			IsDefault: infos[i].IsDefault != 0,
 		})
 	}
@@ -101,11 +110,11 @@ func (c *Capturer) Open(cfg recorder.OpenConfig) (recorder.Stream, error) {
 		return nil, fmt.Errorf("采集上下文已关闭")
 	}
 
-	devType := malgo.Capture
-	if cfg.Source == recorder.SourceLoopback {
-		devType = malgo.Loopback
+	b := c.backend
+	if cfg.Source == recorder.SourceLoopback && !b.loopbackSupported {
+		return nil, fmt.Errorf("%s上还不支持录系统声音", b.label)
 	}
-	dc := malgo.DefaultDeviceConfig(devType)
+	dc := malgo.DefaultDeviceConfig(b.openKind(cfg.Source))
 
 	// 要设备的**原生**格式：SampleRate/Channels 留 0，让 miniaudio 用端点本身的
 	// 混音格式，重采样和降混我们自己做。
@@ -118,8 +127,21 @@ func (c *Capturer) Open(cfg recorder.OpenConfig) (recorder.Stream, error) {
 	dc.Capture.Channels = 0
 	dc.Capture.ShareMode = malgo.Shared // 绝不用 Exclusive：会抢走设备，把正在开的会议软件搞哑
 
-	if cfg.DeviceID != "" {
-		id, err := findDeviceID(ctx, cfg.Source, cfg.DeviceID)
+	// 没指定设备时通常让 miniaudio 用系统默认，但**回环在 Linux 上不能这么办**：
+	// 那边的"默认采集设备"是麦克风，不是 monitor 源，不显式选就会把麦克风当成
+	// 系统声音录下来——两轨内容一样，而且完全不报错。
+	deviceID := cfg.DeviceID
+	if deviceID == "" {
+		fallback, ok, err := c.defaultDeviceFor(cfg.Source)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			deviceID = fallback
+		}
+	}
+	if deviceID != "" {
+		id, err := c.findDeviceID(ctx, cfg.Source, deviceID)
 		if err != nil {
 			return nil, err
 		}
@@ -154,12 +176,29 @@ func (c *Capturer) Open(cfg recorder.OpenConfig) (recorder.Stream, error) {
 	return s, nil
 }
 
-func findDeviceID(ctx *malgo.AllocatedContext, src recorder.Source, want string) (malgo.DeviceID, error) {
-	kind := malgo.Capture
-	if src == recorder.SourceLoopback {
-		kind = malgo.Playback
+// defaultDeviceFor 在 backend 要求显式选设备时给出该音源的默认设备 ID。
+// ok=false 表示交给 miniaudio 自己选系统默认。
+func (c *Capturer) defaultDeviceFor(src recorder.Source) (string, bool, error) {
+	if !c.backend.needsExplicitDefault(src) {
+		return "", false, nil
 	}
-	infos, err := ctx.Devices(kind)
+	list, err := c.Devices(src)
+	if err != nil {
+		return "", false, err
+	}
+	if len(list) == 0 {
+		return "", false, fmt.Errorf("找不到可用的%s设备", sourceLabel(src))
+	}
+	for _, d := range list {
+		if d.IsDefault {
+			return d.ID, true, nil
+		}
+	}
+	return list[0].ID, true, nil
+}
+
+func (c *Capturer) findDeviceID(ctx *malgo.AllocatedContext, src recorder.Source, want string) (malgo.DeviceID, error) {
+	infos, err := ctx.Devices(c.backend.enumKind(src))
 	if err != nil {
 		return malgo.DeviceID{}, fmt.Errorf("枚举设备: %w", err)
 	}
