@@ -11,7 +11,12 @@ import { type ToolEvent } from '@/core/bridge'
 import { diffStats, failText, toolVerbTarget } from './tool-text'
 import { ToolDetail } from './tool-detail'
 
-export function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmAllows?: Record<string, string> }) {
+export function ExecutionCard({ tools, harmAllows, oaBlocked }: {
+  tools: ToolEvent[]
+  harmAllows?: Record<string, string>
+  /** tool-use id → 即将切去的本地模型。见 conversation-state 的 oaBlocked。 */
+  oaBlocked?: Record<string, string>
+}) {
   const [sel, setSel] = useState<number | null>(null)
   const runningIdx = tools.findIndex((t) => t.type !== 'completed' && t.type !== 'failed')
   const activeIdx = sel != null && sel < tools.length ? sel : runningIdx
@@ -33,7 +38,10 @@ export function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmA
         const { add, del } = diffStats(t)
         const showDiff = add + del > 0
         const allowReason = harmAllows && t.toolUseID ? harmAllows[t.toolUseID] : undefined
-        const iconColor = st === 'failed' ? 'text-red' : st === 'running' ? 'text-primary' : 'text-faint'
+        // 被 OA 闸门拦下的那一次不算"失败"：调用确实没跑成（模型据此停下来），
+        // 但系统正在自动切换并重跑这一轮，红色报错会让用户以为要自己处理。
+        const blockedModel = oaBlocked && t.toolUseID ? oaBlocked[t.toolUseID] : undefined
+        const iconColor = blockedModel ? 'text-faint' : st === 'failed' ? 'text-red' : st === 'running' ? 'text-primary' : 'text-faint'
         const rowBg = active ? 'bg-surface2' : 'hover:bg-surface2'
         return (
           <div key={i}>
@@ -52,7 +60,14 @@ export function ExecutionCard({ tools, harmAllows }: { tools: ToolEvent[]; harmA
                   <Icon name="shield" size={11} /> 智能放行
                 </span>
               )}
-              {st === 'failed' ? (
+              {blockedModel ? (
+                <span
+                  title={`OA 数据只能由内网部署的模型处理，正在切换到 ${blockedModel} 并自动重试`}
+                  className="text-[11px] text-muted bg-surface2 rounded-md px-1.5 py-0.5 flex-none"
+                >
+                  已阻止 · 正在切换
+                </span>
+              ) : st === 'failed' ? (
                 <span className="text-[11px] text-red bg-redbg rounded-md px-1.5 py-0.5 flex-none">{failText(t)}</span>
               ) : st === 'running' ? (
                 <Spinner size={14} />

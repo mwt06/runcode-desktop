@@ -39,6 +39,13 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 	if strings.TrimSpace(req.CWD) == "" {
 		req.CWD = ws
 	}
+	// 与 SwitchModel 同一把锁。设置页的模型栏是拿当前模型预填的,所以"改别的设置
+	// 顺手保存"照常通过;只有真的去改模型才会撞上这里。
+	if locked := a.oaLockedModel(a.focusedSessionID()); locked != "" {
+		if strings.TrimSpace(req.CustomModelName) != "" || !oaModelSwitchAllowed(locked, req.Model) {
+			return SessionInfo{}, wireError(oaLockedSwitchError(locked))
+		}
+	}
 
 	// Connection selection is backend-owned: the settings renderer may hold an old
 	// initial request after an in-chat connection switch. Preserve the latest saved
@@ -69,6 +76,11 @@ func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
 	// without adding a dedicated Wails command.
 	_ = updateRawConfig(func(cfg *StartSessionRequest) error {
 		cfg.SkipLogin = req.SkipLogin
+		// 「上下文长度控制」那一组同理：saveConfig 对它们一律沿用旧值（起始页只发零值，
+		// 见 saveConfigHeld），所以这里是它们唯一的写入口——把某项清空回默认也走这条。
+		cfg.MaxTokens = req.MaxTokens
+		cfg.MaxContextTokens = req.MaxContextTokens
+		cfg.MaxHistoryMessages = req.MaxHistoryMessages
 		return nil
 	})
 
@@ -159,9 +171,17 @@ func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 	livePassport := a.livePassport
 	liveTenant := a.livePassportTenant
 	nextTenant := a.passportTenant
+	oaLocked := e.oaLocalModel
 	a.mu.Unlock()
 	if id == "" {
 		return SessionInfo{}, wireError(errNoSession)
+	}
+	// OA 锁:读过 OA 的会话只能留在它的本地模型上。历史里已经有保密数据了,换任何
+	// 别的模型都会把整段历史发过去——包括自定义模型那种直连第三方端点的连接。
+	// 判定用 oaModelSwitchAllowed 而不是就地写条件:同一条规则还有另外两个入口
+	// (设置页保存、会话恢复),分叉的那一处就是泄漏点。
+	if oaLocked != "" && (kind == "custom" || !oaModelSwitchAllowed(oaLocked, name)) {
+		return SessionInfo{}, wireError(oaLockedSwitchError(oaLocked))
 	}
 	pc := passportConfig()
 
@@ -182,6 +202,17 @@ func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 		cfg.TokenSource = nil
 		cfg.OnUnauthorized = nil
 		cfg.Model = cm.Model
+		if isCodexProfile(cm.Provider) {
+			// 与起会话那条路同一套翻译(见 custommodels.go 的
+			// resolveCustomModelRequest)：引擎说 openai-responses，Base URL 指向
+			// 本地代理，凭据由代理注入。两处必须一致，否则"启动时能用、切过去就
+			// 不能用"。
+			provider, baseURL, apiKey, err := a.codexConnection(name)
+			if err != nil {
+				return SessionInfo{}, wireError(err)
+			}
+			cfg.Provider, cfg.BaseURL, cfg.APIKey = provider, baseURL, apiKey
+		}
 		info, err := a.rebuildResumingWithConnectionHeld(cfg, id, false, "")
 		if err != nil {
 			return SessionInfo{}, err

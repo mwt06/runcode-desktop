@@ -55,7 +55,7 @@ func TestUnzipSkillFlattensNestedRoot(t *testing.T) {
 		"cn-docx/scripts/build.py":  "print(1)",
 	})
 	dir := t.TempDir()
-	if err := unzipSkill(zipPath, 0, dir); err != nil {
+	if err := unzipSkill(zipPath, dir); err != nil {
 		t.Fatalf("解压: %v", err)
 	}
 	if !hasSkillManifest(dir) {
@@ -76,7 +76,7 @@ func TestUnzipSkillAcceptsRootManifest(t *testing.T) {
 		"references/a.md": "a",
 	})
 	dir := t.TempDir()
-	if err := unzipSkill(zipPath, 0, dir); err != nil {
+	if err := unzipSkill(zipPath, dir); err != nil {
 		t.Fatalf("解压: %v", err)
 	}
 	if !hasSkillManifest(dir) {
@@ -92,7 +92,7 @@ func TestUnzipSkillRejectsPathTraversal(t *testing.T) {
 		"../escaped.md": "我不该出现在这里",
 	})
 	dir := t.TempDir()
-	err := unzipSkill(zipPath, 0, dir)
+	err := unzipSkill(zipPath, dir)
 	if err == nil {
 		t.Fatal("带 .. 的条目应当被拒")
 	}
@@ -105,8 +105,30 @@ func TestUnzipSkillRejectsPathTraversal(t *testing.T) {
 // 而不是解出一个不会被加载的空目录。
 func TestUnzipSkillRejectsBundleWithoutManifest(t *testing.T) {
 	zipPath := writeZip(t, map[string]string{"readme.txt": "hi"})
-	if err := unzipSkill(zipPath, 0, t.TempDir()); err == nil {
+	if err := unzipSkill(zipPath, t.TempDir()); err == nil {
 		t.Fatal("没有 SKILL.md 的包应当被拒")
+	}
+}
+
+// TestUnzipSkillTakesBundleWithManyFiles 盯住「文件数不再封顶」本身：条目数远超曾经
+// 那道 4000 的闸。带整套 references/scripts 的正规技能包就是这个量级——那道闸拦住的
+// 是包的正常规模而不是攻击，所以已经撤掉。谁把它加回来，这里会红。
+func TestUnzipSkillTakesBundleWithManyFiles(t *testing.T) {
+	const n = 4200
+	entries := map[string]string{"SKILL.md": "---\nname: big\n---\n正文"}
+	for i := range n {
+		entries["references/r"+strconv.Itoa(i)+".md"] = "x"
+	}
+	zipPath := writeZip(t, entries)
+	dir := t.TempDir()
+	if err := unzipSkill(zipPath, dir); err != nil {
+		t.Fatalf("解压: %v", err)
+	}
+	if !hasSkillManifest(dir) {
+		t.Fatal("SKILL.md 没解出来")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "references", "r"+strconv.Itoa(n-1)+".md")); err != nil {
+		t.Fatalf("最后一个条目没解出来: %v", err)
 	}
 }
 
@@ -312,7 +334,7 @@ func TestFetchToFileReportsProgress(t *testing.T) {
 	defer func() { _ = f.Close() }()
 
 	var got [][2]int64
-	sum, n, err := fetchToFile(t.Context(), srv.URL, "技能包", f, skillBundleMaxBytes, func(received, total int64) {
+	sum, n, err := fetchToFile(t.Context(), srv.URL, "技能包", f, 0, func(received, total int64) {
 		got = append(got, [2]int64{received, total})
 	})
 	if err != nil {
@@ -356,7 +378,7 @@ func TestFetchToFileUnknownLengthReportsZeroTotal(t *testing.T) {
 	defer func() { _ = f.Close() }()
 
 	var lastTotal int64 = -7
-	if _, _, err := fetchToFile(t.Context(), srv.URL, "技能包", f, skillBundleMaxBytes, func(_, total int64) { lastTotal = total }); err != nil {
+	if _, _, err := fetchToFile(t.Context(), srv.URL, "技能包", f, 0, func(_, total int64) { lastTotal = total }); err != nil {
 		t.Fatalf("fetchToFile: %v", err)
 	}
 	if lastTotal != 0 {

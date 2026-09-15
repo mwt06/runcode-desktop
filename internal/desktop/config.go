@@ -87,13 +87,13 @@ func buildConfig(req StartSessionRequest) (engine.Config, error) {
 		// default truncates a large file mid-arguments (the tool call's JSON never
 		// closes → "invalid input"), so default to a generous budget; an explicit
 		// request value still wins.
-		MaxTokens:         maxTokensOrDefault(provider, req.MaxTokens),
+		MaxTokens:         maxTokensOrDefault(req.MaxTokens),
 		Thinking:          llm.ThinkingConfig{Effort: effort},
 		ReasoningScenario: strings.TrimSpace(req.ReasoningScenario),
 		// Context control: MaxContextTokens arms automatic compaction (summarize old
 		// turns near the budget); MaxHistoryMessages is a blunt message-count trim.
 		// Both are taken verbatim — 0 means the corresponding lever is off. The start
-		// form defaults the budget to 128k (see defaultRequest).
+		// form defaults the budget to 260k (see defaultRequest).
 		MaxContextTokens:   maxNonNegative(req.MaxContextTokens),
 		MaxHistoryMessages: maxNonNegative(req.MaxHistoryMessages),
 		Resume:             strings.TrimSpace(req.Resume),
@@ -140,44 +140,48 @@ func loadDesktopMCP(cwd string) ([]mcp.ServerConfig, bool) {
 	if err != nil {
 		return nil, false
 	}
-	servers, err := engine.MCPServersFromConfig(res.Config.MCP)
+	// 已被内置工具取代的服务器一律不连(见 mcpretire.go)。这是三道措施里唯一
+	// **不依赖网络、也不依赖写盘**的那道:基座没下架、本地清理没跑成,退役的服务器
+	// 照样连不上。放在这里是因为它是 MCP 配置变成会话配置的唯一入口。
+	mcpCfg, retired := filterRetiredMCPServers(res.Config.MCP)
+	if len(retired) > 0 {
+		debugLog("mcp: 跳过已内置的服务器 %v", retired)
+	}
+	servers, err := engine.MCPServersFromConfig(mcpCfg)
 	if err != nil {
 		return nil, false
 	}
-	sampling := res.Config.MCP.AllowSampling != nil && *res.Config.MCP.AllowSampling
+	sampling := mcpCfg.AllowSampling != nil && *mcpCfg.AllowSampling
 	return servers, sampling
 }
 
-// Output-token budgets used when the request does not set one. Both are well above
-// the provider's own 4096 fallback: a coding agent writes whole files in one tool
-// call, and a truncated call is not a shortened answer — the arguments are cut
-// mid-JSON, so the call is unusable and the work of that turn is wasted.
+// desktopDefaultMaxTokens is the output-token budget used when the request does not
+// set one. It is deliberately far above the provider's own 4096 fallback: a coding
+// agent writes whole files in one tool call, and a truncated call is not a shortened
+// answer — the arguments are cut mid-JSON, so the call is unusable and the work of
+// that turn is wasted.
 //
-// The number has to differ by provider because the ceiling does, and overshooting
-// is a hard 400 rather than a clamp:
+// 80k applies to every provider, by product decision. What that trades away, so the
+// next reader does not mistake a 400 for a bug here:
 //
+//   - Overshooting a model's output ceiling is a hard 400, not a clamp. Endpoints
+//     capped lower (16384 is the hard cap of a large class of OpenAI-compatible ones,
+//     GPT-4o's max_completion_tokens among them) reject every request at this default.
 //   - Anthropic bills thinking against the same budget, and this engine *adds* the
-//     thinking budget on top of MaxTokens (see the provider's buildMessageParams).
-//     With thinking on high (16384) a 32768 default asks for 49152, inside current
-//     Claude models' 64k output ceiling — while 65536 would ask for 81920 and be
-//     rejected outright. So 32768 is the largest safe default here, not a timid one.
-//   - Everything else keeps 16384, which is exactly the hard cap of a large class
-//     of OpenAI-compatible endpoints (GPT-4o's max_completion_tokens among them).
-//     Raising it there would turn a working setup into a 400 on every request.
+//     thinking budget on top of MaxTokens (see the provider's buildMessageParams), so
+//     the ask is 81920 + the thinking budget — past current Claude models' 64k
+//     output ceiling.
 //
-// A model with a lower ceiling than its provider's default needs an explicit value
-// in the start form, which always wins.
-const (
-	desktopDefaultMaxTokens          = 16384
-	desktopAnthropicDefaultMaxTokens = 32768
-)
+// The escape hatch in both cases is an explicit value in the start form, which always
+// wins (see maxTokensOrDefault); the settings field says as much.
+const desktopDefaultMaxTokens = 81920
 
-func maxTokensOrDefault(provider string, requested int) int {
+// maxTokensOrDefault takes the request's value when it set one, otherwise the default
+// above. No provider branch on purpose: the budget is one number for every connection,
+// and a per-provider ceiling is handled by setting the field explicitly.
+func maxTokensOrDefault(requested int) int {
 	if requested > 0 {
 		return requested
-	}
-	if strings.EqualFold(strings.TrimSpace(provider), "anthropic") {
-		return desktopAnthropicDefaultMaxTokens
 	}
 	return desktopDefaultMaxTokens
 }

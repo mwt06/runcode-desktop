@@ -485,7 +485,20 @@ func (a *App) reportLastInstall() {
 // 成功过一次就不再自动查第二遍：一次运行里版本不会变第二次，而每多查一趟都是在
 // 用户没要求的情况下动他的网络。失败**不**记 autoDone——离线启动、登录后才放行的
 // 网关，都属于「等会儿再试就好」，正是登录成功那一次重试要覆盖的情形。
+// autoUpdateEnabled 让测试关掉自动更新检查。**只有测试会改它**（见 TestMain）。
+//
+// 它是个 goroutine：睡 8 秒再去查更新，而 checkUpdate 会在 UserCacheDir 下建目录。
+// 测试里那个目录是 t.TempDir() 隔离出来的，等这个 goroutine 醒来时早已被清理——
+// 它把目录重新建出来，于是 **别的** 测试的 TempDir 清理报 "directory is not empty"。
+// 表现是整包测试随机变红，而且失败的总是无辜的那条，排查方向完全错。
+//
+// 关掉而不是缩短延迟：缩短只是把竞态窗口挪个位置，不解决问题。
+var autoUpdateEnabled = true
+
 func (a *App) autoCheckUpdate(delay time.Duration) {
+	if !autoUpdateEnabled {
+		return
+	}
 	if delay > 0 {
 		time.Sleep(delay)
 	}

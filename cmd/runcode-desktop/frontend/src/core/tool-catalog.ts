@@ -40,10 +40,32 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   ReadMcpResource: { verb: '读取资源', label: '读取 MCP 资源', desc: '按 URI 读取一个 MCP 资源的内容。' },
   ListMcpPrompts: { verb: '列出提示词', label: '列出 MCP 提示词', desc: '列出 MCP 服务器提供的提示词。' },
   GetMcpPrompt: { verb: '取提示词', label: '获取 MCP 提示词', desc: '取出一个 MCP 提示词的内容。' },
+  // OA 办公工具(仅桌面版、且仅通行证连接 + 该租户开通了本地模型时才出现)。全部
+  // 只读,身份取自登录令牌,只查得到本人的数据。名字带 oa_ 前缀是为了不与技能/MCP/
+  // 其它内置工具撞名——会话内工具名唯一,撞名是装配失败而不是覆盖。
+  oa_todo: { verb: '待办事项', label: 'OA 待办', desc: '查询你在 OA 里的待办流程。' },
+  oa_done: { verb: '已办事项', label: 'OA 已办', desc: '查询你在 OA 里的已办流程。' },
+  oa_created: { verb: '我发起的流程', label: 'OA 我发起的', desc: '查询你在 OA 里发起的流程。' },
+  oa_toread: { verb: '待阅事项', label: 'OA 待阅', desc: '查询你在 OA 里的待阅流程。' },
+  oa_processed: { verb: '已办结流程', label: 'OA 办结', desc: '查询你在 OA 里的办结流程。' },
+  oa_request_detail: { verb: '流程详情', label: 'OA 流程详情', desc: '查看某个流程的发起人、审批过程与当前节点。' },
+  oa_request_content: { verb: '流程表单内容', label: 'OA 表单内容', desc: '查看某个流程的表单实际填写内容(任务名称/描述/所属项目等)。' },
+  oa_profile: { verb: '我的名片', label: 'OA 我的名片', desc: '查询你自己的名片(姓名/部门/座机/手机/邮箱)。' },
+  oa_colleague_contact: { verb: '同事联系方式', label: 'OA 同事联系方式', desc: '按姓名查同事的通讯录联系方式(座机/手机/办公室/邮箱/部门)。' },
+  oa_team_contacts: { verb: '部门通讯录', label: 'OA 部门通讯录', desc: '列出同部门同事或你的下属的联系方式。' },
+  oa_search_people: { verb: '搜索全校人员', label: 'OA 搜索人员', desc: '按姓氏或姓名片段搜索全校人员名单(姓名+部门+工号)。' },
+  oa_search_docs: { verb: '搜索文档', label: 'OA 搜索文档', desc: '按关键词搜索 OA 里的文档、规章制度与通知公告。' },
+  oa_doc_content: { verb: '读取文档正文', label: 'OA 文档正文', desc: '读取某个 OA 文档的正文;扫描件公文会用视觉模型识别成文字。' },
+  oa_browse_docs: { verb: '浏览文档栏目', label: 'OA 文档栏目', desc: '按栏目浏览 OA 文档;留空则列出所有栏目。' },
+  oa_messages: { verb: '消息提醒', label: 'OA 消息中心', desc: '查询你在 OA 消息中心的待阅提醒。' },
 }
 
 // 基座自建 MCP 服务器的工具中文短名，按「服务器 → 工具」两级。模型看到的仍是原始
 // 工具名(mcp__oa__my_todo)，这里只影响界面呈现。
+//
+// ⚠️ 下面这张 oa 表是**给老装机兜底的**：OA 已经改成内置工具（上面的 oa_* 条目），
+// 新会话不再经 MCP。但用户本地 config.toml 里可能还留着 MCP 版的那条服务器，
+// 迁移完成前它仍会出现在工具行里，删掉这张表只会让那些行退化成 my_todo 这种裸名。
 //
 // 为什么内置一张表而不是直接用服务端给的描述：MCP 的 description 是给模型看的整句
 // (如「查看某流程的发起人/审批过程/当前节点」)，放进工具行太长；短名要另配。表里

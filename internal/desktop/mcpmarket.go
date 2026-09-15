@@ -20,7 +20,9 @@ func (a *App) McpMarket() ([]McpMarketEntry, error) {
 		return nil, wireError(err)
 	}
 	a.syncMarketPassport(entries)
-	return entries, nil
+	// 已内置的能力不再摆进市场:哪些能力已经内置是客户端自己知道的事实,而市场清单
+	// 是一份可能落后于客户端的远端配置。见 mcpretire.go。
+	return dropRetiredMarketEntries(entries), nil
 }
 
 // fetchMarket GETs and decodes the market list.

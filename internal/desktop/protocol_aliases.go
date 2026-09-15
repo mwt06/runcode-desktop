@@ -32,6 +32,8 @@ const (
 	EventTurnError         = hostproto.EventTurnError
 	EventWarning           = hostproto.EventWarning
 	EventSessionRenamed    = protocol.EventSessionRenamed
+	EventSessionStatus     = protocol.EventSessionStatus
+	EventOABlocked         = protocol.EventOABlocked
 	EventHarmAutoAllow     = protocol.EventHarmAutoAllow
 	EventPlanUpdated       = protocol.EventPlanUpdated
 	EventPassportChanged   = protocol.EventPassportChanged
@@ -103,11 +105,17 @@ type (
 	// Passport login.
 	PassportStatus = protocol.PassportStatus
 	PassportModel  = protocol.PassportModel
+	OABlocked      = protocol.OABlocked
 	PassportTenant = protocol.PassportTenant
 
 	// Custom direct-connection models.
 	CustomModel            = protocol.CustomModel
 	SaveCustomModelRequest = protocol.SaveCustomModelRequest
+
+	// ChatGPT(Codex)登录。
+	CodexDeviceCode = protocol.CodexDeviceCode
+	CodexStatus     = protocol.CodexStatus
+	CodexModel      = protocol.CodexModel
 
 	// Edit undo/review.
 	EditRecord = protocol.EditRecord

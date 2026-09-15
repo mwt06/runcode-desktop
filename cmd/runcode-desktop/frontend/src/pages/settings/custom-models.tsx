@@ -6,16 +6,19 @@ import { BTN } from '@/ui/tokens'
 import { FIELD_CLS, SelectField } from '@/ui/fields'
 import {
   CUSTOM_MODEL_PROVIDERS,
+  codexAuthMode,
   customModelBaseURLHint,
   customModelDraftForEdit,
   customModelProvider,
   customModelProviderLabel,
   emptyCustomModelDraft,
   toCustomModelSaveRequest,
+  usesChatGPTLogin,
   type CustomModelDraft,
 } from '@/core/custom-models'
-import { deleteCustomModel, errText, saveCustomModel, type CustomModel } from '@/core/bridge'
+import { deleteCustomModel, errText, saveCustomModel, type CodexModel, type CustomModel } from '@/core/bridge'
 import { Section } from './section'
+import { CodexLoginRow } from './codex-login'
 import { InlineError } from '@/ui/feedback'
 
 export function CustomModelsSection({ models, onChanged }: { models: CustomModel[]; onChanged: (list: CustomModel[]) => void }) {
@@ -23,8 +26,13 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
   const [draft, setDraft] = useState<CustomModelDraft>(emptyCustomModelDraft)
   const [cmError, setCmError] = useState('')
   const [cmSaving, setCmSaving] = useState(false)
+  // 上游给出的可用模型（登录后由 CodexLoginRow 报上来）。ChatGPT 账号能用哪些
+  // 模型按订阅档次变化，本地写死一张表只会让人填到一个上游不认的名字。
+  const [codexOptions, setCodexOptions] = useState<CodexModel[]>([])
 
   const patchDraft = (patch: Partial<CustomModelDraft>) => setDraft((current) => ({ ...current, ...patch }))
+  // 走 ChatGPT 订阅时端点与凭据都不由用户提供，表单相应收起两栏。
+  const chatgptLogin = usesChatGPTLogin(draft)
   const resetForm = () => {
     setEditing(null)
     setDraft(emptyCustomModelDraft())
@@ -51,7 +59,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
 
   return (
     <Section title="自定义模型" hint="直连接入点，开始页可选">
-      <p className="text-[12px] text-muted -mt-1.5">除通行证平台模型外，可添加 OpenAI 兼容或 Anthropic 接入点（各自带 Base URL 与密钥）。</p>
+      <p className="text-[12px] text-muted -mt-1.5">除通行证平台模型外，可添加 OpenAI 兼容、Anthropic 或 Codex 接入点（各自带 Base URL 与密钥）。</p>
       <p className="text-[12px] text-faint -mt-1">
         OpenAI 有两套协议：绝大多数网关走「OpenAI 兼容」（<span className="font-mono">/chat/completions</span>），少数端点和较新的推理模型只提供「OpenAI Responses」（<span className="font-mono">/responses</span>）。若报 404 或提示模型不支持，换另一个试试。
       </p>
@@ -91,19 +99,36 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
             {CUSTOM_MODEL_PROVIDERS.map((p) => <option key={p} value={p}>{customModelProviderLabel(p)}</option>)}
           </SelectField>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <input className={FIELD_CLS} placeholder="模型 ID" value={draft.model} onChange={(e) => patchDraft({ model: e.target.value })} />
-          <input className={FIELD_CLS} placeholder={customModelBaseURLHint(draft.provider)} value={draft.baseURL} onChange={(e) => patchDraft({ baseURL: e.target.value })} />
+        {draft.provider === 'codex' && (
+          <SelectField value={draft.authMode} onChange={(v) => patchDraft({ authMode: codexAuthMode(v) })}>
+            <option value="chatgpt">用 ChatGPT 订阅登录</option>
+            <option value="apikey">用 API 密钥连第三方 Codex 中转</option>
+          </SelectField>
+        )}
+        {chatgptLogin && <CodexLoginRow onModels={setCodexOptions} />}
+        <div className={chatgptLogin ? '' : 'grid grid-cols-2 gap-2'}>
+          {chatgptLogin && codexOptions.length > 0 ? (
+            <SelectField value={draft.model} onChange={(v) => patchDraft({ model: v })}>
+              <option value="">选择模型…</option>
+              {codexOptions.map((m) => <option key={m.id} value={m.id}>{m.displayName ? `${m.displayName}（${m.id}）` : m.id}</option>)}
+            </SelectField>
+          ) : (
+            <input className={FIELD_CLS} placeholder={chatgptLogin ? '模型 ID（登录后可从清单选择）' : '模型 ID'} value={draft.model} onChange={(e) => patchDraft({ model: e.target.value })} />
+          )}
+          {/* 走 ChatGPT 登录时端点固定、凭据来自登录，这两栏留着只会让人以为要填。 */}
+          {!chatgptLogin && <input className={FIELD_CLS} placeholder={customModelBaseURLHint(draft.provider)} value={draft.baseURL} onChange={(e) => patchDraft({ baseURL: e.target.value })} />}
         </div>
-        <input
-          className={FIELD_CLS}
-          type="password"
-          disabled={draft.clearAPIKey}
-          placeholder={editing ? (editing.hasAPIKey ? 'API 密钥（已保存；留空保留，填写则替换）' : 'API 密钥（未配置；可留空）') : 'API 密钥（可空）'}
-          value={draft.apiKey}
-          onChange={(e) => patchDraft({ apiKey: e.target.value })}
-        />
-        {editing?.hasAPIKey && (
+        {!chatgptLogin && (
+          <input
+            className={FIELD_CLS}
+            type="password"
+            disabled={draft.clearAPIKey}
+            placeholder={editing ? (editing.hasAPIKey ? 'API 密钥（已保存；留空保留，填写则替换）' : 'API 密钥（未配置；可留空）') : 'API 密钥（可空）'}
+            value={draft.apiKey}
+            onChange={(e) => patchDraft({ apiKey: e.target.value })}
+          />
+        )}
+        {!chatgptLogin && editing?.hasAPIKey && (
           <label className="flex items-center gap-2 text-[12px] text-muted">
             <input
               type="checkbox"

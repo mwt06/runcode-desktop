@@ -14,13 +14,19 @@ import (
 // authority on what will actually build. A provider added engine-side becomes
 // usable without a second list to update.
 func supportedCustomModelProvider(provider string) bool {
+	// codex 是**外壳层**的服务商，引擎注册表里没有它：解析时被翻译成
+	// openai-responses + 本地代理（见 codex.go）。放行它是这条规则唯一的例外，
+	// 也因此必须写在这里，而不是让调用点各自判一次。
+	if isCodexProfile(provider) {
+		return true
+	}
 	return llm.IsRegistered(provider)
 }
 
 // unsupportedProviderError names what is actually available rather than leaving
 // the user to guess the spelling.
 func unsupportedProviderError(provider string) error {
-	return fmt.Errorf("不支持的服务商 %q（可选：%s）", provider, strings.Join(llm.Registered(), "、"))
+	return fmt.Errorf("不支持的服务商 %q（可选：%s、%s）", provider, strings.Join(llm.Registered(), "、"), codexProviderID)
 }
 
 // ListCustomModels 返回脱敏后的自定义模型列表。连接密钥只在后端解析会话时
@@ -85,6 +91,15 @@ func (a *App) resolveCustomModelRequest(req StartSessionRequest) (StartSessionRe
 	req.BaseURL = cm.BaseURL
 	req.APIKey = cm.APIKey
 	req.AuthToken = ""
+	if isCodexProfile(cm.Provider) {
+		// Codex 走本地代理：引擎按 openai-responses 说话，凭据与上游指纹头由代理
+		// 注入（见 codex.go 的 codexConnection）。
+		provider, baseURL, apiKey, err := a.codexConnection(name)
+		if err != nil {
+			return StartSessionRequest{}, err
+		}
+		req.Provider, req.BaseURL, req.APIKey = provider, baseURL, apiKey
+	}
 	return req, nil
 }
 
@@ -114,6 +129,7 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	req.Provider = normalizeCustomModelProvider(req.Provider)
 	req.Model = strings.TrimSpace(req.Model)
 	req.BaseURL = strings.TrimSpace(req.BaseURL)
+	req.AuthMode = normalizeCodexAuthMode(req.Provider, req.AuthMode)
 	if req.Name == "" {
 		return nil, wireError(errors.New("模型名称不能为空"))
 	}
@@ -161,6 +177,7 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 			Provider: req.Provider,
 			Model:    req.Model,
 			BaseURL:  req.BaseURL,
+			AuthMode: req.AuthMode,
 		}
 		switch {
 		case req.ClearAPIKey:

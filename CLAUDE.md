@@ -13,7 +13,7 @@
 
 本仓库含**三个 Go module**（依赖方向：外壳 → agentloop，反向不存在）：
 
-1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`internal/command`）+ 桌面核心（`internal/desktop`、`internal/protocol`）+ 桌面专属 host 工具（`internal/previewtool` = `open_preview`、`internal/officetool` = `ReadOffice`、`internal/plantool` = `plan_write`，均经 `engine.Options.ExtraTools` 只在桌面注册；`internal/skilltool` 走另一条路——经 `engine.Options.SkillTool` **替换**内置 Skill 工具，因为会话内工具名唯一，同名工具只能换不能加）+ `tools/protogen`。
+1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`internal/command`）+ 桌面核心（`internal/desktop`、`internal/protocol`）+ 桌面专属 host 工具（`internal/previewtool` = `open_preview`、`internal/officetool` = `ReadOffice`、`internal/plantool` = `plan_write`，均经 `engine.Options.ExtraTools` 只在桌面注册；`internal/skilltool` 与 `internal/websearchtool` 走另一条路——经 `engine.Options.SkillTool` / `engine.Options.WebSearchTool` **替换**内置的 Skill / WebSearch 工具，因为会话内工具名唯一，同名工具只能换不能加。WebSearch 换掉的是引擎那个 DuckDuckGo 抓页搜索，改走平台自己的联网搜索：经 Bridge 的 `/v1/websearch` 调 AI.Core，带登录用户的通行证令牌与选定租户，模型默认 `al-websearch`（`RUNCODE_WEBSEARCH_MODEL` 可覆盖）；只有通行证连接装它，自填端点/自定义模型保留内置的那条——接线见 `internal/desktop/websearch.go`）+ `tools/protogen`。
 2. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
 3. **服务端骨架（`cmd/runcode-server`，嵌套 module）**——独立仓库服务端的可跑参考实现。
 

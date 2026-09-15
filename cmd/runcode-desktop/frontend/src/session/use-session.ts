@@ -120,6 +120,16 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
     if (r?.id) setTitles((m) => ({ ...m, [r.id]: r.title }))
   }), [])
 
+  // 后端自作主张改了会话状态时整体采纳（目前只有 OA 自动切换到本地模型）。
+  //
+  // 界面上的模型、计划模式这些开关平时都是「前端调后端 → 拿返回值更新自己」，
+  // 所以后端单方面改掉的东西前端不会知道：模型确实切了、请求也发给新模型了，
+  // 右下角却还显示旧模型，用户合理地以为切换没生效。
+  useEffect(() => onEnvelope(Events.SessionStatus, (env) => {
+    const i = env.payload
+    if (i?.model) setInfo(i)
+  }), [])
+
   // runSwitch 是三个切换动作共用的骨架：代际防护 + 失败落一条错误块 + 收尾。
   async function runSwitch(action: (isStale: () => boolean) => Promise<void>) {
     const isStale = beginSwitch()

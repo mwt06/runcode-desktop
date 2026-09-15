@@ -58,6 +58,8 @@ var eventPayloads = map[string]string{
 	"EventPermissionRequest":  "PermissionRequest",
 	"EventPlanUpdated":        "PlanRun",
 	"EventSessionRenamed":     "SessionRenamed",
+	"EventSessionStatus":      "SessionInfo",
+	"EventOABlocked":          "OABlocked",
 	"EventSkillInstall":       "SkillInstallProgress",
 	"EventUpdate":             "UpdateInfo",
 	"EventToolEvent":          "ToolEvent",

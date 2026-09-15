@@ -257,14 +257,30 @@ func (a *App) SessionModels() ([]PassportModel, error) {
 
 // PassportModels 经 Bridge 列指定租户的平台模型（tenantID 空 = 令牌自带租户）。
 func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
-	body, err := a.bridgeGet(tenantPathPrefix(tenantID) + "/v1/models")
+	return a.passportModelsTimeout(tenantID, 30*time.Second)
+}
+
+// passportModelsTimeout 是 PassportModels 带显式超时的形态，供会话创建这类延迟
+// 敏感路径用（见 oa.go 的 localModel：宁可这次没有 OA 工具，也不能让新建会话卡在
+// 一个慢 Bridge 上）。
+//
+// 每次成功都顺手刷新本地模型缓存：模型清单本来就是这一份，让 OA 那边再拉一趟只会
+// 多一次网络、还可能拿到与选择器不一致的两份视图。
+func (a *App) passportModelsTimeout(tenantID string, timeout time.Duration) ([]PassportModel, error) {
+	body, _, err := a.bridgeGetStatusTimeout(tenantPathPrefix(tenantID)+"/v1/models", timeout)
 	if err != nil {
 		return nil, wireError(err)
 	}
+	// local/local_default/context_tokens 是本产品对 OpenAI 模型清单的扩展(见
+	// protocol.PassportModel)。老 Bridge 不回这三个字段，解出来是零值，表现为
+	// "没有本地模型"——于是 OA 工具不注册，而不是错把云端模型当成本地的。
 	var payload struct {
 		Data []struct {
-			ID      string `json:"id"`
-			OwnedBy string `json:"owned_by"`
+			ID            string `json:"id"`
+			OwnedBy       string `json:"owned_by"`
+			Local         bool   `json:"local"`
+			LocalDefault  bool   `json:"local_default"`
+			ContextTokens int    `json:"context_tokens"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -272,8 +288,15 @@ func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 	}
 	models := make([]PassportModel, 0, len(payload.Data))
 	for _, m := range payload.Data {
-		models = append(models, PassportModel{ID: m.ID, OwnedBy: m.OwnedBy})
+		models = append(models, PassportModel{
+			ID:            m.ID,
+			OwnedBy:       m.OwnedBy,
+			Local:         m.Local,
+			LocalDefault:  m.LocalDefault,
+			ContextTokens: m.ContextTokens,
+		})
 	}
+	a.rememberLocalModel(tenantID, models)
 	return models, nil
 }
 

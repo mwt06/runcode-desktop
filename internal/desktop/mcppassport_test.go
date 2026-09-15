@@ -19,8 +19,12 @@ import (
 // TestPassportInjectionEndToEndFromConfig walks the exact chain that decides
 // whether a platform MCP server authenticates: the passport flag in the user's
 // config.toml → loadDesktopMCP → attachMCPPassport → the headers the transport
-// puts on every request. A regression here is what makes the OA server answer
+// puts on every request. A regression here is what makes a platform server answer
 // 401, and it is invisible in the per-function tests above.
+//
+// 样本服务器**故意不叫 oa**：OA 已改为内置工具，那个名字现在是退役条目，会被
+// loadDesktopMCP 直接跳过（见 mcpretire.go）。改回 oa 的表现是本用例只拿到一台
+// 服务器然后失败——那不是回归，是这条注释没人看。
 func TestPassportInjectionEndToEndFromConfig(t *testing.T) {
 	// 配置根用 isolateConfigDir 的返回值，不能按临时目录直接拼：macOS 的
 	// os.UserConfigDir 是 $HOME/Library/Application Support，与 HOME 差着两层，
@@ -30,9 +34,9 @@ func TestPassportInjectionEndToEndFromConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	const cfg = `
-[mcp.servers.oa]
+[mcp.servers.platform]
 transport = 'http'
-url = 'http://oa.example/mcp'
+url = 'http://platform.example/mcp'
 passport = true
 
 [mcp.servers.third]
@@ -56,13 +60,13 @@ url = 'http://third.example/mcp'
 	for _, s := range servers {
 		byName[s.Name] = s
 	}
-	oa, third := byName["oa"], byName["third"]
-	if oa.HeaderSource == nil {
-		t.Fatal("oa has no HeaderSource: passport=true in config.toml never reached the transport (this is the 401)")
+	platform, third := byName["platform"], byName["third"]
+	if platform.HeaderSource == nil {
+		t.Fatal("platform server has no HeaderSource: passport=true in config.toml never reached the transport (this is the 401)")
 	}
-	h, err := oa.HeaderSource()
+	h, err := platform.HeaderSource()
 	if err != nil {
-		t.Fatalf("oa HeaderSource: %v", err)
+		t.Fatalf("platform HeaderSource: %v", err)
 	}
 	if h["Authorization"] != "Bearer LIVE-TOKEN" {
 		t.Fatalf("Authorization = %q, want Bearer LIVE-TOKEN", h["Authorization"])
@@ -76,12 +80,12 @@ url = 'http://third.example/mcp'
 }
 
 func TestApplyMCPPassportOnlyTouchesNamedServers(t *testing.T) {
-	servers := []mcp.ServerConfig{{Name: "oa"}, {Name: "third-party"}}
+	servers := []mcp.ServerConfig{{Name: "platform"}, {Name: "third-party"}}
 	sentinel := func() (map[string]string, error) { return map[string]string{"X": "1"}, nil }
-	applyMCPPassport(servers, map[string]bool{"oa": true}, sentinel)
+	applyMCPPassport(servers, map[string]bool{"platform": true}, sentinel)
 
 	if servers[0].HeaderSource == nil {
-		t.Fatal("oa should have a HeaderSource attached")
+		t.Fatal("the platform server should have a HeaderSource attached")
 	}
 	if servers[1].HeaderSource != nil {
 		t.Fatal("third-party must not get a HeaderSource (the token must not leak to it)")
@@ -130,14 +134,18 @@ func TestPassportHeadersPropagatesTokenError(t *testing.T) {
 // takes (SaveMCPServer with the entry's passport flag) actually lands in
 // config.toml — so a platform-built server authenticates without anyone editing
 // anything by hand.
+//
+// 样本**故意不叫 oa**：OA 已改为内置工具、从市场下架，那个名字现在是退役条目
+// （见 mcpretire.go）。这条测的是"市场安装"这条路本身，它对将来任何一个基座自建
+// MCP 仍然成立。
 func TestMarketInstallPersistsPassportFlag(t *testing.T) {
 	home := t.TempDir()
 	isolateConfigDirAt(t, home)
 
 	app := &App{}
-	// Exactly what the market's 安装 button sends for the OA entry.
+	// Exactly what the market's 安装 button sends for a platform entry.
 	if err := app.SaveMCPServer(MCPServerInput{
-		Name: "oa", Transport: "http", URL: "http://123.249.111.75:8101/mcp",
+		Name: "platform", Transport: "http", URL: "http://platform.example/mcp",
 		Passport: true, Enabled: true,
 	}); err != nil {
 		t.Fatalf("SaveMCPServer: %v", err)
@@ -147,11 +155,11 @@ func TestMarketInstallPersistsPassportFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMCPServers: %v", err)
 	}
-	oa, ok := servers["oa"]
+	installed, ok := servers["platform"]
 	if !ok {
-		t.Fatal("oa was not written to config.toml")
+		t.Fatal("the platform server was not written to config.toml")
 	}
-	if !mcpPassportEnabled(oa) {
+	if !mcpPassportEnabled(installed) {
 		t.Fatal("install did not persist passport=true — the server would stay anonymous (401)")
 	}
 
@@ -203,9 +211,9 @@ func TestConfigureSessionTrustsPlatformMCPServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	const conf = `
-[mcp.servers.oa]
+[mcp.servers.platform]
 transport = 'http'
-url = 'http://oa/mcp'
+url = 'http://platform/mcp'
 passport = true
 
 [mcp.servers.third]
@@ -220,7 +228,7 @@ url = 'http://third/mcp'
 	cfg := engine.Config{
 		PermissionMode: "safe", // the strictest mode: nothing interactive can rescue a wrong policy
 		MCPServers: []mcp.ServerConfig{
-			{Name: "oa", Transport: mcp.TransportHTTP, URL: "http://oa/mcp"},
+			{Name: "platform", Transport: mcp.TransportHTTP, URL: "http://platform/mcp"},
 			{Name: "third", Transport: mcp.TransportHTTP, URL: "http://third/mcp"},
 		},
 	}
@@ -237,7 +245,7 @@ url = 'http://third/mcp'
 		})
 		return d
 	}
-	if got := call("mcp__oa__my_todo"); got.FinalEffect != permissions.EffectAllow {
+	if got := call("mcp__platform__list"); got.FinalEffect != permissions.EffectAllow {
 		t.Fatalf("platform MCP call effect = %v (reason %v), want allow without approval",
 			got.FinalEffect, got.Reason)
 	}

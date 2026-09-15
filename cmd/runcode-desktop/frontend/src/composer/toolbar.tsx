@@ -246,8 +246,16 @@ export function ComposerToolbar({
             className="w-[320px] max-h-[380px]"
             options={modelOptions}
             current={info?.model}
-            limit={10}
-            onPick={(_, o) => { if (o) void onPickModel(o) }}
+            limit={50}
+            allowCustom
+            onPick={(id, o) => {
+              // 清单里的候选照旧。手输的 id 也放行:后端对平台连接就是一次
+              // SetModel(名字原样给引擎，不查白名单)，所以平台清单没收录的模型
+              // 在这里照样切得过去——清单是给人挑的，不是准入门槛。
+              if (o) { void onPickModel(o); return }
+              const typed = id.trim()
+              if (typed) void onPickModel({ kind: 'platform', id: typed, label: typed })
+            }}
           />
         </div>
         {busy ? (

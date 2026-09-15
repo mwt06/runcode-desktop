@@ -117,12 +117,20 @@ function clock(iso: string | undefined): string {
 /**
  * buildMinutesPrompt 组装发给模型的那条消息。
  *
- * 几处刻意的措辞，都是针对语音转写这个输入的特点：
- *  - 明说文本来自自动识别、可能有错别字与断句问题，否则模型会把明显的同音错误
- *    当成事实照抄进纪要；
- *  - 明说 S1/S2 是声纹聚类编号不是人名，否则纪要里会冒出「S1 表示……」这种句子；
- *  - 明说「转写里没有的信息不要补」——纪要被当成会议记录用，补出来的待办和责任人
- *    是会真的害到人的那类错误。
+ * 要求分两层，分界线是「格式」还是「内容」：
+ *  - **格式层**（结构、排版、章节编号、产出形式、文件名）挑到技能时**整层让给技能**，
+ *    这里一个字都不说。原先的写法是开头一句「请使用 X 技能」，底下照旧跟着「按议题
+ *    归纳」「结论/待办/责任人/时间点分别列出」「写成 Markdown 存到 会议纪要-….md」——
+ *    两份要求摆在一起，模型照的是更具体、位置更靠后的那份，于是技能里的模板被整个
+ *    盖掉，装了国开模板也出不来国开格式的纪要。没有技能时才由这里给出结构与落盘要求。
+ *  - **内容层**（contentRules）两条支路都给：它只管纪要写什么，不管长什么样，与任何
+ *    技能的模板都不冲突。「转写里没有的不要补」这条国开技能自己也写着，这里是加固。
+ *
+ * 要求之前那几行是材料说明，讲的是「这份转写是什么」，技能不可能知道：
+ *  - 说明文本来自自动识别，否则模型会把明显的同音错误当成事实照抄进纪要；
+ *  - 说明 S1/S2 是声纹聚类编号不是人名，否则纪要里会冒出「S1 表示……」这种句子，
+ *    更糟的是把某段发言安到转写里被喊到名字的那个人头上；
+ *  - 转写中断过的话说明有缺口，否则模型会把断开处脑补成连贯的讨论。
  */
 export function buildMinutesPrompt(opts: {
   mark: RecordingMark
@@ -135,7 +143,7 @@ export function buildMinutesPrompt(opts: {
   const lines: string[] = []
 
   if (skill) {
-    lines.push(`请使用「${skill}」技能，按它的模板整理下面这场会议的纪要。`)
+    lines.push(`请使用「${skill}」技能整理下面这场会议的纪要：先加载技能，然后按它写的流程和模板来。`)
   } else {
     lines.push('请把下面这场会议的录音转写整理成一份会议纪要。')
   }
@@ -146,16 +154,14 @@ export function buildMinutesPrompt(opts: {
   if (started) lines.push(`- 时间：${started}`)
   lines.push(`- 时长：${human(info.audioMs)}`)
   for (const line of speakerBriefing(transcript)) lines.push(line)
+  lines.push('- 下面的转写来自自动语音识别，有错别字和断句问题。')
   if (info.needsBackfill) {
-    lines.push('- 注意：这场录音与转写服务断开过，文本有缺口，中间可能整段缺失。纪要里如果发现话题接不上，直接说明可能有缺失，不要脑补衔接。')
+    lines.push('- 这场录音与转写服务断开过，文本有缺口，中间可能整段缺失。发现话题接不上就直接说明可能有缺失，不要脑补衔接。')
   }
   lines.push('')
 
   lines.push('要求：')
-  lines.push('1. 先通读全文再落笔，按议题归纳，不要逐句复述。')
-  lines.push('2. 结论、待办、责任人、时间点分别列出。**转写里没有的信息一律不要补**——这份纪要会被当作会议记录用，编出来的待办和责任人是会真害到人的。')
-  lines.push('3. 转写来自自动识别，有错别字和断句问题。按上下文改正明显的同音错误；改动大的地方在括号里附上原文。')
-  lines.push(`4. 写成 Markdown，保存到工作区的 \`${outPath}\`，然后简要说明纪要包含哪几部分。`)
+  for (const line of minutesRules(skill, outPath)) lines.push(line)
   lines.push('')
 
   lines.push('转写全文：')
@@ -170,6 +176,32 @@ export function buildMinutesPrompt(opts: {
   lines.push(recordingMarker(mark))
 
   return lines.join('\n')
+}
+
+// CONTENT_RULES 是两条支路共用的内容红线：只管纪要写什么，不管它长什么样，所以技能
+// 在场时照给不误。第二条是其中最要紧的——纪要会被当作会议记录用，编出来的待办和
+// 责任人是会真害到人的那类错误。
+const CONTENT_RULES = [
+  '先通读全文再落笔，不要逐句复述。',
+  '**转写里没有的信息一律不要补**——这份纪要会被当作会议记录用，编出来的待办和责任人是会真害到人的。',
+  '按上下文改正转写里明显的同音错误；改动大的地方在括号里附上原文。',
+]
+
+/**
+ * minutesRules 拼出「要求」那几条，序号自动排。
+ *
+ * 有技能时第一条只做一件事：把格式层整个指给技能，并挡住后面几条——不然「先通读
+ * 全文再落笔」这种话也会被当成对产出形式的指示去理解。没有技能时，第一条和最后一条
+ * 换成这里自己的结构与落盘要求。
+ */
+function minutesRules(skill: string | undefined, outPath: string): string[] {
+  const head = skill
+    ? `纪要的格式、结构、章节编号、产出形式与文件名**一律以「${skill}」技能为准**；下面几条只管内容，不要拿它们去改技能规定的样子。`
+    : '按议题归纳，结论、待办、责任人、时间点分别列出。'
+  const tail = skill
+    ? []
+    : [`写成 Markdown，保存到工作区的 \`${outPath}\`，然后简要说明纪要包含哪几部分。`]
+  return [head, ...CONTENT_RULES, ...tail].map((rule, i) => `${i + 1}. ${rule}`)
 }
 
 // SPEAKER_RE 从转写里抠出说话人标签。落盘格式是 `**[00:03] S1**：文本`

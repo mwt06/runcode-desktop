@@ -427,6 +427,7 @@ export default function App() {
                 onPlanToggle={conversation.setPlanOpen}
                 planning={planning}
                 harmAllows={conversation.harmAllows}
+                oaBlocked={conversation.oaBlocked}
                 revertedEdits={conversation.revertedEdits}
                 files={workspace.files}
                 tabs={preview.tabs}

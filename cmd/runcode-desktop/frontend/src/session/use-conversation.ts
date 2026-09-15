@@ -67,7 +67,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   const [convs, setConvs] = useState<ConvMap>({})
   const [planOpen, setPlanOpen] = useState(false)
   const cur = convOf(convs, focusedId)
-  const { blocks, harmAllows, busy, plan, ctxTokens, ctxEstimated, compacting, revertedEdits } = cur
+  const { blocks, harmAllows, oaBlocked, busy, plan, ctxTokens, ctxEstimated, compacting, revertedEdits } = cur
 
   // focusedRef 让"只注册一次"的事件处理器读得到最新的聚焦会话 id（闭包里不能直接
   // 读 focusedId）。事件本身按信封里的 id 落，这个只用于判断"要不要动界面"。
@@ -314,6 +314,17 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
             harmAllows: { ...s.harmAllows, [e.toolUseID]: e.reason || '模型判定为安全，无破坏性操作' },
           }))
         }
+      }),
+      // OA 闸门拦下一次调用、并已排好自动切换。工具结果本身仍是失败（模型要据此
+      // 停下来），但界面上不该是红色的「执行失败」——系统正在自动恢复，这一轮随后
+      // 会被本地模型整个重跑。按 tool-use id 精确标注那一张卡。
+      onEnvelope(Events.OABlocked, (env) => {
+        const e = env.payload
+        if (!e.toolUseId) return
+        patch(sessionOf(env), (s) => ({
+          ...s,
+          oaBlocked: { ...s.oaBlocked, [e.toolUseId]: e.localModel },
+        }))
       }),
     ]
     return () => offs.forEach((off) => off && off())
@@ -576,7 +587,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   const dropSession = (id: string) => setConvs((m) => dropConv(m, id))
 
   return {
-    blocks, harmAllows, busy, plan, planOpen, setPlanOpen, busyBySession, lastUserBySession, dropSession,
+    blocks, harmAllows, oaBlocked, busy, plan, planOpen, setPlanOpen, busyBySession, lastUserBySession, dropSession,
     ctxTokens, ctxEstimated, compacting, revertedEdits,
     scrollRef, onChatScroll,
     send, stop, compact, undo, pushError, reset, applyResumed, pushRecording,

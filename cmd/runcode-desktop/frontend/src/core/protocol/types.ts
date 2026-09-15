@@ -13,6 +13,7 @@ export const Events = {
   AssistantThinking: 'assistant:thinking',
   ContextUsage: 'context:usage',
   HarmAutoAllow: 'harm:autoallow',
+  OABlocked: 'oa:blocked',
   PassportChanged: 'passport:changed',
   PermissionRequest: 'permission:request',
   PlanUpdated: 'plan:updated',
@@ -21,6 +22,7 @@ export const Events = {
   RecorderTranscript: 'recorder:transcript',
   Retry: 'llm:retry',
   SessionRenamed: 'session:renamed',
+  SessionStatus: 'session:status',
   SkillInstall: 'skill:install',
   ToolEvent: 'tool:event',
   TurnEnd: 'turn:end',
@@ -181,6 +183,27 @@ export interface AssistantDelta {
   text: string;
 }
 
+// Mirrors protocol.CodexDeviceCode. CodexDeviceCode 是发起登录后要展示给用户的东西：把 UserCode 显示出来，让他在 VerificationURL 那个页面里输入。ExpiresAt 之后这串码作废，要重新发起。
+export interface CodexDeviceCode {
+  userCode: string;
+  verificationUrl: string;
+  expiresAt: string;
+}
+
+// Mirrors protocol.CodexModel. CodexModel 是 ChatGPT 账号下可用的一个 Codex 模型。清单由上游给出，不是本地 写死的表——可用模型按账号与订阅档次变化。
+export interface CodexModel {
+  id: string;
+  displayName?: string;
+  description?: string;
+}
+
+// Mirrors protocol.CodexStatus. CodexStatus 是 ChatGPT 账号的登录态。未登录时 LoggedIn=false，其余字段为空。
+export interface CodexStatus {
+  loggedIn: boolean;
+  email?: string;
+  accountId?: string;
+}
+
 // Mirrors protocol.CompactResult. CompactResult reports the in-memory message counts before and after an explicit compaction.
 export interface CompactResult {
   before: number;
@@ -205,13 +228,14 @@ export interface ContextUsage {
   iteration: number;
 }
 
-// Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点，与通行证平台模型并列显示在模型 选择器里。Provider 是引擎 provider registry 的名称（当前为 openai/ openai-responses/anthropic），由 llm.IsRegistered 校验而非本仓库的名单；旧配置 没有该字段时由桌面端按 openai 兼容处理。密钥字段仅用于桌面端持久化， ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
+// Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点，与通行证平台模型并列显示在模型 选择器里。Provider 通常是引擎 provider registry 的名称（openai/ openai-responses/anthropic），由 llm.IsRegistered 校验而非本仓库的名单；旧配置 没有该字段时由桌面端按 openai 兼容处理。 唯一的例外是 "codex"：它是**外壳层**的服务商，引擎注册表里没有这个名字。 桌面端在解析时把它翻译成 openai-responses（Codex 说的就是 Responses 协议）， 并把 Base URL 指向本地那个负责补凭据与指纹头的小代理，见 internal/codexproxy。密钥字段仅用于桌面端持久化， ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
 export interface CustomModel {
   name: string;
   provider?: string;
   model: string;
   baseURL: string;
   hasAPIKey?: boolean;
+  authMode?: string;
   apiKey?: string;
   apiKeyProtected?: string;
 }
@@ -342,6 +366,12 @@ export interface MemoryInfo {
   project: string[] | null;
 }
 
+// Mirrors protocol.OABlocked. OABlocked 说明某一次工具调用被"OA 数据只进本地模型"的闸门拦下了，而且外壳已经 排好自动切换。 它只为界面呈现而生：那次调用在模型眼里是失败的（工具结果带 IsError，模型要据此 停下来），但对用户不是——系统正在自动恢复，这一轮随后会被本地模型整个重跑。 界面据此把那张工具卡从红色的"执行失败"改写成中性的"已阻止 · 正在切换"。
+export interface OABlocked {
+  toolUseId: string;
+  localModel: string;
+}
+
 // Mirrors protocol.OpenSessionInfo. OpenSessionInfo 描述**此刻开着**的一条会话，供界面画会话列表。 与 SessionSummary 的分工：那个是工作区里**存下来**的历史会话（标题、时间、 回合数），这个是当前进程里活着的会话。界面上是两栏：「打开中」与「历史」。 只带后端独有的事实。标题走 session:renamed 事件与 SessionSummary，待审批数在 前端的授权队列里——都不必在这里重复一遍，重复就会出现两个版本互相矛盾。
 export interface OpenSessionInfo {
   sessionId: string;
@@ -356,10 +386,13 @@ export interface OutputLine {
   text: string;
 }
 
-// Mirrors protocol.PassportModel. PassportModel 是 Bridge /v1/models 列表项。
+// Mirrors protocol.PassportModel. PassportModel 是 Bridge /v1/models 列表项。 Local 及其后两个字段是本产品对 OpenAI 模型清单的扩展，由基座的 bridge.catalog 下发（改 ConfigMap 即生效，客户端不必发版）: - Local 标记该模型的推理在内网完成。**客户端只认这个标记、不做二次判断**—— "这个 id 的渠道到底指向哪里"只有基座知道，把它写死在客户端等于让两处事实 互相漂移。标记错了的后果是保密数据出内网，所以基座那边要在配置旁写明依据。 - LocalDefault 指定 Local 模型里默认用哪一个。只标 Local 不够:清单顺序一变 就换了模型，而"换哪个模型"必须是显式声明。 - ContextTokens 是该模型的上下文窗口。本地模型的窗口通常远小于云端模型， 切过去时要按它重设会话预算，否则历史一长第一次请求就超限。0 = 未声明， 沿用会话原值。
 export interface PassportModel {
   id: string;
   ownedBy: string;
+  local?: boolean;
+  localDefault?: boolean;
+  contextTokens?: number;
 }
 
 // Mirrors protocol.PassportStatus. PassportStatus 是前端展示用的登录态 + 用户信息。
@@ -582,6 +615,7 @@ export interface SaveCustomModelRequest {
   provider?: string;
   model: string;
   baseURL: string;
+  authMode?: string;
   apiKey?: string;
   clearAPIKey?: boolean;
 }

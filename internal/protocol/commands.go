@@ -19,6 +19,8 @@ import hostproto "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 var CommandKinds = map[string]hostproto.CommandKind{
 	// Queries (read-only, safely retriable).
 	"ActiveTenant":            hostproto.CommandQuery,
+	"CodexModels":             hostproto.CommandQuery,
+	"CodexStatus":             hostproto.CommandQuery,
 	"ContextAuditStatus":      hostproto.CommandQuery,
 	"GetProtocolInfo":         hostproto.CommandQuery,
 	"ListAgents":              hostproto.CommandQuery,
@@ -98,6 +100,10 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"OpenSession":             hostproto.CommandTrigger,
 	"FocusSession":            hostproto.CommandTrigger,
 	"OpenExternal":            hostproto.CommandTrigger,
+	"CodexAwaitLogin":         hostproto.CommandTrigger,
+	"CodexCancelLogin":        hostproto.CommandTrigger,
+	"CodexLogout":             hostproto.CommandTrigger,
+	"CodexStartLogin":         hostproto.CommandTrigger,
 	"PassportCancelLogin":     hostproto.CommandTrigger,
 	"PassportLogin":           hostproto.CommandTrigger,
 	"PassportLogout":          hostproto.CommandTrigger,

@@ -47,10 +47,6 @@ const (
 	skillMarketMaxPages = 10
 	// skillMarketTTL 是清单的缓存时长。市场按它自己的节奏变，不必每次开页面都跑一趟网络。
 	skillMarketTTL = 5 * time.Minute
-	// skillBundleMaxBytes / skillBundleMaxFiles 是解压的两道闸：一个压缩炸弹能把磁盘写满，
-	// 而这些包是从网络来的。
-	skillBundleMaxBytes = 200 << 20
-	skillBundleMaxFiles = 4000
 	// skillDownloadTTL 是预签名下载链接的有效期，够慢速网络下完一个大包。
 	skillDownloadTTL = 900
 	// skillDownloadTimeout 是下载一个技能包的时长上限。
@@ -481,7 +477,8 @@ func (a *App) downloadSkillBundle(id int, dir string, step func(stage string, re
 	// 一个技能包和一个安装包不是一个量级。
 	ctx, cancel := context.WithTimeout(context.Background(), skillDownloadTimeout)
 	defer cancel()
-	sum, size, err := fetchToFile(ctx, link.URL, "技能包", tmp, skillBundleMaxBytes, func(received, total int64) {
+	// 下载不设体积上限（传 0）：技能包多大由平台市场定，理由同 unzipSkill。
+	sum, _, err := fetchToFile(ctx, link.URL, "技能包", tmp, 0, func(received, total int64) {
 		step(protocol.SkillInstallDownload, received, total)
 	})
 	_ = tmp.Close()
@@ -495,7 +492,7 @@ func (a *App) downloadSkillBundle(id int, dir string, step func(stage string, re
 		return fmt.Errorf("技能包校验失败：期望 %s，实际 %s", want, sum)
 	}
 	step(protocol.SkillInstallExtract, 0, 0)
-	return unzipSkill(tmpName, size, dir)
+	return unzipSkill(tmpName, dir)
 }
 
 // unzipSkill 把 zip 里的技能解到 dir，并把目录层级**归一**成「SKILL.md 就在 dir 下」。
@@ -504,7 +501,12 @@ func (a *App) downloadSkillBundle(id int, dir string, step func(stage string, re
 // 技能是按 skills/<name>/SKILL.md 加载的。照原样解开的话，套了一层目录的包会变成
 // skills/<name>/<name>/SKILL.md——模型读不到，而且上传阶段验不出来、只在运行时显形。
 // 所以这里认 SKILL.md 所在的那一层为包根，只解那一层往下的东西。
-func unzipSkill(zipPath string, size int64, dir string) error {
+//
+// 解压**不设**文件数与体积上限：技能包多大、装多少个文件由平台市场决定，卡一个数字
+// 拦住的是正常的大包（带整套 references/scripts 的那种），而不是攻击。真正把关的是
+// 另外三道，它们照常逐条生效：包在解压前会与服务端给出的 sha256 比对（服务端给了的
+// 话）、条目名里的 zip-slip 一律拒绝、符号链接与特殊文件一律跳过。
+func unzipSkill(zipPath, dir string) error {
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return fmt.Errorf("技能包不是有效的 zip: %w", err)
@@ -516,10 +518,6 @@ func unzipSkill(zipPath string, size int64, dir string) error {
 		return errors.New("技能包里没有 SKILL.md（根目录或一级子目录都没有）")
 	}
 
-	// written 用 uint64 累加：zip 头里的 UncompressedSize64 是**包自己声明的**，
-	// 一个恶意包可以把它填成接近 2^64——先转 int64 会溢出成负数，那道闸就白设了。
-	var written uint64
-	files := 0
 	for _, f := range zr.File {
 		name := path.Clean(strings.ReplaceAll(f.Name, "\\", "/"))
 		if base != "" {
@@ -546,19 +544,10 @@ func unzipSkill(zipPath string, size int64, dir string) error {
 		if !f.Mode().IsRegular() {
 			continue // 符号链接与特殊文件一律跳过
 		}
-		files++
-		if files > skillBundleMaxFiles {
-			return fmt.Errorf("技能包里的文件超过 %d 个，拒绝安装", skillBundleMaxFiles)
-		}
-		written += f.UncompressedSize64
-		if written > uint64(skillBundleMaxBytes) {
-			return fmt.Errorf("技能包解压后超过 %d MiB，拒绝安装", skillBundleMaxBytes>>20)
-		}
 		if err := extractZipFile(f, target); err != nil {
 			return err
 		}
 	}
-	_ = size
 	return nil
 }
 
@@ -599,7 +588,7 @@ func extractZipFile(f *zip.File, target string) error {
 		return err
 	}
 	defer func() { _ = out.Close() }()
-	//nolint:gosec // G110: 解压总量与文件数在调用方按 skillBundleMaxBytes/Files 已封顶
+	//nolint:gosec // G110: 解压体积按产品要求不封顶（技能包多大就解多大），理由见 unzipSkill
 	_, err = io.Copy(out, rc)
 	return err
 }

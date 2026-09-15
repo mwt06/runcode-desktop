@@ -33,9 +33,23 @@ func desktopLogPath() (string, error) {
 	return filepath.Join(dir, "runcode", "desktop.log"), nil
 }
 
+// debugLogEnabled lets tests turn the diagnostic log off. Only tests change it
+// (see TestMain).
+//
+// The reason is that debugLog resolves os.UserConfigDir() on every call, so a
+// goroutine that outlives its test writes into whatever directory the env points
+// at *now* — which is some other test's t.TempDir(), already cleaned up. Recreating
+// it makes that innocent test's cleanup fail with "directory is not empty". This is
+// a whole class of flake, not one goroutine: every late log line is a candidate.
+// In production the env never changes, so per-call resolution is fine there.
+var debugLogEnabled = true
+
 // debugLog appends one timestamped line to the diagnostic log. Best-effort: any
 // failure (no config dir, unwritable path) is swallowed and never surfaces.
 func debugLog(format string, args ...any) {
+	if !debugLogEnabled {
+		return
+	}
 	logMu.Lock()
 	defer logMu.Unlock()
 

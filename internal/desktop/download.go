@@ -67,7 +67,8 @@ func downloadHTTP() *http.Client {
 //
 // label 是报错里的东西名（"技能包"、"安装包"）——同一句"下载失败"，说清楚下的是
 // 什么，用户才知道该去点哪个按钮重试。maxBytes 是字节数上限，超了就算失败：这些包都
-// 是从网络来的，没有上限意味着对方能把磁盘写满。onProgress 按 progressInterval
+// 是从网络来的，没有上限意味着对方能把磁盘写满；**传 0（或负数）表示不设上限**，留给
+// 体积本就不该封顶的东西（技能包——多大由平台市场定）。onProgress 按 progressInterval
 // 节流地调用；total 为 0 表示服务端没给 Content-Length（此时进度条只能画不确定态）。
 //
 // 整趟的时长与取消都由 ctx 决定：更新下载要能被用户按「取消」中止，而取消一次
@@ -93,13 +94,18 @@ func fetchToFile(ctx context.Context, rawURL, label string, w *os.File, maxBytes
 		total = 0
 	}
 	pw := &progressWriter{total: total, report: onProgress}
-	n, err := io.Copy(io.MultiWriter(w, h, pw), io.LimitReader(resp.Body, maxBytes+1))
+	var body io.Reader = resp.Body
+	if maxBytes > 0 {
+		// 多读一个字节，才能把"正好压线"和"超了"分开。
+		body = io.LimitReader(resp.Body, maxBytes+1)
+	}
+	n, err := io.Copy(io.MultiWriter(w, h, pw), body)
 	if err != nil {
 		return "", 0, fmt.Errorf("下载%s失败: %w", label, err)
 	}
 	// 收尾再报一次：节流会吞掉最后那一小段，不补的话进度条永远停在 97% 这种地方。
 	onProgress(n, total)
-	if n > maxBytes {
+	if maxBytes > 0 && n > maxBytes {
 		return "", 0, fmt.Errorf("%s超过 %d MiB，拒绝继续", label, maxBytes>>20)
 	}
 	return hex.EncodeToString(h.Sum(nil)), n, nil

@@ -40,9 +40,13 @@ func defaultRequest() StartSessionRequest {
 		// 智能模式。这是有意的取舍，不是漏接线。
 		PermissionMode: "interactive",
 		// Arm automatic compaction by default so long sessions don't overflow the
-		// context window; 128k suits most modern models. The user can change it (or
-		// pick 关闭) in the start form.
-		MaxContextTokens: 128_000,
+		// context window. The user can change it (or pick 关闭) in the start form.
+		//
+		// 260k assumes the connected model's window is larger than that — compaction
+		// fires when usage approaches this budget, so a budget above the window means
+		// the request is rejected for length before compaction ever runs. Models with
+		// a 200k window need one of the smaller options.
+		MaxContextTokens: 260_000,
 	}
 }
 
@@ -107,12 +111,25 @@ func saveConfigHeld(req StartSessionRequest) {
 	// The MRU workspace list is server-owned: recompute it from the previously
 	// persisted list plus the workspace being saved, ignoring whatever the frontend
 	// sent (it only ever echoes back what it was given).
-	prev := loadRawConfig()
+	prev, hadPrev := loadRawConfigOK()
 	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
 	req.CustomModels = prev.CustomModels
 	req.WebProxy = prev.WebProxy
 	req.SkipLogin = prev.SkipLogin
 	req.ContextAudit = prev.ContextAudit
+	// 「上下文长度控制」那一组（最大输出 tokens / 上下文预算 / 历史消息上限）是**设置页
+	// 独占**的：起始页不渲染它们，只按 wire 零值发过来（见 pages/start/index.tsx）。把那些
+	// 零值原样落盘，等于每开一次新会话就把用户填的清一次——实测症状是「设置里改完最大
+	// 输出，重启后从起始页进一次就没了」。
+	//
+	// 办法与 SkipLogin 同一套:这里一律沿用已落盘的值,SaveSettings 是它们唯一的写入口。
+	// 只有还没有配置文件时例外——那时沿用会把 defaultRequest 播下的 260k 预算抹成 0,
+	// 所以首次保存保留请求自带的种子值。
+	if hadPrev {
+		req.MaxTokens = prev.MaxTokens
+		req.MaxContextTokens = prev.MaxContextTokens
+		req.MaxHistoryMessages = prev.MaxHistoryMessages
+	}
 	// 租户是**账号级**选择，写它的三层职责各不相同：
 	//   SetActiveTenant        权威写入，含显式设空（=用令牌自带租户）；
 	//   persistConnectionChoice 完全不碰——换模型与"我属于哪个组织"无关；
@@ -168,18 +185,43 @@ func unprotectRequestSecrets(req StartSessionRequest) StartSessionRequest {
 // saveConfig can carry forward server-owned fields (the MRU workspace list). A
 // missing/corrupt file yields a zero request, which is the correct seed.
 func loadRawConfig() StartSessionRequest {
+	req, _ := loadRawConfigOK()
+	return req
+}
+
+// loadRawConfigOK is loadRawConfig plus "was there anything to read". The flag
+// matters where a zero value is a real setting rather than "unset": carrying a
+// missing file's zeros forward would silently clear a seeded default.
+func loadRawConfigOK() (StartSessionRequest, bool) {
 	path, err := desktopConfigPath()
 	if err != nil {
-		return StartSessionRequest{}
+		return StartSessionRequest{}, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return StartSessionRequest{}
+		return StartSessionRequest{}, false
 	}
 	var req StartSessionRequest
 	if err := json.Unmarshal(data, &req); err != nil {
-		return StartSessionRequest{}
+		return StartSessionRequest{}, false
 	}
+	return req, true
+}
+
+// withStoredContextLimits 用落盘的那份覆盖请求里的「上下文长度控制」三项。
+//
+// 它们由设置页独占（见 saveConfigHeld 里的沿用规则），所以磁盘上的那份就是事实:
+// 起始页发来的零值不是"用户清空了"，只是"这个表单不管这些字段"。不填回来的话，
+// 设置里填的最大输出 tokens 对新会话根本不生效——丢设置与不生效是同一个根因。
+// 没有配置文件时（首次启动）保留请求自带的值，那是 defaultRequest 播的种子。
+func withStoredContextLimits(req StartSessionRequest) StartSessionRequest {
+	prev, ok := loadRawConfigOK()
+	if !ok {
+		return req
+	}
+	req.MaxTokens = prev.MaxTokens
+	req.MaxContextTokens = prev.MaxContextTokens
+	req.MaxHistoryMessages = prev.MaxHistoryMessages
 	return req
 }
 

@@ -152,6 +152,8 @@ gitlab.ouc-online.com.cn/aibase/agentloop v0.13.0 h1:vsFtLNUtNUyc5iCemzxKZld1pat
 gitlab.ouc-online.com.cn/aibase/agentloop v0.13.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.13.1 h1:bduW7xmfNL+spW4CDLrGrOOVTZoIizoXTnYAFFah5s8=
 gitlab.ouc-online.com.cn/aibase/agentloop v0.13.1/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
+gitlab.ouc-online.com.cn/aibase/agentloop v0.14.0 h1:ZBoSBm857EPKw9kU3qcgi+yHlJByYYKwbHO68Ee4DdA=
+gitlab.ouc-online.com.cn/aibase/agentloop v0.14.0/go.mod h1:k9c8Ofyy0qRcvkgAUC51+9Mn/DVS/Vn7iBNanID/81c=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 golang.org/x/crypto v0.53.0 h1:QZ4Muo8THX6CizN2vPPd5fBGHyogrdK9fG4wLPFUsto=
 golang.org/x/crypto v0.53.0/go.mod h1:DNLU434OwVakk9PzuwV8w62mAJpRJL3vsgcfp4Qnsio=

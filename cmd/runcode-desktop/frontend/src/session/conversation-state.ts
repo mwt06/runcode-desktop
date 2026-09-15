@@ -15,6 +15,15 @@ export interface ConversationState {
   blocks: Block[]
   /** harmAllows 把 tool-use id 映到智能模式自动放行的理由，供工具卡标注。 */
   harmAllows: Record<string, string>
+  /**
+   * oaBlocked 把 tool-use id 映到「被 OA 本地模型闸门拦下」时要切去的那个模型。
+   *
+   * 那次调用在模型眼里确实是失败的（工具结果带 IsError，模型要据此停下来），
+   * 但对用户不是——系统正在自动切换并重跑这一轮。所以卡片不该是红色的「执行失败」。
+   * 按 id 标注而不是让界面去匹配错误文案：措辞改一次匹配就静默失效，
+   * 而失效的表现只是退回报错，没人会注意到。
+   */
+  oaBlocked: Record<string, string>
   /** busy 表示这条会话有回合在跑。**每会话一份**是并行的前提：后台会话在跑
    *  不该让前台的输入框变成"回合进行中"。 */
   busy: boolean
@@ -33,6 +42,7 @@ export interface ConversationState {
 export const emptyConversation: ConversationState = {
   blocks: [],
   harmAllows: {},
+  oaBlocked: {},
   busy: false,
   plan: null,
   ctxTokens: 0,

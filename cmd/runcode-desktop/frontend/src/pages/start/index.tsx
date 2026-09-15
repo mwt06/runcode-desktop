@@ -140,11 +140,16 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
       cwd,
       permissionMode: initial.permissionMode || 'interactive',
       thinkingEffort: initial.thinkingEffort ?? '',
-      maxContextTokens: initial.maxContextTokens ?? 128000,
+      maxContextTokens: initial.maxContextTokens ?? 260000,
       harmJudgeModel: initial.harmJudgeModel ?? '',
       harmJudgeVotes: initial.harmJudgeVotes ?? 1,
       // 起始页不涉及的字段按 wire 零值发送 —— 与旧版直接省略这些键时 Go 端
       // json 反序列化得到的零值完全一致（生成的 StartSessionRequest 为全量必填）。
+      //
+      // 其中 maxTokens / maxHistoryMessages 这两个零值**不代表"用户清空了"**：这组
+      // 「上下文长度控制」归设置页独占，后端会用落盘的那份盖回来（见 Go 侧
+      // withStoredContextLimits / saveConfigHeld）。上面那行 maxContextTokens 的回显
+      // 别删：首次启动还没有 desktop.json 时，它是那个 260k 种子值唯一的来源。
       customModelName: '',
       tenantId: '',
       baseURL: '',

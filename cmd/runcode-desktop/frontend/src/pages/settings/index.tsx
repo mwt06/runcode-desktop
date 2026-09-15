@@ -41,7 +41,7 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
   const [harmJudgeVotes, setHarmJudgeVotes] = useState(initial.harmJudgeVotes ?? 1)
   const [permissionMode, setPermissionMode] = useState(info?.permissionMode || initial.permissionMode || 'interactive')
   const [maxTokens, setMaxTokens] = useState(initial.maxTokens ? String(initial.maxTokens) : '')
-  const [maxContextTokens, setMaxContextTokens] = useState(initial.maxContextTokens ?? 128000)
+  const [maxContextTokens, setMaxContextTokens] = useState(initial.maxContextTokens ?? 260000)
   const [maxHistoryMessages, setMaxHistoryMessages] = useState(initial.maxHistoryMessages ? String(initial.maxHistoryMessages) : '')
   // 免登录:关闭(默认)时启动强制走登录页;开启后未登录也可直接进表单用本地自定义模型。
   const [skipLogin, setSkipLogin] = useState(initial.skipLogin ?? false)

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wt68/runcode/internal/codexauth"
+	"github.com/wt68/runcode/internal/codexproxy"
 	"github.com/wt68/runcode/internal/officetool"
 	"github.com/wt68/runcode/internal/plantool"
 	"github.com/wt68/runcode/internal/previewtool"
@@ -83,6 +85,20 @@ type sessionEntry struct {
 	// closed 记录引擎侧会话已经关闭。条目本身要留在表里——关闭后「已编辑」卡片
 	// 仍然可复审,直到下一个会话开出来把它替换掉。
 	closed bool
+
+	// —— OA 锁(见 oalock.go / oaswitch.go)——
+	//
+	// oaLocalModel 是这条会话被绑定到的本地模型("" = 没读过 OA,不受限)。
+	// 一旦非空就不再变回空:历史里的 OA 数据不会自己消失。
+	oaLocalModel string
+	// oaSwitchPending 记着"闸门刚拦下一次 OA 调用,这个回合结束后要切到这个本地
+	// 模型"。切换不能在回合中途做——重建会话会把正在跑的回合连根拔掉。
+	oaSwitchPending string
+	// oaResendText 是切换完成后要替用户重发的那条消息。
+	oaResendText string
+	// oaSwitchDone 记着本会话已经自动切过一次。**防重入**:切完仍过不了闸时若再切
+	// 一次,就是"重建→重发→再被拦→再重建"的死循环,而每一轮都会真的跑一次模型。
+	oaSwitchDone bool
 }
 
 // App is the desktop shell: a thin adapter between the Wails bindings and the
@@ -159,6 +175,13 @@ type App struct {
 	// session, keeping the in-chat model catalog aligned with actual request routing.
 	livePassport       bool
 	livePassportTenant string
+	// ChatGPT(Codex)接入,见 codex.go。codex 是账号本身(令牌保管与续期),
+	// codexProxy 是**进程级**的本地反代(懒启动,一条就够,按 profile 分辨上游),
+	// 后两个是进行中的设备码登录状态。
+	codex            *codexAccount
+	codexProxy       *codexproxy.Server
+	codexLoginCancel context.CancelFunc
+	codexPending     codexauth.DeviceCode
 	// previews 是工作区 → 预览服务器的表(见 preview.go)。按**工作区**共享而不是
 	// 按会话:同一目录的多个会话用同一台服务器,引用计数归零才停。
 	previews map[string]*previewRef
@@ -190,6 +213,13 @@ type App struct {
 	// audit is the 上下文审核 runtime (store + viewer server + atomic switch),
 	// active only in test builds; see contextaudit.go. Always non-nil.
 	audit *contextAuditManager
+	// localModels 缓存各租户的本地模型解析结果（见 oa.go）。会话创建是延迟敏感
+	// 路径，不能每次都去 Bridge 拉一趟模型清单；PassportModels 每次成功也会顺手
+	// 刷新它，所以正常使用下这里几乎总是热的。键是租户 id（空 = 令牌自带租户）。
+	localModels map[string]localModelEntry
+	// oaBindings 缓存"当前账号在 Passport 里绑没绑 OA"（见 oa.go）。与上一行同一套
+	// 理由：会话创建不能每次都去问一趟。键同样是租户 id。
+	oaBindings map[string]oaBindingEntry
 }
 
 // New returns an App that emits events to sink. Session events are enveloped
@@ -211,6 +241,8 @@ func newWithBuild(sink EventSink, build host.BuildFunc) *App {
 		idlePlans:      newPlanStore(),
 		passportTenant: strings.TrimSpace(loadRawConfig().TenantID),
 		audit:          newContextAuditManager(),
+		// ChatGPT 账号在这里就读回落盘的令牌,所以重启后仍是登录态(见 codex.go)。
+		codex: newCodexAccount(),
 	}
 	a.mgr = host.NewManager(host.Options{
 		Build:     build,
@@ -247,6 +279,14 @@ func (a *App) Startup() {
 	// decides which servers carry the user's identity, and opening a session must
 	// not pay a network round-trip to find out. A cold start with no stored login
 	// is a no-op — PassportLogin syncs once the token arrives.
+	// 下架已被内置工具取代的 MCP 服务器(见 mcpretire.go)。不依赖登录,也不依赖
+	// 市场清单——"哪些能力已经内置"是客户端自己的事实。
+	//
+	// **同步跑,不开 goroutine**:它读(必要时写)用户配置目录,而 New 之后紧接着就
+	// 可能建会话、开 MCP 页。放后台的话,这两件事会与它抢同一份 config.toml,谁先
+	// 谁后不确定;在测试里的表现是临时配置目录清理不掉(goroutine 还按着它)。
+	// 代价只是一次配置读——New 本来就已经读了一次(上面的 loadRawConfig)。
+	a.retireMCPServers()
 	go a.syncMarketOnce()
 	// 先结算上一次更新装没装成（同步、纯本地文件读写），再起自动检查——反过来的话
 	// 检查回来的状态会把"上次没装上"的说明冲掉。
@@ -515,11 +555,21 @@ func (a *App) SetQuitter(q Quitter) { a.quit = q }
 // It is stated here rather than left to the engine on purpose: two of these names
 // still appear in the engine's own resolver switch, which is the engine knowing
 // about desktop-only tools. Classifying them here is what lets that go away.
-var hostToolClasses = map[string]permissions.ToolClass{
-	plantool.Name:    permissions.ClassReadOnly,
-	previewtool.Name: permissions.ClassReadOnly,
-	officetool.Name:  permissions.ClassReadOnly,
-}
+//
+// OA 那批(oaToolClasses,见 oa.go)无条件并进来,即便这条会话没注册它们:归类是
+// 一张"这个名字属于哪一类"的静态表,不是"这次装了什么"的清单。按会话拼装它只会
+// 让"某些会话里 OA 工具一调就被拒"这种问题多一个可能来源。
+var hostToolClasses = func() map[string]permissions.ToolClass {
+	m := map[string]permissions.ToolClass{
+		plantool.Name:    permissions.ClassReadOnly,
+		previewtool.Name: permissions.ClassReadOnly,
+		officetool.Name:  permissions.ClassReadOnly,
+	}
+	for name, class := range oaToolClasses {
+		m[name] = class
+	}
+	return m
+}()
 
 // harmAutoAllowLimit 是智能模式一个会话里最多免弹窗放行多少次危险操作。
 //
@@ -579,7 +629,13 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		// application" is host knowledge the engine cannot have, so the shell wraps
 		// the default policy and stops the outside-workspace prompt for them alone
 		// (see appdirs.go — data dirs read+write, install dir read-only).
-		Policy:            newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPServers: passportMCPNames()}),
+		// 最外层是 OA 锁:会话读过 OA 之后,不需要用户点头就能出网的工具(联网搜索、
+		// 抓取网页)一律拒绝——模型可以把 OA 内容拼进搜索词送出去,而那是自动放行的。
+		// 见 oapolicy.go。
+		Policy: newOALockPolicy(
+			newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPServers: passportMCPNames()}),
+			func() string { return a.oaLockedModel(sctx.ID) },
+		),
 		ApprovalAvailable: true,
 		InteractiveAuthorizer: permissions.InteractiveAuthorizer{
 			Approver: sctx.Approver,
@@ -616,6 +672,22 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// (discovery, precedence, the disabled list, ReloadSkills).
 	opts.SkillTool = skilltool.New()
 
+	// 联网搜索：登录了通行证就换成平台自己的搜索(经 Bridge 走 AI.Core)，否则保留
+	// 引擎内置的那条。同样是"替换"而非"新增"——理由见 websearch.go。
+	if ws := passportWebSearch(cfg); ws != nil {
+		opts.WebSearchTool = ws
+	}
+
+	// OA 办公工具:只在通行证连接、且该租户有可用本地模型时才装(见 oa.go)。
+	// 它们随身带一道闸门——不在本地模型上就拒绝执行,一个字节都不从 OA 取。
+	//
+	// 走 ExtraTools 而不是别的口子还有一层意义:ExtraTools 是主会话专属的(引擎在
+	// 加 Task 工具之前就把子代理可用工具快照走了),所以子代理**结构上**拿不到 OA
+	// 工具。子代理跑在构建时那个模型上,给它 OA 工具等于给闸门开一条后门。
+	if oa := a.oaTools(cfg, sctx.ID); len(oa) > 0 {
+		opts.ExtraTools = append(opts.ExtraTools, oa...)
+	}
+
 	// 上下文审核观测器只在测试版接线;正式版连回调都不装,功能整体不存在。
 	// 回调内部查原子开关,所以运行中切换立即对当前会话生效,无需重建。
 	if IsTestBuild() {
@@ -637,6 +709,9 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 // StartSession opens (or reopens) the session for a workspace and returns its
 // display state. Any existing session is closed first.
 func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
+	// 设置页独占的那三项上下文限制以落盘的为准：起始页不渲染它们、只发零值，不填
+	// 回来的话用户在设置里填的最大输出 tokens 对这条新会话不生效（见 store.go）。
+	req = withStoredContextLimits(req)
 	originalReq := req
 	var err error
 	req, err = a.resolveCustomModelRequest(req)
@@ -765,6 +840,10 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 	//
 	cfg.MCPServers, cfg.AllowMCPSampling = loadDesktopMCP(cfg.CWD)
 	a.attachMCPPassport(cfg.MCPServers)
+	// 恢复一条读过 OA 的会话时,把模型钉回它锁定的本地模型(见 oaswitch.go)。
+	// 少了这一步,"关掉重开"就是绕过 OA 锁的现成办法——恢复出来的历史照样带着 OA
+	// 数据,锁却随上一个进程一起没了。
+	cfg = a.restoreOALockHeld(cfg)
 
 	id, st, err := a.mgr.Create(context.Background(), cfg)
 	a.mu.Lock()
@@ -779,10 +858,18 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 	a.dropClosedLocked()
 	// 登记顺带把 focused 与 workspace 一起切到新会话(见 focusLocked)。
 	a.registerSessionLocked(id, cfg.CWD, pendingEdits, pendingPlans, pendingEmit)
+	// 锁跟着会话进内存:此后闸门、模型切换拦截、出网工具封锁读的都是这一份。
+	oaLock, oaLocked := readOALock(cfg.CWD, id)
+	if oaLocked {
+		if e := a.entryLocked(id); e != nil {
+			e.oaLocalModel = oaLock.LocalModel
+		}
+	}
 	a.config = cfg
 	a.configPassport = passport
 	a.liveConfig = cfg
 	a.livePassport = passport
+	// 见下方 oaLocked 那段:sidecar 会在这之后把模型拉回去,所以锁着的会话要再钉一次。
 	if passport {
 		a.passportTenant = strings.TrimSpace(tenantID)
 		a.livePassportTenant = strings.TrimSpace(tenantID)
@@ -790,6 +877,18 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 		a.livePassportTenant = ""
 	}
 	a.mu.Unlock()
+
+	// 锁着的会话:把模型再钉一次,并写回 sidecar。
+	//
+	// 上面 restoreOALockHeld 已经把 cfg.Model 设成锁定的本地模型了,但引擎恢复会话时
+	// 会拿 sidecar 里存的运行时设置回灌(host/manager.go 的 applyMeta → SetModel),
+	// 把它覆盖回用户上次手动选的那个——于是"关掉重开"就绕过了 OA 锁,而且毫无迹象。
+	// Manager.SetModel 同时改引擎与 sidecar,从此两处一致。
+	if oaLocked {
+		if err := a.mgr.SetModel(id, oaLock.LocalModel); err != nil {
+			debugLog("oa: 恢复会话后重新钉住本地模型失败 session=%s: %v", id, err)
+		}
+	}
 
 	// Restart the workspace preview server for this session (non-fatal on error).
 	a.startPreview(cfg.CWD)

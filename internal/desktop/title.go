@@ -36,6 +36,10 @@ func (a *App) onTurnEnd(sctx host.SessionContext, _ turn.Result) {
 		text = e.lastUserText
 	}
 	a.mu.Unlock()
+	// OA 自动切换也挂在这里:闸门只能在回合中途"拦下并排队",真正的重建必须等回合
+	// 结束(重建会把正在跑的回合连根拔掉)。与标题各起一个 goroutine——标题失败不该
+	// 拖住切换,切换耗时也不该拖住标题。
+	go a.maybeSwitchToLocalModel(sctx)
 	if strings.TrimSpace(text) == "" {
 		return
 	}

@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
+import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -47,6 +47,42 @@ export function closeAllSessions(): Promise<void> {
 // kind: trigger
 export function closeSession(sessionID: string): Promise<void> {
   return call<void>('CloseSession', sessionID);
+}
+
+// CodexAwaitLogin 等用户完成授权。成功后账号已落盘，返回新的登录态。 码过期或被取消都以错误返回，前端据此提示重新登录。
+// kind: trigger
+export function codexAwaitLogin(): Promise<CodexStatus> {
+  return call<CodexStatus>('CodexAwaitLogin');
+}
+
+// CodexCancelLogin 取消进行中的登录（用户关掉了对话框）。
+// kind: trigger
+export function codexCancelLogin(): Promise<void> {
+  return call<void>('CodexCancelLogin');
+}
+
+// CodexLogout 退出 ChatGPT 账号：清空并删掉落盘令牌。
+// kind: trigger
+export function codexLogout(): Promise<CodexStatus> {
+  return call<CodexStatus>('CodexLogout');
+}
+
+// CodexModels 返回当前 ChatGPT 账号真正能用的模型。 为什么不能写死一张表：可用模型按账号、订阅档次与客户端版本变化。实测某个账号 下**只有 gpt-6-astra 一个**，而人尽皆知的 gpt-5-codex 被上游直接回绝 （"not supported when using Codex with a ChatGPT account"）。让用户凭印象填名字， 结果就是一个没法自查的 400。
+// kind: query
+export function codexModels(): Promise<CodexModel[] | null> {
+  return call<CodexModel[] | null>('CodexModels');
+}
+
+// CodexStartLogin 发起设备码登录：返回要展示给用户的码，并顺手打开浏览器。 拿到码之后调 CodexAwaitLogin 等用户完成。 分成两条命令而不是像通行证那样一条等到底，是因为设备码流程必须**先**把码显示 出来——一条阻塞命令直到成功才返回，用户根本不知道要去输什么。
+// kind: trigger
+export function codexStartLogin(): Promise<CodexDeviceCode> {
+  return call<CodexDeviceCode>('CodexStartLogin');
+}
+
+// CodexStatus 返回 ChatGPT 账号的登录态。
+// kind: query
+export function codexStatus(): Promise<CodexStatus> {
+  return call<CodexStatus>('CodexStatus');
 }
 
 // Compact summarizes the oldest turns now and reports the message counts.
@@ -577,7 +613,7 @@ export function setToolEnabled(name: string, scope: string, enabled: boolean): P
   return call<void>('SetToolEnabled', name, scope, enabled);
 }
 
-// SetWebProxy 设置联网工具的代理并持久化，返回规范化后的地址(空 = 直连)。 只影响 WebFetch/WebSearch，不影响模型/通行证的请求——那些走各自的客户端。 工具的 HTTP 客户端在建会话时构造，故改动对**新建/恢复的会话**生效。
+// SetWebProxy 设置联网工具的代理并持久化，返回规范化后的地址(空 = 直连)。 不影响模型/通行证的请求——那些走各自的客户端。工具的 HTTP 客户端在建会话时 构造，故改动对**新建/恢复的会话**生效。 覆盖的是**引擎内置的**那两条联网工具：WebFetch，以及内置的 DuckDuckGo 版 WebSearch。它们共用引擎按 engine.Config.WebProxy 建的那一个客户端。 通行证会话的联网搜索**不在其列**：那时 WebSearch 被换成走 Bridge 的平台搜索 (见 websearch.go)，它自建普通客户端。这是刻意的——Bridge 常部署在内网，把它 塞进用户填的公网代理只会连不上。
 // kind: idempotent-set
 export function setWebProxy(v: string): Promise<string> {
   return call<string>('SetWebProxy', v);
@@ -625,7 +661,7 @@ export function updateStatus(): Promise<UpdateInfo> {
   return call<UpdateInfo>('UpdateStatus');
 }
 
-// WebProxy 返回联网工具(WebFetch/WebSearch)使用的代理地址(空 = 直连)。
+// WebProxy 返回联网工具使用的代理地址(空 = 直连)。覆盖面见 SetWebProxy。
 // kind: query
 export function webProxy(): Promise<string> {
   return call<string>('WebProxy');

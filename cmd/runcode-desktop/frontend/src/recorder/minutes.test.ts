@@ -54,9 +54,42 @@ describe('minutesFileName', () => {
 describe('buildMinutesPrompt', () => {
   const transcript = '**[00:03] 我**：先说结论\n\n**[00:11] S1**：同意'
 
-  it('有技能时明确要求走技能模板', () => {
+  it('有技能时指名技能，并把格式整层指给它', () => {
     const p = buildMinutesPrompt({ mark: info(), transcript, skill: '国开会议纪要', outPath: 'out.md' })
     expect(p).toContain('请使用「国开会议纪要」技能')
+    expect(p).toContain('一律以「国开会议纪要」技能为准')
+  })
+
+  it('有技能时不再自带格式要求，免得盖掉技能里的模板', () => {
+    // 这条链路最容易坏的地方：两份格式要求摆在一起，模型照的是更具体、位置更靠后
+    // 的那份，于是装了国开模板也出不来国开格式的纪要。
+    const p = buildMinutesPrompt({ mark: info(), transcript, skill: '国开会议纪要', outPath: 'out.md' })
+    expect(p).not.toContain('按议题归纳')
+    expect(p).not.toContain('结论、待办、责任人、时间点分别列出')
+    expect(p).not.toContain('写成 Markdown')
+  })
+
+  it('有技能时连存到哪里都不提，产出什么文件由技能定', () => {
+    const p = buildMinutesPrompt({ mark: info(), transcript, skill: '国开会议纪要', outPath: '会议纪要-20260819-季度评审.md' })
+    expect(p).not.toContain('会议纪要-20260819-季度评审.md')
+  })
+
+  it('内容红线两条支路都给——它只管写什么，不跟技能的模板冲突', () => {
+    for (const skill of ['国开会议纪要', undefined]) {
+      const p = buildMinutesPrompt({ mark: info(), transcript, skill, outPath: 'out.md' })
+      expect(p).toContain('先通读全文再落笔')
+      expect(p).toContain('不要补')
+      expect(p).toContain('同音错误')
+    }
+  })
+
+  it('有技能时仍交代这份转写是什么——那是技能不可能知道的', () => {
+    // 材料说明不是纪要要求：不讲清 S1 是声纹编号，纪要就会把发言安到被喊名字的
+    // 那个人头上；不讲清是语音识别，明显的同音错误会被当成事实照抄。
+    const p = buildMinutesPrompt({ mark: info({ needsBackfill: true }), transcript, skill: '国开会议纪要', outPath: 'out.md' })
+    expect(p).toContain('声纹聚类给出的编号')
+    expect(p).toContain('自动语音识别')
+    expect(p).toContain('断开过')
   })
 
   it('没有技能时退回通用措辞，不提技能', () => {
@@ -65,20 +98,29 @@ describe('buildMinutesPrompt', () => {
     expect(p).not.toContain('技能')
   })
 
+  it('没有技能时才由这里给出结构与落盘要求', () => {
+    // 那条路上没有技能可依，格式一条都不给等于让模型自由发挥。
+    const p = buildMinutesPrompt({ mark: info(), transcript, outPath: 'out.md' })
+    expect(p).toContain('按议题归纳')
+    expect(p).toContain('写成 Markdown')
+  })
+
+  it('序号自动排，两条支路都从 1 连到底', () => {
+    // head/tail 换着接，手写序号迟早断号。
+    const withSkill = buildMinutesPrompt({ mark: info(), transcript, skill: 's', outPath: 'out.md' })
+    expect(withSkill).toContain('1. 纪要的格式')
+    expect(withSkill).toContain('4. 按上下文改正')
+    const plain = buildMinutesPrompt({ mark: info(), transcript, outPath: 'out.md' })
+    expect(plain).toContain('1. 按议题归纳')
+    expect(plain).toContain('5. 写成 Markdown')
+  })
+
   it('带上标题、时间、时长与落盘路径', () => {
     const p = buildMinutesPrompt({ mark: info(), transcript, outPath: '会议纪要-20260819-季度评审.md' })
     expect(p).toContain('季度评审')
     expect(p).toContain('2026-08-19 10:57')
     expect(p).toContain('7 分 5 秒')
     expect(p).toContain('`会议纪要-20260819-季度评审.md`')
-  })
-
-
-
-  it('禁止补写转写里没有的信息', () => {
-    // 纪要被当会议记录用，编出来的待办和责任人是最坏的一类错误。
-    const p = buildMinutesPrompt({ mark: info(), transcript, outPath: 'out.md' })
-    expect(p).toContain('不要补')
   })
 
   it('转写有缺口时要求点明，不要脑补衔接', () => {

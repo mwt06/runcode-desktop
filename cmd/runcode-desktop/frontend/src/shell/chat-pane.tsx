@@ -24,7 +24,7 @@ import { type Plan } from '@/session/use-plan'
 
 export function ChatPane({
   blocks, busy, cwd, userName, plan, planOpen, onPlanToggle, planning,
-  harmAllows, revertedEdits, files, tabs,
+  harmAllows, oaBlocked, revertedEdits, files, tabs,
   scrollRef, onScroll,
   onAnswer, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
   recorderCard,
@@ -41,6 +41,7 @@ export function ChatPane({
   // 跑阶段时顶部出进度条，三个阶段跑完后输入区上方出审批板。
   planning: Plan
   harmAllows: Record<string, string>
+  oaBlocked: Record<string, string>
   revertedEdits: Set<string>
   files: string[]
   tabs: PreviewTab[]
@@ -126,7 +127,7 @@ export function ChatPane({
           )}
           {groups.map((g) =>
             g.kind === 'exec' ? (
-              <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} /></BotRow>
+              <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} oaBlocked={oaBlocked} /></BotRow>
             ) : g.kind === 'ask' ? (
               <BotRow key={g.id}><AskCard tool={g.tool} busy={busy} onAnswer={onAnswer} /></BotRow>
             ) : g.kind === 'edits' ? (
