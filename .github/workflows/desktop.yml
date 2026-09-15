@@ -223,8 +223,19 @@ jobs:
           # （录音采集走 malgo），所以改用镜像自带的 LLVM——它是原生 arm64，认得
           # 那些指令。
           if [ "${{ matrix.target }}" = windows-arm64 ]; then
-            export CC=clang CXX=clang++
             clang --version | head -2
+            # 还要再包一层：clang 22 起把 -mthreads 判成硬错误，而那个 flag 是 Go
+            # 自己给 runtime/cgo 加的，关不掉。整段来龙去脉写在 shim 源码头部，
+            # 连同"哪天绿哪天红"的证据。
+            #
+            # cygpath -m 出来的是正斜杠的 Windows 绝对路径：Go 认，clang 认，
+            # 也不会在 bash 里被当成转义。源码拷到 RUNNER_TEMP 再 go mod init，
+            # 是为了不把一个临时模块塞进仓库。
+            shim="$(cygpath -m "$RUNNER_TEMP")/ccshim"
+            mkdir -p "$shim"
+            cp ../../.github/ccshim/main.go "$shim/main.go"
+            ( cd "$shim" && go mod init ccshim >/dev/null && go build -o ccshim.exe . )
+            export CC="$shim/ccshim.exe" CXX=clang++
           fi
           case "${{ matrix.target }}" in
             windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer ;;
