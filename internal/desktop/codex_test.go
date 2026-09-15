@@ -227,6 +227,25 @@ func TestCodexLoginSurvivesRestart(t *testing.T) {
 	})
 
 	path := filepath.Join(dir, "runcode", "codex.json")
+
+	// 系统凭据库不一定可用，而**不可用是一条正常分支，不是环境故障**：CI 的 Linux
+	// runner 没有 Secret Service 的 D-Bus 会话，macOS runner 没有图形会话去解锁钥匙串。
+	// 这时 protectSecret 报 ok=false，persistCodexTokens 一个字节都不写——契约是
+	// "宁可下次重登，也不明文存 refresh token"。
+	//
+	// 所以这一支照样断言，而不是 t.Skip：恰恰是在不落盘的时候，最该守住的就是
+	// "磁盘上什么都没有"。探针调的就是生产路径那同一个函数，上面 Set 已经调过一次，
+	// 不会多出副作用。
+	if _, ok := protectSecret("probe"); !ok {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("没有可用的系统凭据库，却还是写出了 %s（stat err=%v）", path, err)
+		}
+		if New(&recordingSink{}).codex.Status().LoggedIn {
+			t.Fatal("没落盘，重启后却报已登录")
+		}
+		return
+	}
+
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("登录后没有落盘: %v", err)
