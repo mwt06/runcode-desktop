@@ -90,6 +90,7 @@ INSTALL_SCOPE=machine
 LOCAL_ENGINE=0
 LINUX_GTK3=0
 KYLIN10=0
+DEVTOOLS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -104,6 +105,7 @@ while [ $# -gt 0 ]; do
     --local-engine) LOCAL_ENGINE=1; shift ;;
     --gtk3) LINUX_GTK3=1; shift ;;
     --kylin) KYLIN10=1; shift ;;
+    --devtools) DEVTOOLS=1; shift ;;
     -h|--help) sed -n '2,62p' "$0"; exit 0 ;;
     *) echo "未知参数: $1(用 --help 看用法)" >&2; exit 2 ;;
   esac
@@ -147,6 +149,14 @@ esac
 
 if [ "$KYLIN10" = 1 ]; then
   TARGET=linux
+fi
+
+# --devtools 只对 --kylin 有意义:它是 Wails **v2** 的构建标记(v2 的 internal/app
+# 用它决定 IsDevtoolsEnabled),v3 那条另有一套。一个"在别的平台上静悄悄什么都不做"
+# 的开关是陷阱,所以这里直接拒绝,而不是无声忽略。
+if [ "$DEVTOOLS" = 1 ] && [ "$KYLIN10" != 1 ]; then
+  echo "--devtools 目前只支持 --kylin(它是 Wails v2 的标记)" >&2
+  exit 2
 fi
 if [ "$TARGET" = linux ]; then
   APP_NAME="$PRODUCT"
@@ -421,7 +431,17 @@ if [ "$KYLIN10" = 1 ]; then
   #               tags." 然后退出码 1。从终端跑才看得见这行,GUI 上什么都没有。
   #
   # CGO 必须开,WebKitGTK 的绑定是 cgo。
-  CGO_ENABLED=1 go build -tags kylin,desktop,production -trimpath -buildvcs=false \
+  #
+  # --devtools 再追加一个 devtools:它让 v2 给 WebView 打开 developer extras,并装上
+  # Ctrl-Shift-F12 热键开检查器(internal/frontend/desktop/linux/window.go)。没有它
+  # 的正式包里,WEBKIT_INSPECTOR_SERVER 这个环境变量也是无效的——远程检查器同样要求
+  # developer extras 已打开。麒麟上出白屏/前端异常时,这是唯一能看到控制台的办法。
+  KYLIN_TAGS=kylin,desktop,production
+  if [ "$DEVTOOLS" = 1 ]; then
+    KYLIN_TAGS="$KYLIN_TAGS,devtools"
+    echo "⚠️  --devtools:这是**诊断用**构建,产物名带 -devtools 后缀,不要拿去发布"
+  fi
+  CGO_ENABLED=1 go build -tags "$KYLIN_TAGS" -trimpath -buildvcs=false \
     -ldflags "-w -s $LDFLAGS_EXTRA" -o "bin/$APP_NAME"
   echo "▶ 已编译 bin/$APP_NAME"
 
