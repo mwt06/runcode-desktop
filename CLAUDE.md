@@ -50,7 +50,7 @@
 
 ##### 两份外壳：v3 与 v2（麒麟 V10）
 
-`cmd/runcode-desktop` 里有**两个 main**，靠 `kylin` 构建标记二选一。业务逻辑、引擎与整个前端完全共用，只差这一个文件：
+`cmd/runcode-desktop` 里有**两个 main**，靠 `kylin` 构建标记二选一。业务逻辑、引擎与整个前端共用（v2 与 v3 的运行时差异由一个构建期垫片吸收，见下），Go 侧只差这一个文件：
 
 | | `main.go`（`!kylin`） | `main_kylin.go`（`kylin`） |
 | --- | --- | --- |
@@ -65,10 +65,13 @@
 
 - 品牌变量（`brandTitle` / `brandID`）住在**不带标记**的 `brand.go`，两份外壳共用。放回 `main.go` 的表现是另一份编译时报 undefined。
 - `go.mod` 同时 require v2 与 v3，无依赖冲突；`go mod tidy` 会保留 v2（自定义标记的文件它算得进去），只有被编进去的那套会进二进制。
-- v2 那条**整条链路不碰 wails3**：它的 CLI 自己就要 webkit2gtk-4.1，在 V10 的编译环境里装都装不上。`--kylin` 走 vite 构建 + `go build -tags kylin` + nfpm。
+- v2 那条**整条链路不碰 wails3**：它的 CLI 自己就要 webkit2gtk-4.1，在 V10 的编译环境里装都装不上。`--kylin` 走 vite 构建 + `go build -tags kylin,desktop,production` + nfpm。
 - 编译机的 glibc 必须**不比目标新**（glibc 只向后兼容）。V10 是 2.31 → 只能在 `ubuntu:20.04` 容器里编（也是唯一还带 `libwebkit2gtk-4.0-dev` 的 Ubuntu）；V11 是 2.38 → `ubuntu-22.04`（2.35），不能用 24.04（2.39）。
 - Linux 上应用名自动换成 ASCII 的产品标识：它同时是 deb 包名、可执行文件名与 `.desktop` 文件名，而 deb 包名规范不接受中文。中文走 `.desktop` 的 `Name` 字段。
 - **`webkit2_41` 是 v2 时代的标记，v3 里不存在**，脚本里那个已清掉。v3 的老路径开关叫 `gtk3`，且在 v3.1 会被移除。
+- **`-tags kylin` 一个不够，要 `kylin,desktop,production`**。v2 按 tag 选 `internal/app` 的实现：漏了 `production` 编进去的是 `app_default_unix.go` 那个占位版，`CreateApp` 直接返回 "Wails applications will not build without the correct build tags." 然后退出码 1。成品能编译、能装、双击**没反应**，只有从终端跑才看得见那行。这条链路不经过 wails 的 CLI，CLI 默认会带的 tag 就得在打包脚本里手工补齐。验证手法：`go list -tags ... -f '{{.GoFiles}}' github.com/wailsapp/wails/v2/internal/app` 看选中的是哪个 `app_*.go`。
+- **前端是按 Wails v3 的运行时写的**（`Call.ByName` / `Events.On` 来自 `@wailsio/runtime`，底层要 `/wails/runtime` 与 `window._wails`），v2 一样都不提供——它注入的是 `window.go` 与 `window.runtime`。`--kylin` 因此设 `VITE_WAILS=v2`，由 `vite.config.ts` 把**模块名** `@wailsio/runtime` 别名到 `frontend/src/core/wails-v2-runtime.ts` 的垫片上。**接缝只有这一处**：五个调用点与 protogen 的模板都不知道这件事，v3 产物也完全不受影响（别名不存在时垫片不进包）。不要改成运行时探测 `window._wails`——那的失败模式是时序相关的偶发。垫片的导出覆盖率由 `wails-v2-runtime.test.ts` 扫源码卡住，新用一个 v3 API 时红的是 CI 而不是麒麟机器上的白屏。代价是 V10 上**拖文件进输入框没有**（v2 的 file drop 是 `--wails-drop-target` + `OnFileDrop` 另一套），粘贴与选文件不受影响。
+- **deb 的 `Architecture` 别信 nfpm 的默认值**。`nfpm.yaml` 写的是 `arch: ${GOARCH}`，可两条 Linux 链路都没人把 `GOARCH` 喂给打包那一步（v3 那条只设在 `build:native` 的 env 里，打包走的是另一个 task），取空时 nfpm 兜底成**硬编码的 amd64**。表现是 arm64 的包里装着 arm64 的二进制、control 却写 amd64，`dpkg -i` 一句「体系结构不符」，而看文件名完全看不出来。打包脚本现在就地把真实架构写死进去，不走环境变量。
 
 **一个尚未在真机验证的前提**：V10 基础版的 WebKitGTK 是 2.28.1，而 `10.1-2403-updates` 源里是 2.38.6。2.38.6 支持 `@layer` 与 `color-mix()`，现有的 Tailwind v4 前端只损失 `@property`（被 `@supports` 包着，表现是渐变等效果打折）；停在 2.28.1 的机器则需要额外的样式降级。判定方法是在目标机器上跑 `apt policy libwebkit2gtk-4.0-37`。CI 只验证了能编译能出包，**没有任何一台真实麒麟跑过**。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。

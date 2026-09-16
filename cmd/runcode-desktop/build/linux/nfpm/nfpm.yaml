@@ -1,8 +1,12 @@
 # Linux 安装包（.deb / .rpm）的元数据。
 #
 # 主要目标是银河麒麟 V11 桌面版：它带 GTK4 与 WebKitGTK 2.44（6.0 ABI），正好是
-# Wails v3 的默认路径。V10 不在这里的射程内——它只有 WebKitGTK 2.28（4.0 ABI），
-# Wails v3 没有 4.0 的代码路径。
+# Wails v3 的默认路径。
+#
+# 麒麟 V10（--kylin，Wails v2）也用这一份，只是 depends 由 scripts/build-desktop.sh
+# 就地换成 4.0 那套——V10 只有 WebKitGTK 的 4.0 ABI，下面写死的 4.1 包名在它的源里
+# 根本不存在。别把这里的 4.1 改成"两个都写"：depends 是**与**关系，那样两个麒麟就
+# 都装不上了；真要两边兼容得用 `|` 的或关系，但两条链路本来就是两个二进制，没必要。
 #
 # 包名与文件名一律用 ASCII 的产品标识（xrun / zhikai），不用显示名：deb 的包名规范
 # 只允许小写字母数字加 -+. ，中文的「智开」放进去直接是非法包名。中文只出现在
@@ -10,6 +14,9 @@
 #
 # 按品牌打包时由 scripts/build-desktop.sh 就地替换这里的名字，构建完还原。
 name: "xrun"
+# 手工跑 nfpm 时才靠这个环境变量；经 scripts/build-desktop.sh 打包时这一行会被就地
+# 换成真实架构——两条 Linux 链路都不会把 GOARCH 传到 nfpm，而它对空值的兜底是硬编码
+# 的 amd64，arm64 的包于是带着 amd64 的标签出厂，只有装到 arm64 真机上才看得出来。
 arch: ${GOARCH}
 platform: "linux"
 version: "${APP_VERSION}"

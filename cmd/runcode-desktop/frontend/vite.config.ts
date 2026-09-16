@@ -11,7 +11,17 @@ export default defineConfig({
   // folders never rewrites its importers (only same-folder siblings stay relative).
   // vitest reads this same config, so tests resolve it too; tsconfig `paths` mirrors it.
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // 麒麟 V10 的外壳跑在 Wails v2 上（见 ../main_kylin.go），它不提供 v3 的运行时。
+      // 把 '@wailsio/runtime' 这个**模块名**整个换掉，是让同一份前端在两个 Wails 大
+      // 版本上原样复用的唯一接缝：五个调用点与 protogen 的模板都不必知道这件事。
+      // 别名只在 VITE_WAILS=v2 时存在，所以三平台的 v3 产物完全不受影响——垫片连打
+      // 都不会被打进去。这个变量由 scripts/build-desktop.sh 的 --kylin 分支设置。
+      ...(process.env.VITE_WAILS === 'v2'
+        ? { '@wailsio/runtime': fileURLToPath(new URL('./src/core/wails-v2-runtime.ts', import.meta.url)) }
+        : {}),
+    },
   },
   // 测试固定跑在东八区。
   //
