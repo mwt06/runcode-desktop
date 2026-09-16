@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildMinutesPrompt, minutesDisplayText, minutesFileName, parseRecordingMarker, pickMinutesSkill, speakerBriefing, speakerLabels, type RecordingMark } from './minutes'
+import {
+  buildDigestPrompt, buildMinutesPrompt, digestDisplayText, docDisplayText, minutesDisplayText,
+  minutesFileName, parseRecordingMarker, pickMinutesSkill, recordingMarker, speakerBriefing,
+  speakerLabels, type RecordingMark,
+} from './minutes'
 
 function info(p: Partial<RecordingMark> = {}): RecordingMark {
   return {
@@ -202,7 +206,30 @@ describe('录音标记', () => {
     // 卡片本身不在里面。解不出来，恢复后就只剩几千字的提示词。
     const m = info({ dir: '/rec/x', transcript: 'transcript.md', needsBackfill: true })
     const p = buildMinutesPrompt({ mark: m, transcript: '**[00:03] S1**：喂', outPath: 'out.md' })
-    expect(parseRecordingMarker(p)).toEqual(m)
+    expect(parseRecordingMarker(p)).toEqual({ mark: m, stage: 'doc' })
+  })
+
+  it('两段各自带得出自己的 stage', () => {
+    // 恢复历史全靠它分流：digest 那条要补卡片，doc 那条不能再补一张，
+    // 否则同一场录音会堆出好几张卡。
+    const m = info()
+    const digest = buildDigestPrompt({ mark: m, transcript: '**[00:03] S1**：喂' })
+    expect(parseRecordingMarker(digest)?.stage).toBe('digest')
+    const doc = buildMinutesPrompt({ mark: m, transcript: '**[00:03] S1**：喂', outPath: 'out.md' })
+    expect(parseRecordingMarker(doc)?.stage).toBe('doc')
+  })
+
+  it('两段式之前的老标记没有 stage，仍要解得出卡片', () => {
+    // 存量历史里全是这种。当成漏填而丢掉的话，老对话一打开卡片就没了。
+    const m = info()
+    const parsed = parseRecordingMarker(recordingMarker(m))
+    expect(parsed).toEqual({ mark: m, stage: undefined })
+  })
+
+  it('不认识的 stage 按老消息处理，而不是整条丢掉', () => {
+    // 将来若加了新的段，旧客户端至少还能把卡片画出来。
+    expect(parseRecordingMarker('<!-- runcode-recording {"id":"x","title":"t","audioMs":1,"stage":"未来"} -->')?.stage)
+      .toBeUndefined()
   })
 
   it('普通消息解不出标记', () => {
@@ -215,12 +242,78 @@ describe('录音标记', () => {
   })
 })
 
-describe('minutesDisplayText', () => {
+describe('buildDigestPrompt', () => {
+  const transcript = '**[00:03] 我**：先说结论\n\n**[00:11] S1**：同意'
+
+  it('给死四段结构，不让模型自由发挥', () => {
+    // 「一眼能看完」靠的就是结构固定。模型自由发挥时最爱按发言人分段复述，
+    // 那读起来和转写本身没区别。
+    const p = buildDigestPrompt({ mark: info(), transcript })
+    for (const section of ['**主题**', '**总结**', '**大纲**', '**待办**']) {
+      expect(p).toContain(section)
+    }
+  })
+
+  it('限长，否则两段式白做', () => {
+    // 不限长模型照样写一大篇，用户仍旧要等一篇长文、仍旧没有「先看一眼再决定」的机会。
+    expect(buildDigestPrompt({ mark: info(), transcript })).toContain('600 字以内')
+  })
+
+  it('不落盘、不调工具', () => {
+    // 不写死这条，模型会顺手去调写文件的工具：白白多一个回合，工作区里还多出一个
+    // 没人要的文件。速览是拿来看的，不是拿来存的。
+    const p = buildDigestPrompt({ mark: info(), transcript })
+    expect(p).toContain('不要写文件')
+    expect(p).not.toContain('.md')
+  })
+
+  it('绝不提技能——技能会把整套公文模板拉进来', () => {
+    // 速览要的恰恰是模板之外的短东西。这条一破，产出又变回一篇长文。
+    const p = buildDigestPrompt({ mark: info(), transcript })
+    expect(p).not.toContain('技能')
+  })
+
+  it('内容红线与正式纪要一致', () => {
+    // 速览更短、更像结论，编出来的待办更容易被人当真，所以这条比在正式纪要里更要紧。
+    expect(buildDigestPrompt({ mark: info(), transcript })).toContain('转写里没有的信息一律不要补')
+  })
+
+  it('材料说明照给：说话人编号、识别误差、转写缺口', () => {
+    const p = buildDigestPrompt({ mark: info({ needsBackfill: true }), transcript })
+    expect(p).toContain('不是姓名')
+    expect(p).toContain('自动语音识别')
+    expect(p).toContain('不要脑补衔接')
+  })
+
+  it('转写全文附在里面', () => {
+    expect(buildDigestPrompt({ mark: info(), transcript })).toContain('先说结论')
+  })
+
+  it('标记在末尾，不占首行', () => {
+    const p = buildDigestPrompt({ mark: info(), transcript })
+    expect(p.split('\n')[0]).not.toContain('runcode-recording')
+    expect(p.trimEnd().split('\n').pop()).toContain('runcode-recording')
+  })
+})
+
+describe('对话里显示的那一句', () => {
   it('实时与恢复共用同一句，两边必须一致', () => {
+    // 对不上的表现是：同一条消息「刚发出去」和「重开这条对话」时长得不一样。
+    expect(digestDisplayText('季度评审')).toBe('录音速览 · 已附上《季度评审》的转写全文')
+    expect(docDisplayText('季度评审')).toBe('生成会议纪要文档 · 已附上《季度评审》的转写全文')
+  })
+
+  it('三种消息各说各的，不能混', () => {
+    // 老那句原样留着：存量历史里全是它，改掉不会让旧消息变好看，只会让它对不上
+    // 当初发出去的样子。
     expect(minutesDisplayText('季度评审')).toBe('录音纪要 · 已附上《季度评审》的转写全文')
+    const all = new Set([digestDisplayText('x'), docDisplayText('x'), minutesDisplayText('x')])
+    expect(all.size).toBe(3)
   })
 
   it('没标题时有兜底', () => {
+    expect(digestDisplayText('')).toContain('《录音》')
+    expect(docDisplayText('')).toContain('《录音》')
     expect(minutesDisplayText('')).toContain('《录音》')
   })
 })

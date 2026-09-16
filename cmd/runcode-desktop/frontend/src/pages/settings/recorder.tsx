@@ -19,6 +19,7 @@ import { Section } from './section'
 const EMPTY: RecorderSettings = {
   gatewayUrl: '', speakerName: '', lang: '', version: 0,
   micDeviceId: '', sysDeviceId: '', keepAudio: true, summaryModel: '', gatewayToken: '', micDiarize: false,
+  autoFullMinutes: false,
 }
 
 export function RecorderSection() {
@@ -121,6 +122,17 @@ export function RecorderSection() {
           </span>
         </span>
         <Toggle on={s.keepAudio} onChange={(v) => patch({ keepAudio: v })} />
+      </label>
+
+      <label className="flex items-center justify-between gap-3 cursor-pointer">
+        <span className="min-w-0">
+          <span className="text-[13px]">录完直接出纪要文档</span>
+          <span className="block text-[12px] text-muted mt-0.5">
+            默认关着：录完先给一份速览——主题、总结、带时间戳的大纲和待办，一屏看完，
+            再由你决定要不要出正式文档。每场都要文档的话打开它，省掉中间这一步。
+          </span>
+        </span>
+        <Toggle on={s.autoFullMinutes} onChange={(v) => patch({ autoFullMinutes: v })} />
       </label>
 
       <div className="flex items-center gap-2">

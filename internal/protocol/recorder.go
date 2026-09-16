@@ -105,6 +105,14 @@ type RecorderSettings struct {
 	// KeepAudio 决定转写完成后是否保留本地 WAV。默认保留：它是补转写唯一的
 	// 依据，删早了就没有第二次机会。
 	KeepAudio bool `json:"keepAudio"`
+	// AutoFullMinutes 决定录完之后直接出正式纪要文档，跳过速览那一步。**默认关**。
+	//
+	// 默认的两段式是：录完先出一份短速览，用户看完再点按钮要文档。这一项留给「每场
+	// 都要文档」的人，对他们来说中间那一步是多一次点击。
+	//
+	// 它是用户偏好不是部署事实，所以不带 omitempty：翻转默认值时，特意开过它的人
+	// 不该被静默改回去（同 micDiarize，见 desktop.normalizeRecorderSettings）。
+	AutoFullMinutes bool `json:"autoFullMinutes"`
 	// SummaryModel 是实时总结用的模型名（客户端设置，走用户自己的额度）。
 	// 空 = 关闭实时总结。
 	SummaryModel string `json:"summaryModel"`

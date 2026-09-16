@@ -35,7 +35,7 @@ import {
 } from '@/chat/blocks'
 import { fmtTokens } from '@/core/format'
 import { basename } from '@/core/paths'
-import { minutesDisplayText, parseRecordingMarker, type RecordingMark } from '@/recorder/minutes'
+import { digestDisplayText, docDisplayText, minutesDisplayText, parseRecordingMarker, type RecordingMark } from '@/recorder/minutes'
 import {
   convOf, dropConv, lastUserText, patchConv, sessionOf, withReverted,
   type ConvMap, type ConversationState,
@@ -494,14 +494,23 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
     setBlocks(
       (r.blocks ?? []).flatMap((b): Block[] => {
         if (b.kind === 'user') {
-          // 纪要请求：把开头那行标记还原成录音卡片，正文换回那一句短的。
+          // 录音请求：把末尾那行标记还原成录音卡片，正文换回那一句短的。
           // 不做这一步，恢复出来的历史里会是几千字的提示词原文，而卡片没了。
-          const mark = parseRecordingMarker(b.text ?? '')
-          if (mark) {
-            return [
-              { kind: 'recording', id: nextID(), mark },
-              { kind: 'user', id: nextID(), text: minutesDisplayText(mark.title), ts: '' },
-            ]
+          //
+          // 按 stage 分流，三种消息各有各的还原方式：
+          //  - digest（速览）：补卡片。它是两段式里第一条，卡片属于它；
+          //  - doc（正式文档）：**不补卡片**。同一场录音只该有一张卡，而用户每点一次
+          //    「生成纪要文档」就多一条 doc 消息，补的话卡片会越堆越多；
+          //  - 无 stage：两段式之前那条一步到位的老消息，卡片和纪要都在它身上。
+          const found = parseRecordingMarker(b.text ?? '')
+          if (found) {
+            const { mark, stage } = found
+            const text = stage === 'digest' ? digestDisplayText(mark.title)
+              : stage === 'doc' ? docDisplayText(mark.title)
+                : minutesDisplayText(mark.title)
+            const user: Block = { kind: 'user', id: nextID(), text, ts: '' }
+            if (stage === 'doc') return [user]
+            return [{ kind: 'recording', id: nextID(), mark }, user]
           }
           return [{ kind: 'user', id: nextID(), text: b.text ?? '', ts: '' }]
         }

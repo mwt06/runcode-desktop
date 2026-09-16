@@ -91,7 +91,9 @@ export function LiveRecorderCard({ rec, onOpenWindow }: { rec: Recorder; onOpenW
 
 export function RecordingCard({ mark, onGenerateMinutes }: {
   mark: RecordingMark
-  // onGenerateMinutes 重来一次。自动那次可能撞上没有会话，或者纪要本身答得不好。
+  // onGenerateMinutes 出正式的纪要文档——两段式里的第二段，看完速览之后由用户自己
+  // 决定要不要走。它同时兼着「再来一次」：重复点就是重新生成，自动那一次可能撞上
+  // 没有会话，或者答得不好。所以这里不记「出过没有」的状态，按钮一直可点。
   onGenerateMinutes?: (mark: RecordingMark) => void
 }) {
   return (
@@ -127,9 +129,9 @@ export function RecordingCard({ mark, onGenerateMinutes }: {
           <button
             className="px-2.5 py-1 rounded text-[12px] text-primaryink border border-primary hover:bg-primarysoft"
             onClick={() => onGenerateMinutes(mark)}
-            title="把这场录音的转写重新交给模型整理"
+            title="按会议纪要模板整理成文档，保存到工作区"
           >
-            重新生成纪要
+            生成纪要文档
           </button>
         )}
       </div>

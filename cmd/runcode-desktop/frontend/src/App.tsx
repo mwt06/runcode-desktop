@@ -3,7 +3,7 @@
 // session/ 下对应的 hook，需要改样子去 shell/ 或各页面。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
-import { Events, errText, installMarketSkill, listSkills, loadConfig, onEvent, passportLogout, readRecordingTranscript, skillMarket, type SessionInfo } from '@/core/bridge'
+import { Events, errText, installMarketSkill, listSkills, loadConfig, onEvent, passportLogout, readRecordingTranscript, recorderSettings, skillMarket, type SessionInfo } from '@/core/bridge'
 import { passportDisplayName } from '@/core/passport-account'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
@@ -28,7 +28,10 @@ import { type BuiltinAction } from '@/composer/scenario-bar'
 import { InstallOverlay, type InstallState } from '@/composer/install-overlay'
 import { applyScenario, skillHint, type Scenario } from '@/core/scenarios'
 import { LiveRecorderCard } from '@/chat/recorder-card'
-import { buildMinutesPrompt, minutesDisplayText, minutesFileName, pickMinutesSkill, recordingMark, type RecordingMark } from '@/recorder/minutes'
+import {
+  buildDigestPrompt, buildMinutesPrompt, digestDisplayText, docDisplayText, minutesFileName,
+  pickMinutesSkill, recordingMark, type MinutesStage, type RecordingMark,
+} from '@/recorder/minutes'
 import { show as showRecorderWindow } from '@/recorder/window-api'
 import { PluginsPage } from '@/pages/plugins'
 import { MarketPage } from '@/pages/market'
@@ -176,12 +179,17 @@ export default function App() {
   })
 
 
-  // 会后纪要：录音一结束就把转写交给模型整理。
+  // 会后纪要：录音一结束就把转写交给模型。
   //
   // 走的是当前这条对话，而不是另起一个后台任务——设计稿里纪要就出现在对话流里，
   // 用户接着能直接追问「第三条待办是谁负责的」，那要求它和会话共享上下文。
+  //
+  // 两段：'digest' 是录完自动发的速览（短、不落盘），'doc' 是用户看完速览点按钮要
+  // 的正式纪要文档。两段共用这一个函数，因为除了提示词之外的每一步都一样——确认有
+  // 会话、读转写、在对话里只显示一句短的。分成两个函数写过一版，结果是错误提示和
+  // 空转写的判断各写了一遍，改一处漏一处。
   const minutesFired = useRef('')
-  const generateMinutes = useCallback(async (mark: RecordingMark) => {
+  const sendRecordingRequest = useCallback(async (mark: RecordingMark, stage: MinutesStage) => {
     if (!mark.id) return
     if (!infoRef.current) {
       toast.show('还没有进行中的对话，无法生成纪要')
@@ -193,19 +201,25 @@ export default function App() {
         toast.show('这场录音没有转写文字，生成不了纪要')
         return
       }
+      // 对话里只显示一句话。整篇转写照旧发给模型，但几千字铺在对话流里会把用户
+      // 自己的历史整个冲掉——设计稿那个位置本来就只有一句「录音纪要」。
+      // 附了什么要说清楚，不能让人不知道自己刚把什么送了出去。
+      if (stage === 'digest') {
+        // 速览不挂技能：技能一加载，整套公文模板就跟着进来，产出又变回一篇长文，
+        // 两段式就白做了（见 buildDigestPrompt）。顺带省掉一次 listSkills。
+        await conversation.send(buildDigestPrompt({ mark, transcript: text }), [], digestDisplayText(mark.title))
+        return
+      }
       const list = await listSkills().catch(() => null)
       // 只把**启用着的**技能交给挑选：停用的技能引擎不会加载，点名它只会换来一句
       // 「找不到这个技能」，比不点名更糟。两个作用域任一停用即视为不可用，与插件页
       // 的「实际启用 = 两处都没关」是同一个判据。
       const usable = (list?.skills ?? []).filter((s) => !s.disabledUser && !s.disabledProject)
       const skill = pickMinutesSkill(usable.map((s) => s.name))
-      // 对话里只显示一句话。整篇转写照旧发给模型，但几千字铺在对话流里会把用户
-      // 自己的历史整个冲掉——设计稿那个位置本来就只有一句「录音纪要」。
-      // 附了什么要说清楚，不能让人不知道自己刚把什么送了出去。
       await conversation.send(
         buildMinutesPrompt({ mark, transcript: text, skill, outPath: minutesFileName(mark) }),
         [],
-        minutesDisplayText(mark.title),
+        docDisplayText(mark.title),
       )
     } catch (e) {
       toast.show(errText(e))
@@ -213,7 +227,7 @@ export default function App() {
   }, [conversation, toast])
 
   // 录完自动走一次：先把卡片钉进对话（它属于这条对话，不是浮在界面上的东西），
-  // 再发纪要请求。用 id 记名而不是布尔量：连着录两场时第二场也要触发，而同一场
+  // 再发请求。用 id 记名而不是布尔量：连着录两场时第二场也要触发，而同一场
   // 不能因为别的状态事件再触发一遍——那是一次白花钱的重复调用。
   useEffect(() => {
     const rec = recorder.info
@@ -222,8 +236,14 @@ export default function App() {
     minutesFired.current = rec.id
     const mark = recordingMark(rec)
     conversation.pushRecording(mark)
-    void generateMinutes(mark)
-  }, [recorder.info, conversation, generateMinutes])
+    void (async () => {
+      // 录完这一刻现读设置，不在前端留一份镜子：这条路一场录音只走一次，一次文件读
+      // 换来的是「刚在设置页改完就生效」，不必再为它做订阅或失效。读不出来按默认的
+      // 两段式走——出速览是更轻的那条路，选错了代价小。
+      const auto = await recorderSettings().then((s) => s.autoFullMinutes).catch(() => false)
+      await sendRecordingRequest(mark, auto ? 'doc' : 'digest')
+    })()
+  }, [recorder.info, conversation, sendRecordingRequest])
   const session = useSession({
     busy: conversation.busy,
     conversation,
@@ -439,7 +459,7 @@ export default function App() {
                 onUndoEdit={(id) => void conversation.undo(id)}
                 resolveFile={workspace.resolve}
                 recorderCard={<LiveRecorderCard rec={recorder} onOpenWindow={() => void showRecorderWindow()} />}
-                onGenerateMinutes={(m) => void generateMinutes(m)}
+                onGenerateMinutes={(m) => void sendRecordingRequest(m, 'doc')}
               />
 
               {permissions.pending && (

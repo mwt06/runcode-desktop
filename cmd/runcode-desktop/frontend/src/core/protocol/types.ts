@@ -505,6 +505,7 @@ export interface RecorderSettings {
   micDeviceId: string;
   sysDeviceId: string;
   keepAudio: boolean;
+  autoFullMinutes: boolean;
   summaryModel: string;
   root?: string;
   version: number;
