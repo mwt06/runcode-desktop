@@ -46,3 +46,13 @@ contents:
 depends:
   - libgtk-3-0
   - libwebkit2gtk-4.1-0
+
+# 登录令牌的落盘要它。Linux 侧的凭据保护走 Secret Service（见 secret_linux.go）：
+# 钥匙串里只放一把主密钥，凭据本身 AES-GCM 加密后留在 desktop.json 里；取不到钥匙串
+# 就**拒绝落盘**，宁可让用户重新登录，也不把密钥和密文一起明文放在同一台机器上。
+#
+# 缺了 secret-tool 的表现就是"每次启动都要重新登录"，而且不报任何错——它在设计上
+# 就是静默降级的。所以列成 recommends：apt 默认会装上，而在没有桌面会话的环境里
+# （那里本来也没有钥匙串守护进程）又不会把安装卡住。
+recommends:
+  - libsecret-tools
