@@ -159,6 +159,13 @@ export const SCENARIOS: ScenarioCategory[] = [
   {
     id: "format", name: "格式校验", icon: "file-edit",
     items: [
+        {
+        id: "guokai-gongwen-format",
+        name: "公文格式校验（国开模版）",
+        prompt: "帮我校验一下文件格式，看看哪些地方有问题，然后按格式修改",
+        blurb: "按照国开总部的公文（文件）的格式模版对用户提交的文档进行格式校验以及格式应用。",
+        skill: "guokai-gongwen-format",
+      },
       {
         id: "guokai-qianbaoformat",
         name: "签报文件格式校验（国开模版）",
@@ -434,6 +441,25 @@ export function skillHint(skill: string): string {
  * 点了直接执行，由 App 把动作接进来。
  */
 export const BUILTIN_CATEGORY: Record<string, string> = { recorder: 'recorder' }
+
+/**
+ * visibleScenarios 去掉「这次构建不提供的内置功能」那些分类。
+ *
+ * 判据就是调用方有没有交来对应的动作：内置功能分类点了直接执行、没有二级面板可退，
+ * 交不来动作它就只能是个点不动的按钮。所以整类不画，而不是置灰——disabled 是留给
+ * 「正在录音」这种此刻不能点的，不是留给整个版本都没有的功能。
+ *
+ * 纯函数：普通分类（不在 BUILTIN_CATEGORY 里的）一律原样留下。
+ */
+export function visibleScenarios(
+  cats: ScenarioCategory[],
+  builtins: Record<string, unknown>,
+): ScenarioCategory[] {
+  return cats.filter((c) => {
+    const builtin = BUILTIN_CATEGORY[c.id]
+    return !builtin || builtin in builtins
+  })
+}
 
 /**
  * firstPlaceholder 找出提示词里第一个【占位符】的位置（含书名号本身）。

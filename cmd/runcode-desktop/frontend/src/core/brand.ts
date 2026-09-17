@@ -32,6 +32,19 @@ export type ComposerMark = { src: string; alt: string; height: number }
 //   'welcome' —— 面向办公:<登录用户名>老师您好,今天有什么可以帮您?
 export type GreetingStyle = 'explore' | 'welcome'
 
+// BrandFeatures 是按品牌开关的功能模块。关掉的功能连入口一起不画,而不是画出来
+// 置灰或点了报错——置灰对用户是"这版有这功能但现在不能用",整块不画才是"这版
+// 没有这功能"。代码与数据一律留在原处,开关是唯一的事实来源。
+export type BrandFeatures = {
+  /**
+   * 录音纪要:输入框上方那个「录音纪要」分类,以及设置页的录音区块。
+   *
+   * 智开版 2026-09-17 起**临时**关掉,把这里改回 true 即可恢复(Go 侧的录音窗、
+   * 采集、纪要链路都没动,只是前端没有入口把它叫出来)。
+   */
+  recorder: boolean
+}
+
 export type Brand = {
   key: string
   // name 是文字标:标题栏、起始页大标题、对话中对助手的称呼都用它。
@@ -47,6 +60,9 @@ export type Brand = {
   greetingMark?: GreetingMark
   // composerMark 是输入框上方的插画;不设则输入区上方什么都不画。
   composerMark?: ComposerMark
+  // features 必填:加品牌时必须对每个功能表个态,漏了就编译不过——默认继承一套
+  // 的话,新品牌会悄悄带上别人没想清楚的功能。
+  features: BrandFeatures
 }
 
 // 想换品牌:改这里,或设 VITE_BRAND。
@@ -60,6 +76,7 @@ const BRANDS: Record<string, Brand> = {
     loginHeadline: 'XRUN，您的 AI 编程助手',
     greeting: 'explore',
     logo: { kind: 'mark' },
+    features: { recorder: true },
   },
   zhikai: {
     key: 'zhikai',
@@ -70,6 +87,8 @@ const BRANDS: Record<string, Brand> = {
     logo: { kind: 'image', src: zhikaiLogo, alt: '智开' },
     greetingMark: { src: zhikaiMascot, alt: '智开', size: 96 },
     composerMark: { src: zhikaiComposerMascot, alt: '智开', height: 64 },
+    // 录音纪要临时下线,见 BrandFeatures.recorder。
+    features: { recorder: false },
   },
 }
 

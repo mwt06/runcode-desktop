@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_CATEGORY, SCENARIOS, applyScenario, firstPlaceholder, skillHint } from './scenarios'
+import { BUILTIN_CATEGORY, SCENARIOS, applyScenario, firstPlaceholder, skillHint, visibleScenarios } from './scenarios'
 
 describe('firstPlaceholder', () => {
   it('框住整个【占位符】，含书名号本身', () => {
@@ -84,10 +84,11 @@ describe('skillHint', () => {
 describe('内置场景数据', () => {
   const all = SCENARIOS.flatMap((c) => c.items)
 
-  it('45 个默认场景，11 个分类', () => {
-    // 对齐产品侧那张表里「默认场景 = 是/新增」的 44 + 1 行。数字变了说明重新导过，
-    // 顺手确认一下是不是有意的。
-    expect(all).toHaveLength(45)
+  it('46 个默认场景，11 个分类', () => {
+    // 对齐产品侧那张表里「默认场景 = 是/新增」的 44 + 1 行，外加手工补的
+    // guokai-gongwen-format —— 8.25 那版表里还没有它，表补上那行再导就会自然对上。
+    // 数字变了说明重新导过，顺手确认一下是不是有意的。
+    expect(all).toHaveLength(46)
     expect(SCENARIOS).toHaveLength(11)
   })
 
@@ -110,6 +111,21 @@ describe('内置场景数据', () => {
     const ok = /^[A-Za-z0-9_-]{1,64}$/
     expect(all.filter((s) => !ok.test(s.id)).map((s) => s.id)).toEqual([])
     expect(all.filter((s) => s.skill && !ok.test(s.skill)).map((s) => s.skill)).toEqual([])
+  })
+
+  it('交不来动作的内置功能分类整类不画，普通分类不受影响', () => {
+    // 这是「按品牌临时下线一个内置功能」那条路：App 不交动作，这一类就该消失，
+    // 而不是留一个点了没反应的按钮（它没有二级面板可退）。
+    const none = visibleScenarios(SCENARIOS, {})
+    for (const key of Object.keys(BUILTIN_CATEGORY)) {
+      expect(none.find((c) => BUILTIN_CATEGORY[c.id] === key)).toBeUndefined()
+    }
+    // 少掉的只能是内置那几类，其余 45 条场景一条都不能被顺带滤掉。
+    const builtinCats = SCENARIOS.filter((c) => BUILTIN_CATEGORY[c.id]).length
+    expect(none).toHaveLength(SCENARIOS.length - builtinCats)
+
+    const withBuiltins = visibleScenarios(SCENARIOS, { recorder: { onPick: () => {} } })
+    expect(withBuiltins).toHaveLength(SCENARIOS.length)
   })
 
   it('内置功能分类确实存在，且只有一条', () => {

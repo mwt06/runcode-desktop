@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
 import { Events, errText, installMarketSkill, listSkills, loadConfig, onEvent, passportLogout, readRecordingTranscript, recorderSettings, skillMarket, type SessionInfo } from '@/core/bridge'
 import { passportDisplayName } from '@/core/passport-account'
+import { BRAND } from '@/core/brand'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
 import { usePermissionQueue } from '@/session/use-permission-queue'
@@ -104,13 +105,18 @@ export default function App() {
       .catch((e: unknown) => toast.show(errText(e)))
   }
   // 场景表里「录音纪要」那一类不是提示词，是客户端内置功能，点了直接开录。
-  const builtinScenarios: Record<string, BuiltinAction> = {
-    recorder: {
-      title: recorder.recording ? '正在录音' : '开始录音，同时录下麦克风与系统声音',
-      disabled: recorder.recording || recorder.paused,
-      onPick: startRecording,
-    },
-  }
+  //
+  // 品牌没开这个功能（BRAND.features.recorder）时一条都不交：场景栏据此把整个分类
+  // 不画（见 visibleScenarios），而不是画一个点不动的按钮。
+  const builtinScenarios: Record<string, BuiltinAction> = BRAND.features.recorder
+    ? {
+      recorder: {
+        title: recorder.recording ? '正在录音' : '开始录音，同时录下麦克风与系统声音',
+        disabled: recorder.recording || recorder.paused,
+        onPick: startRecording,
+      },
+    }
+    : {}
 
   // ensureSkill 保证场景关联的技能在本机可用，返回它到底能不能用。
   //

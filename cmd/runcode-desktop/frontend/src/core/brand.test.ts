@@ -30,4 +30,10 @@ describe('selectBrand', () => {
     expect(runcode.tagline).toContain('编程')
     expect(runcode.greeting).toBe('explore')
   })
+
+  it('录音纪要：原品牌开着，智开版临时关掉', () => {
+    // 这条盯的是「临时下线只影响智开」：原品牌 XRUN 被顺带关掉的话，这里先红。
+    expect(selectBrand('runcode').features.recorder).toBe(true)
+    expect(selectBrand('zhikai').features.recorder).toBe(false)
+  })
 })

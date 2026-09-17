@@ -15,7 +15,7 @@ import { AgentPicker, FilePicker, SkillPicker } from './mention-picker'
 import { ComposerToolbar } from './toolbar'
 import { ComposerMascot } from './mascot'
 import { ScenarioBar, ScenarioPanel, type BuiltinAction } from './scenario-bar'
-import { SCENARIOS, type Scenario } from '@/core/scenarios'
+import { SCENARIOS, visibleScenarios, type Scenario } from '@/core/scenarios'
 
 // Composer 的对外契约：input 受控于 App（插件页“使用技能/委派子代理”要往输入框
 // 追加文案并聚焦，故 input 与 taRef 由 App 持有）；files 归 App（文件浏览器/回复
@@ -248,7 +248,10 @@ export function Composer({
   }
 
   const hoverMention = (i: number) => setMention((m) => (m ? { ...m, sel: i } : m))
-  const scenarioOpen = SCENARIOS.find((c) => c.id === scenarioCat) ?? null
+  // 本次构建实际画得出来的分类：内置功能分类要有 App 交来的动作才算有（见
+  // visibleScenarios），否则整类不画。
+  const categories = visibleScenarios(SCENARIOS, builtinScenarios)
+  const scenarioOpen = categories.find((c) => c.id === scenarioCat) ?? null
 
   return (
     // data-file-drop-target 是给 Wails 的 runtime 看的：它在 documentElement 上统一
@@ -297,7 +300,7 @@ export function Composer({
         <FilePicker items={fileMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
       )}
       <ScenarioBar
-        categories={SCENARIOS}
+        categories={categories}
         openId={scenarioCat}
         onToggle={(id) => setScenarioCat((cur) => (cur === id ? '' : id))}
         builtins={builtinScenarios}

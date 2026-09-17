@@ -166,6 +166,23 @@ func main() {
 		os.Exit(desktop.RunUpdateWatch(os.Args))
 	}
 
+	// 关掉 WebKit 的加速合成，否则麒麟 V10 上**界面整个画不出来**。
+	//
+	// 症状极具欺骗性：窗口建出来了（纯白）、WebKitWebProcess 正常起来、终端里除了
+	// GTK 的几条无关告警什么都没有、JS 的错误钩子也一声不吭——看上去和"资源根本没
+	// 送到 WebView"完全一样，实际上文档加载与脚本执行都是好的，只是合成后的画面
+	// 没有被呈现出来。真机实测（V10 SP1、2403 的 Wayland 会话、arm64）：单独设
+	// GDK_BACKEND=x11 **无效**，只有这一条管用。
+	//
+	// 代价是合成走软件路径，滚动与动画会钝一些。对这个以文字为主的界面可以接受，
+	// 而"看得见"与"快一点"之间没什么可犹豫的。
+	//
+	// 只在 V10 这份外壳里设。V11 走 v3 那条，WebKitGTK 与图形栈都更新，不受影响。
+	// 用户显式设过就不覆盖——有人要在别的机器上试硬件合成，留这个口子。
+	if os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE") == "" {
+		_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+	}
+
 	sink := &kylinSink{}
 	dlg := &kylinDialog{}
 	quit := &kylinQuit{}
