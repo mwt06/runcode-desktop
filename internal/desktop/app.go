@@ -125,6 +125,10 @@ type App struct {
 	// 关系——更新与对话是两条互不相干的线（同 rec）。始终非 nil。
 	upd *updater
 
+	// rt 是运行时环境（Python / Node / Git）的状态机（见 runtimes.go）。同 upd/rec，
+	// 它自带锁、与 mu / startMu 无嵌套关系。始终非 nil。
+	rt *runtimeManager
+
 	// rec 是录音纪要的状态（一次只允许一场）。它自带锁，与 mu / startMu
 	// 没有嵌套关系——录音与对话是两条互不相干的线。
 	rec recorderCtl
@@ -262,6 +266,7 @@ func newWithBuild(sink EventSink, build host.BuildFunc) *App {
 	// 更新器每次状态变化整份发给前端（前端是它的镜子，理由见 internal/protocol/update.go）。
 	// 构造放在 update.go：本文件的 protocol 是**引擎**那个包，而 UpdateInfo 是外壳自己的。
 	a.upd = newUpdaterFor(a)
+	a.rt = newRuntimeManagerFor(a)
 	return a
 }
 
@@ -294,6 +299,17 @@ func (a *App) Startup() {
 	// 版本更新的自动检查。延后几秒再跑（见 updateCheckDelay）：它的结论最快也要等
 	// 用户走到设置页才会被看见，没有理由和建窗口、装内置技能抢那几秒。
 	go a.autoCheckUpdate(updateCheckDelay)
+	// 运行时环境（见 runtimes.go）：先探系统里有没有 python/node/git，再查平台清单。
+	//
+	// **探测必须在后台**：它要真的执行三次 --version，而一个卡住的 exe（等网络的
+	// 包装脚本、被杀毒软件按住的进程）会把整个启动一起拖住。先探测后查清单是有序
+	// 的——PATH 与提示词只取决于探测结果，清单只影响"能不能装"。
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), runtimeProbeTimeout)
+		defer cancel()
+		a.rt.probeSystem(ctx)
+		a.autoCheckRuntimes(updateCheckDelay)
+	}()
 	// 上下文审核开关跨重启保持:测试版且上次开着,则恢复运行态(建目录、起查看
 	// 服务器)。失败只记诊断日志——设置页再开一次会把错误如实报出来。
 	if IsTestBuild() && loadRawConfig().ContextAudit {
@@ -693,6 +709,13 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	if IsTestBuild() {
 		opts.LLMRequestObserver = a.audit.observer(sctx.ID)
 	}
+
+	// 运行时环境（见 runtimeenv.go）：把应用自带的 Python/Node/Git 前置到工具子进程
+	// 的 PATH，并告诉模型本机到底有什么。
+	//
+	// **两件事都要做**：只注入 PATH 的话，模型不知道 Python 在那儿，面对"生成一份
+	// 公文"会先回一句"请先安装 Python"；只写提示词当然更不行。
+	applyRuntimeEnv(a.rt, cfg)
 
 	// Fresh edit store per session ("已编辑" undo/review), bound to the
 	// session's edit directory before the first tool can run.

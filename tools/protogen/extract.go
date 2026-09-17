@@ -62,6 +62,7 @@ var eventPayloads = map[string]string{
 	"EventOABlocked":          "OABlocked",
 	"EventSkillInstall":       "SkillInstallProgress",
 	"EventUpdate":             "UpdateInfo",
+	"EventRuntimes":           "RuntimeInfo",
 	"EventToolEvent":          "ToolEvent",
 	"EventTurnEnd":            "TurnEnd",
 	"EventTurnQueued":         "TurnQueued",
@@ -120,6 +121,9 @@ var fieldTypeOverrides = map[string]map[string]string{
 	// 这正是「下好了但按钮还停在下载」那类缺陷的来源。
 	"UpdateInfo": {"stage": "UpdateStage"},
 	"PlanRun":    {"state": "PlanState", "stage": "PlanStage"},
+	// 运行时环境那一节同理：每行按 stage 分支渲染，收窄成联合之后，新加一个阶段
+	// 却忘了画它就是编译错误，而不是一片安静的空白。
+	"RuntimePack": {"id": "RuntimePackId", "stage": "RuntimeStage"},
 }
 
 // constGroupSpec describes one Go constant-prefix group emitted as a TS const
@@ -191,6 +195,16 @@ var constGroupSpecs = []constGroupSpec{
 		goPrefix: "Update", constName: "UpdateStages", unionName: "UpdateStage", open: false,
 		doc:      "Stages of the version updater; the values of UpdateInfo.stage.",
 		unionDoc: "UpdateStage is the closed set of updater stages — the shell drives this state machine itself, so an unknown value is a bug, not a newer peer.",
+	},
+	{
+		goPrefix: "RuntimePack", constName: "RuntimePackIds", unionName: "RuntimePackId", open: false,
+		doc:      "Ids of the managed runtime packs (Python / Node / Git); the values of RuntimePack.id.",
+		unionDoc: "RuntimePackId is the closed set of runtime packs — the shell decides what a pack means (layout, probe), so an unknown id is a bug, not a newer peer.",
+	},
+	{
+		goPrefix: "RuntimeStage", constName: "RuntimeStages", unionName: "RuntimeStage", open: false,
+		doc:      "Install stages of one managed runtime pack; the values of RuntimePack.stage.",
+		unionDoc: "RuntimeStage is the closed set of install stages — the shell drives this pipeline itself, so an unknown value is a bug, not a newer peer.",
 	},
 }
 

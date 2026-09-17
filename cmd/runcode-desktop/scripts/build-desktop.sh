@@ -23,6 +23,8 @@
 #   ./scripts/build-desktop.sh --brand zhikai --zip         # 打完再压成可分发的 zip(macOS)
 #   ./scripts/build-desktop.sh --brand zhikai --installer   # 智开,连 Windows 安装包(NSIS)
 #   ./scripts/build-desktop.sh --test                       # 测试版:含"上下文审核"等仅测试版功能
+#   ./scripts/build-desktop.sh --runtime-manifest 'https://obs/p/runtimes-{platform}.json'
+#                                                           # 运行时包清单走对象存储的静态文件,不经 Bridge
 #   ./scripts/build-desktop.sh --local-engine               # 联动本地 ../agentloop(产物不可复现,勿发版)
 #   ./scripts/build-desktop.sh --brand zhikai --installer   # (在 Linux 上)出 .deb,给银河麒麟 V11
 #   ./scripts/build-desktop.sh --brand zhikai --installer --kylin  # 麒麟 V10(Wails v2)
@@ -90,6 +92,10 @@ INSTALL_SCOPE=machine
 LOCAL_ENGINE=0
 LINUX_GTK3=0
 KYLIN10=0
+DEVTOOLS=0
+# 运行时环境的清单地址(见 internal/desktop/runtimes.go 的 runtimeManifestURL)。
+# 空 = 走 Bridge 的 /api/app/runtimes;给一个带 {platform} 的地址 = 走对象存储上的静态清单。
+RUNTIME_MANIFEST=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -104,7 +110,9 @@ while [ $# -gt 0 ]; do
     --local-engine) LOCAL_ENGINE=1; shift ;;
     --gtk3) LINUX_GTK3=1; shift ;;
     --kylin) KYLIN10=1; shift ;;
-    -h|--help) sed -n '2,62p' "$0"; exit 0 ;;
+    --devtools) DEVTOOLS=1; shift ;;
+    --runtime-manifest) RUNTIME_MANIFEST="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,64p' "$0"; exit 0 ;;
     *) echo "未知参数: $1(用 --help 看用法)" >&2; exit 2 ;;
   esac
 done
@@ -147,6 +155,14 @@ esac
 
 if [ "$KYLIN10" = 1 ]; then
   TARGET=linux
+fi
+
+# --devtools 只对 --kylin 有意义:它是 Wails **v2** 的构建标记(v2 的 internal/app
+# 用它决定 IsDevtoolsEnabled),v3 那条另有一套。一个"在别的平台上静悄悄什么都不做"
+# 的开关是陷阱,所以这里直接拒绝,而不是无声忽略。
+if [ "$DEVTOOLS" = 1 ] && [ "$KYLIN10" != 1 ]; then
+  echo "--devtools 目前只支持 --kylin(它是 Wails v2 的标记)" >&2
+  exit 2
 fi
 if [ "$TARGET" = linux ]; then
   APP_NAME="$PRODUCT"
@@ -205,6 +221,31 @@ subst build/windows/info.json \
 # 不一致的表现是装完之后菜单里有图标、点下去启动不了。
 if [ "$TARGET" = linux ]; then
   subst build/linux/nfpm/nfpm.yaml -e "s/\bxrun\b/$PRODUCT/g"
+
+  # 架构就地写死,不走 nfpm.yaml 里那个 arch: ${GOARCH} 的环境变量展开。
+  #
+  # 那行本来指望 GOARCH 从环境里来,可两条 Linux 链路都没人设:v3 那条只把 GOARCH 设在
+  # build/linux/Taskfile.yml 的 build:native 的 env 里,而打包走的是另一个 task
+  # (generate:deb → wails3 tool package);--kylin 那条直接调 nfpm,更没有。取不到时
+  # nfpm 的兜底是**硬编码的 amd64**(nfpm/v2 的 WithDefaults),于是 arm64 机器上打出来
+  # 的包里装着货真价实的 arm64 二进制、control 却写着 Architecture: amd64,拿到麒麟
+  # arm64 上一句「软件包体系结构(amd64)与本机系统体系结构(arm64)不符」就装不上了,
+  # 而看文件名完全看不出问题。
+  #
+  # 为什么不像版本号那样 export 一个环境变量了事:那要指望它活着穿过 go-task 与 wails3
+  # 两层别人的代码才到得了 nfpm,而赌输的代价是一个"只有装到真机上才看得见"的错包,
+  # 一轮 CI 起步半小时。写死则与这个文件里其余的品牌替换同一个路数,不可能失手。
+  #
+  # Wails 不交叉编译(见脚本头部),包的架构因此恒等于当前机器的架构。
+  subst build/linux/nfpm/nfpm.yaml -e "s|^arch: .*|arch: $(go env GOARCH)|"
+
+  # 麒麟 V10 的 WebKitGTK 依赖要换成 4.0 那套。V10 只有 4.0 这个 ABI(见 nfpm.yaml 头部
+  # 与 main_kylin.go),而 libwebkit2gtk-4.1-0 这个包名在 V10 的任何源里都不存在——带着
+  # 它的包 dpkg -i 必然报依赖不满足,连 apt-get install -f 都修不好,因为没有仓库提供得了。
+  if [ "$KYLIN10" = 1 ]; then
+    subst build/linux/nfpm/nfpm.yaml \
+      -e "s/^\( *- \)libwebkit2gtk-4\.1-0[[:space:]]*$/\1libwebkit2gtk-4.0-37/"
+  fi
 fi
 
 BRAND_DIR="build/brands/$BRAND"
@@ -268,13 +309,17 @@ subst build/darwin/Info.plist \
   -e "/<key>CFBundleVersion<\/key>/{n;s|<string>[^<]*</string>|<string>$APP_CORE_VERSION</string>|;}" \
   -e "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$APP_CORE_VERSION</string>|;}"
 
-# nfpm 按 ${APP_VERSION} 展开环境变量取版本号（同它自带的 arch: ${GOARCH}），
-# 所以这里要导出，否则 deb 的版本会是字面量 ${APP_VERSION}。
+# nfpm 按 ${APP_VERSION} 展开环境变量取版本号,所以这里要导出,否则 deb 的版本会是
+# 字面量 ${APP_VERSION}。(arch 不走这条,它在上面就地写死,原因见那里。)
 export APP_VERSION
 
 DESKTOP_PKG="github.com/wt68/runcode/internal/desktop"
 LDFLAGS_EXTRA="-X main.brandTitle=$WIN_TITLE -X main.brandID=$BUNDLE_ID"
 LDFLAGS_EXTRA="$LDFLAGS_EXTRA -X $DESKTOP_PKG.appVersion=$APP_VERSION -X $DESKTOP_PKG.appProduct=$PRODUCT"
+# 运行时环境的清单地址。不传就是空,此时客户端走 Bridge——那是默认也是长远的那条路。
+if [ -n "$RUNTIME_MANIFEST" ]; then
+  LDFLAGS_EXTRA="$LDFLAGS_EXTRA -X $DESKTOP_PKG.runtimeManifestDefault=$RUNTIME_MANIFEST"
+fi
 TEST_LABEL=""
 if [ "$TEST_BUILD" = 1 ]; then
   LDFLAGS_EXTRA="$LDFLAGS_EXTRA -X github.com/wt68/runcode/internal/desktop.testBuild=1"
@@ -376,10 +421,37 @@ export VITE_BRAND="$VITE_BRAND_VALUE"
 if [ "$KYLIN10" = 1 ]; then
   echo "▶ 麒麟 V10 模式：Wails v2 + webkit2gtk-4.0，单窗口"
 
-  (cd frontend && npm ci && npm run build)
+  # VITE_WAILS=v2:前端是按 Wails v3 的运行时写的(Call.ByName / Events.On 都来自
+  # @wailsio/runtime,底层要 /wails/runtime 与 window._wails),而 v2 这三样一样都不
+  # 提供——它注入的是 window.go 与 window.runtime。这个变量让 vite 把那个模块名别名
+  # 到 src/core/wails-v2-runtime.ts 的垫片上(接缝就这一处,见那个文件的头注释)。
+  # 漏了它的表现是:窗口能开、界面一片空白,控制台里全是 /wails/runtime 404。
+  # 三平台的 v3 产物不受影响——别名只在这个变量为 v2 时存在。
+  (cd frontend && npm ci && VITE_WAILS=v2 npm run build)
 
-  # -tags kylin 选中 main_kylin.go 那份外壳；CGO 必须开，WebKitGTK 的绑定是 cgo。
-  CGO_ENABLED=1 go build -tags kylin -trimpath -buildvcs=false \
+  # 三个 tag 一个都不能少,因为这条链路不经过 wails 的 CLI(它自己要 webkit2gtk-4.1,
+  # 在 V10 的编译环境里装都装不上),CLI 默认会带的 tag 得在这里手工补齐:
+  #
+  #   kylin       选中 main_kylin.go 那份外壳(main.go 上挂的是 !kylin)
+  #   desktop     v2 CLI 的 OutputType,普通构建恒为 desktop
+  #   production  **漏了它就是一个能编译、能装、双击没反应的包**:v2 的
+  #               internal/app 按 tag 选实现,没有 production 时编进去的是
+  #               app_default_unix.go 那个占位版,CreateApp 直接返回
+  #               "Wails applications will not build without the correct build
+  #               tags." 然后退出码 1。从终端跑才看得见这行,GUI 上什么都没有。
+  #
+  # CGO 必须开,WebKitGTK 的绑定是 cgo。
+  #
+  # --devtools 再追加一个 devtools:它让 v2 给 WebView 打开 developer extras,并装上
+  # Ctrl-Shift-F12 热键开检查器(internal/frontend/desktop/linux/window.go)。没有它
+  # 的正式包里,WEBKIT_INSPECTOR_SERVER 这个环境变量也是无效的——远程检查器同样要求
+  # developer extras 已打开。麒麟上出白屏/前端异常时,这是唯一能看到控制台的办法。
+  KYLIN_TAGS=kylin,desktop,production
+  if [ "$DEVTOOLS" = 1 ]; then
+    KYLIN_TAGS="$KYLIN_TAGS,devtools"
+    echo "⚠️  --devtools:这是**诊断用**构建,产物名带 -devtools 后缀,不要拿去发布"
+  fi
+  CGO_ENABLED=1 go build -tags "$KYLIN_TAGS" -trimpath -buildvcs=false \
     -ldflags "-w -s $LDFLAGS_EXTRA" -o "bin/$APP_NAME"
   echo "▶ 已编译 bin/$APP_NAME"
 

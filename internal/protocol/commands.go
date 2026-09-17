@@ -52,6 +52,8 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"RecorderStatus":          hostproto.CommandQuery,
 	"SessionModels":           hostproto.CommandQuery,
 	"Status":                  hostproto.CommandQuery,
+	"RuntimeStatus":           hostproto.CommandQuery,
+	"CheckRuntimes":           hostproto.CommandQuery,
 	"UpdateStatus":            hostproto.CommandQuery,
 	"CheckUpdate":             hostproto.CommandQuery,
 	"WebProxy":                hostproto.CommandQuery,
@@ -87,6 +89,7 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"SetToolEnabled":       hostproto.CommandIdempotentSet,
 	"SetWebProxy":          hostproto.CommandIdempotentSet,
 	"CancelUpdateDownload": hostproto.CommandIdempotentSet,
+	"CancelRuntimeInstall": hostproto.CommandIdempotentSet,
 	// Triggers (side-effecting, not idempotent; a retry needs dedup).
 	"CloseAllSessions":        hostproto.CommandTrigger,
 	"CloseSession":            hostproto.CommandTrigger,
@@ -129,5 +132,7 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	// 版本更新：下载是一趟长跑（几分钟、可取消），安装会拉起安装器并退出本进程——
 	// 两者都不是重放安全的，所以是 Trigger 而不是幂等设置。
 	"DownloadUpdate": hostproto.CommandTrigger,
+	"InstallRuntime": hostproto.CommandTrigger,
+	"RemoveRuntime":  hostproto.CommandTrigger,
 	"InstallUpdate":  hostproto.CommandTrigger,
 }

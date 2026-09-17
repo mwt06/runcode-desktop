@@ -10,6 +10,7 @@ import {
   type CustomModel, type PassportModel, type SessionInfo, type StartSessionRequest,
 } from '@/core/bridge'
 import { Toggle } from '@/ui/toggle'
+import { BRAND } from '@/core/brand'
 import { Section } from './section'
 import { AccountSection } from './account'
 import { SessionSection } from './session'
@@ -18,10 +19,12 @@ import { ProxySection } from './proxy'
 import { RecorderSection } from './recorder'
 import { ContextSection } from './context'
 import { ContextAuditSection } from './context-audit'
+import { RuntimesSection } from './runtimes'
 import { AboutSection } from './about'
 import { InlineError } from '@/ui/feedback'
 import { PageShell } from '@/ui/layout'
 import { type UpdateController } from '@/session/use-update'
+import { useRuntimes } from '@/session/use-runtimes'
 
 export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchModel }: {
   initial: Partial<StartSessionRequest>
@@ -55,6 +58,9 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
   const [activeTenantId, setActiveTenantId] = useState(initial.tenantId ?? '')
   const [accountReady, setAccountReady] = useState(false)
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
+  // 运行时环境（Python/Node/Git）。状态在 Go 侧，这里只做它的镜子；只有设置页用到，
+  // 所以钩子就挂在这里，不必像 update 那样提到 App（侧栏小红点要读那个）。
+  const runtimes = useRuntimes()
   useEffect(() => {
     listCustomModels().then((l) => setCustomModels(l ?? [])).catch(() => {})
   }, [])
@@ -144,7 +150,9 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
         />
         <CustomModelsSection models={customModels} onChanged={setCustomModels} />
         <ProxySection />
-        <RecorderSection />
+        {/* 录音设置跟着「录音纪要」这个功能走：品牌关掉它时这块也不画，否则设置页
+            里留着一组调不出任何界面的开关。 */}
+        {BRAND.features.recorder && <RecorderSection />}
         <ContextSection
           maxTokens={maxTokens}
           onMaxTokens={setMaxTokens}
@@ -155,6 +163,10 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
         />
 
         <ContextAuditSection />
+
+        {/* 运行时环境与「关于与更新」挨着：两者都是"下载 + 安装"，而且用户来设置页
+            找它们的心情是同一种（"这东西是不是缺了点什么"）。 */}
+        <RuntimesSection runtimes={runtimes} />
 
         <AboutSection update={update} />
 

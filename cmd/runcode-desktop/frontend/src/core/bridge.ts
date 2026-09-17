@@ -72,6 +72,10 @@ export type {
   SkillList,
   SkillProblem,
   SkillSaveRequest,
+  RuntimeInfo,
+  RuntimePack,
+  RuntimePackId,
+  RuntimeStage,
   StartRecordingRequest,
   StartSessionRequest,
   ToolEvent,
@@ -87,7 +91,7 @@ export type {
 // expose it under a collision-free name (the old handwritten bridge exported no
 // error type, so nothing depends on the bare name).
 export type { Error as ProtocolError } from './protocol/types'
-export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, SkillInstallStages, UpdateStages, ProtocolVersion } from './protocol/types'
+export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, SkillInstallStages, UpdateStages, RuntimePackIds, RuntimeStages, ProtocolVersion } from './protocol/types'
 
 export type { PassportTenant } from './protocol/types'
 
@@ -195,6 +199,11 @@ export {
   setToolEnabled,
   setWebProxy,
   startSession,
+  runtimeStatus,
+  checkRuntimes,
+  installRuntime,
+  cancelRuntimeInstall,
+  removeRuntime,
   updateStatus,
   checkUpdate,
   downloadUpdate,

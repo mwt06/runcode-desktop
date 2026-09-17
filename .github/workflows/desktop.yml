@@ -41,6 +41,14 @@ on:
         type: choice
         default: all
         options: [all, windows-only, macos-only, linux-only, kylin10-only]
+      devtools:
+        # 只对麒麟 V10 生效（它是 Wails v2 的构建标记）。打开后 WebView 的 developer
+        # extras 可用，窗口里按 Ctrl-Shift-F12 开检查器——麒麟上出白屏或前端异常时，
+        # 这是唯一能看到控制台的办法（不开这个标记，连 WEBKIT_INSPECTOR_SERVER 那个
+        # 环境变量也是无效的）。产物名带 -devtools 后缀，别当正式包发出去。
+        description: 麒麟 V10 出诊断版（带 Ctrl-Shift-F12 检查器）
+        type: boolean
+        default: false
   push:
     tags: ['v*']
   pull_request:
@@ -237,11 +245,18 @@ jobs:
             ( cd "$shim" && go mod init ccshim >/dev/null && go build -o ccshim.exe . )
             export CC="$shim/ccshim.exe" CXX=clang++
           fi
+          # 运行时环境（Python/Node/Git 绿色包）的清单地址。走对象存储上的静态清单，
+          # 不经 Bridge——/api/app/runtimes 那个端点还没有，而包早就传上去了。
+          # 不传这个参数的成品不会报错，只是运行时那一节全显示"本平台暂未提供"：
+          # 一个静悄悄的功能缺失，装机之后才看得出来，所以宁可写死在这里。
+          # {platform} 由客户端换成 windows-amd64 这类片段（见 runtimeManifestURL）；
+          # 包与品牌无关，两个品牌共用同一份。
+          rt=(--runtime-manifest "https://files-aibase.ouc-online.com.cn/zhikai/runtimepacks/runtimes-{platform}.json")
           case "${{ matrix.target }}" in
-            windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer ;;
-            macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip ;;
-            linux-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --gtk3 ;;
-            kylin10-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --kylin ;;
+            windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer "${rt[@]}" ;;
+            macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip "${rt[@]}" ;;
+            linux-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --gtk3 "${rt[@]}" ;;
+            kylin10-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --kylin "${rt[@]}" ${{ inputs.devtools && '--devtools' || '' }} ;;
           esac
 
       # 产物改成全 ASCII 的名字：应用名可能是中文（智开），而中文文件名在 artifact
@@ -275,6 +290,9 @@ jobs:
               # 文件名分不出来是最容易发错包的地方。
               flavor=linux
               case "${{ matrix.target }}" in kylin10-*) flavor=kylin10 ;; esac
+              # 诊断版单独标出来。它和正式包长得一模一样，混了就会有人拿着一个带
+              # 检查器的包当正式版发出去。
+              if [ "${{ inputs.devtools }}" = true ]; then flavor="$flavor-devtools"; fi
               for f in bin/*.deb; do
                 [ -f "$f" ] && cp "$f" "dist/$product-$version-$flavor-$arch.deb"
               done
@@ -282,7 +300,9 @@ jobs:
               ;;
           esac
           ls -la dist
-          echo "name=$product-$version-${{ matrix.target }}" >> "$GITHUB_OUTPUT"
+          suffix=""
+          if [ "${{ inputs.devtools }}" = true ]; then suffix="-devtools"; fi
+          echo "name=$product-$version-${{ matrix.target }}$suffix" >> "$GITHUB_OUTPUT"
 
       - name: 上传产物
         uses: actions/upload-artifact@v4

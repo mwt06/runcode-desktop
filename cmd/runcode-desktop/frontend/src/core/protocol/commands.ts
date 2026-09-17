@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
+import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -25,10 +25,22 @@ export function activeTenant(): Promise<string> {
   return call<string>('ActiveTenant');
 }
 
+// CancelRuntimeInstall 取消正在进行的安装。没在装也返回成功（见 cancelInstall）。
+// kind: idempotent-set
+export function cancelRuntimeInstall(id: string): Promise<void> {
+  return call<void>('CancelRuntimeInstall', id);
+}
+
 // CancelUpdateDownload 取消正在跑的下载（或检查）。重复调用是安全的：没有在跑的 时候它什么也不做，只把当前状态回给调用方。
 // kind: idempotent-set
 export function cancelUpdateDownload(): Promise<UpdateInfo> {
   return call<UpdateInfo>('CancelUpdateDownload');
+}
+
+// CheckRuntimes 重新取一次清单。
+// kind: query
+export function checkRuntimes(): Promise<RuntimeInfo> {
+  return call<RuntimeInfo>('CheckRuntimes');
 }
 
 // CheckUpdate 向网关要一次清单，把结果落成状态机的新状态并返回。
@@ -185,6 +197,12 @@ export function injectMessageWithImages(sessionID: string, text: string, paths: 
 // kind: trigger
 export function installMarketSkill(id: number, scope: string): Promise<SkillList> {
   return call<SkillList>('InstallMarketSkill', id, scope);
+}
+
+// InstallRuntime 下载并安装一个运行时包。整趟阻塞，进度经 EventRuntimes 流出去。
+// kind: trigger
+export function installRuntime(id: string): Promise<void> {
+  return call<void>('InstallRuntime', id);
 }
 
 // InstallUpdate 拉起安装器。Windows 上安装器起来之后本应用会自己退出（见 quitSoon）； 不支持直接安装的平台（macOS）则打开安装包所在的文件夹，由用户自己接手。
@@ -427,6 +445,12 @@ export function reloadMCPServers(): Promise<boolean> {
   return call<boolean>('ReloadMCPServers');
 }
 
+// RemoveRuntime 删除已安装的运行时包。
+// kind: trigger
+export function removeRuntime(id: string): Promise<void> {
+  return call<void>('RemoveRuntime', id);
+}
+
 // RenderOfficePDF 把工作区里的一份 Office 文档转成 PDF,返回**工作区相对**的 PDF 路径,前端拿它走既有的 PDF 预览(经预览服务器的 URL 塞进 iframe)。 同一份文件重复打开命中缓存直接返回;源文件改了(大小或修改时间变了)键就变了, 于是自然重转,不需要额外的失效逻辑。
 // kind: query
 export function renderOfficePDF(relPath: string): Promise<string> {
@@ -479,6 +503,12 @@ export function revertEdit(sessionID: string, snapshotID: string): Promise<void>
 // kind: trigger
 export function reviewEdit(sessionID: string, snapshotID: string): Promise<EditDiff> {
   return call<EditDiff>('ReviewEdit', sessionID, snapshotID);
+}
+
+// RuntimeStatus 返回运行时环境的当前状态（纯读，不联网）。
+// kind: query
+export function runtimeStatus(): Promise<RuntimeInfo> {
+  return call<RuntimeInfo>('RuntimeStatus');
 }
 
 // SaveAgent writes a sub-agent's <name>.md to its scope's root and returns the list.

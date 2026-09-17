@@ -13,7 +13,7 @@
 
 本仓库含**三个 Go module**（依赖方向：外壳 → agentloop，反向不存在）：
 
-1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`internal/command`）+ 桌面核心（`internal/desktop`、`internal/protocol`）+ 桌面专属 host 工具（`internal/previewtool` = `open_preview`、`internal/officetool` = `ReadOffice`、`internal/plantool` = `plan_write`，均经 `engine.Options.ExtraTools` 只在桌面注册；`internal/skilltool` 与 `internal/websearchtool` 走另一条路——经 `engine.Options.SkillTool` / `engine.Options.WebSearchTool` **替换**内置的 Skill / WebSearch 工具，因为会话内工具名唯一，同名工具只能换不能加。WebSearch 换掉的是引擎那个 DuckDuckGo 抓页搜索，改走平台自己的联网搜索：经 Bridge 的 `/v1/websearch` 调 AI.Core，带登录用户的通行证令牌与选定租户，模型默认 `al-websearch`（`RUNCODE_WEBSEARCH_MODEL` 可覆盖）；只有通行证连接装它，自填端点/自定义模型保留内置的那条——接线见 `internal/desktop/websearch.go`）+ `tools/protogen`。
+1. **根模块（`github.com/wt68/runcode`）**——CLI/TUI（`cmd/runcode`、`internal/ui`、`internal/command`）+ 桌面核心（`internal/desktop`、`internal/protocol`）+ 桌面专属 host 工具（`internal/previewtool` = `open_preview`、`internal/officetool` = `ReadOffice`、`internal/plantool` = `plan_write`，均经 `engine.Options.ExtraTools` 只在桌面注册；`internal/skilltool` 与 `internal/websearchtool` 走另一条路——经 `engine.Options.SkillTool` / `engine.Options.WebSearchTool` **替换**内置的 Skill / WebSearch 工具，因为会话内工具名唯一，同名工具只能换不能加。WebSearch 换掉的是引擎那个 DuckDuckGo 抓页搜索，改走平台自己的联网搜索：经 Bridge 的 `/v1/websearch` 调 AI.Core，带登录用户的通行证令牌与选定租户，模型默认 `al-websearch`（`RUNCODE_WEBSEARCH_MODEL` 可覆盖）；只有通行证连接装它，自填端点/自定义模型保留内置的那条——接线见 `internal/desktop/websearch.go`）+ `tools/protogen` 与 `tools/runtimepacks`（把上游的 Python/Node/Git 绿色包重打成本应用的运行时包，产出清单供 Bridge 下发）。
 2. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
 3. **服务端骨架（`cmd/runcode-server`，嵌套 module）**——独立仓库服务端的可跑参考实现。
 
@@ -25,6 +25,8 @@
 - 测试（CI 用 `-race`，三平台）：`go test -race ./... ; go -C cmd/runcode-server test -race ./...`（或 `make test`）。
 - Lint：`golangci-lint run`（或 `make lint`；配置根 `.golangci.yml`，启用 gosec/errcheck/gocritic）。
 - 协议 TS 再生成（引擎 protocol 变更后）：`go run ./tools/protogen`；CI 用 `--check` 防漂移。
+- 打运行时包（Python/Node/Git 的绿色包，传 OBS 用）：`go run ./tools/runtimepacks --list` 先看要下什么，再去掉 `--list` 实打；见 `tools/runtimepacks/main.go` 的说明。
+  运行时清单有两条路：默认走 Bridge 的 `/api/app/runtimes`；打包时加 `--runtime-manifest 'https://<obs>/runtimes-{platform}.json'` 则改走对象存储上的静态文件（`{platform}` 由客户端换成 `windows-amd64` 这种，见 `runtimeManifestURL`），**不需要服务端**，代价是换版本要重传 JSON。
 - 出 CLI 二进制：`go build -o runcode.exe ./cmd/runcode`。
 
 ### `internal/` 文件分工
@@ -32,7 +34,7 @@
 两个大包，各自一个包内按职责分文件（Go 里"目录结构"就是包，包内靠文件名分工），外加一个只放类型的 `internal/protocol`：
 
 - **`internal/protocol`**（桌面自己的 wire 类型：设置表单、通行证、技能/子代理/MCP/工具管理页、编辑复审、harm 提示）。**加字段、加 DTO 请加在这里，不要加进引擎**——引擎的 `agentloop/protocol` 只负责"跑一个回合"的契约（assistant delta / 工具事件 / 审批 / 回合结果 / 会话状态 / 错误 / envelope），且与 `cmd/runcode-server` 共享。判据是"谁产生它"：引擎 `host` 包产生或消费的归引擎，只有本外壳用的归这里，**没有例外**。命令清单 `CommandKinds` 就在这里（`internal/protocol/commands.go`）——**新增一个 Wails 命令只改本仓**，引擎不必发版；引擎只保留分类词汇 `protocol.CommandKind` 与三个常量（"query 意味着什么"两端必须一致，"有哪些命令"各自声明，`cmd/runcode-server` 另有自己的一份）。两个包由 `tools/protogen` 合并生成同一份 TS，重名会直接报错。
-- **`internal/desktop`**（桌面核心，Wails 把 `App` 的导出方法绑给前端，所以命令必须都挂在同一个类型上，不能拆包）：`app.go` 只留 App 结构与会话开关；回合在 `turn.go`、自动标题在 `title.go`、运行中可变的会话设置在 `session_settings.go`；其余按功能各自成文件（`skills` / `agents` / `mcp` / `passport` / `oauth` / `tokens` / `preview` / `editstore` / `plan`（阶段化计划模式的阶段机与审批闸门）/ `custommodels` / `config` / `store` / `disabled` / `harm` / `appdirs`（本应用自己的安装/数据目录不再走"项目外授权"，包一层 `permissions.Policy`）/ `update`（版本更新的状态机：查网关清单 → 下载 → 校验 sha256 → 拉起安装器；`version.go` 是版本号与产品标识，两者都由打包脚本经 `-ldflags` 注入）/ `download`（带进度与 sha256 的大文件下载，更新与技能市场共用）/ …）。技能与子代理共用的作用域目录解析与命名规则在 `resources.go`（`resourceRoot(kindSkills|kindAgents, scope)`），别再各写一份。
+- **`internal/desktop`**（桌面核心，Wails 把 `App` 的导出方法绑给前端，所以命令必须都挂在同一个类型上，不能拆包）：`app.go` 只留 App 结构与会话开关；回合在 `turn.go`、自动标题在 `title.go`、运行中可变的会话设置在 `session_settings.go`；其余按功能各自成文件（`skills` / `agents` / `mcp` / `passport` / `oauth` / `tokens` / `preview` / `editstore` / `plan`（阶段化计划模式的阶段机与审批闸门）/ `custommodels` / `config` / `store` / `disabled` / `harm` / `appdirs`（本应用自己的安装/数据目录不再走"项目外授权"，包一层 `permissions.Policy`）/ `update`（版本更新的状态机：查网关清单 → 下载 → 校验 sha256 → 拉起安装器；`version.go` 是版本号与产品标识，两者都由打包脚本经 `-ldflags` 注入）/ `download`（带进度与 sha256 的大文件下载，更新、技能市场与运行时包三处共用） / `runtimes`（运行时环境：Python/Node/Git 的绿色包，查清单 → 下载 → 校验 → 解压到用户目录，**全程不提权**；`runtimepack.go` 是"本机知识"——包内布局与系统探测，故意不来自服务端清单；`runtimeenv.go` 把它接进 `engine.Config.ToolEnv` 的 PATH 与 `SystemPromptAppend`，两者缺一不可：只给 PATH 模型不知道 Python 在那儿，还会回一句"请先安装 Python"；`untargz.go` 是它专用的解压器——运行时包用 tar.gz 而非技能包那种 zip，因为里面有符号链接与可执行位）/ …）。技能与子代理共用的作用域目录解析与命名规则在 `resources.go`（`resourceRoot(kindSkills|kindAgents, scope)`），别再各写一份。
 - **`internal/ui`**（CLI 的 TUI）：`model.go` 是 bubbletea 生命周期；工具事件归并在 `tool_events.go`、异步命令工厂在 `tea_commands.go`（与 `slash_commands.go` 的斜杠命令是两回事）；渲染分 `render.go`（组装）/ `render_approval.go` / `render_tools.go` / `markdown.go` / `format.go`，调色板集中在 `render.go`。包说明见 `doc.go`。
 
 自检：`go build ./...`、`go test -race ./internal/... ./cmd/runcode/...`、`golangci-lint run ./...`。**lint 存量已清零，新增告警一律当回归处理**（不再有"既有基线"可推诿）。豁免只有两种合法形式：`.golangci.yml` 里按类别写明理由的排除（G104/G304/G301、测试排除），或单点 `//nolint:linter // 原因`。加新的豁免前先确认不是真问题。
@@ -50,7 +52,7 @@
 
 ##### 两份外壳：v3 与 v2（麒麟 V10）
 
-`cmd/runcode-desktop` 里有**两个 main**，靠 `kylin` 构建标记二选一。业务逻辑、引擎与整个前端完全共用，只差这一个文件：
+`cmd/runcode-desktop` 里有**两个 main**，靠 `kylin` 构建标记二选一。业务逻辑、引擎与整个前端共用（v2 与 v3 的运行时差异由一个构建期垫片吸收，见下），Go 侧只差这一个文件：
 
 | | `main.go`（`!kylin`） | `main_kylin.go`（`kylin`） |
 | --- | --- | --- |
@@ -65,10 +67,13 @@
 
 - 品牌变量（`brandTitle` / `brandID`）住在**不带标记**的 `brand.go`，两份外壳共用。放回 `main.go` 的表现是另一份编译时报 undefined。
 - `go.mod` 同时 require v2 与 v3，无依赖冲突；`go mod tidy` 会保留 v2（自定义标记的文件它算得进去），只有被编进去的那套会进二进制。
-- v2 那条**整条链路不碰 wails3**：它的 CLI 自己就要 webkit2gtk-4.1，在 V10 的编译环境里装都装不上。`--kylin` 走 vite 构建 + `go build -tags kylin` + nfpm。
+- v2 那条**整条链路不碰 wails3**：它的 CLI 自己就要 webkit2gtk-4.1，在 V10 的编译环境里装都装不上。`--kylin` 走 vite 构建 + `go build -tags kylin,desktop,production` + nfpm。
 - 编译机的 glibc 必须**不比目标新**（glibc 只向后兼容）。V10 是 2.31 → 只能在 `ubuntu:20.04` 容器里编（也是唯一还带 `libwebkit2gtk-4.0-dev` 的 Ubuntu）；V11 是 2.38 → `ubuntu-22.04`（2.35），不能用 24.04（2.39）。
 - Linux 上应用名自动换成 ASCII 的产品标识：它同时是 deb 包名、可执行文件名与 `.desktop` 文件名，而 deb 包名规范不接受中文。中文走 `.desktop` 的 `Name` 字段。
 - **`webkit2_41` 是 v2 时代的标记，v3 里不存在**，脚本里那个已清掉。v3 的老路径开关叫 `gtk3`，且在 v3.1 会被移除。
+- **`-tags kylin` 一个不够，要 `kylin,desktop,production`**。v2 按 tag 选 `internal/app` 的实现：漏了 `production` 编进去的是 `app_default_unix.go` 那个占位版，`CreateApp` 直接返回 "Wails applications will not build without the correct build tags." 然后退出码 1。成品能编译、能装、双击**没反应**，只有从终端跑才看得见那行。这条链路不经过 wails 的 CLI，CLI 默认会带的 tag 就得在打包脚本里手工补齐。验证手法：`go list -tags ... -f '{{.GoFiles}}' github.com/wailsapp/wails/v2/internal/app` 看选中的是哪个 `app_*.go`。
+- **前端是按 Wails v3 的运行时写的**（`Call.ByName` / `Events.On` 来自 `@wailsio/runtime`，底层要 `/wails/runtime` 与 `window._wails`），v2 一样都不提供——它注入的是 `window.go` 与 `window.runtime`。`--kylin` 因此设 `VITE_WAILS=v2`，由 `vite.config.ts` 把**模块名** `@wailsio/runtime` 别名到 `frontend/src/core/wails-v2-runtime.ts` 的垫片上。**接缝只有这一处**：五个调用点与 protogen 的模板都不知道这件事，v3 产物也完全不受影响（别名不存在时垫片不进包）。不要改成运行时探测 `window._wails`——那的失败模式是时序相关的偶发。垫片的导出覆盖率由 `wails-v2-runtime.test.ts` 扫源码卡住，新用一个 v3 API 时红的是 CI 而不是麒麟机器上的白屏。代价是 V10 上**拖文件进输入框没有**（v2 的 file drop 是 `--wails-drop-target` + `OnFileDrop` 另一套），粘贴与选文件不受影响。
+- **deb 的 `Architecture` 别信 nfpm 的默认值**。`nfpm.yaml` 写的是 `arch: ${GOARCH}`，可两条 Linux 链路都没人把 `GOARCH` 喂给打包那一步（v3 那条只设在 `build:native` 的 env 里，打包走的是另一个 task），取空时 nfpm 兜底成**硬编码的 amd64**。表现是 arm64 的包里装着 arm64 的二进制、control 却写 amd64，`dpkg -i` 一句「体系结构不符」，而看文件名完全看不出来。打包脚本现在就地把真实架构写死进去，不走环境变量。
 
 **一个尚未在真机验证的前提**：V10 基础版的 WebKitGTK 是 2.28.1，而 `10.1-2403-updates` 源里是 2.38.6。2.38.6 支持 `@layer` 与 `color-mix()`，现有的 Tailwind v4 前端只损失 `@property`（被 `@supports` 包着，表现是渐变等效果打折）；停在 2.28.1 的机器则需要额外的样式降级。判定方法是在目标机器上跑 `apt policy libwebkit2gtk-4.0-37`。CI 只验证了能编译能出包，**没有任何一台真实麒麟跑过**。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。

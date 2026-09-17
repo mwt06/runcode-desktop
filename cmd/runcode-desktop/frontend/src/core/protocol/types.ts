@@ -21,6 +21,7 @@ export const Events = {
   RecorderState: 'recorder:state',
   RecorderTranscript: 'recorder:transcript',
   Retry: 'llm:retry',
+  Runtimes: 'runtimes:status',
   SessionRenamed: 'session:renamed',
   SessionStatus: 'session:status',
   SkillInstall: 'skill:install',
@@ -122,6 +123,29 @@ export const UpdateStages = {
 
 // UpdateStage is the closed set of updater stages — the shell drives this state machine itself, so an unknown value is a bug, not a newer peer.
 export type UpdateStage = (typeof UpdateStages)[keyof typeof UpdateStages];
+
+// Mirrors the protocol.RuntimePack* constants. Ids of the managed runtime packs (Python / Node / Git); the values of RuntimePack.id.
+export const RuntimePackIds = {
+  Git: 'git',
+  Node: 'node',
+  Python: 'python',
+} as const;
+
+// RuntimePackId is the closed set of runtime packs — the shell decides what a pack means (layout, probe), so an unknown id is a bug, not a newer peer.
+export type RuntimePackId = (typeof RuntimePackIds)[keyof typeof RuntimePackIds];
+
+// Mirrors the protocol.RuntimeStage* constants. Install stages of one managed runtime pack; the values of RuntimePack.stage.
+export const RuntimeStages = {
+  Absent: 'absent',
+  Downloading: 'downloading',
+  Extracting: 'extracting',
+  Failed: 'failed',
+  Ready: 'ready',
+  Verifying: 'verifying',
+} as const;
+
+// RuntimeStage is the closed set of install stages — the shell drives this pipeline itself, so an unknown value is a bug, not a newer peer.
+export type RuntimeStage = (typeof RuntimeStages)[keyof typeof RuntimeStages];
 
 // Mirrors protocol.AgentInfo. AgentInfo is one sub-agent for the UI's sub-agent manager.
 export interface AgentInfo {
@@ -607,6 +631,48 @@ export interface RetryNotice {
   reason: string;
   attempt: number;
   maxAttempts: number;
+}
+
+// Mirrors protocol.RuntimeInfo. RuntimeInfo 是运行时环境的完整状态，也是唯一的对外形状。 它同时是 RuntimeStatus()（纯读，不联网）的返回值和 EventRuntimes 的载荷。
+export interface RuntimeInfo {
+  platform: string;
+  packs: RuntimePack[] | null;
+  fetched: boolean;
+  error: string;
+}
+
+// Mirrors protocol.RuntimeManifest. RuntimeManifest 是清单响应：这个平台上有哪些包可装。 GET {Bridge}/api/app/runtimes?product=xrun&platform=windows/amd64 为什么这一份 wire 类型是公开的、而版本更新那份（releaseWire）是私有的：清单 在本仓有**两个**消费者——客户端解析它，tools/runtimepacks 生成它。两处各写一遍 结构体，迟早有一天字段名对不上，而那种错只在装机之后才显形。放在这里，两边 编译期就绑住了。
+export interface RuntimeManifest {
+  platform: string;
+  packs: RuntimeManifestPack[] | null;
+}
+
+// Mirrors protocol.RuntimeManifestPack. RuntimeManifestPack 是清单里的一个包。 它刻意**不含**可执行文件路径、PATH 目录、环境变量：那些是"本机要执行什么"， 由客户端按 id 与平台自己决定（见 desktop/runtimepack.go）。清单能改的只有 "下哪个文件"，不能改"跑哪个文件"。
+export interface RuntimeManifestPack {
+  id: string;
+  version: string;
+  url: string;
+  sha256: string;
+  size: number;
+  notes: string;
+}
+
+// Mirrors protocol.RuntimePack. RuntimePack 是一个运行时包此刻的全部状态：托管包装没装、系统里有没有、能不能用。
+export interface RuntimePack {
+  id: RuntimePackId;
+  label: string;
+  summary: string;
+  stage: RuntimeStage;
+  version: string;
+  available: string;
+  size: number;
+  received: number;
+  error: string;
+  systemPath: string;
+  systemVersion: string;
+  systemUsable: boolean;
+  minVersion: string;
+  active: string;
 }
 
 // Mirrors protocol.SaveCustomModelRequest. SaveCustomModelRequest 新增或修改一个自定义模型。编辑时 OriginalName 定位旧 记录；APIKey 留空表示保留旧密钥，ClearAPIKey 才显式清除，两者不能同时使用。
