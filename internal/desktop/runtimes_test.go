@@ -205,10 +205,11 @@ func TestBuildEnvManagedPack(t *testing.T) {
 	if !strings.Contains(e.prompt, "python-docx") {
 		t.Errorf("prompt omits the preinstalled libraries:\n%s", e.prompt)
 	}
-	env := m.toolEnv()
-	// PATH 必须是整条：ToolEnv 是覆盖语义，只给前缀的话子进程连系统命令都找不到。
-	if !strings.HasPrefix(env["PATH"], e.dirs[0]) || !strings.Contains(env["PATH"], basePath()) {
-		t.Errorf("toolEnv PATH is not prefix+inherited: %q", env["PATH"])
+	// ToolEnv **不许**带 PATH：它是开对话那一刻的快照，带上就把这个对话的 PATH 冻住了，
+	// 对话中途（install_runtime）装上的运行时在这个对话里永远找不到。运行时目录只经
+	// applyEnv 写进进程 PATH，工具子进程每次启动时现继承。
+	if p, ok := m.toolEnv()["PATH"]; ok {
+		t.Errorf("toolEnv carries PATH (%q): it would freeze the session's PATH at build time", p)
 	}
 }
 
@@ -227,9 +228,15 @@ func TestBuildEnvTooOldSystemPython(t *testing.T) {
 			t.Errorf("prompt missing %q:\n%s", want, e.prompt)
 		}
 	}
-	// 绝不能让模型叫用户自己去装 Python：在麒麟上照做会把系统 python3 换掉，
-	// 连带 dnf/apt 一起坏。这条危害是 Python 独有的，只该出现在 Python 那一行。
-	if !strings.Contains(e.prompt, "Do not install it yourself") {
+	// 出口是应用自己的安装器：有工具就调工具，没有（子代理）就请用户去设置页点。
+	for _, want := range []string{"call the install_runtime tool", `runtime "python"`, "If you do not have that tool", "设置 → 运行时环境"} {
+		if !strings.Contains(e.prompt, want) {
+			t.Errorf("prompt does not point at the in-app installer (%q):\n%s", want, e.prompt)
+		}
+	}
+	// 绝不能让模型自己换个法子装，也不能叫用户自己去装 Python：在麒麟上照做会把系统
+	// python3 换掉，连带 dnf/apt 一起坏。这条危害是 Python 独有的，只该出现在 Python 那一行。
+	if !strings.Contains(e.prompt, "Do not install it any other way") || !strings.Contains(e.prompt, "do not tell the user to download it") {
 		t.Errorf("prompt does not discourage the self-install advice:\n%s", e.prompt)
 	}
 	if !strings.Contains(e.prompt, "breaks the OS package manager") {

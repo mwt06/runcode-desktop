@@ -9,12 +9,14 @@ package desktop
 //     "生成一份公文"会先回一句"请先安装 Python"，而 Python 就在那儿。反过来，机器上
 //     确实没有 Python 时也要说清楚，否则它会写出一个注定跑不了的脚本再来解释为什么。
 //
-// 写进程 PATH 与写 ToolEnv 两件事都做，不是重复：
+// PATH **只**写进本进程（applyEnv），**不**放进 ToolEnv：
 //
-//   - 进程 PATH（applyEnv）让**已经开着的会话**和 MCP 子进程立刻受益——用户刚在
-//     设置页装完 Python，不该被要求"新建一个对话才生效"。
-//   - ToolEnv（configureSession 里注入）是显式、确定、可测的那一份，而且它还带着
-//     PIP_* 这些只该给工具子进程看的变量。
+//   - ToolEnv 是会话构建那一刻拍下的快照（引擎把这张表原样挂到工具上下文上），而引擎
+//     的 Bash 每跑一条命令都现读 os.Environ()。PATH 放进快照，就等于把这个对话的 PATH
+//     冻在了开对话的那一刻：开对话时已经装了 Node、中途再装 Python，这个对话里就永远
+//     找不到 python3——而"中途装"正是 install_runtime 工具（模型自己装，见
+//     runtimetool.go）的常态。只写进程 PATH，装完那一刻所有会话、下一条命令就都看得见。
+//   - ToolEnv 里只剩 PIP_* 这类只该给工具子进程看的、且不随安装变化的变量。
 
 import (
 	"os"
@@ -27,6 +29,7 @@ import (
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 
 	"github.com/wt68/runcode/internal/protocol"
+	"github.com/wt68/runcode/internal/runtimetool"
 )
 
 // runtimeEnv 是一次计算出来的执行环境快照。
@@ -117,7 +120,8 @@ func managedLine(s packSpec, st *packState) string {
 		// 或"权限不够"，会去改脚本、换写法，绕半天圈子——而问题根本不在脚本里。
 		line += " On this machine the system security center has not trusted it yet: every run pops up a confirmation on the user's desktop" +
 			" and fails (exit code 126, \"permission denied\") if nobody accepts within 30 seconds. If that happens, do not rewrite the script;" +
-			" ask the user to click 授权 next to it in 设置 → 运行时环境."
+			" call the " + runtimetool.Name + " tool for it again (that re-requests the authorization — the user types their password in the app's own dialog)," +
+			" or, if you do not have that tool, ask the user to click 授权 next to it in 设置 → 运行时环境."
 	}
 	return line
 }
@@ -157,16 +161,23 @@ func missingLine(s packSpec, st *packState) string {
 		// "本平台暂未提供安装包"，等于把人带进死胡同。
 		return line + " This app cannot install it on this platform; the user can install it with the system package manager (e.g. sudo apt install git) and restart the app."
 	}
-	// 发了包但没装：唯一正确的出口是设置页。**别让模型叫用户自己去下载安装**——
-	// 在银河麒麟上升级系统 python3 会把 dnf 一起搞挂，而用户照做之后没人收得了场。
+	// 发了包但没装：出口是应用自己的安装器——模型经 install_runtime 工具调它（每次要用户
+	// 批准，下的是校验过的那一份，装到用户目录、不提权），装完这个对话里立刻就能用。
+	// **别让模型叫用户自己去下载安装**——在银河麒麟上升级系统 python3 会把 dnf 一起搞挂，
+	// 而用户照做之后没人收得了场。
 	//
-	// "别让用户自己装"之外必须再说一句"你自己也别装"：只说前一半时，模型在麒麟真机上把它
-	// 读成了"那我替用户装"——花了十五轮去找别的 Python、测技能脚本能不能在 3.8 上凑合跑，
-	// 最后执行了 `curl … astral.sh/uv/install.sh | sh`。自己下的解释器没有预装库、应用管不到，
-	// 在开着执行控制的麒麟上还会被安全中心直接拦下。所以给它一个明确的动作：停下，请用户点安装。
-	line += " The app ships its own copy: stop and ask the user to click 安装 next to it in 设置 → 运行时环境, then continue." +
-		" Do not install it yourself (uv, pyenv, conda, `curl … | sh`, downloading an interpreter) and do not tell the user to download it" +
-		" — the in-app installer is the only supported way."
+	// 给了工具还必须说一句"别的装法都不行"：早先只说"别让用户自己装"时，模型在麒麟真机上
+	// 把它读成了"那我替用户装"——花了十五轮去找别的 Python、测技能脚本能不能在 3.8 上凑合
+	// 跑，最后执行了 `curl … astral.sh/uv/install.sh | sh`。自己下的解释器没有预装库、应用管
+	// 不到，在开着执行控制的麒麟上还会被安全中心直接拦下。
+	//
+	// "没有这个工具时"那半句不是摆设：这段提示词也会进子代理，而子代理拿不到 ExtraTools
+	// 注册的工具（见 configureSession）。不给它退路，它会去编一个不存在的工具调用。
+	line += " The app ships its own copy: when the task needs it, call the " + runtimetool.Name + " tool with runtime \"" + s.id + "\"" +
+		" (the user approves the call; it downloads the app's verified copy into the user's own directory, no admin rights)," +
+		" then continue — it works in this conversation as soon as the tool succeeds." +
+		" If you do not have that tool, stop and ask the user to click 安装 next to it in 设置 → 运行时环境." +
+		" Do not install it any other way (uv, pyenv, conda, `curl … | sh`, downloading an interpreter) and do not tell the user to download it."
 	if s.id == protocol.RuntimePackPython {
 		// 这条危害是 Python 独有的，别套到 Node/Git 头上：银河麒麟等发行版的
 		// dnf/apt 工具链就架在系统 python3 上，用户照着"去装个新版 Python"动手
@@ -214,16 +225,13 @@ func promptSection(lines []string) string {
 
 // toolEnv 是注入每个工具子进程的环境（engine.Config.ToolEnv）。
 //
-// PATH 在这里是**整条**（前置目录 + 进程原有的），因为 ToolEnv 是覆盖语义：
-// 只给一段前缀的话，子进程的 PATH 就只剩那一段，连系统命令都找不到了。
+// **故意不含 PATH**：ToolEnv 是会话构建时的快照，PATH 放进来就冻住了（见文件头）。
+// 运行时目录经 applyEnv 写进本进程的 PATH，工具子进程每次启动时继承的正是它。
 func (m *runtimeManager) toolEnv() map[string]string {
 	e := m.envSnapshot()
-	out := make(map[string]string, len(e.vars)+1)
+	out := make(map[string]string, len(e.vars))
 	for k, v := range e.vars {
 		out[k] = v
-	}
-	if len(e.dirs) > 0 {
-		out["PATH"] = strings.Join(e.dirs, string(os.PathListSeparator)) + string(os.PathListSeparator) + basePath()
 	}
 	return out
 }

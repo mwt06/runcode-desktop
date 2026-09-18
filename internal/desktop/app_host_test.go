@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
@@ -72,8 +73,9 @@ func TestConfigureSessionWiresOptions(t *testing.T) {
 	for i, tl := range opts.ExtraTools {
 		toolNames[i] = tl.Name()
 	}
-	if len(toolNames) != 3 || toolNames[0] != "open_preview" || toolNames[1] != "ReadOffice" || toolNames[2] != "plan_write" {
-		t.Fatalf("ExtraTools = %v, want [open_preview ReadOffice plan_write]", toolNames)
+	want := []string{"open_preview", "ReadOffice", "plan_write", "install_runtime"}
+	if strings.Join(toolNames, ",") != strings.Join(want, ",") {
+		t.Fatalf("ExtraTools = %v, want %v", toolNames, want)
 	}
 	// The planning run is parked like the edit store: bound to this session, and
 	// published to the App only once Create succeeds.

@@ -15,7 +15,7 @@ export const TOOL_ICON: Record<string, string> = {
   Grep: 'search', Glob: 'search', WebFetch: 'globe', WebSearch: 'globe',
   TodoWrite: 'grid', Analyze: 'sparkles', AskUser: 'chat', open_preview: 'file',
   Task: 'bot', Skill: 'book', Remember: 'sparkles',
-  Wait: 'clock', GetCurrentTime: 'clock',
+  Wait: 'clock', GetCurrentTime: 'clock', install_runtime: 'terminal',
   'general-purpose': 'bot', 'code-reviewer': 'shield', 'code-explorer': 'search',
   planner: 'grid', debugger: 'terminal',
 }

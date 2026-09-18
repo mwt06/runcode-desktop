@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +37,8 @@ type runtimeFixture struct {
 	query chan string
 	// platform 是假服务端在清单里自报的平台；默认与本机一致，测"配错平台"时改它。
 	platform string
+	// downloads 数包被下了几次，用来盯住"已经装好的不该再下一遍"。
+	downloads atomic.Int32
 }
 
 func newRuntimeFixture(t *testing.T) *runtimeFixture {
@@ -55,6 +58,7 @@ func newRuntimeFixture(t *testing.T) *runtimeFixture {
 				Packs:    []protocol.RuntimeManifestPack{f.pack},
 			})
 		case strings.HasPrefix(r.URL.Path, "/obs/"):
+			f.downloads.Add(1)
 			_, _ = w.Write(f.body)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -64,6 +68,8 @@ func newRuntimeFixture(t *testing.T) *runtimeFixture {
 
 	t.Setenv("RUNCODE_RUNTIME_BASE_URL", srv.URL)
 	t.Setenv("RUNCODE_RUNTIME_PATH", "/runtimes")
+	// 安装会改写进程 PATH（applyEnv）；测完还原，别让临时目录漏进后面的测试。
+	t.Setenv("PATH", os.Getenv("PATH"))
 	prevRoot := runtimeRoot
 	runtimeRoot = func() (string, error) { return f.dir, nil }
 	t.Cleanup(func() { runtimeRoot = prevRoot })
@@ -150,19 +156,23 @@ func TestRuntimeInstallEndToEnd(t *testing.T) {
 		t.Fatalf("after install: %+v", p)
 	}
 
-	// 装完就该生效，不该要求用户新建一个对话：PATH 与提示词都立刻更新。
-	env := f.app.rt.toolEnv()
-	if !strings.Contains(env["PATH"], dest) {
-		t.Errorf("pack dir not on the tool PATH: %q", env["PATH"])
+	// 装完就该生效，不该要求用户新建一个对话：进程 PATH 与提示词都立刻更新。工具子进程
+	// 每次启动都现继承进程 PATH（引擎 Bash 读 os.Environ()），所以已经开着的对话下一条
+	// 命令就找得到它。
+	if !strings.Contains(os.Getenv("PATH"), dest) {
+		t.Errorf("pack dir not on the process PATH: %q", os.Getenv("PATH"))
 	}
 	if prompt := f.app.rt.promptAppend(); !strings.Contains(prompt, "3.12.11") || !strings.Contains(prompt, "python-docx") {
 		t.Errorf("prompt does not describe the installed runtime:\n%s", prompt)
 	}
-	// 而且真的接进了会话配置。
+	// 而且真的接进了会话配置——提示词进去，PATH **不**进去（进去就冻住了，见 runtimeenv.go）。
 	cfg := f.app.configForWorkspace(t.TempDir())
 	applyRuntimeEnv(f.app.rt, &cfg)
-	if !strings.Contains(cfg.ToolEnv["PATH"], dest) {
-		t.Errorf("engine.Config.ToolEnv missing the pack dir: %q", cfg.ToolEnv["PATH"])
+	if p, ok := cfg.ToolEnv["PATH"]; ok {
+		t.Errorf("engine.Config.ToolEnv carries PATH (%q); it would freeze the session's PATH", p)
+	}
+	if cfg.ToolEnv["PIP_DISABLE_PIP_VERSION_CHECK"] != "1" {
+		t.Errorf("engine.Config.ToolEnv lost the pip variables: %v", cfg.ToolEnv)
 	}
 	if !strings.Contains(cfg.SystemPromptAppend, "3.12.11") {
 		t.Error("engine.Config.SystemPromptAppend does not mention the runtime")

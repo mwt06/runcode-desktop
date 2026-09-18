@@ -30,6 +30,10 @@ export function toolInputObj(t: ToolEvent): Record<string, unknown> {
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
+// install_runtime 的参数是小写 id（python / node / git），工具行上显示人认得的名字，
+// 与设置页「运行时环境」那三行一致。
+const RUNTIME_LABEL: Record<string, string> = { python: 'Python', node: 'Node.js', git: 'Git' }
+
 // toolVerbTarget splits a tool call into its Chinese verb and its most useful target
 // (command / pattern / host / file), so a row can style the two differently (verb in
 // ink, target in mono).
@@ -53,6 +57,9 @@ export function toolVerbTarget(t: ToolEvent): { verb: string; target: string } {
       break
     case 'Wait':
       target = o.seconds != null ? `${o.seconds}s` : ''
+      break
+    case 'install_runtime':
+      target = RUNTIME_LABEL[String(o.runtime ?? '').trim().toLowerCase()] ?? String(o.runtime ?? '')
       break
     default:
       target = basename(t.files?.[0]?.path) || basename(String(o.path ?? ''))

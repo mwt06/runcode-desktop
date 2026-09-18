@@ -74,6 +74,13 @@ export function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { 
                 </div>
               </Banner>
             )}
+            {/* install_runtime：审批请求里不带工具参数，"装什么、多大、装到哪"由后端配成一句话放在
+                commandSummary 里（见 internal/desktop/runtimetool.go 的 runtimeResolver）。 */}
+            {s.toolName === 'install_runtime' && s.commandSummary && (
+              <Banner className="mb-3" icon={<Icon name="terminal" size={16} />} title="安装运行时环境">
+                {s.commandSummary}
+              </Banner>
+            )}
             {req.harmReason && (
               <Banner tone="danger" className="mb-3" icon={<Icon name="shield" size={16} />} title="模型判定可能有害">
                 {req.harmReason}

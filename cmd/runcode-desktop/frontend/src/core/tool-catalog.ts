@@ -32,6 +32,7 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   // plan_write 有意不给 verb：它不出现在工具行里，产出直接进计划模式的阶段进度条与
   // 审批板（见 chat/plan-board）。
   plan_write: { label: '记录方案', desc: '计划模式下按阶段记录规划产出（需求理解 / 方案设计 / 方案审查），交给用户编辑与审批(仅桌面版)。' },
+  install_runtime: { verb: '安装运行时', label: '安装运行时环境', desc: '缺 Python / Node.js / Git 时安装应用自带的那一份：校验 sha256、装到用户目录、不需要管理员权限，每次都要你批准(仅桌面版)。' },
   Task: { verb: '委派子代理', label: '委派子代理', desc: '把一个自包含的子任务委派给子代理独立执行。' },
   Skill: { verb: '加载技能', label: '加载技能', desc: '加载并执行一个已定义的技能。' },
   // 以下四个由引擎的 mcp 包提供，配了 MCP 服务器时才出现在工具集里。它们不带

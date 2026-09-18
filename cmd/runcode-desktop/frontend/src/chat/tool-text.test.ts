@@ -50,6 +50,12 @@ describe('toolVerbTarget', () => {
     expect(toolVerbTarget(ev({ toolName: 'WebFetch', input: { url: 'https://example.com/a/b' } })).target).toBe('example.com')
     expect(toolVerbTarget(ev({ toolName: 'WebFetch', input: { url: 'not a url' } })).target).toBe('not a url')
   })
+  it('names the runtime install_runtime is installing', () => {
+    const { verb, target } = toolVerbTarget(ev({ toolName: 'install_runtime', input: { runtime: 'node' } }))
+    expect(verb).toBe('安装运行时')
+    expect(target).toBe('Node.js')
+    expect(toolVerbTarget(ev({ toolName: 'install_runtime', input: { runtime: 'ruby' } })).target).toBe('ruby')
+  })
   it('uses the pattern for Grep/Glob and the query for WebSearch', () => {
     expect(toolVerbTarget(ev({ toolName: 'Grep', input: { pattern: 'foo.*bar' } })).target).toBe('foo.*bar')
     expect(toolVerbTarget(ev({ toolName: 'WebSearch', input: { query: 'runcode' } })).target).toBe('runcode')

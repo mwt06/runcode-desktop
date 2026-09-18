@@ -18,6 +18,7 @@ import (
 	"github.com/wt68/runcode/internal/officetool"
 	"github.com/wt68/runcode/internal/plantool"
 	"github.com/wt68/runcode/internal/previewtool"
+	"github.com/wt68/runcode/internal/runtimetool"
 	"github.com/wt68/runcode/internal/skilltool"
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
@@ -574,18 +575,24 @@ func (a *App) SetDialoger(d Dialoger) { a.dialog = d }
 // SetQuitter installs the app-quit provider (called by the shell).
 func (a *App) SetQuitter(q Quitter) { a.quit = q }
 
-// hostToolClasses is the permission classification of the three tools this shell
+// hostToolClasses is the permission classification of the tools this shell
 // registers itself. The engine's resolver keys off a fixed tool-name switch, and a
 // name it does not know resolves to unknown/high-risk — which the default policy
 // hard-denies. So whoever supplies a tool has to supply its class, and for these
-// three that is us.
+// that is us.
 //
-// All three are ClassReadOnly, which the engine resolves to side-effect-free
+// Three are ClassReadOnly, which the engine resolves to side-effect-free
 // management: allowed without approval, and past plan mode's mutation block.
 //   - plan_write writes to this process's plan store and one file under .runcode,
 //     recording the plan the user is about to approve — exactly TodoWrite's shape.
 //   - open_preview only opens a panel in this window.
 //   - ReadOffice reads one document and enforces workspace containment itself.
+//
+// install_runtime is ClassMutating: it downloads tens of MB and puts new programs on
+// every later command's PATH, which is the user's call each time. The engine treats
+// that class like an external call — prompted in every mode that prompts, never
+// waved through by the harm judge's "safe" verdict, refused in plan and safe mode —
+// and remembers a grant only for the exact same arguments (python ≠ node).
 //
 // It is stated here rather than left to the engine on purpose: two of these names
 // still appear in the engine's own resolver switch, which is the engine knowing
@@ -599,6 +606,7 @@ var hostToolClasses = func() map[string]permissions.ToolClass {
 		plantool.Name:    permissions.ClassReadOnly,
 		previewtool.Name: permissions.ClassReadOnly,
 		officetool.Name:  permissions.ClassReadOnly,
+		runtimetool.Name: permissions.ClassMutating,
 	}
 	for name, class := range oaToolClasses {
 		m[name] = class
@@ -657,7 +665,12 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		//
 		// 外面再包一层 privilegeResolver：把引擎漏认的提权写法（/usr/bin/sudo、pkexec、
 		// doas）归一成特权命令，下游的策略与裁判地板才会一视同仁（见 privilege.go）。
-		Resolver: privilegeResolver{inner: permissions.WithToolClasses(nil, hostToolClasses)},
+		// runtimeResolver 只做展示：给 install_runtime 的审批弹窗配一句"装的是什么、
+		// 多大、装到哪"（见 runtimetool.go）。
+		Resolver: privilegeResolver{inner: runtimeResolver{
+			inner: permissions.WithToolClasses(nil, hostToolClasses),
+			rt:    a.rt,
+		}},
 		// Which servers we vouch for is ours to know, not the engine's: the same
 		// opt-in that earns a server the user's identity headers also lets its calls
 		// skip the per-call approval an arbitrary external endpoint always needs.
@@ -712,6 +725,10 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// attachments.go 的 SavePastedFile),而 Office 文件除了 ReadOffice 没别的读法——
 	// Read 对它只会吐二进制垃圾。根的口径与 appDirPolicy 放行读的那份完全一致。
 	opts.ExtraTools = append(opts.ExtraTools, previewtool.New(), officetool.New(appDirsOnce().readRoots...), plantool.New(plans))
+	// install_runtime：缺 Python/Node/Git 时模型自己装，走的就是设置页那个安装器（见
+	// runtimetool.go）。每次调用都要用户批准（ClassMutating，见 hostToolClasses）。
+	// 只进主会话：子代理拿不到 ExtraTools，提示词里给了它们"请用户去设置页装"的退路。
+	opts.ExtraTools = append(opts.ExtraTools, runtimetool.New(runtimeInstaller{app: a}))
 	// The desktop's Skill tool discloses exactly what the engine's does and
 	// additionally announces each load, so the chat can show which skill the model
 	// picked up and what it is for. Which skills exist stays the engine's business

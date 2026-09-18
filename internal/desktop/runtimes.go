@@ -494,7 +494,14 @@ func (a *App) autoCheckRuntimes(delay time.Duration) {
 
 // installRuntime 把一个包下下来装上。整趟是阻塞的（Wails 命令各跑各的 goroutine），
 // 进度经事件流出去。
-func (a *App) installRuntime(id string) error {
+//
+// parent 是发起方的生命周期。设置页那条传 Background，只有「取消」按钮停得下它；模型
+// 那条（install_runtime 工具，见 runtimetool.go）传回合的 ctx——用户按了停止，下载就
+// 跟着停，而不是在后台接着把几十 MB 下完、装上一个没人要的东西。
+//
+// 被取消时状态退回"未安装"并**返回 context.Canceled**：设置页把它当成功（用户要的
+// 结果"别装了"已经成立），模型那条则必须知道它没装上，否则会接着去跑 python。
+func (a *App) installRuntime(parent context.Context, id string) error {
 	m := a.rt
 	m.mu.Lock()
 	st := m.packs[id]
@@ -518,7 +525,7 @@ func (a *App) installRuntime(id string) error {
 		m.update(id, func(s *packState) { s.stage, s.lastErr = protocol.RuntimeStageFailed, err.Error() })
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), runtimeDownloadTimeout)
+	ctx, cancel := context.WithTimeout(parent, runtimeDownloadTimeout)
 	st.cancel = cancel
 	st.stage, st.received, st.lastErr = protocol.RuntimeStageDownloading, 0, ""
 	m.mu.Unlock()
@@ -540,9 +547,10 @@ func (a *App) installRuntime(id string) error {
 		m.publish()
 		return nil
 	case errors.Is(err, context.Canceled):
-		// 用户按了取消。这不是失败：退回"未安装"，一个字的错误都不该出现。
+		// 用户按了取消（或停止了发起安装的那个回合）。这不是失败：退回"未安装"，
+		// 设置页上一个字的错误都不该出现。要不要把它当错误由调用方定（见函数注释）。
 		m.update(id, func(s *packState) { s.stage, s.received, s.lastErr = protocol.RuntimeStageAbsent, 0, "" })
-		return nil
+		return err
 	default:
 		m.update(id, func(s *packState) { s.stage, s.lastErr = protocol.RuntimeStageFailed, err.Error() })
 		return err
@@ -755,7 +763,12 @@ func (a *App) CheckRuntimes() (protocol.RuntimeInfo, error) {
 
 // InstallRuntime 下载并安装一个运行时包。整趟阻塞，进度经 EventRuntimes 流出去。
 func (a *App) InstallRuntime(id string) error {
-	return wireError(a.installRuntime(strings.TrimSpace(id)))
+	err := a.installRuntime(context.Background(), strings.TrimSpace(id))
+	if errors.Is(err, context.Canceled) {
+		// 用户在设置页按了取消：他要的结果（别装了）已经成立，不是错误。
+		return nil
+	}
+	return wireError(err)
 }
 
 // AuthorizeRuntime 请麒麟安全中心放行一个已装好的运行时（会弹一次应用的密码框）。
@@ -763,19 +776,24 @@ func (a *App) InstallRuntime(id string) error {
 // 用在两处：安装时用户取消了密码框；或者之后 pip 装了带 C 扩展的新库。整趟阻塞，
 // 状态经 EventRuntimes 流出去。
 func (a *App) AuthorizeRuntime(id string) error {
-	id = strings.TrimSpace(id)
+	return wireError(a.authorizeRuntime(context.Background(), strings.TrimSpace(id)))
+}
+
+// authorizeRuntime 是 AuthorizeRuntime 的本体；install_runtime 工具在"装好了但还没
+// 放行"时也走它（见 runtimetool.go），parent 同 installRuntime。
+func (a *App) authorizeRuntime(parent context.Context, id string) error {
 	m := a.rt
 	m.mu.Lock()
 	st := m.packs[id]
 	if st == nil || st.stage != protocol.RuntimeStageReady || st.dir == "" {
 		m.mu.Unlock()
-		return wireError(errors.New("这个运行时还没装好"))
+		return errors.New("这个运行时还没装好")
 	}
 	if st.cancel != nil {
 		m.mu.Unlock()
-		return wireError(errors.New("这个运行时正忙"))
+		return errors.New("这个运行时正忙")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), askpassTimeout+time.Minute)
+	ctx, cancel := context.WithTimeout(parent, askpassTimeout+time.Minute)
 	defer cancel()
 	st.cancel = cancel
 	st.stage = protocol.RuntimeStageAuthorizing
@@ -791,7 +809,7 @@ func (a *App) AuthorizeRuntime(id string) error {
 	})
 	m.applyEnv()
 	m.publish()
-	return wireError(err)
+	return err
 }
 
 // CancelRuntimeInstall 取消正在进行的安装。没在装也返回成功（见 cancelInstall）。
