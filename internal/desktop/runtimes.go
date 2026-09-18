@@ -106,6 +106,18 @@ var runtimeManifestDefault = ""
 //
 // 优先级：环境变量（开发机调试用）> 编译期注入 > Bridge 默认。
 func runtimeManifestURL() string {
+	u, _ := resolveRuntimeManifest()
+	return u
+}
+
+// resolveRuntimeManifest 与 runtimeManifestURL 相同，另外报告这是不是静态清单那条路。
+//
+// 调用方要靠它决定带不带登录令牌：Bridge 是我们自己的服务，令牌是它认人的凭据；而静态
+// 清单放在对象存储上，**绝不能带**——对象存储把 Authorization 头当成它自己的签名来解析，
+// 一个 Bearer 令牌它不认识，直接回 400 "Unsupported Authorization Type"（麒麟真机上
+// 实际发生过：只要用户登录了通行证，运行时清单就永远取不到）。更糟的是令牌因此被发给了
+// 第三方存储，还被原样回显在它的错误信息里、留在它的访问日志里。
+func resolveRuntimeManifest() (string, bool) {
 	envBase := strings.TrimSpace(os.Getenv("RUNCODE_RUNTIME_BASE_URL"))
 	envPath := strings.TrimSpace(os.Getenv("RUNCODE_RUNTIME_PATH"))
 	raw := strings.TrimSpace(runtimeManifestDefault)
@@ -123,12 +135,12 @@ func runtimeManifestURL() string {
 	if strings.Contains(raw, platformPlaceholder) {
 		// 文件名里用短横：runtimes-windows-amd64.json。斜杠形式（windows/amd64）会
 		// 在对象存储上变成目录层级，而打包工具产出的就是平铺的一堆文件。
-		return strings.ReplaceAll(raw, platformPlaceholder, strings.ReplaceAll(runtimePlatform(), "/", "-"))
+		return strings.ReplaceAll(raw, platformPlaceholder, strings.ReplaceAll(runtimePlatform(), "/", "-")), true
 	}
 	q := url.Values{}
 	q.Set("product", AppProduct())
 	q.Set("platform", runtimePlatform())
-	return raw + "?" + q.Encode()
+	return raw + "?" + q.Encode(), false
 }
 
 // runtimeRoot 是运行时包的落脚处。
@@ -390,13 +402,16 @@ func (m *runtimeManager) recheckTrust() {
 
 // runtimeManifestWire 是清单响应。与 protocol.RuntimeManifest 同形，直接用它。
 func (a *App) fetchRuntimeManifest(ctx context.Context) (protocol.RuntimeManifest, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, runtimeManifestURL(), nil)
+	manifestURL, static := resolveRuntimeManifest()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	if err != nil {
 		return protocol.RuntimeManifest{}, err
 	}
-	// 有令牌就带上、没有就裸着打——理由同版本更新：这趟检查发生在用户还停在登录页
-	// 的时候，而"装个 Python"不该被"先登录"挡住。
-	if a.tokens != nil && a.tokens.LoggedIn() {
+	// 走 Bridge 时有令牌就带上、没有就裸着打——理由同版本更新：这趟检查发生在用户还停在
+	// 登录页的时候，而"装个 Python"不该被"先登录"挡住。
+	//
+	// 静态清单**一律不带**：它放在对象存储上，令牌既没用又有害（见 resolveRuntimeManifest）。
+	if !static && a.tokens != nil && a.tokens.LoggedIn() {
 		if tok, tokErr := a.tokens.Token(); tokErr == nil && strings.TrimSpace(tok) != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}

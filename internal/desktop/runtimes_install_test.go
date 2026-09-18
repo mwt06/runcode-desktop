@@ -10,6 +10,7 @@ package desktop
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wt68/runcode/internal/protocol"
 )
@@ -238,5 +240,46 @@ func TestRuntimeManifestPlatformMismatchRefused(t *testing.T) {
 	// 拦下之后不能留下任何"可安装"的假象。
 	if p := pythonPack(f.app.RuntimeStatus()); p.Available != "" {
 		t.Errorf("a refused manifest still offered %q", p.Available)
+	}
+}
+
+// TestRuntimeManifestStaticRouteSendsNoToken 盯住：已登录的用户去取静态清单，**不能**带令牌。
+//
+// 麒麟真机上实际发生过：对象存储把 Authorization 头当成它自己的签名来解析，Bearer 令牌它
+// 不认识，直接回 400——只要登录了通行证，运行时清单就永远取不到；令牌还被发给了第三方
+// 存储、被回显在它的错误信息里。这里的假服务端照搬对象存储的这条行为。
+func TestRuntimeManifestStaticRouteSendsNoToken(t *testing.T) {
+	isolateConfigDir(t)
+	auths := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths <- r.Header.Get("Authorization")
+		if r.Header.Get("Authorization") != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("<Error><Code>InvalidArgument</Code><Message>Unsupported Authorization Type</Message></Error>"))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(protocol.RuntimeManifest{Platform: runtimePlatform()})
+	}))
+	defer srv.Close()
+
+	app := New(&recordingSink{})
+	app.tokens = newTokenManager("http://unused", "c", http.DefaultClient, nil)
+	app.tokens.setInMemory(tokenSet{AccessToken: "secret-token", RefreshToken: "RT", Expiry: time.Now().Add(time.Hour)})
+
+	// 静态清单：不带令牌，取得到。
+	t.Setenv("RUNCODE_RUNTIME_BASE_URL", srv.URL)
+	t.Setenv("RUNCODE_RUNTIME_PATH", "/runtimes-{platform}.json")
+	if _, err := app.fetchRuntimeManifest(context.Background()); err != nil {
+		t.Fatalf("static manifest failed for a logged-in user: %v", err)
+	}
+	if got := <-auths; got != "" {
+		t.Errorf("static manifest request carried Authorization %q — the user's token leaked to object storage", got)
+	}
+
+	// Bridge：照常带令牌（那是我们自己的服务，令牌是它认人的凭据）。
+	t.Setenv("RUNCODE_RUNTIME_PATH", "/api/app/runtimes")
+	_, _ = app.fetchRuntimeManifest(context.Background())
+	if got := <-auths; got != "Bearer secret-token" {
+		t.Errorf("Bridge manifest request Authorization = %q, want the bearer token", got)
 	}
 }
