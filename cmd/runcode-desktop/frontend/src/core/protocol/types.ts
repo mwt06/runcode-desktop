@@ -687,6 +687,13 @@ export interface SaveCustomModelRequest {
   clearAPIKey?: boolean;
 }
 
+// Mirrors protocol.SecretStorage. SecretStorage 报告本机能不能安全保存登录状态。 凭据保护在取不到系统钥匙串时**故意不落盘**（理由见 desktop/secret_keyring.go）。 这个取舍是对的，但此前它是全静默的——用户看到的只有"怎么每次都要重新登录"， 而真正的原因可能只是少装了一个包。这三个字段就是为了把那句话说出来。
+export interface SecretStorage {
+  ok: boolean;
+  reason?: string;
+  fix?: string;
+}
+
 // Mirrors protocol.SessionInfo. SessionInfo is the display state returned when a session starts and by Status.
 export interface SessionInfo {
   sessionId: string;

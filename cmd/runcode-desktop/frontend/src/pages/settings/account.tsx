@@ -11,11 +11,13 @@ import {
 import {
   activeTenant, errText, Events, onEvent,
   passportCancelLogin, passportLogin, passportLogout, passportModels, passportStatus, passportTenants,
+  secretStorageStatus,
   setActiveTenant,
   type PassportModel,
+  type SecretStorage,
 } from '@/core/bridge'
 import { Section } from './section'
-import { InlineError } from '@/ui/feedback'
+import { Banner, InlineError } from '@/ui/feedback'
 import { InsetRow } from '@/ui/layout'
 
 export function AccountSection({ onAccount, onBusy }: {
@@ -26,6 +28,14 @@ export function AccountSection({ onAccount, onBusy }: {
   const coordinatorRef = useRef<PassportAccountCoordinator | null>(null)
   const [loggingIn, setLoggingIn] = useState(false)
   const [acctMsg, setAcctMsg] = useState('')
+  // 本机能不能安全保存登录状态。存不住时后端会给出原因与一条可照抄的修法——
+  // 在此之前这件事是全静默的，用户只看得到"怎么每次都要重新登录"。
+  const [secrets, setSecrets] = useState<SecretStorage | null>(null)
+  useEffect(() => {
+    let alive = true
+    secretStorageStatus().then((s) => { if (alive) setSecrets(s) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
   const passport = account.status
 
   useEffect(() => {
@@ -74,6 +84,16 @@ export function AccountSection({ onAccount, onBusy }: {
   }
   return (
     <Section title="账号(通行证)">
+      {secrets && !secrets.ok && (
+        <Banner tone="warning" title="本机无法保存登录状态，每次启动都要重新登录">
+          {secrets.reason}
+          {secrets.fix && (
+            <span className="block mt-1.5">
+              解决办法：<code className="font-mono text-[12px] break-all">{secrets.fix}</code>
+            </span>
+          )}
+        </Banner>
+      )}
       {passport.loggedIn ? (
         <InsetRow>
           <span className="text-[13px]">已登录：<b>{passport.name || passport.userName || passport.userId}</b></span>

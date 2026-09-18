@@ -40,3 +40,17 @@ type PassportTenant struct {
 	Name     string `json:"name"`
 	ParentID string `json:"parentId,omitempty"`
 }
+
+// SecretStorage 报告本机能不能安全保存登录状态。
+//
+// 凭据保护在取不到系统钥匙串时**故意不落盘**（理由见 desktop/secret_keyring.go）。
+// 这个取舍是对的，但此前它是全静默的——用户看到的只有"怎么每次都要重新登录"，
+// 而真正的原因可能只是少装了一个包。这三个字段就是为了把那句话说出来。
+type SecretStorage struct {
+	// OK 为真表示登录状态能跨重启保留；为假时下面两句说明原因与修法。
+	OK bool `json:"ok"`
+	// Reason 是为什么存不住，一句人话。
+	Reason string `json:"reason,omitempty"`
+	// Fix 是可以照抄的修法（通常是一条命令）；没有可行修法时为空。
+	Fix string `json:"fix,omitempty"`
+}

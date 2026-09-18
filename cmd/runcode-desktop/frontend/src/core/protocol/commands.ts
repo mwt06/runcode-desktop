@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
+import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SecretStorage, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -557,6 +557,12 @@ export function saveSettings(req: StartSessionRequest): Promise<SessionInfo> {
 // kind: idempotent-set
 export function saveSkill(req: SkillSaveRequest): Promise<SkillList> {
   return call<SkillList>('SaveSkill', req);
+}
+
+// SecretStorageStatus 告诉前端本机能不能安全保存登录状态（纯读，结果有缓存）。
+// kind: query
+export function secretStorageStatus(): Promise<SecretStorage> {
+  return call<SecretStorage>('SecretStorageStatus');
 }
 
 // SendMessage runs one user turn asynchronously.

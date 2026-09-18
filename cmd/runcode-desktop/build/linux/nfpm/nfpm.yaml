@@ -47,12 +47,30 @@ depends:
   - libgtk-3-0
   - libwebkit2gtk-4.1-0
 
-# 登录令牌的落盘要它。Linux 侧的凭据保护走 Secret Service（见 secret_linux.go）：
+# 登录令牌的落盘要这两个。Linux 侧的凭据保护走 Secret Service（见 secret_linux.go）：
 # 钥匙串里只放一把主密钥，凭据本身 AES-GCM 加密后留在 desktop.json 里；取不到钥匙串
 # 就**拒绝落盘**，宁可让用户重新登录，也不把密钥和密文一起明文放在同一台机器上。
 #
-# 缺了 secret-tool 的表现就是"每次启动都要重新登录"，而且不报任何错——它在设计上
-# 就是静默降级的。所以列成 recommends：apt 默认会装上，而在没有桌面会话的环境里
-# （那里本来也没有钥匙串守护进程）又不会把安装卡住。
+# 缺了它们的表现就是"每次启动都要重新登录"，而且不报任何错——它在设计上就是静默
+# 降级的。所以列成 recommends：apt 默认会装上，而在没有桌面会话的环境里（那里本来
+# 也没有钥匙串守护进程）又不会把安装卡住。
+#
+# **两个都要，少一个都不行**，这一条是在麒麟 V10 SP1 真机上查出来的：
+#
+#   - libsecret-tools       提供 secret-tool 命令，我们靠它读写 Secret Service。
+#   - libpam-gnome-keyring  提供 pam_gnome_keyring.so。麒麟的 gnome-keyring 包**只带
+#     守护进程、不带 PAM 模块**，而模块正是"图形登录时用登录密码创建并解锁登录
+#     钥匙串"的那一步。
+#
+# 缺了 PAM 模块的故障链有四层静默，从现象根本查不回来：/etc/pam.d/lightdm 里那两行
+# 带 `-` 前缀（模块缺失就跳过，不报错）→ 登录钥匙串从未被创建 → 应用要存令牌时
+# D-Bus 临时拉起的守护进程手里没有登录密码，只能弹窗要人新建钥匙串 → 无人值守下
+# 它就一直挂着，我们 5 秒超时后当作"取不到钥匙串" → 静默不落盘。
+#
+# 装完还要**注销重登一次图形界面**：PAM 只在登录那一刻起作用。
+#
+# 注意 recommends 只有 apt 会装，`dpkg -i` 不会。所以装包请用
+# `sudo apt install ./zhikai_x.y.z_arm64.deb`，别用 dpkg -i。
 recommends:
   - libsecret-tools
+  - libpam-gnome-keyring

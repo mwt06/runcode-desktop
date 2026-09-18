@@ -194,6 +194,11 @@ func persistTokens(ts tokenSet) {
 	}
 	protected, ok := protectSecret(string(plain))
 	if !ok {
+		// 取不到系统钥匙串：**故意不落盘**（理由见 secret_keyring.go）。留一条日志，
+		// 否则这里是全静默的——用户只会看到"每次启动都要重新登录"，而真正的原因
+		// 可能只是少装了一个包。界面上那句人话在 secretstatus.go。
+		s := secretStorageStatus()
+		debugLog("passport tokens not persisted: %s %s", s.reason, s.fix)
 		return
 	}
 	path, err := passportTokenPath()

@@ -92,7 +92,11 @@
 
 分发给他人需签名+公证，否则 Gatekeeper 拦截（自用可右键「打开」绕过）：设 `APPLE_SIGN_ID`（签名）与 `APPLE_KEYCHAIN_PROFILE`（公证）后脚本自动执行。`.app` 压缩必须用 `ditto -c -k --keepParent`，`zip` 不保留符号链接与权限位、会破坏签名。
 
-**已知差异：macOS 上通行证令牌不落盘，每次启动都要重新登录。** 令牌加密存储只实现了 Windows 的 DPAPI（`internal/desktop/secret_windows.go`）；非 Windows 的 `secret_other.go` 返回 `ok=false`，`persistTokens` 因此不写文件——宁可不存，也不明文落盘。要消除这个差异得接 macOS Keychain。
+**通行证令牌的落盘（三平台已各自实现，但依赖系统钥匙串）。** Windows 走 DPAPI（`secret_windows.go`，纯加密、无依赖）；macOS 走钥匙串、Linux 走 Secret Service（`secret_darwin.go` / `secret_linux.go`，共用 `secret_keyring.go` 那层——钥匙串里只放一把主密钥，凭据本身 AES-GCM 加密后留在 `desktop.json`）。**取不到钥匙串就拒绝落盘**，宁可让用户重新登录，也不把密钥和密文一起明文放在同一台机器上。
+
+Linux 上要两个包才能用，少一个都不行（2026-09-18 在麒麟 V10 SP1 真机上查出来的）：`libsecret-tools` 提供 `secret-tool` 命令；`libpam-gnome-keyring` 提供 PAM 模块——麒麟的 `gnome-keyring` 包**只带守护进程、不带 PAM 模块**，而模块正是「图形登录时用登录密码创建并解锁登录钥匙串」的那一步。两个都在 nfpm 的 `recommends` 里，但 **`recommends` 只有 apt 会装，`dpkg -i` 不会**，所以装 deb 请用 `sudo apt install ./zhikai_*.deb`；装完还要注销重登一次图形界面。
+
+这条链路此前有四层静默（PAM 的 `-` 前缀跳过 → 钥匙串没建 → 守护进程弹窗等人 → 我们超时后不落盘），从现象完全回溯不到根因。现在 `secretstatus.go` 把结论变成一句人话加一条可照抄的命令，显示在设置页的「账号(通行证)」里，`persistTokens` 也会记一条日志。
 
 #### 品牌（白标，`frontend/src/core/brand.ts`）
 

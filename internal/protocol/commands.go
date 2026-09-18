@@ -53,6 +53,7 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"SessionModels":           hostproto.CommandQuery,
 	"Status":                  hostproto.CommandQuery,
 	"RuntimeStatus":           hostproto.CommandQuery,
+	"SecretStorageStatus":     hostproto.CommandQuery,
 	"CheckRuntimes":           hostproto.CommandQuery,
 	"UpdateStatus":            hostproto.CommandQuery,
 	"CheckUpdate":             hostproto.CommandQuery,
