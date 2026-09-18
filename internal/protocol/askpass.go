@@ -27,6 +27,10 @@ type AskpassRequest struct {
 	Command string `json:"command"`
 	// Prompt 是 sudo 给的提示语（"[sudo] password for jybzd:"），仅作参考。
 	Prompt string `json:"prompt"`
+	// Purpose 只在**应用自己**发起的提权里有值（比如给刚装的运行时加白名单），是一句
+	// 给人看的用途说明。模型发起的 sudo 没有它：那种情况下命令本身就是全部信息，
+	// 替模型编一句"用途"反而会让用户少看一眼命令。
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // AskpassDone 撤回一次请求。

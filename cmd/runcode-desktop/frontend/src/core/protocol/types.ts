@@ -139,6 +139,7 @@ export type RuntimePackId = (typeof RuntimePackIds)[keyof typeof RuntimePackIds]
 // Mirrors the protocol.RuntimeStage* constants. Install stages of one managed runtime pack; the values of RuntimePack.stage.
 export const RuntimeStages = {
   Absent: 'absent',
+  Authorizing: 'authorizing',
   Downloading: 'downloading',
   Extracting: 'extracting',
   Failed: 'failed',
@@ -215,6 +216,7 @@ export interface AskpassRequest {
   sessionId: string;
   command: string;
   prompt: string;
+  purpose?: string;
 }
 
 // Mirrors protocol.AssistantDelta. AssistantDelta is one streamed text fragment from the model.
@@ -688,6 +690,7 @@ export interface RuntimePack {
   systemUsable: boolean;
   minVersion: string;
   active: string;
+  needsAuthorize: boolean;
 }
 
 // Mirrors protocol.SaveCustomModelRequest. SaveCustomModelRequest 新增或修改一个自定义模型。编辑时 OriginalName 定位旧 记录；APIKey 留空表示保留旧密钥，ClearAPIKey 才显式清除，两者不能同时使用。

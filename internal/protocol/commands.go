@@ -134,8 +134,9 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"InstallMarketSkill":      hostproto.CommandTrigger,
 	// 版本更新：下载是一趟长跑（几分钟、可取消），安装会拉起安装器并退出本进程——
 	// 两者都不是重放安全的，所以是 Trigger 而不是幂等设置。
-	"DownloadUpdate": hostproto.CommandTrigger,
-	"InstallRuntime": hostproto.CommandTrigger,
-	"RemoveRuntime":  hostproto.CommandTrigger,
-	"InstallUpdate":  hostproto.CommandTrigger,
+	"DownloadUpdate":   hostproto.CommandTrigger,
+	"InstallRuntime":   hostproto.CommandTrigger,
+	"AuthorizeRuntime": hostproto.CommandTrigger,
+	"RemoveRuntime":    hostproto.CommandTrigger,
+	"InstallUpdate":    hostproto.CommandTrigger,
 }

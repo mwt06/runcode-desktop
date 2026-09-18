@@ -45,7 +45,16 @@ export function AskpassModal({ req, remaining = 0, onAnswer, onCancel }: {
           )}
         </h3>
 
-        <div className="text-[13px] text-ink mb-2">模型要以管理员身份执行：</div>
+        {/* 用途只在应用自己发起的提权里有（比如给运行时加白）。模型发起的 sudo 没有它：
+            那种情况下命令本身就是全部信息，替模型编一句用途反而会让人少看一眼命令。 */}
+        {req.purpose ? (
+          <>
+            <div className="text-[13px] text-ink mb-2">{req.purpose}</div>
+            <div className="text-[12px] text-muted mb-1.5">将以管理员身份执行：</div>
+          </>
+        ) : (
+          <div className="text-[13px] text-ink mb-2">模型要以管理员身份执行：</div>
+        )}
         <pre className="m-0 mb-3.5 font-mono text-[12px] text-ink bg-surface2 border border-line2 rounded-lg px-3 py-2.5 whitespace-pre-wrap break-all max-h-40 overflow-auto">{req.command}</pre>
 
         <label className="block text-[13px] text-ink mb-1.5" htmlFor="askpass-input">请输入本机登录密码</label>

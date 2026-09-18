@@ -176,6 +176,8 @@ type packState struct {
 	sysUsable           bool
 	// cancel 属于正在跑的那一趟安装；非 nil 即"忙"。
 	cancel context.CancelFunc
+	// needsAuthorize：麒麟安全中心还没放行这个包（见 kysec.go）。
+	needsAuthorize bool
 }
 
 // runtimeManager 是全部包的状态机。它自带锁，与 App.mu / startMu 没有嵌套关系
@@ -298,6 +300,8 @@ func (m *runtimeManager) snapshotLocked() protocol.RuntimeInfo {
 			SystemVersion: st.sysVersion,
 			SystemUsable:  st.sysUsable,
 			MinVersion:    s.minVersion,
+			// 只有装好了的包才谈得上"放没放行"。
+			NeedsAuthorize: st.stage == protocol.RuntimeStageReady && st.needsAuthorize,
 		}
 		if st.avail.Notes != "" {
 			p.Summary = st.avail.Notes
@@ -345,8 +349,41 @@ func (m *runtimeManager) probeSystem(ctx context.Context) {
 		}
 		m.mu.Unlock()
 	}
+	m.recheckTrust()
 	m.applyEnv()
 	m.publish()
+}
+
+// recheckTrust 复核每个已装的包还在不在麒麟安全中心的白名单里。
+//
+// 装的时候加过白，不等于现在还全在白名单里：模型之后 pip 装了带 C 扩展的库，那些新
+// 文件是 unknown，在一个已放行的 Python 里照样会被拦。这里比对加白时记下的指纹，
+// 变了就重新亮出「授权」按钮。要走遍整个包（Python 包约六千个文件，实测一百多毫秒），
+// 所以只在启动后台探测与手动"重新检查"时做，不在每次会话构建时做。
+func (m *runtimeManager) recheckTrust() {
+	if !kysecExecControlOn() {
+		return
+	}
+	m.mu.Lock()
+	dirs := map[string]string{}
+	for id, st := range m.packs {
+		if st.stage == protocol.RuntimeStageReady && st.dir != "" && st.cancel == nil {
+			dirs[id] = st.dir
+		}
+	}
+	m.mu.Unlock()
+	for id, dir := range dirs {
+		pending, _, err := needsTrust(dir)
+		if err != nil {
+			debugLog("kysec recheck %s: %v", id, err)
+			continue
+		}
+		m.mu.Lock()
+		if st := m.packs[id]; st != nil && st.dir == dir {
+			st.needsAuthorize = pending
+		}
+		m.mu.Unlock()
+	}
 }
 
 // ---- 清单 ----------------------------------------------------------------
@@ -419,8 +456,10 @@ func (a *App) refreshRuntimes(ctx context.Context) protocol.RuntimeInfo {
 			st.avail = p
 		}
 	}
-	info := m.snapshotLocked()
 	m.mu.Unlock()
+	m.recheckTrust()
+	m.applyEnv()
+	info := m.snapshot()
 	m.publish()
 	return info
 }
@@ -548,10 +587,47 @@ func (a *App) runRuntimeInstall(ctx context.Context, id string, pack protocol.Ru
 	}
 	pruneOldVersions(idDir, pack.Version)
 
+	// 麒麟上开着执行控制时，最后一步是请安全中心放行（见 kysec.go）。失败不算装失败：
+	// 运行时本身是好的，只是每次运行都会弹框——那一行会亮出「授权」按钮让用户重来。
+	needsAuth := false
+	if kysecExecControlOn() {
+		m.update(id, func(s *packState) { s.stage = protocol.RuntimeStageAuthorizing })
+		if err := a.trustRuntime(ctx, id, dest); err != nil {
+			debugLog("kysec trust %s: %v", id, err)
+			needsAuth = true
+		}
+	}
+
 	m.update(id, func(s *packState) {
 		s.stage, s.version, s.dir, s.received, s.lastErr = protocol.RuntimeStageReady, pack.Version, dest, 0, ""
+		s.needsAuthorize = needsAuth
 	})
 	return nil
+}
+
+// trustRuntime 以 root 身份把 dir 里所有 ELF 标成 verified。会弹一次应用的密码框。
+func (a *App) trustRuntime(ctx context.Context, id, dir string) error {
+	pending, files, err := needsTrust(dir)
+	if err != nil {
+		return err
+	}
+	if !pending {
+		return nil
+	}
+	key := "app:runtime:" + id
+	env := a.askpassEnv(key)
+	if env == nil {
+		return errors.New("本机弹不出授权框（没有图形会话），无法加入安全中心白名单")
+	}
+	purpose := fmt.Sprintf("让麒麟安全中心放行刚装好的 %s（%d 个程序与库文件）。"+
+		"不授权也能用，只是每次运行都会弹安全框，没人点就失败。", a.rt.label(id), len(files))
+	// 上膛只覆盖这一次加白，做完立刻撤：应用自己发起的提权不留窗口。
+	a.privGate.armFor(key, purpose, askpassTimeout+time.Minute)
+	defer a.privGate.disarm(key)
+	if err := kysecTrust(ctx, files, envWith(env)); err != nil {
+		return err
+	}
+	return writeTrustMarker(dir, elfFingerprint(dir, files))
 }
 
 // validateRuntimePack 在动手之前把清单里明显不对的东西拦下来。
@@ -665,6 +741,42 @@ func (a *App) CheckRuntimes() (protocol.RuntimeInfo, error) {
 // InstallRuntime 下载并安装一个运行时包。整趟阻塞，进度经 EventRuntimes 流出去。
 func (a *App) InstallRuntime(id string) error {
 	return wireError(a.installRuntime(strings.TrimSpace(id)))
+}
+
+// AuthorizeRuntime 请麒麟安全中心放行一个已装好的运行时（会弹一次应用的密码框）。
+//
+// 用在两处：安装时用户取消了密码框；或者之后 pip 装了带 C 扩展的新库。整趟阻塞，
+// 状态经 EventRuntimes 流出去。
+func (a *App) AuthorizeRuntime(id string) error {
+	id = strings.TrimSpace(id)
+	m := a.rt
+	m.mu.Lock()
+	st := m.packs[id]
+	if st == nil || st.stage != protocol.RuntimeStageReady || st.dir == "" {
+		m.mu.Unlock()
+		return wireError(errors.New("这个运行时还没装好"))
+	}
+	if st.cancel != nil {
+		m.mu.Unlock()
+		return wireError(errors.New("这个运行时正忙"))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), askpassTimeout+time.Minute)
+	defer cancel()
+	st.cancel = cancel
+	st.stage = protocol.RuntimeStageAuthorizing
+	dir := st.dir
+	m.mu.Unlock()
+	m.publish()
+
+	err := a.trustRuntime(ctx, id, dir)
+	m.update(id, func(s *packState) {
+		s.cancel = nil
+		s.stage = protocol.RuntimeStageReady
+		s.needsAuthorize = err != nil
+	})
+	m.applyEnv()
+	m.publish()
+	return wireError(err)
 }
 
 // CancelRuntimeInstall 取消正在进行的安装。没在装也返回成功（见 cancelInstall）。

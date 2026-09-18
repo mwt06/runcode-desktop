@@ -224,20 +224,50 @@ func (p privilegeApprover) Prompt(ctx context.Context, req permissions.ApprovalR
 // 它挡的是"模型不经批准就拿到密码框"：比如在智能模式下有一条 sudo 绕过了审批（本该
 // 不可能，这是纵深防御），或者有人伪造请求。上膛只是必要条件——askpass 那边另有来者
 // 核验，而密码框显示的是 sudo 实际要跑的命令。
+//
+// 键有两种：模型那条路用会话 ID（批准一条 sudo 就给那个会话上膛）；应用自己发起的
+// 提权（比如给刚装的运行时加白）用 "app:" 开头的键，并带一句给人看的用途。
 type privilegeGate struct {
-	mu    sync.Mutex
-	until map[string]time.Time
-	now   func() time.Time
+	mu      sync.Mutex
+	until   map[string]time.Time
+	purpose map[string]string
+	now     func() time.Time
 }
 
 func newPrivilegeGate() *privilegeGate {
-	return &privilegeGate{until: map[string]time.Time{}, now: time.Now}
+	return &privilegeGate{until: map[string]time.Time{}, purpose: map[string]string{}, now: time.Now}
 }
 
+// arm 给一个会话上膛（模型那条路，用户刚批准了一条 sudo）。
 func (g *privilegeGate) arm(session string) {
+	g.armFor(session, "", privilegeArmWindow)
+}
+
+// armFor 上膛并附上用途。应用自己发起的提权用它，并在做完之后 disarm。
+func (g *privilegeGate) armFor(key, purpose string, window time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.until[session] = g.now().Add(privilegeArmWindow)
+	g.until[key] = g.now().Add(window)
+	if purpose != "" {
+		g.purpose[key] = purpose
+	} else {
+		delete(g.purpose, key)
+	}
+}
+
+// disarm 立刻撤膛。应用自己发起的提权做完就撤，不留窗口。
+func (g *privilegeGate) disarm(key string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.until, key)
+	delete(g.purpose, key)
+}
+
+// purposeOf 取上膛时附的用途（没有就是空）。
+func (g *privilegeGate) purposeOf(key string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.purpose[key]
 }
 
 func (g *privilegeGate) armed(session string) bool {
@@ -249,6 +279,7 @@ func (g *privilegeGate) armed(session string) bool {
 	}
 	if g.now().After(until) {
 		delete(g.until, session)
+		delete(g.purpose, session)
 		return false
 	}
 	return true

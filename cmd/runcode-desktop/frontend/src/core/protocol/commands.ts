@@ -31,6 +31,12 @@ export function answerAskpass(id: string, password: string): Promise<void> {
   return call<void>('AnswerAskpass', id, password);
 }
 
+// AuthorizeRuntime 请麒麟安全中心放行一个已装好的运行时（会弹一次应用的密码框）。 用在两处：安装时用户取消了密码框；或者之后 pip 装了带 C 扩展的新库。整趟阻塞， 状态经 EventRuntimes 流出去。
+// kind: trigger
+export function authorizeRuntime(id: string): Promise<void> {
+  return call<void>('AuthorizeRuntime', id);
+}
+
 // CancelAskpass 取消一次密码请求（sudo 那边会报"没有提供密码"）。
 // kind: idempotent-set
 export function cancelAskpass(id: string): Promise<void> {

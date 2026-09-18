@@ -11,6 +11,7 @@ package desktop
 // /proc——来者核验是整个功能的安全支点，不在真机上跑过就不算数。
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -150,5 +151,62 @@ func TestAskpassE2E_UnarmedSessionIsRefused(t *testing.T) {
 	}
 	if _, ok := h.gotRequest(); ok {
 		t.Error("unarmed session reached the UI")
+	}
+}
+
+func TestAskpassE2E_AppTrustsRuntimeFiles(t *testing.T) {
+	if !kysecExecControlOn() {
+		t.Skip("本机没开 KYSEC 执行控制")
+	}
+	h := newE2E(t)
+	// 一个复制出来的 ELF：内容与 /bin/true 一样，但不是 dpkg 装的，所以是 unknown。
+	dir := t.TempDir()
+	data, err := os.ReadFile("/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "bin", "t")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pending, files, err := needsTrust(dir)
+	if err != nil || !pending || len(files) != 1 {
+		t.Fatalf("needsTrust: pending=%v files=%d err=%v", pending, len(files), err)
+	}
+
+	// 与 App.trustRuntime 同样的走法：用 app: 开头的键上膛并附用途，做完即撤。
+	key := "app:runtime:e2e"
+	h.gate.armFor(key, "让麒麟安全中心放行 e2e", time.Minute)
+	defer h.gate.disarm(key)
+	env := envWith(map[string]string{
+		"SUDO_ASKPASS":    h.srv.exe,
+		envAskpassSocket:  h.srv.path,
+		envAskpassToken:   h.srv.token,
+		envAskpassSession: key,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := kysecTrust(ctx, files, env); err != nil {
+		t.Fatalf("kysecTrust: %v", err)
+	}
+	r, ok := h.gotRequest()
+	if !ok {
+		t.Fatal("UI never saw the password request")
+	}
+	// 应用自己发起的提权要带用途；弹框里显示的命令仍是 sudo 实际要跑的那一行。
+	if r.Purpose == "" || !strings.Contains(r.Command, "kysec_set -n exectl -v verified") {
+		t.Errorf("request = %+v", r)
+	}
+
+	// 加白之后应当一个框都不弹、直接跑完（没加白时这里会等 30 秒然后退出码 126）。
+	start := time.Now()
+	if out, err := exec.Command(bin).CombinedOutput(); err != nil {
+		t.Fatalf("trusted binary still blocked: %v %s", err, out)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("trusted binary took %v — a security prompt probably popped up", time.Since(start))
 	}
 }

@@ -207,6 +207,7 @@ export {
   cancelAskpass,
   checkRuntimes,
   installRuntime,
+  authorizeRuntime,
   cancelRuntimeInstall,
   removeRuntime,
   updateStatus,

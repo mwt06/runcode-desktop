@@ -81,6 +81,7 @@ func (b *askpassBroker) ask(ctx context.Context, session, command, prompt string
 	}()
 	b.emit(protocol.EventAskpassRequest, protocol.AskpassRequest{
 		ID: id, SessionID: session, Command: command, Prompt: prompt,
+		Purpose: b.gate.purposeOf(session),
 	})
 
 	timer := time.NewTimer(b.timeout)

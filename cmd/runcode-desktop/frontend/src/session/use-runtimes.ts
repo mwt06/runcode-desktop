@@ -9,6 +9,7 @@
 // 不打扰）。这里只在挂载时读一次，好让设置页一打开就有东西可画。
 import { useCallback, useEffect, useState } from 'react'
 import {
+  authorizeRuntime,
   cancelRuntimeInstall,
   checkRuntimes,
   errText,
@@ -31,6 +32,8 @@ export interface RuntimeController {
   error: string
   check: () => void
   install: (id: string) => void
+  /** authorize 请麒麟安全中心放行一个已装好的运行时（会弹一次应用的密码框）。 */
+  authorize: (id: string) => void
   cancel: (id: string) => void
   remove: (id: string) => void
 }
@@ -40,7 +43,8 @@ export function packBusy(p: RuntimePack): boolean {
   return (
     p.stage === RuntimeStages.Downloading ||
     p.stage === RuntimeStages.Verifying ||
-    p.stage === RuntimeStages.Extracting
+    p.stage === RuntimeStages.Extracting ||
+    p.stage === RuntimeStages.Authorizing
   )
 }
 
@@ -81,6 +85,11 @@ export function useRuntimes(): RuntimeController {
     installRuntime(id).catch((e) => setError(errText(e)))
   }, [])
 
+  const authorize = useCallback((id: string) => {
+    setError('')
+    authorizeRuntime(id).catch((e) => setError(errText(e)))
+  }, [])
+
   const cancel = useCallback((id: string) => {
     cancelRuntimeInstall(id).catch(() => {})
   }, [])
@@ -90,5 +99,5 @@ export function useRuntimes(): RuntimeController {
     removeRuntime(id).catch((e) => setError(errText(e)))
   }, [])
 
-  return { info, packs: info?.packs ?? [], checking, error, check, install, cancel, remove }
+  return { info, packs: info?.packs ?? [], checking, error, check, install, authorize, cancel, remove }
 }

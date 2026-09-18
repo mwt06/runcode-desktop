@@ -52,6 +52,10 @@ const (
 	// RuntimeStageExtracting 正在解压。它比下载还慢（几万个小文件），没有这个阶段
 	// 用户会以为卡死了。
 	RuntimeStageExtracting = "extracting"
+	// RuntimeStageAuthorizing 正在请麒麟安全中心放行（KYSEC 执行控制开着时，解压出的
+	// 程序不在白名单里，每次运行都会弹框）。这一步会弹应用的密码框，所以单列一个阶段，
+	// 好让界面说清楚"现在在等你输密码"。
+	RuntimeStageAuthorizing = "authorizing"
 	// RuntimeStageReady 已装好可用。
 	RuntimeStageReady = "ready"
 	// RuntimeStageFailed 这一轮失败了，Error 是给用户看的原因。
@@ -116,6 +120,12 @@ type RuntimePack struct {
 	// Active 是当前真正会被 agent 用到的那一个："managed"（托管包）、
 	// "system"（系统自带）或 ""（两个都没有，功能不可用）。
 	Active string `json:"active"`
+	// NeedsAuthorize 为真表示麒麟安全中心还没放行这个托管包：每次运行都会在桌面弹一个
+	// 安全框，30 秒没人点就失败。前端据此显示警告与「授权」按钮（AuthorizeRuntime）。
+	//
+	// 它会在两种情况下为真：装的时候用户取消了密码框；或者之后 pip 装了带 C 扩展的新
+	// 库——那些新文件同样不在白名单里。
+	NeedsAuthorize bool `json:"needsAuthorize"`
 }
 
 // ---- 服务端清单 ----------------------------------------------------------

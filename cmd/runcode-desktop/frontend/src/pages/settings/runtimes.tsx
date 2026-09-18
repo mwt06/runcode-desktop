@@ -24,7 +24,8 @@ export function RuntimesSection({ runtimes }: { runtimes: RuntimeController }) {
     <Section title="运行时环境" hint={info?.platform}>
       <div className="text-[12px] text-muted">
         办公技能（公文、会议纪要、表格）要用 Python 跑。装在本应用自己的目录里，
-        <span className="text-ink">不需要管理员权限</span>，也不会影响系统里已有的版本。
+        不会影响系统里已有的版本。银河麒麟开着安全中心的执行控制时，装完需要输一次本机密码，
+        让安全中心放行它。
       </div>
 
       {runtimes.error && <InlineError>{runtimes.error}</InlineError>}
@@ -78,6 +79,11 @@ function PackStatus({ pack }: { pack: RuntimePack }): ReactElement {
         {managedText(pack)}
       </span>
       {systemText(pack) && <span className="block text-faint mt-0.5">{systemText(pack)}</span>}
+      {pack.needsAuthorize && (
+        <span className="block mt-1 text-amberink">
+          麒麟安全中心还没放行它：每次运行都会在桌面弹安全框，30 秒没人点就失败。点右边「授权」输一次密码即可。
+        </span>
+      )}
       {pack.stage === RuntimeStages.Failed && pack.error && (
         <span className="block mt-1">
           <InlineError variant="text">{pack.error}</InlineError>
@@ -104,6 +110,8 @@ function managedText(pack: RuntimePack): string {
       return '正在校验完整性…'
     case RuntimeStages.Extracting:
       return '正在解压…（文件较多，请稍候）'
+    case RuntimeStages.Authorizing:
+      return '正在请麒麟安全中心放行…（请在弹出的框里输入本机密码）'
     case RuntimeStages.Failed:
       return '安装失败'
     case RuntimeStages.Absent:
@@ -139,6 +147,11 @@ function PackAction({ pack, runtimes }: { pack: RuntimePack; runtimes: RuntimeCo
     const outdated = pack.available && pack.available !== pack.version
     return (
       <span className="flex-none flex items-center gap-2">
+        {pack.needsAuthorize && (
+          <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4`} onClick={() => runtimes.authorize(pack.id)}>
+            授权
+          </button>
+        )}
         {outdated && (
           <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4`} onClick={() => runtimes.install(pack.id)}>
             更新

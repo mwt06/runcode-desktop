@@ -112,6 +112,13 @@ func managedLine(s packSpec, st *packState) string {
 		// ——而那在内网多半是跑不通的。
 		line += " Preinstalled libraries: " + libs + "."
 	}
+	if st.needsAuthorize {
+		// 麒麟安全中心还没放行它（见 kysec.go）。不说的话，模型看到的只是一个 126 退出码
+		// 或"权限不够"，会去改脚本、换写法，绕半天圈子——而问题根本不在脚本里。
+		line += " On this machine the system security center has not trusted it yet: every run pops up a confirmation on the user's desktop" +
+			" and fails (exit code 126, \"permission denied\") if nobody accepts within 30 seconds. If that happens, do not rewrite the script;" +
+			" ask the user to click 授权 next to it in 设置 → 运行时环境."
+	}
 	return line
 }
 
