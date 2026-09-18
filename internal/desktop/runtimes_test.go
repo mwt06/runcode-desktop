@@ -228,7 +228,7 @@ func TestBuildEnvTooOldSystemPython(t *testing.T) {
 		}
 	}
 	// 绝不能让模型叫用户自己去装：在麒麟上照做会把系统 python3 换掉。
-	if !strings.Contains(e.prompt, "do not tell the user to download or install it themselves") {
+	if !strings.Contains(e.prompt, "Do not tell the user to download or install it themselves") {
 		t.Errorf("prompt does not forbid the self-install advice:\n%s", e.prompt)
 	}
 }
@@ -347,4 +347,52 @@ func TestRuntimeManifestURLRoutes(t *testing.T) {
 			t.Fatalf("env override ignored: %q", got)
 		}
 	})
+}
+
+func TestLibsFromNotes(t *testing.T) {
+	cases := []struct{ notes, want string }{
+		// 打包工具当前产出的形状：整句里前半截与我们自己已经打印的版本号重复。
+		{"Python 3.12.11，含 python-docx / python-pptx / openpyxl / Pillow", "python-docx / python-pptx / openpyxl / Pillow"},
+		{"Python 3.12.11（未预装第三方库）", "（未预装第三方库）"},
+		// 服务端换了措辞就原样用，不做花哨解析。
+		{"含 lxml", "lxml"},
+		{"anything else", "anything else"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := libsFromNotes(c.notes, "Python", "3.12.11"); got != c.want {
+			t.Errorf("libsFromNotes(%q) = %q, want %q", c.notes, got, c.want)
+		}
+	}
+}
+
+func TestMissingLineMatchesWhatTheAppCanActuallyDo(t *testing.T) {
+	m := newTestManager()
+	prompt := m.buildEnv().prompt
+
+	// 本平台发了包却没装：唯一正确的出口是设置页。
+	if !strings.Contains(prompt, "设置 → 运行时环境") {
+		t.Errorf("prompt should point at the in-app installer for published packs: %q", prompt)
+	}
+
+	var gitLine string
+	for _, l := range strings.Split(prompt, "\n") {
+		if strings.HasPrefix(l, "- Git") {
+			gitLine = l
+		}
+	}
+	if gitLine == "" {
+		t.Fatalf("no Git line in prompt: %q", prompt)
+	}
+	if packPublished(protocol.RuntimePackGit, runtime.GOOS) {
+		return // Windows 发 Git 包，指向设置页是对的
+	}
+	// Linux/macOS **不发** Git 包。这时候再把用户指到设置页就是把人带进死胡同：
+	// 那里只会显示"本平台暂未提供安装包"，点什么都没有。
+	if strings.Contains(gitLine, "设置 → 运行时环境") {
+		t.Errorf("Git is not published on %s, yet the prompt sends the user to the in-app installer: %q", runtime.GOOS, gitLine)
+	}
+	if !strings.Contains(gitLine, "package manager") {
+		t.Errorf("Git line should point at the system package manager instead: %q", gitLine)
+	}
 }

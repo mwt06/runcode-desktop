@@ -107,10 +107,27 @@ func (m *runtimeManager) buildEnv() *runtimeEnv {
 // 不必先去探测一遍再动手。
 func managedLine(s packSpec, st *packState) string {
 	line := "- " + s.label + " " + st.version + " is bundled with this app and ready to use; run it as `" + promptCommand(s.id) + "`."
-	if notes := strings.TrimSpace(st.avail.Notes); notes != "" && s.id == protocol.RuntimePackPython {
-		line += " Preinstalled libraries: " + notes + "."
+	if libs := libsFromNotes(st.avail.Notes, s.label, st.version); libs != "" && s.id == protocol.RuntimePackPython {
+		// 告诉模型预装了什么，它才不会为了一个已经在包里的库先去跑一次 pip install
+		// ——而那在内网多半是跑不通的。
+		line += " Preinstalled libraries: " + libs + "."
 	}
 	return line
+}
+
+// libsFromNotes 从清单的 notes 里取出"预装了什么"。
+//
+// notes 是给**人**看的一整句（"Python 3.12.11，含 python-docx / openpyxl"），前半截
+// 与这一行自己已经打印过的名字和版本号重复。不剥掉的话提示词里会出现
+// "Python 3.12.11 … Preinstalled libraries: Python 3.12.11，含 …"，同一个版本号说两遍。
+//
+// 剥不掉就原样用：notes 的措辞由服务端定，这里只处理它现在的形状，不做花哨的解析。
+func libsFromNotes(notes, label, version string) string {
+	out := strings.TrimSpace(notes)
+	out = strings.TrimSpace(strings.TrimPrefix(out, label+" "+version))
+	out = strings.TrimLeft(out, "，,：: ")
+	out = strings.TrimSpace(strings.TrimPrefix(out, "含"))
+	return strings.TrimSpace(out)
 }
 
 // missingLine 是"没有这个"的那一行，并说清楚该怎么办。
@@ -122,9 +139,16 @@ func missingLine(s packSpec, st *packState) string {
 	if st.sysVersion != "" {
 		line += " (this machine has " + s.label + " " + st.sysVersion + ", which is too old — " + s.minVersion + "+ is required)"
 	}
-	line += ". Do not write scripts that need it, and do not tell the user to download or install it themselves:" +
-		" point them at 设置 → 运行时环境 in this app instead."
-	return line
+	line += ". Do not write scripts that need it."
+	if !packPublished(s.id, runtime.GOOS) {
+		// 本平台根本不发这个包（Linux/macOS 的 Git 就是：没有官方绿色包，当初就
+		// 决定走系统自带的）。这时候**不能**把用户指到设置页——那里只会显示
+		// "本平台暂未提供安装包"，等于把人带进死胡同。
+		return line + " This app cannot install it on this platform; tell the user to install it with the system package manager (e.g. sudo apt install git) and restart the app."
+	}
+	// 发了包但没装：唯一正确的出口是设置页。**别让模型叫用户自己去下载安装**——
+	// 在银河麒麟上升级系统 python3 会把 dnf 一起搞挂，而用户照做之后没人收得了场。
+	return line + " Do not tell the user to download or install it themselves: point them at 设置 → 运行时环境 in this app instead."
 }
 
 // promptCommand 是提示词里推荐给模型的命令名。
