@@ -2,6 +2,9 @@
 /runcode
 /runcode.exe
 *.exe~
+# go build ./tools/<x> 会在仓库根产出 <x>.exe。逐个列名迟早漏一个——
+# runtimepacks.exe 就这样被提交过一次（9.1 MiB）。这里一次挡住整类。
+*.exe
 /dist/
 /bin/
 
