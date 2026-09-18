@@ -70,10 +70,23 @@ func tokenBase(field string) string {
 	return path.Base(strings.Trim(field, "\"'`()"))
 }
 
-// sudoLine 报告一条命令是不是以 sudo 开头（含 /usr/bin/sudo 这种写法）。
+// sudoLine 报告一条命令里有没有要执行 sudo——**不只看开头**。
+//
+// 最初只认"以 sudo 开头"，结果 `cd /tmp && sudo dpkg -i x.deb`、`echo …; sudo -n true`
+// 这类 sudo 在中间的写法原样落回引擎的硬拒，而模型写这种命令非常多：用户看到的就是
+// "sudo 还是被拒"，模型则在记忆里写下"sudo 被工具策略拒绝"，此后连试都不试（麒麟真机上
+// 实际发生过）。放宽到"任何位置出现 sudo"并不削弱安全：审批框显示整行命令、密码框显示
+// sudo 实际要跑的那一段，删盘类命令仍由 sudoRefusal 扫整行拦下。
+//
+// 逐字匹配（去引号、括号与路径前缀，与引擎 containsDangerousToken 同一取舍）：
+// `echo sudo` 也会被当成 sudo 行——它原本就被引擎按危险词硬拒，现在只是改成先问你。
 func sudoLine(command string) bool {
-	fields := strings.Fields(command)
-	return len(fields) > 0 && tokenBase(fields[0]) == "sudo"
+	for _, f := range strings.Fields(command) {
+		if tokenBase(f) == "sudo" {
+			return true
+		}
+	}
+	return false
 }
 
 // sudoRefusal 返回这条 sudo 命令必须拒绝的原因（""=可以拿去问用户）。
@@ -291,6 +304,7 @@ func (g *privilegeGate) armed(session string) bool {
 // 判断值不值得为这件事打扰用户两次。
 func privilegePrompt() string {
 	return "## Administrator (sudo) commands\n\n" +
+		"This reflects the current state of this app and supersedes older notes (for example in memory) saying sudo is refused. " +
 		"`sudo` works in this app, but every sudo command is shown to the user for approval, " +
 		"and the user then types their system password in a dialog — the password never reaches you. " +
 		"Each sudo command interrupts the user twice, so use it only when a task genuinely needs system-level changes " +

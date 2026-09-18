@@ -159,7 +159,14 @@ func missingLine(s packSpec, st *packState) string {
 	}
 	// 发了包但没装：唯一正确的出口是设置页。**别让模型叫用户自己去下载安装**——
 	// 在银河麒麟上升级系统 python3 会把 dnf 一起搞挂，而用户照做之后没人收得了场。
-	line += " It can be installed in 设置 → 运行时环境 in this app; do not tell the user to download and install it themselves, since the app keeps its own self-contained copy."
+	//
+	// "别让用户自己装"之外必须再说一句"你自己也别装"：只说前一半时，模型在麒麟真机上把它
+	// 读成了"那我替用户装"——花了十五轮去找别的 Python、测技能脚本能不能在 3.8 上凑合跑，
+	// 最后执行了 `curl … astral.sh/uv/install.sh | sh`。自己下的解释器没有预装库、应用管不到，
+	// 在开着执行控制的麒麟上还会被安全中心直接拦下。所以给它一个明确的动作：停下，请用户点安装。
+	line += " The app ships its own copy: stop and ask the user to click 安装 next to it in 设置 → 运行时环境, then continue." +
+		" Do not install it yourself (uv, pyenv, conda, `curl … | sh`, downloading an interpreter) and do not tell the user to download it" +
+		" — the in-app installer is the only supported way."
 	if s.id == protocol.RuntimePackPython {
 		// 这条危害是 Python 独有的，别套到 Node/Git 头上：银河麒麟等发行版的
 		// dnf/apt 工具链就架在系统 python3 上，用户照着"去装个新版 Python"动手
@@ -194,7 +201,10 @@ func promptSection(lines []string) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Runtime environment\n\n")
-	b.WriteString("Interpreters and tools available to the Bash tool on this machine:\n\n")
+	// 声明优先级：项目记忆会被原样带进每一个新对话，而它可能写于这些功能出现之前（麒麟
+	// 真机上就有一条"需先用户态安装独立 Python（如 uv）"的旧记忆，模型每次都照着它去绕）。
+	b.WriteString("Interpreters and tools available to the Bash tool on this machine. This reflects the machine's current state" +
+		" and supersedes older notes (for example in memory) about missing or unusable interpreters:\n\n")
 	for _, l := range lines {
 		b.WriteString(l)
 		b.WriteString("\n")

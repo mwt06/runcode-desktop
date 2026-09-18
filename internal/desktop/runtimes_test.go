@@ -229,7 +229,7 @@ func TestBuildEnvTooOldSystemPython(t *testing.T) {
 	}
 	// 绝不能让模型叫用户自己去装 Python：在麒麟上照做会把系统 python3 换掉，
 	// 连带 dnf/apt 一起坏。这条危害是 Python 独有的，只该出现在 Python 那一行。
-	if !strings.Contains(e.prompt, "do not tell the user to download and install it themselves") {
+	if !strings.Contains(e.prompt, "Do not install it yourself") {
 		t.Errorf("prompt does not discourage the self-install advice:\n%s", e.prompt)
 	}
 	if !strings.Contains(e.prompt, "breaks the OS package manager") {

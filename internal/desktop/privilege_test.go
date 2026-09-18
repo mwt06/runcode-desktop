@@ -30,8 +30,12 @@ func TestSudoLineAndRefusal(t *testing.T) {
 		"sudo apt install libsecret-tools": true,
 		// 引擎按第一个词逐字认 sudo，这种写法曾被当成普通命令。
 		"/usr/bin/sudo apt install x": true,
-		"echo sudo":                   false,
-		"":                            false,
+		// sudo 不在开头的写法：只认开头时它们落回引擎硬拒，用户看到的就是"sudo 还是被拒"。
+		"cd /tmp && sudo dpkg -i x.deb":     true,
+		"echo arch; uname -m; sudo -n true": true,
+		"echo sudo":                         true, // 原本就被引擎按危险词硬拒，现在改成先问
+		"ls -la":                            false,
+		"":                                  false,
 	} {
 		if got := sudoLine(cmd); got != want {
 			t.Errorf("sudoLine(%q) = %v, want %v", cmd, got, want)
@@ -73,6 +77,9 @@ func TestPrivilegePolicy(t *testing.T) {
 		// askpass 没起来就不放行：批准了也拿不到密码，只会让用户白点一次。
 		{"没有 askpass 保持硬拒", deny, off, "sudo apt install x", permissions.EffectDeny},
 		{"sudo 下的删除仍然拒", deny, on, "sudo rm -rf /var/cache", permissions.EffectDeny},
+		// 模型常把 sudo 写在中间。只认开头时这两种都会落回引擎硬拒（麒麟真机上实际发生过）。
+		{"sudo 在中间也改为询问", deny, on, "cd /tmp && sudo dpkg -i x.deb", permissions.EffectAsk},
+		{"sudo 在中间带删除仍然拒", deny, on, "cd /tmp && sudo rm -rf x", permissions.EffectDeny},
 		{"sudo 下的直写磁盘仍然拒", deny, on, "sudo dd of=/dev/sda", permissions.EffectDeny},
 		// pkexec 会弹系统自己的 polkit 框，绕开应用里的审批——即使引擎只判了询问也要拒。
 		{"pkexec 一律拒", ask, on, "pkexec apt install x", permissions.EffectDeny},
