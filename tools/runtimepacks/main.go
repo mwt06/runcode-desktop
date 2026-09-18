@@ -10,7 +10,7 @@
 // 用法（仓库根目录执行）：
 //
 //	go run ./tools/runtimepacks --list                      # 只打印要从哪儿下什么，不动手
-//	go run ./tools/runtimepacks --base-url https://obs.example.com/runtimes/
+//	go run ./tools/runtimepacks --base-url https://obs.example.com/runtimes/   # --base-url 必填
 //	go run ./tools/runtimepacks --component python --platform linux/amd64
 //	go run ./tools/runtimepacks --cache ~/Downloads/upstream # 内网：上游包自己下好放这儿
 //
@@ -64,7 +64,7 @@ func main() {
 	var (
 		out        = flag.String("out", filepath.Join("dist", "runtimepacks"), "产物目录")
 		cache      = flag.String("cache", filepath.Join(os.TempDir(), "runcode-runtime-upstream"), "上游包的缓存目录；已存在的文件直接复用，内网可手工放进来")
-		baseURL    = flag.String("base-url", "https://OBS_BASE_URL/runtimes/", "清单里包直链的前缀（对象存储地址）")
+		baseURL    = flag.String("base-url", "", "清单里包直链的前缀（对象存储地址）——除 --list 外必填")
 		component  = flag.String("component", "", "只打这一个组件（python|node|git），默认全部")
 		platform   = flag.String("platform", "", "只打这一个平台（如 linux/amd64），默认全部")
 		python     = flag.String("python", "", "打包机上用来调 pip 的 Python（默认自动找 python3/python）")
@@ -82,6 +82,16 @@ func main() {
 			fmt.Printf("%-7s %-14s %s\n", j.id, j.target.platform, j.source.url)
 		}
 		return
+	}
+	// --base-url 必填，而且是在动手**之前**就检查。
+	//
+	// 这里曾经有个占位默认值（https://OBS_BASE_URL/runtimes/），不传也能跑完，产出
+	// 一份看着完全正常、实际每个 url 都解析不了的清单——而它已经被传上对象存储一次
+	// 了。缺少必填配置就该立刻停下，而不是拿一个假值继续走完 20 分钟的下载与打包。
+	if strings.TrimSpace(*baseURL) == "" {
+		fail(errors.New("必须用 --base-url 指定对象存储的地址前缀，例如：\n" +
+			"  --base-url https://files.example.com/产品名/runtimepacks/\n" +
+			"（清单里每个包的 url 就是「这个前缀 + 文件名」；只想看要下什么就加 --list）"))
 	}
 	if !strings.HasSuffix(*baseURL, "/") {
 		*baseURL += "/"
