@@ -227,19 +227,32 @@ func applyRuntimeEnv(m *runtimeManager, cfg *engine.Config) {
 	if m == nil || cfg == nil {
 		return
 	}
-	if env := m.toolEnv(); len(env) > 0 {
-		if cfg.ToolEnv == nil {
-			cfg.ToolEnv = make(map[string]string, len(env))
-		}
-		for k, v := range env {
-			cfg.ToolEnv[k] = v
-		}
+	mergeToolEnv(cfg, m.toolEnv())
+	appendSystemPrompt(cfg, m.promptAppend())
+}
+
+// mergeToolEnv 把 env 并进 cfg.ToolEnv（同名覆盖）。合并而不是整个替换：ToolEnv 是
+// 公共口子，运行时环境与 sudo 都往里放东西，谁后到谁覆盖整张表就会悄悄丢掉另一个。
+func mergeToolEnv(cfg *engine.Config, env map[string]string) {
+	if cfg == nil || len(env) == 0 {
+		return
 	}
-	if prompt := m.promptAppend(); prompt != "" {
-		if strings.TrimSpace(cfg.SystemPromptAppend) == "" {
-			cfg.SystemPromptAppend = prompt
-		} else {
-			cfg.SystemPromptAppend = strings.TrimRight(cfg.SystemPromptAppend, "\n") + "\n\n" + prompt
-		}
+	if cfg.ToolEnv == nil {
+		cfg.ToolEnv = make(map[string]string, len(env))
 	}
+	for k, v := range env {
+		cfg.ToolEnv[k] = v
+	}
+}
+
+// appendSystemPrompt 在 cfg.SystemPromptAppend 后面接一段（理由同上：合并，不覆盖）。
+func appendSystemPrompt(cfg *engine.Config, section string) {
+	if cfg == nil || strings.TrimSpace(section) == "" {
+		return
+	}
+	if strings.TrimSpace(cfg.SystemPromptAppend) == "" {
+		cfg.SystemPromptAppend = section
+		return
+	}
+	cfg.SystemPromptAppend = strings.TrimRight(cfg.SystemPromptAppend, "\n") + "\n\n" + section
 }

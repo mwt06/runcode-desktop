@@ -13,6 +13,7 @@
 export type {
   AgentInfo,
   AgentList,
+  AskpassRequest,
   AgentProblem,
   AgentSaveRequest,
   ApprovalSummary,
@@ -202,6 +203,8 @@ export {
   startSession,
   runtimeStatus,
   secretStorageStatus,
+  answerAskpass,
+  cancelAskpass,
   checkRuntimes,
   installRuntime,
   cancelRuntimeInstall,

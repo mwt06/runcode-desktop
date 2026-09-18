@@ -25,6 +25,18 @@ export function activeTenant(): Promise<string> {
   return call<string>('ActiveTenant');
 }
 
+// AnswerAskpass 交回用户在密码框里输入的密码。
+// kind: idempotent-set
+export function answerAskpass(id: string, password: string): Promise<void> {
+  return call<void>('AnswerAskpass', id, password);
+}
+
+// CancelAskpass 取消一次密码请求（sudo 那边会报"没有提供密码"）。
+// kind: idempotent-set
+export function cancelAskpass(id: string): Promise<void> {
+  return call<void>('CancelAskpass', id);
+}
+
 // CancelRuntimeInstall 取消正在进行的安装。没在装也返回成功（见 cancelInstall）。
 // kind: idempotent-set
 export function cancelRuntimeInstall(id: string): Promise<void> {

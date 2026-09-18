@@ -9,6 +9,7 @@ import { BRAND } from '@/core/brand'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
 import { useToast } from '@/session/use-toast'
 import { usePermissionQueue } from '@/session/use-permission-queue'
+import { useAskpass } from '@/session/use-askpass'
 import { useWorkspaceFiles } from '@/session/use-workspace-files'
 import { usePreviewPanel } from '@/session/use-preview-panel'
 import { useConversation } from '@/session/use-conversation'
@@ -22,6 +23,7 @@ import { TitleBar } from '@/shell/title-bar'
 import { StatusBar } from '@/shell/status-bar'
 import { ChatPane } from '@/shell/chat-pane'
 import { PermissionModal } from '@/shell/permission-modal'
+import { AskpassModal } from '@/shell/askpass-modal'
 import { PreviewSide } from '@/shell/preview-side'
 import { Sidebar } from '@/shell/sidebar'
 import { Composer } from '@/composer'
@@ -83,6 +85,8 @@ export default function App() {
 
   const toast = useToast()
   const permissions = usePermissionQueue(focusedId)
+  // sudo 密码框：请求可能来自任何一条会话（不只是当前聚焦的），所以挂在最外层。
+  const askpass = useAskpass()
   const workspace = useWorkspaceFiles(() => infoRef.current?.cwd ?? '')
   const preview = usePreviewPanel(focusedId)
   // 登录用户的通行证状态：欢迎语称呼（经 passportDisplayName）与侧栏用户区
@@ -521,6 +525,14 @@ export default function App() {
         )}
       </div>
       {installing && <InstallOverlay state={installing} />}
+      {askpass.current && (
+        <AskpassModal
+          req={askpass.current}
+          remaining={askpass.remaining}
+          onAnswer={(pw) => askpass.answer(askpass.current!.id, pw)}
+          onCancel={() => askpass.cancel(askpass.current!.id)}
+        />
+      )}
     </div>
   )
 }

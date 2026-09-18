@@ -9,6 +9,8 @@ export const ProtocolVersion = 1;
 
 // Mirrors the protocol.Event* constants. Event names emitted by the host; payload types are mapped in events.ts.
 export const Events = {
+  AskpassDone: 'askpass:done',
+  AskpassRequest: 'askpass:request',
   AssistantDelta: 'assistant:delta',
   AssistantThinking: 'assistant:thinking',
   ContextUsage: 'context:usage',
@@ -200,6 +202,19 @@ export interface ApprovalSummary {
   mcpServer?: string;
   mcpTool?: string;
   policyRule?: string;
+}
+
+// Mirrors protocol.AskpassDone. AskpassDone 撤回一次请求。
+export interface AskpassDone {
+  id: string;
+}
+
+// Mirrors protocol.AskpassRequest. AskpassRequest 是一次"sudo 要密码"。
+export interface AskpassRequest {
+  id: string;
+  sessionId: string;
+  command: string;
+  prompt: string;
 }
 
 // Mirrors protocol.AssistantDelta. AssistantDelta is one streamed text fragment from the model.

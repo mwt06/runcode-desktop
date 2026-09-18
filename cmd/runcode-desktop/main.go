@@ -250,6 +250,12 @@ func main() {
 	if desktop.IsUpdateWatch(os.Args) {
 		os.Exit(desktop.RunUpdateWatch(os.Args))
 	}
+	// sudo 的密码助手模式：sudo 要密码时会把本二进制当成 askpass 拉起来（见
+	// internal/desktop/askpass.go）。与看门模式同理必须排在最前——走到单实例锁那里，
+	// 它会被当成"又开了一个窗口"，把焦点让给主窗后退出，sudo 于是永远拿不到密码。
+	if desktop.IsAskpass() {
+		os.Exit(desktop.RunAskpass(os.Args))
+	}
 
 	sink := &eventSink{}
 	dlg := &wailsDialog{}

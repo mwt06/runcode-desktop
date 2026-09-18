@@ -63,6 +63,8 @@ var eventPayloads = map[string]string{
 	"EventSkillInstall":       "SkillInstallProgress",
 	"EventUpdate":             "UpdateInfo",
 	"EventRuntimes":           "RuntimeInfo",
+	"EventAskpassRequest":     "AskpassRequest",
+	"EventAskpassDone":        "AskpassDone",
 	"EventToolEvent":          "ToolEvent",
 	"EventTurnEnd":            "TurnEnd",
 	"EventTurnQueued":         "TurnQueued",

@@ -18,6 +18,11 @@ import (
 // 按当时的 APPDATA 把 <TempDir>/runcode/desktop.log 建出来——而那时目录正属于别人。
 // 关掉自动更新只堵了其中一条路；关掉日志才是把这一类堵死。
 func TestMain(m *testing.M) {
+	// askpass 的端到端测试（askpass_e2e_test.go）让测试二进制自己兼任 sudo 的密码程序：
+	// 被 sudo 拉起来时只做那一件事。平时这些环境变量不存在，IsAskpass 恒为假。
+	if IsAskpass() {
+		os.Exit(RunAskpass(os.Args))
+	}
 	autoUpdateEnabled = false
 	debugLogEnabled = false
 	os.Exit(m.Run())

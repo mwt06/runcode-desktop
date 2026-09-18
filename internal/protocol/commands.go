@@ -70,6 +70,8 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"PlanUpdate":           hostproto.CommandIdempotentSet,
 	"ResolveArtifactPath":  hostproto.CommandIdempotentSet,
 	"ResolvePermission":    hostproto.CommandIdempotentSet,
+	"AnswerAskpass":        hostproto.CommandIdempotentSet,
+	"CancelAskpass":        hostproto.CommandIdempotentSet,
 	"SaveAgent":            hostproto.CommandIdempotentSet,
 	"SaveCustomModel":      hostproto.CommandIdempotentSet,
 	"SaveMCPServer":        hostproto.CommandIdempotentSet,

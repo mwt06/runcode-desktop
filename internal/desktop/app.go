@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wt68/runcode/internal/codexauth"
@@ -128,6 +129,14 @@ type App struct {
 	// rt 是运行时环境（Python / Node / Git）的状态机（见 runtimes.go）。同 upd/rec，
 	// 它自带锁、与 mu / startMu 无嵌套关系。始终非 nil。
 	rt *runtimeManager
+
+	// privGate / askpass / askpassSrv 是"模型用 sudo"那条链（见 privilege.go 与
+	// askpass.go）：批准过 sudo 的会话才上膛，上了膛的会话 sudo 要密码时才弹框。
+	// askpassSrv 在 Startup 里才起、别的平台上始终为空，所以用原子指针——会话装配与
+	// 每次权限判定都要读它，而那些路径不该为它去排 a.mu。
+	privGate   *privilegeGate
+	askpass    *askpassBroker
+	askpassSrv atomic.Pointer[askpassServer]
 
 	// rec 是录音纪要的状态（一次只允许一场）。它自带锁，与 mu / startMu
 	// 没有嵌套关系——录音与对话是两条互不相干的线。
@@ -267,6 +276,8 @@ func newWithBuild(sink EventSink, build host.BuildFunc) *App {
 	// 构造放在 update.go：本文件的 protocol 是**引擎**那个包，而 UpdateInfo 是外壳自己的。
 	a.upd = newUpdaterFor(a)
 	a.rt = newRuntimeManagerFor(a)
+	a.privGate = newPrivilegeGate()
+	a.askpass = newAskpassBroker(func(name string, payload any) { a.sink.Emit(name, payload) }, a.privGate)
 	return a
 }
 
@@ -299,6 +310,14 @@ func (a *App) Startup() {
 	// 版本更新的自动检查。延后几秒再跑（见 updateCheckDelay）：它的结论最快也要等
 	// 用户走到设置页才会被看见，没有理由和建窗口、装内置技能抢那几秒。
 	go a.autoCheckUpdate(updateCheckDelay)
+	// sudo 的密码框服务（仅 Linux，见 askpass_linux.go）。起不来就不开放 sudo——
+	// privilegePolicy 看的是 askpassReady，于是 sudo 保持引擎原来的硬拒，不会出现
+	// "批准了却拿不到密码"的半截状态。
+	if srv, err := startAskpassServer(a.askpass); err == nil {
+		a.askpassSrv.Store(srv)
+	} else {
+		debugLog("askpass unavailable: %v", err)
+	}
 	// 运行时环境（见 runtimes.go）：先探系统里有没有 python/node/git，再查平台清单。
 	//
 	// **探测必须在后台**：它要真的执行三次 --version，而一个卡住的 exe（等网络的
@@ -635,7 +654,10 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		// hostToolClasses). engine.Options.ToolClasses is the same thing for hosts
 		// that let the engine build the service — we build our own, so we install
 		// the classifier ourselves.
-		Resolver: permissions.WithToolClasses(nil, hostToolClasses),
+		//
+		// 外面再包一层 privilegeResolver：把引擎漏认的提权写法（/usr/bin/sudo、pkexec、
+		// doas）归一成特权命令，下游的策略与裁判地板才会一视同仁（见 privilege.go）。
+		Resolver: privilegeResolver{inner: permissions.WithToolClasses(nil, hostToolClasses)},
 		// Which servers we vouch for is ours to know, not the engine's: the same
 		// opt-in that earns a server the user's identity headers also lets its calls
 		// skip the per-call approval an arbitrary external endpoint always needs.
@@ -648,13 +670,21 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		// 最外层是 OA 锁:会话读过 OA 之后,不需要用户点头就能出网的工具(联网搜索、
 		// 抓取网页)一律拒绝——模型可以把 OA 内容拼进搜索词送出去,而那是自动放行的。
 		// 见 oapolicy.go。
+		//
+		// sudo 那一层（privilegePolicy，把 sudo 从硬拒改成每次询问）必须包在 OA 锁**里面**：
+		// OA 锁要有最终决定权。反过来的话，一条 `sudo curl …` 会被这一层从"拒绝"改回
+		// "询问"，OA 锁想挡的出网就漏了。
 		Policy: newOALockPolicy(
-			newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPServers: passportMCPNames()}),
+			privilegePolicy{
+				inner:   newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPServers: passportMCPNames()}),
+				enabled: a.askpassReady,
+			},
 			func() string { return a.oaLockedModel(sctx.ID) },
 		),
 		ApprovalAvailable: true,
 		InteractiveAuthorizer: permissions.InteractiveAuthorizer{
-			Approver: sctx.Approver,
+			// sudo 命令只给"允许一次"，批准后给本会话上膛（见 privilege.go）。
+			Approver: privilegeApprover{inner: sctx.Approver, session: sctx.ID, gate: a.privGate},
 			Store:    store,
 			// Model harm gate: auto-allow actions the model judges safe; only
 			// prompt for ones it flags as potentially harmful (or when the check
@@ -716,6 +746,13 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// **两件事都要做**：只注入 PATH 的话，模型不知道 Python 在那儿，面对"生成一份
 	// 公文"会先回一句"请先安装 Python"；只写提示词当然更不行。
 	applyRuntimeEnv(a.rt, cfg)
+	// sudo：把密码助手的地址注给工具子进程，并告诉模型 sudo 能用、代价是什么。
+	// 两件事同进同退——只注环境不写提示词，模型不知道能用；只写提示词不注环境，
+	// sudo 会在没有终端的子进程里直接失败。
+	if env := a.askpassEnv(sctx.ID); env != nil {
+		mergeToolEnv(cfg, env)
+		appendSystemPrompt(cfg, privilegePrompt())
+	}
 
 	// Fresh edit store per session ("已编辑" undo/review), bound to the
 	// session's edit directory before the first tool can run.
