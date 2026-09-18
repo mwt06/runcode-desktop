@@ -128,3 +128,33 @@ export const Window = {
     return Promise.resolve()
   },
 }
+
+// ---- 无边框窗口的外框尺寸 -------------------------------------------------------
+//
+// 这一段不是 v3 API 的翻译，是 v2 在麒麟上的一处修正，放这里是因为本文件恰好只进 V10
+// 那份产物。
+//
+// v2 的运行时脚本判断"鼠标在不在右边/下边"用的是 window.outerWidth - clientX（无边框
+// 窗口的拉伸边框，见 wails v2 的 runtime/desktop/main.js）。系统缩放不是 100% 时外壳
+// 会把页面整体放大（../../../zoom_kylin.go），而 WebKit 的 outerWidth 不随页面缩放
+// 换算、clientX 却是 CSS 像素——150% 下两者差出三分之一个窗口，右边与下边永远拉不动。
+//
+// 无边框窗口没有外框，外框尺寸本来就等于内框尺寸，所以改成读 innerWidth/innerHeight
+// 在任何缩放下都对。重定义失败就保持原样：最坏是右/下边拉不动，不影响别的。
+export function alignOuterToInner(win: Window): void {
+  const pairs = [
+    ['outerWidth', 'innerWidth'],
+    ['outerHeight', 'innerHeight'],
+  ] as const
+  for (const [outer, inner] of pairs) {
+    try {
+      Object.defineProperty(win, outer, { configurable: true, get: () => win[inner] })
+    } catch {
+      // 见上：保持原样。
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  alignOuterToInner(window)
+}

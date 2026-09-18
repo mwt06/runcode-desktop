@@ -125,3 +125,16 @@ describe('导出覆盖率', () => {
     expect([...wanted].filter((name) => !(name in shim)).sort()).toEqual([])
   })
 })
+
+describe('alignOuterToInner', () => {
+  it('让无边框窗口的外框尺寸跟随内框（页面缩放下 v2 的边缘拉伸靠它）', () => {
+    // 150% 页面缩放时 WebKit 的样子：outer 是设备像素，inner 是 CSS 像素。
+    const win = { outerWidth: 2160, outerHeight: 1440, innerWidth: 1440, innerHeight: 960 } as unknown as Window
+    shim.alignOuterToInner(win)
+    expect(win.outerWidth).toBe(1440)
+    expect(win.outerHeight).toBe(960)
+    // 跟随而不是拷贝一次：窗口改变大小后仍然一致。
+    ;(win as unknown as { innerWidth: number }).innerWidth = 1200
+    expect(win.outerWidth).toBe(1200)
+  })
+})

@@ -77,7 +77,9 @@
 
 **KYSEC 执行控制（麒麟 V10 SP1 真机查实，影响一切"在麒麟上执行我们自己放下去的文件"的功能）**：经 dpkg 装的文件自动标为 `verified`（`sudo kysec_get <文件>` 可查），我们自己写出/解压出的 ELF 是 `unknown`，**执行会被拒**（`权限不够`，退出码 126；所谓 warning 模式实际是桌面弹一个 30 秒的确认框，没人点就拒）。它**连 `.so` 的加载也管**：可信的解释器去加载一个 unknown 的扩展模块同样失败（`failed to map segment from shared object`）。`sudo kysec_set -n exectl -v verified <文件>` 可以加白。推论：askpass 必须指向 deb 装的应用本体而不是临时脚本。弹框的实际规则（逐条实测）：**只在启动进程时弹**，允许之后该进程加载的 unknown `.so` 一路放行；**允许不会被记住**，下次启动照弹；而 verified 的进程去加载 unknown `.so` 会被拒——所以只给解释器加白不够。运行时包因此在装完后用一次 `sudo -A kysec_set` 把包里**全部 ELF**（按文件头认，不按扩展名）加白，走应用的密码框、带用途说明（`kysec.go` / `kysec_linux.go`，`getstatus` 不用 root 就能判断执行控制开没开）；加白时记下这批 ELF 的指纹，之后 pip 装了带 C 扩展的新库、指纹一变就重新亮出「授权」按钮。
 
-**一个尚未在真机验证的前提**：V10 基础版的 WebKitGTK 是 2.28.1，而 `10.1-2403-updates` 源里是 2.38.6。2.38.6 支持 `@layer` 与 `color-mix()`，现有的 Tailwind v4 前端只损失 `@property`（被 `@supports` 包着，表现是渐变等效果打折）；停在 2.28.1 的机器则需要额外的样式降级。判定方法是在目标机器上跑 `apt policy libwebkit2gtk-4.0-37`。CI 只验证了能编译能出包，**没有任何一台真实麒麟跑过**。
+**WebKitGTK 版本**：V10 基础版是 2.28.1，`10.1-2403-updates` 源里是 2.38.6。真机（V10 SP1 arm64，打过 2403 更新）是 **2.38.6，已跑通**——它支持 `@layer` 与 `color-mix()`，现有的 Tailwind v4 前端只损失 `@property`（被 `@supports` 包着，表现是渐变等效果打折）。停在 2.28.1 的机器**仍未验证**，大概率需要额外的样式降级；判定方法是在目标机器上跑 `apt policy libwebkit2gtk-4.0-37`。
+
+**系统缩放 ≠ 100% 时字大框小**（同一台真机，2160×1440、150%）：WebKitGTK 建 WebView 时把 `Xft.dpi / 96` 设成**文字缩放**，只放大字、不放大布局，于是按钮字折行、侧栏标题只剩三四个字。Chromium 系与 WebView2 都是整页放大，只有它这样。`zoom_kylin.go`（cgo）在 GTK 主线程上把它换成整页缩放、文字缩放归 1；`RUNCODE_WEBVIEW_ZOOM` 可覆盖倍数。连带要改的是 v2 运行时的无边框拉伸：它拿 `window.outerWidth`（不随页面缩放换算）和 `clientX`（CSS 像素）比，右/下边会失灵，垫片里让 outer 跟随 inner。V11（v3、WebKitGTK 4.1）大概率同病，未验证、未改。
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
 - **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的六处开关——前端 `VITE_BRAND`、Go 窗口标题与单实例锁 `-ldflags`、应用名/产物名、`build/` 下的图标与 macOS `Info.plist`、以及**版本号与产品标识**（`-X internal/desktop.appVersion/.appProduct`，版本更新要用）——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails3 task build` 只会改到应用名，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
   ```bash

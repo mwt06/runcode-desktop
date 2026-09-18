@@ -236,6 +236,9 @@ func main() {
 			ProgramName:         brandTitle,
 		},
 		OnStartup: func(ctx context.Context) {
+			// 系统缩放不是 100% 时，WebKitGTK 只放大文字不放大布局（字比框大，按钮
+			// 折行、标题截断）。换成整页放大，见 zoom_kylin.go。
+			scheduleWebviewZoomFix()
 			sink.setCtx(ctx)
 			dlg.setCtx(ctx)
 			quit.setCtx(ctx)
