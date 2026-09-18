@@ -139,16 +139,27 @@ func missingLine(s packSpec, st *packState) string {
 	if st.sysVersion != "" {
 		line += " (this machine has " + s.label + " " + st.sysVersion + ", which is too old — " + s.minVersion + "+ is required)"
 	}
-	line += ". Do not write scripts that need it."
+	// 陈述**后果**，而不是下禁令。"没有它 → 需要它的东西会失败"是事实，模型据此
+	// 自己判断绕不绕得开；写成"不准写需要它的脚本"则是一条规则，而规则会连一个
+	// 只有局部依赖它的任务也一起推掉。唯一保留的禁令在下面那条——那条防的是真实
+	// 伤害（在麒麟上换掉系统 python3 会把 dnf 一起搞挂），不是效率问题。
+	line += ", so anything that needs it will fail."
 	if !packPublished(s.id, runtime.GOOS) {
 		// 本平台根本不发这个包（Linux/macOS 的 Git 就是：没有官方绿色包，当初就
 		// 决定走系统自带的）。这时候**不能**把用户指到设置页——那里只会显示
 		// "本平台暂未提供安装包"，等于把人带进死胡同。
-		return line + " This app cannot install it on this platform; tell the user to install it with the system package manager (e.g. sudo apt install git) and restart the app."
+		return line + " This app cannot install it on this platform; the user can install it with the system package manager (e.g. sudo apt install git) and restart the app."
 	}
 	// 发了包但没装：唯一正确的出口是设置页。**别让模型叫用户自己去下载安装**——
 	// 在银河麒麟上升级系统 python3 会把 dnf 一起搞挂，而用户照做之后没人收得了场。
-	return line + " Do not tell the user to download or install it themselves: point them at 设置 → 运行时环境 in this app instead."
+	line += " It can be installed in 设置 → 运行时环境 in this app; do not tell the user to download and install it themselves, since the app keeps its own self-contained copy."
+	if s.id == protocol.RuntimePackPython {
+		// 这条危害是 Python 独有的，别套到 Node/Git 头上：银河麒麟等发行版的
+		// dnf/apt 工具链就架在系统 python3 上，用户照着"去装个新版 Python"动手
+		// 很可能把包管理器一起弄坏，而那种事故现场没人收得了。
+		line += " On systems like 银河麒麟 this matters: replacing the system Python breaks the OS package manager."
+	}
+	return line
 }
 
 // promptCommand 是提示词里推荐给模型的命令名。

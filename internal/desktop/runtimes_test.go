@@ -227,9 +227,13 @@ func TestBuildEnvTooOldSystemPython(t *testing.T) {
 			t.Errorf("prompt missing %q:\n%s", want, e.prompt)
 		}
 	}
-	// 绝不能让模型叫用户自己去装：在麒麟上照做会把系统 python3 换掉。
-	if !strings.Contains(e.prompt, "Do not tell the user to download or install it themselves") {
-		t.Errorf("prompt does not forbid the self-install advice:\n%s", e.prompt)
+	// 绝不能让模型叫用户自己去装 Python：在麒麟上照做会把系统 python3 换掉，
+	// 连带 dnf/apt 一起坏。这条危害是 Python 独有的，只该出现在 Python 那一行。
+	if !strings.Contains(e.prompt, "do not tell the user to download and install it themselves") {
+		t.Errorf("prompt does not discourage the self-install advice:\n%s", e.prompt)
+	}
+	if !strings.Contains(e.prompt, "breaks the OS package manager") {
+		t.Errorf("prompt omits why self-installing Python is dangerous:\n%s", e.prompt)
 	}
 }
 
@@ -392,7 +396,11 @@ func TestMissingLineMatchesWhatTheAppCanActuallyDo(t *testing.T) {
 	if strings.Contains(gitLine, "设置 → 运行时环境") {
 		t.Errorf("Git is not published on %s, yet the prompt sends the user to the in-app installer: %q", runtime.GOOS, gitLine)
 	}
-	if !strings.Contains(gitLine, "package manager") {
+	if !strings.Contains(gitLine, "system package manager") {
 		t.Errorf("Git line should point at the system package manager instead: %q", gitLine)
+	}
+	// Python 专属的那条危害不该套到 Git 头上——驴唇不对马嘴的理由会让整段可信度下降。
+	if strings.Contains(gitLine, "system Python") {
+		t.Errorf("Git line carries Python-specific reasoning: %q", gitLine)
 	}
 }
