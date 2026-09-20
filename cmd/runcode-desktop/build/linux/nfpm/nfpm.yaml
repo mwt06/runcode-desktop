@@ -29,11 +29,37 @@ homepage: "https://www.ouchn.edu.cn"
 license: "Proprietary"
 release: "1"
 
+# 两条路径都是麒麟打包规范的硬要求，不是风格问题——规范检查会逐条判：
+#
+#   - 可执行文件必须在 /opt/apps/<包名>/ 下（common-standards-27）。装在
+#     /usr/local/bin 是一条警告，软件商店上架过不去。.desktop 的 Exec 要跟着写
+#     全路径，因为 /opt/apps 不在 PATH 上。
+#   - 图标要么给 scalable 的 svg，要么 16~512 **九档 png 全给齐**
+#     （common-standards-22）。只放一张 128 的也是一条警告，实际表现是开始菜单、
+#     任务栏、桌面快捷方式三处里可能有一处画不出图标。九档由
+#     scripts/build-desktop.sh 调 tools/icongen 从 build/appicon.png 现生成，
+#     产物在 build/linux/icons/，不进版本库。
 contents:
   - src: "./bin/xrun"
-    dst: "/usr/local/bin/xrun"
-  - src: "./build/appicon.png"
+    dst: "/opt/apps/xrun/xrun"
+  - src: "./build/linux/icons/16x16/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/16x16/apps/xrun.png"
+  - src: "./build/linux/icons/24x24/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/24x24/apps/xrun.png"
+  - src: "./build/linux/icons/32x32/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/32x32/apps/xrun.png"
+  - src: "./build/linux/icons/48x48/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/48x48/apps/xrun.png"
+  - src: "./build/linux/icons/64x64/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/64x64/apps/xrun.png"
+  - src: "./build/linux/icons/96x96/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/96x96/apps/xrun.png"
+  - src: "./build/linux/icons/128x128/apps/xrun.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/xrun.png"
+  - src: "./build/linux/icons/256x256/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/256x256/apps/xrun.png"
+  - src: "./build/linux/icons/512x512/apps/xrun.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/xrun.png"
   - src: "./build/linux/xrun.desktop"
     dst: "/usr/share/applications/xrun.desktop"
 

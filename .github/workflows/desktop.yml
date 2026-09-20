@@ -293,8 +293,13 @@ jobs:
               # 诊断版单独标出来。它和正式包长得一模一样，混了就会有人拿着一个带
               # 检查器的包当正式版发出去。
               if [ "${{ inputs.devtools }}" = true ]; then flavor="$flavor-devtools"; fi
+              # deb **保留 nfpm 给的规范名**（zhikai_1.0.10-1_arm64.deb）。麒麟的包规范
+              # 检查要求文件名与 control 里的 Package_Version_Architecture 完全一致
+              # （common-standards-01），改成带 flavor 的名字就是一条「不通过」，
+              # 适配认证直接过不去。V10/V11 的区分改由 artifact 名承担——下载下来
+              # 的压缩包本来就叫 zhikai-<版本>-kylin10-<架构>，信息没丢。
               for f in bin/*.deb; do
-                [ -f "$f" ] && cp "$f" "dist/$product-$version-$flavor-$arch.deb"
+                [ -f "$f" ] && cp "$f" "dist/$(basename "$f")"
               done
               [ -f "bin/$product" ] && cp "bin/$product" "dist/$product-$version-$flavor-$arch"
               ;;

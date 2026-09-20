@@ -26,3 +26,6 @@ build/ppt_skill/
 # asset names, so every rebuild left the working tree dirty for no benefit.)
 frontend/dist/*
 !frontend/dist/.gitkeep
+# 九档应用图标由 scripts/build-desktop.sh 调 tools/icongen 从 build/appicon.png
+# 现生成（麒麟包规范要 16~512 全给齐），是构建产物，不进版本库。
+build/linux/icons/

@@ -183,11 +183,16 @@ tasks:
     cmds:
       - mkdir -p {{.ROOT_DIR}}/build/linux/appimage
       - wails3 generate .desktop -name "{{.NAME}}" -exec "{{.EXEC}}" -icon "{{.ICON}}" -outputfile "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop" -categories "{{.CATEGORIES}}"
+      # 生成器没有 Name[zh_CN] 这个开关，生成完补上。麒麟的包规范检查把它列为必填
+      # （common-standards-17），缺了整份规范性检查就是「不通过」。
+      - sh -c 'f="{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop"; grep -qF "Name[zh_CN]=" "$f" || echo "Name[zh_CN]={{.NAME}}" >> "$f"'
     vars:
       APP_NAME: '{{.APP_NAME}}'
       # 显示名可以是中文，文件名/Exec/Icon 一律跟 ASCII 的 APP_NAME 走。
       NAME: '{{.DISPLAY_NAME | default .APP_NAME}}'
-      EXEC: '{{.APP_NAME}}'
+      # 全路径，不是裸命令：可执行文件装在 /opt/apps/<包名>/ 下（麒麟打包规范
+      # common-standards-27），而那个目录不在 PATH 上，写裸名字点了没反应。
+      EXEC: '/opt/apps/{{.APP_NAME}}/{{.APP_NAME}}'
       ICON: '{{.APP_NAME}}'
       CATEGORIES: 'Office;Utility;'
       OUTPUTFILE: '{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop'

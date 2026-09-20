@@ -217,7 +217,7 @@ subst build/windows/info.json \
   -e "s/\"FileDescription\": \"[^\"]*\"/\"FileDescription\": \"$APP_NAME\"/"
 
 # Linux 包的元数据。nfpm.yaml 里出现的每一个 xrun 都是同一个概念——ASCII 产品标识:
-# deb 包名、/usr/local/bin 下的可执行文件名、图标名、.desktop 文件名。它们必须一致,
+# deb 包名、/opt/apps/<包名>/ 下的可执行文件名、图标名、.desktop 文件名。它们必须一致,
 # 不一致的表现是装完之后菜单里有图标、点下去启动不了。
 if [ "$TARGET" = linux ]; then
   subst build/linux/nfpm/nfpm.yaml -e "s/\bxrun\b/$PRODUCT/g"
@@ -458,19 +458,26 @@ if [ "$KYLIN10" = 1 ]; then
   if [ "$DO_INSTALLER" = 1 ]; then
     # .desktop 手写而不是让 wails3 生成——那个生成器也在 CLI 里。字段与
     # build/linux/desktop 那份模板一致，Name 用中文显示名。
+    #
+    # Name[zh_CN] 不是冗余：麒麟的包规范检查（common-standards-17）把它列为必填，
+    # 缺了就是一条「不通过」，适配认证过不去。中文系统下读的也是这个字段。
     mkdir -p build/linux
     cat > "build/linux/$APP_NAME.desktop" <<DESKTOP
 [Desktop Entry]
 Version=1.0
 Name=$DISPLAY_NAME
+Name[zh_CN]=$DISPLAY_NAME
 Comment=AI 办公助手（桌面版）
-Exec=/usr/local/bin/$APP_NAME %u
+Exec=/opt/apps/$APP_NAME/$APP_NAME %u
 Terminal=false
 Type=Application
 Icon=$APP_NAME
 Categories=Office;Utility;
 StartupWMClass=$APP_NAME
 DESKTOP
+    # 九档图标现生成（nfpm.yaml 逐档列了 src，缺一档 nfpm 直接报错）。必须在品牌
+    # 图标覆盖 build/appicon.png **之后**跑，否则打出来的是默认品牌的标。
+    go run ./tools/icongen -src build/appicon.png -out build/linux/icons -name "$APP_NAME"
     command -v nfpm >/dev/null 2>&1 || go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
     nfpm package -f build/linux/nfpm/nfpm.yaml -p deb -t bin/
     echo "▶ 已出 deb"
@@ -482,6 +489,11 @@ DESKTOP
     [ -f "$f" ] && echo "✅ 安装包:$f（麒麟 V10）"
   done
   exit 0
+fi
+
+# v3 的 deb 也走同一份 nfpm.yaml，九档图标同样得先在那儿。
+if [ "$TARGET" = linux ]; then
+  go run ./tools/icongen -src build/appicon.png -out build/linux/icons -name "$APP_NAME"
 fi
 
 wails3 task "$TASK" \
