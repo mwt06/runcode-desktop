@@ -334,6 +334,20 @@ func (a *App) Startup() {
 		a.rt.probeSystem(ctx)
 		a.autoCheckRuntimes(updateCheckDelay)
 	}()
+	// 探测里的 recheckTrust 会算出"有没有欠安全中心的放行"。欠着就在启动时收尾，别让
+	// 用户对着设置页里一个亮着的「授权」按钮发愣（见 trustwatch.go）——上次装的新库、
+	// 或上次关掉密码框留下的那批，都在这里了结。关掉仍然只问这一次：同一批指纹不会
+	// 再自动弹。
+	//
+	// **单独一个 goroutine 且要等几秒**：密码框是前端画的，启动头几秒前端还没订阅事件，
+	// 这时候发出去的请求没人接，超时后会被当成"用户拒绝"记下来。延迟与自动检查更新
+	// 同一个量级，理由也一样：这件事一点都不急。
+	go func() {
+		time.Sleep(updateCheckDelay)
+		ctx, cancel := context.WithTimeout(context.Background(), autoTrustTimeout)
+		defer cancel()
+		a.ensureRuntimeTrust(ctx)
+	}()
 	// 上下文审核开关跨重启保持:测试版且上次开着,则恢复运行态(建目录、起查看
 	// 服务器)。失败只记诊断日志——设置页再开一次会把错误如实报出来。
 	if IsTestBuild() && loadRawConfig().ContextAudit {
