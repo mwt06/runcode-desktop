@@ -101,6 +101,8 @@
 
 **整页放大之后窗口尺寸也要跟着放大**（`runcode_scale_window`）。窗口里放得下的 CSS 像素是「物理像素 / 倍数」，而 Wails 的 `MinWidth/MinHeight` 是物理像素，拦不住。真机表现：1280×820 的窗口在 1.5 倍下只剩 853 CSS 像素宽，低于界面 1024 的设计下限，**一打开预览面板中间对话栏就窄到每行只剩一两个字、输入框被挤没**；拉大窗口立刻恢复。所以按同一个倍数把默认尺寸与最小尺寸一起放大，并夹到显示器可用区域内（否则窗口比屏幕还大、标题栏被顶出去拖不回来）。四个设计尺寸是 `main_kylin.go` 的 `winWidth/winHeight/winMinWidth/winMinHeight`，传进 cgo 而不是在 C 里写死，改尺寸只有一处要动。
 
+**预览栏的宽度要在每次窗口变化时重新夹一遍**，不能只在挂载那一次。上限是「窗口宽 − 侧栏 268 − 对话栏下限 480」（`previewWidthBounds`），而窗口宽是随时会变的：整页缩放下把窗口调小，CSS 视口跟着缩，面板宽度却还留着启动时那个值，对话栏就又被挤到每行一两个字。`use-preview-panel.ts` 挂一个 `resize` 监听重新夹，并用 `wanted` 记住用户拖到过的宽度——只按当前窗口夹的话，缩一次窗口就把偏好永久改小了。
+
 **应用对 SIGTERM 是正常响应的**（实测 ~540 ms 退出，Wails v2 接管了 SIGTERM/SIGINT 并调 `gtk_main_quit`），别被"发了 TERM 没死"骗到——它的信号 goroutine 只 `<-signalChannel` 一次，已经收过一次信号、退出流程卡住的进程不会再响应第二次 TERM。
 
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
