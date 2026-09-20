@@ -29,6 +29,22 @@ export function usePreviewPanel(sessionID: string) {
     clampPreviewWidth(stored, window.innerWidth),
   )
 
+  // 窗口变窄时预览栏要跟着让位。只在挂载那一次 clamp 不够：把窗口调小之后（麒麟上
+  // 还要再除以整页缩放的倍数），可用的 CSS 宽度缩了，而面板宽度还是上一次的值，
+  // 对话栏就被挤到 CHAT_MIN 以下——每行只剩一两个字、输入框被挤没。
+  //
+  // wanted 记的是"用户想要多宽"，窗口重新变宽时还回去；只按当前窗口 clamp 的话，
+  // 缩一次就永久变窄了，而人并没有调过它。
+  const wanted = useRef(width)
+  useEffect(() => {
+    const onResize = () => {
+      const { min, max } = previewWidthBounds(window.innerWidth)
+      setWidth(Math.min(Math.max(wanted.current, min), max))
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [setWidth])
+
   // opens counts every preview opened, from any source — the model's open_preview,
   // an artifact card, the file browser. Auto-preview reads it to tell "nothing has
   // been shown this turn" from "something already has", so it never yanks the panel
@@ -99,7 +115,9 @@ export function usePreviewPanel(sessionID: string) {
       const dx = drag.current.startX - e.clientX // dragging the left edge leftward grows the pane
       // 手动拖也守同一条底线：对话栏不能被挤到 CHAT_MIN 以下（见 previewWidthBounds）。
       const { min, max } = previewWidthBounds(window.innerWidth)
-      setWidth(Math.min(Math.max(drag.current.startW + dx, min), max))
+      const next = Math.min(Math.max(drag.current.startW + dx, min), max)
+      wanted.current = next
+      setWidth(next)
     },
     onPointerUp: () => {
       if (drag.current) {
