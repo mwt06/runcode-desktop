@@ -91,6 +91,18 @@
 **WebKitGTK 版本**：V10 基础版是 2.28.1，`10.1-2403-updates` 源里是 2.38.6。真机（V10 SP1 arm64，打过 2403 更新）是 **2.38.6，已跑通**——它支持 `@layer` 与 `color-mix()`，现有的 Tailwind v4 前端只损失 `@property`（被 `@supports` 包着，表现是渐变等效果打折）。停在 2.28.1 的机器**仍未验证**，大概率需要额外的样式降级；判定方法是在目标机器上跑 `apt policy libwebkit2gtk-4.0-37`。
 
 **系统缩放 ≠ 100% 时字大框小**（同一台真机，2160×1440、150%）：WebKitGTK 建 WebView 时把 `Xft.dpi / 96` 设成**文字缩放**，只放大字、不放大布局，于是按钮字折行、侧栏标题只剩三四个字。Chromium 系与 WebView2 都是整页放大，只有它这样。`zoom_kylin.go`（cgo）在 GTK 主线程上把它换成整页缩放、文字缩放归 1；`RUNCODE_WEBVIEW_ZOOM` 可覆盖倍数。连带要改的是 v2 运行时的无边框拉伸：它拿 `window.outerWidth`（不随页面缩放换算）和 `clientX`（CSS 像素）比，右/下边会失灵，垫片里让 outer 跟随 inner。V11（v3、WebKitGTK 4.1）大概率同病，未验证、未改。
+
+**麒麟 V10 的 Wayland 会话固定走 XWayland**（`main_kylin.go`，2026-09-20 在 V10 SP1 2403 Wayland 会话上实测）。两个都是只在真机上才看得见的毛病：
+
+- **双标题栏**：窗口是无边框的、GTK 也确实声明了 `_MOTIF_WM_HINTS` 的 decorations 位为 0，可 UKUI 的 `kwin_wayland` 还是会在应用自绘的标题栏之上再画一条系统标题栏（图标是个通用齿轮）。换到 XWayland 就只有一条。
+- **系统缩放被整个忽略**：GTK 的 Wayland 后端不读 `Xft.dpi`（那是 X 的资源库），`gdk_screen_get_resolution` 返回 96，于是上面那套整页放大算出来的倍数恒为 1，150% 缩放对这个应用完全不生效。走 XWayland 才拿得到 `Xft.dpi=144`。注意 `gsettings get org.ukui.font-rendering dpi` 是 96，别拿它当判据。
+
+守卫两条：用户显式设过 `GDK_BACKEND` 不覆盖；`DISPLAY` 为空（没有 XWayland）不强指，宁可留着双标题栏也不能让应用起不来。纯 X11 会话没有 `WAYLAND_DISPLAY`，不受影响。**与文件里那条"单独设 GDK_BACKEND=x11 对白屏无效"不矛盾**：白屏要靠 `WEBKIT_DISABLE_COMPOSITING_MODE=1`，这里解决的是另外两件事。
+
+**整页放大之后窗口尺寸也要跟着放大**（`runcode_scale_window`）。窗口里放得下的 CSS 像素是「物理像素 / 倍数」，而 Wails 的 `MinWidth/MinHeight` 是物理像素，拦不住。真机表现：1280×820 的窗口在 1.5 倍下只剩 853 CSS 像素宽，低于界面 1024 的设计下限，**一打开预览面板中间对话栏就窄到每行只剩一两个字、输入框被挤没**；拉大窗口立刻恢复。所以按同一个倍数把默认尺寸与最小尺寸一起放大，并夹到显示器可用区域内（否则窗口比屏幕还大、标题栏被顶出去拖不回来）。四个设计尺寸是 `main_kylin.go` 的 `winWidth/winHeight/winMinWidth/winMinHeight`，传进 cgo 而不是在 C 里写死，改尺寸只有一处要动。
+
+**应用对 SIGTERM 是正常响应的**（实测 ~540 ms 退出，Wails v2 接管了 SIGTERM/SIGINT 并调 `gtk_main_quit`），别被"发了 TERM 没死"骗到——它的信号 goroutine 只 `<-signalChannel` 一次，已经收过一次信号、退出流程卡住的进程不会再响应第二次 TERM。
+
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
 - **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的六处开关——前端 `VITE_BRAND`、Go 窗口标题与单实例锁 `-ldflags`、应用名/产物名、`build/` 下的图标与 macOS `Info.plist`、以及**版本号与产品标识**（`-X internal/desktop.appVersion/.appProduct`，版本更新要用）——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails3 task build` 只会改到应用名，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
   ```bash

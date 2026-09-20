@@ -52,6 +52,11 @@ package main
 static double runcode_zoom_override = 0;
 static int runcode_zoom_tries = 0;
 
+// 界面设计用的逻辑尺寸（CSS 像素），由 Go 侧传进来，与 options.App 的
+// Width/Height/MinWidth/MinHeight 同源。
+static int runcode_design_w = 0, runcode_design_h = 0;
+static int runcode_design_min_w = 0, runcode_design_min_h = 0;
+
 static WebKitWebView *runcode_find_webview(GtkWidget *w) {
 	if (WEBKIT_IS_WEB_VIEW(w)) {
 		return WEBKIT_WEB_VIEW(w);
@@ -101,6 +106,53 @@ static double runcode_desktop_scale(void) {
 	return dpi / 96.0;
 }
 
+// 整页放大之后，窗口里能放下的 CSS 像素变成了「物理像素 / z」。窗口尺寸如果还按
+// 原来的物理像素算，布局就会被挤到设计下限以下——真机上的表现是：一打开预览面板，
+// 中间对话栏窄到每行只剩一两个字，输入框被挤没（2026-09-20 实测，1280×820 的窗口
+// 在 z=1.5 下只剩 853 CSS 像素宽，而界面是按不低于 1024 设计的）。
+//
+// 所以把窗口的默认尺寸与最小尺寸一起按 z 放大，让 CSS 视口始终等于设计值。
+// Wails 设的 MinWidth/MinHeight 是物理像素，这里用 geometry hints 盖掉它。
+static void runcode_scale_window(GtkWindow *win, double z) {
+	if (win == NULL || runcode_design_min_w <= 0) return;
+
+	int min_w = (int)(runcode_design_min_w * z + 0.5);
+	int min_h = (int)(runcode_design_min_h * z + 0.5);
+	int want_w = (int)(runcode_design_w * z + 0.5);
+	int want_h = (int)(runcode_design_h * z + 0.5);
+
+	// 不能超过显示器可用区域：窗口比屏幕还大的话标题栏会被顶出去，用户连拖都拖不回来。
+	GdkWindow *gw = gtk_widget_get_window(GTK_WIDGET(win));
+	if (gw != NULL) {
+		GdkDisplay *disp = gdk_window_get_display(gw);
+		GdkMonitor *mon = disp != NULL ? gdk_display_get_monitor_at_window(disp, gw) : NULL;
+		if (mon != NULL) {
+			GdkRectangle area;
+			gdk_monitor_get_workarea(mon, &area);
+			if (area.width > 0 && area.height > 0) {
+				if (min_w > area.width) min_w = area.width;
+				if (min_h > area.height) min_h = area.height;
+				if (want_w > area.width) want_w = area.width;
+				if (want_h > area.height) want_h = area.height;
+			}
+		}
+	}
+
+	GdkGeometry geom = {0};
+	geom.min_width = min_w;
+	geom.min_height = min_h;
+	gtk_window_set_geometry_hints(win, NULL, &geom, GDK_HINT_MIN_SIZE);
+
+	// 只放大、不缩小：用户自己拉大过的窗口不该被我们改回去。最大化/全屏时也不动，
+	// 那两种状态下尺寸由窗口管理器说了算。
+	if (gtk_window_is_maximized(win)) return;
+	int cur_w = 0, cur_h = 0;
+	gtk_window_get_size(win, &cur_w, &cur_h);
+	if (cur_w < want_w || cur_h < want_h) {
+		gtk_window_resize(win, cur_w < want_w ? want_w : cur_w, cur_h < want_h ? want_h : cur_h);
+	}
+}
+
 static void runcode_apply_zoom(WebKitWebView *view) {
 	double z = runcode_zoom_override > 0 ? runcode_zoom_override : runcode_desktop_scale();
 	// 夹一道：离谱的 DPI（坏掉的 Xft.dpi、远程桌面报的怪值）不该把界面放到看不见。
@@ -112,6 +164,11 @@ static void runcode_apply_zoom(WebKitWebView *view) {
 	webkit_settings_set_zoom_text_only(settings, TRUE);
 	webkit_settings_set_zoom_text_only(settings, FALSE);
 	g_message("runcode: webview zoom %.2f (page), text zoom reset to 1", z);
+
+	GtkWidget *top = gtk_widget_get_toplevel(GTK_WIDGET(view));
+	if (top != NULL && gtk_widget_is_toplevel(top) && GTK_IS_WINDOW(top)) {
+		runcode_scale_window(GTK_WINDOW(top), z);
+	}
 }
 
 static gboolean runcode_reapply_idle(gpointer data) {
@@ -147,8 +204,12 @@ static gboolean runcode_zoom_fix(gpointer data) {
 }
 
 // 可从任意线程调：g_idle_add 把活交给 GTK 主循环。
-static void runcode_schedule_zoom_fix(double override) {
+static void runcode_schedule_zoom_fix(double override, int w, int h, int min_w, int min_h) {
 	runcode_zoom_override = override;
+	runcode_design_w = w;
+	runcode_design_h = h;
+	runcode_design_min_w = min_w;
+	runcode_design_min_h = min_h;
 	g_idle_add(runcode_zoom_fix, NULL);
 }
 */
@@ -161,9 +222,13 @@ import (
 	"strings"
 )
 
-// scheduleWebviewZoomFix 把"只放大文字"换成整页放大（见文件头）。OnStartup 里调：
-// 此时 WebView 已经建好，而 GTK 主循环还没开始画第一帧。
-func scheduleWebviewZoomFix() {
+// scheduleWebviewZoomFix 把"只放大文字"换成整页放大，并把窗口尺寸按同一个倍数放大
+// （见文件头与 runcode_scale_window）。OnStartup 里调：此时 WebView 已经建好，而
+// GTK 主循环还没开始画第一帧。
+//
+// 四个尺寸是界面设计用的 CSS 像素，与 options.App 里那四个字段同源——传进来而不是
+// 在 C 里写死，是为了改窗口尺寸时只有一处要动。
+func scheduleWebviewZoomFix(width, height, minWidth, minHeight int) {
 	override := 0.0
 	if v := strings.TrimSpace(os.Getenv("RUNCODE_WEBVIEW_ZOOM")); v != "" {
 		f, err := strconv.ParseFloat(v, 64)
@@ -173,5 +238,6 @@ func scheduleWebviewZoomFix() {
 			override = f
 		}
 	}
-	C.runcode_schedule_zoom_fix(C.double(override))
+	C.runcode_schedule_zoom_fix(C.double(override),
+		C.int(width), C.int(height), C.int(minWidth), C.int(minHeight))
 }

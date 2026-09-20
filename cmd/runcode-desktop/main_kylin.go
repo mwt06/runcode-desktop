@@ -45,6 +45,18 @@ import (
 //go:embed all:frontend/dist
 var kylinAssets embed.FS
 
+// 窗口尺寸，单位是界面设计用的 CSS 像素。
+//
+// 之所以要单独拎出来：整页放大之后窗口里放得下的 CSS 像素是「物理像素 / 倍数」，
+// 所以 zoom_kylin.go 要按同一个倍数把这四个值放大回去，否则 150% 缩放下这个
+// 1280 宽的窗口只剩 853 CSS 像素，低于界面 1024 的设计下限，一开预览面板就塌。
+const (
+	winWidth     = 1280
+	winHeight    = 820
+	winMinWidth  = 1024
+	winMinHeight = 680
+)
+
 // kylinSink 把桌面核心的事件转给前端。
 //
 // 与 v3 那版的关键差异：v2 的事件必须带 runtime ctx，而 ctx 要等 OnStartup 才拿得到。
@@ -189,6 +201,25 @@ func main() {
 		_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
 	}
 
+	// Wayland 会话下固定走 XWayland。两个理由，都是 2026-09-20 在 V10 SP1 2403 的
+	// Wayland 会话上实测的：
+	//
+	//  1. **双标题栏**。窗口是无边框的（Frameless，标题栏由前端自绘），GTK 也确实
+	//     声明了不要装饰（_MOTIF_WM_HINTS 的 decorations 位是 0），可 UKUI 的
+	//     kwin_wayland 仍会在上面再画一条系统标题栏，图标还是个通用齿轮。同一台机器
+	//     同一个二进制，换到 XWayland 就只有一条，正常。
+	//  2. **系统缩放被忽略**。GTK 的 Wayland 后端不读 Xft.dpi（那是 X 的资源库），
+	//     gdk_screen_get_resolution 返回 96，于是 zoom_kylin.go 算出来的倍数恒为 1，
+	//     150% 的系统缩放对这个应用完全不生效——界面比同屏的其它应用小一圈。
+	//     走 XWayland 才拿得到 Xft.dpi=144，整页放大那条链路才真正起作用。
+	//
+	// 守卫两条：用户显式设过 GDK_BACKEND 就不覆盖；DISPLAY 为空说明这台机器压根没有
+	// XWayland，硬指 x11 会让应用起不来，那种情况下宁可留着双标题栏。
+	// 纯 X11 会话本来就没有 WAYLAND_DISPLAY，这里不会动它。
+	if os.Getenv("GDK_BACKEND") == "" && os.Getenv("WAYLAND_DISPLAY") != "" && os.Getenv("DISPLAY") != "" {
+		_ = os.Setenv("GDK_BACKEND", "x11")
+	}
+
 	sink := &kylinSink{}
 	dlg := &kylinDialog{}
 	quit := &kylinQuit{}
@@ -213,10 +244,10 @@ func main() {
 
 	err = wails.Run(&options.App{
 		Title:     brandTitle,
-		Width:     1280,
-		Height:    820,
-		MinWidth:  1024,
-		MinHeight: 680,
+		Width:     winWidth,
+		Height:    winHeight,
+		MinWidth:  winMinWidth,
+		MinHeight: winMinHeight,
 		Frameless: true,
 		AssetServer: &assetserver.Options{
 			Assets: dist,
@@ -237,8 +268,8 @@ func main() {
 		},
 		OnStartup: func(ctx context.Context) {
 			// 系统缩放不是 100% 时，WebKitGTK 只放大文字不放大布局（字比框大，按钮
-			// 折行、标题截断）。换成整页放大，见 zoom_kylin.go。
-			scheduleWebviewZoomFix()
+			// 折行、标题截断）。换成整页放大，并把窗口按同一倍数放大，见 zoom_kylin.go。
+			scheduleWebviewZoomFix(winWidth, winHeight, winMinWidth, winMinHeight)
 			sink.setCtx(ctx)
 			dlg.setCtx(ctx)
 			quit.setCtx(ctx)
