@@ -23,17 +23,27 @@ describe('normalizeSheetGrid', () => {
 })
 
 describe('clampPreviewWidth', () => {
+  // 上限 = 窗口宽 - 侧栏 268 - 对话栏下限 480
   it('keeps an in-range stored value', () => {
-    expect(clampPreviewWidth(560, 1280)).toBe(560)
-    expect(clampPreviewWidth(700, 1280)).toBe(700) // 700 <= floor(1280*0.6)=768
+    expect(clampPreviewWidth(400, 1280)).toBe(400)
+    expect(clampPreviewWidth(532, 1280)).toBe(532) // 正好等于 1280-268-480
   })
-  it('resets an oversized value to the 1:1 default, capped to the window', () => {
-    expect(clampPreviewWidth(2000, 1280)).toBe(640) // default floor(1280*0.5)=640 <= 768 max
-    expect(clampPreviewWidth(2000, 800)).toBe(400) // default floor(800*0.5)=400 <= 480 max
+  it('never lets the preview pane squeeze the chat column below its minimum', () => {
+    // 老算法在这儿给 640，对话栏只剩 372 —— 顶部那排全折行、输入框提示折四行。
+    expect(clampPreviewWidth(2000, 1280)).toBe(532)
+    expect(1280 - 268 - clampPreviewWidth(2000, 1280)).toBe(480)
+    expect(clampPreviewWidth(700, 1280)).toBe(532) // 存的值超上限也要收回来
   })
-  it('resets a too-small or NaN value to the 1:1 default', () => {
-    expect(clampPreviewWidth(100, 1280)).toBe(640)
-    expect(clampPreviewWidth(NaN, 1280)).toBe(640)
+  it('falls back to half the window when that still leaves the chat column room', () => {
+    expect(clampPreviewWidth(NaN, 1920)).toBe(960) // floor(1920*0.5) < 1920-268-480
+  })
+  it('gives the preview pane a floor on very narrow windows', () => {
+    // 窗口窄到两边都放不下时让预览栏先缩——预览是辅助，对话是主。
+    expect(clampPreviewWidth(2000, 900)).toBe(280)
+  })
+  it('resets a too-small or NaN value', () => {
+    expect(clampPreviewWidth(100, 1280)).toBe(532)
+    expect(clampPreviewWidth(NaN, 1280)).toBe(532)
   })
 })
 

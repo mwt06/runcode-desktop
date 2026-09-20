@@ -173,14 +173,31 @@ export function filterFiles(files: string[], query: string): string[] {
   return files.filter((f) => f.toLowerCase().includes(q))
 }
 
+// 预览栏的宽度边界。上限由**对话栏还剩多少**决定，不是窗口宽度的一个固定比例。
+//
+// 原来的算法是「一半窗口宽，上限 60%」，注释里写的是"与对话栏 1:1"——可它忘了左边
+// 还有 268px 的侧栏。1280 逻辑像素宽的窗口上，预览栏拿走 640，对话栏只剩 372：
+// 顶部那排「空闲 / 上下文 / 压缩 / 预览」每一项都折成两行，输入框的提示文字折成四行
+// （2026-09-20 在麒麟真机上拍到）。窗口越窄，比例式的上限越是把对话栏往死里挤。
+//
+// 改成先给对话栏留够 CHAT_MIN，剩下的才是预览栏能占的上限；窗口实在太窄时宁可让
+// 预览栏缩到 PREVIEW_MIN 以下也不再挤对话栏——预览是辅助，对话是主。
+const SIDEBAR_W = 268
+const CHAT_MIN = 480
+const PREVIEW_MIN = 280
+
+export function previewWidthBounds(windowWidth: number): { min: number; max: number } {
+  return { min: PREVIEW_MIN, max: Math.max(PREVIEW_MIN, windowWidth - SIDEBAR_W - CHAT_MIN) }
+}
+
 // clampPreviewWidth keeps a persisted preview-pane width within a sane range for the
 // current window, so a stale/oversized value can't start the pane wider than the
 // screen (which would collapse the chat column). With no valid stored value it
-// defaults the pane to half the window — 1:1 with the chat column — capped to the
-// 60% max. A stored width from an explicit drag (in range) is always respected.
+// defaults the pane to half the window, capped by the bound above. A stored width
+// from an explicit drag (in range) is always respected.
 export function clampPreviewWidth(stored: number, windowWidth: number): number {
-  const max = Math.floor(windowWidth * 0.6)
-  return stored >= 360 && stored <= max ? stored : Math.min(Math.floor(windowWidth * 0.5), max)
+  const { min, max } = previewWidthBounds(windowWidth)
+  return stored >= min && stored <= max ? stored : Math.min(Math.floor(windowWidth * 0.5), max)
 }
 
 // AUTO_PREVIEW_RANK orders what a turn produced by how likely it is to be *the

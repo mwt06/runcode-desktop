@@ -3,7 +3,7 @@
 // 在有 cwd 的地方完成，这个 hook 不需要知道工作区在哪。
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { usePersistentBool, usePersistentNumber } from '@/hooks/use-persistent-state'
-import { clampPreviewWidth } from '@/preview/classify'
+import { clampPreviewWidth, previewWidthBounds } from '@/preview/classify'
 import { closeTab, openTab, type PreviewTab } from '@/preview/tabs'
 
 export type PreviewPanelState = ReturnType<typeof usePreviewPanel>
@@ -97,7 +97,9 @@ export function usePreviewPanel(sessionID: string) {
     onPointerMove: (e: PointerEvent) => {
       if (!drag.current) return
       const dx = drag.current.startX - e.clientX // dragging the left edge leftward grows the pane
-      setWidth(Math.min(Math.max(drag.current.startW + dx, 360), Math.floor(window.innerWidth * 0.6)))
+      // 手动拖也守同一条底线：对话栏不能被挤到 CHAT_MIN 以下（见 previewWidthBounds）。
+      const { min, max } = previewWidthBounds(window.innerWidth)
+      setWidth(Math.min(Math.max(drag.current.startW + dx, min), max))
     },
     onPointerUp: () => {
       if (drag.current) {
