@@ -122,14 +122,26 @@ static void runcode_scale_window(GtkWindow *win, double z) {
 	int want_h = (int)(runcode_design_h * z + 0.5);
 
 	// 不能超过显示器可用区域：窗口比屏幕还大的话标题栏会被顶出去，用户连拖都拖不回来。
+	//
+	// 取显示器要留兜底：我们这趟 idle 跑得早，gtk_widget_get_window 可能还是 NULL，
+	// 于是按窗口定位监视器这条路拿不到东西（真机上就是这样，结果是可用区域算成 0、
+	// 后面的居中被整个跳过，窗口放大后右下角长到屏幕外）。拿不到就退而求其次用
+	// 主监视器，再不行用第 0 个。
 	GdkRectangle area = {0, 0, 0, 0};
+	GdkDisplay *disp = gdk_display_get_default();
+	GdkMonitor *mon = NULL;
 	GdkWindow *gw = gtk_widget_get_window(GTK_WIDGET(win));
 	if (gw != NULL) {
-		GdkDisplay *disp = gdk_window_get_display(gw);
-		GdkMonitor *mon = disp != NULL ? gdk_display_get_monitor_at_window(disp, gw) : NULL;
-		if (mon != NULL) {
-			gdk_monitor_get_workarea(mon, &area);
-		}
+		mon = gdk_display_get_monitor_at_window(gdk_window_get_display(gw), gw);
+	}
+	if (mon == NULL && disp != NULL) {
+		mon = gdk_display_get_primary_monitor(disp);
+	}
+	if (mon == NULL && disp != NULL && gdk_display_get_n_monitors(disp) > 0) {
+		mon = gdk_display_get_monitor(disp, 0);
+	}
+	if (mon != NULL) {
+		gdk_monitor_get_workarea(mon, &area);
 	}
 	if (area.width > 0 && area.height > 0) {
 		if (min_w > area.width) min_w = area.width;
@@ -157,13 +169,16 @@ static void runcode_scale_window(GtkWindow *win, double z) {
 	// 位置也要跟着改。Wails 是按放大**之前**的尺寸把窗口摆在正中的，只改尺寸的话
 	// 窗口会朝右下长出屏幕外（真机上 1280→1920 之后右边与底部各被切掉两百多像素）。
 	// 在可用区域内重新居中，与窗口管理器原本的摆法一致。
+	int x = 0, y = 0;
 	if (area.width > 0 && area.height > 0) {
-		int x = area.x + (area.width - new_w) / 2;
-		int y = area.y + (area.height - new_h) / 2;
+		x = area.x + (area.width - new_w) / 2;
+		y = area.y + (area.height - new_h) / 2;
 		if (x < area.x) x = area.x;
 		if (y < area.y) y = area.y;
 		gtk_window_move(win, x, y);
 	}
+	g_message("runcode: window %dx%d -> %dx%d @ %d,%d (workarea %dx%d, min %dx%d)",
+	          cur_w, cur_h, new_w, new_h, x, y, area.width, area.height, min_w, min_h);
 }
 
 static void runcode_apply_zoom(WebKitWebView *view) {
