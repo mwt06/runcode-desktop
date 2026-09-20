@@ -181,6 +181,24 @@ static void runcode_scale_window(GtkWindow *win, double z) {
 	          cur_w, cur_h, new_w, new_h, x, y, area.width, area.height, min_w, min_h);
 }
 
+static GtkWindow *runcode_pending_win = NULL;
+static double runcode_pending_zoom = 1.0;
+
+static int runcode_scale_tries = 0;
+
+static gboolean runcode_scale_window_later(gpointer data) {
+	if (runcode_pending_win == NULL) {
+		return G_SOURCE_REMOVE;
+	}
+	// 还没映射就再等一拍：慢机器上 200ms 未必够，而没映射时改位置照样会被盖掉。
+	if (!gtk_widget_get_mapped(GTK_WIDGET(runcode_pending_win)) && ++runcode_scale_tries < 25) {
+		return G_SOURCE_CONTINUE;
+	}
+	runcode_scale_window(runcode_pending_win, runcode_pending_zoom);
+	runcode_pending_win = NULL;
+	return G_SOURCE_REMOVE;
+}
+
 static void runcode_apply_zoom(WebKitWebView *view) {
 	double z = runcode_zoom_override > 0 ? runcode_zoom_override : runcode_desktop_scale();
 	// 夹一道：离谱的 DPI（坏掉的 Xft.dpi、远程桌面报的怪值）不该把界面放到看不见。
@@ -195,7 +213,13 @@ static void runcode_apply_zoom(WebKitWebView *view) {
 
 	GtkWidget *top = gtk_widget_get_toplevel(GTK_WIDGET(view));
 	if (top != NULL && gtk_widget_is_toplevel(top) && GTK_IS_WINDOW(top)) {
-		runcode_scale_window(GTK_WINDOW(top), z);
+		// 调窗口要等它**映射之后**。跟缩放放同一趟 idle 里做过，结果是尺寸改了、
+		// 位置没改：GTK 在映射时按 Wails 设的 GTK_WIN_POS_CENTER 用**原尺寸**重新
+		// 居中了一次，把我们的 gtk_window_move 盖掉（真机日志算出的是 120,70，
+		// 实际停在 1280 宽时的居中位置 440,310）。推迟一拍，两件事就都落得下。
+		runcode_pending_win = GTK_WINDOW(top);
+		runcode_pending_zoom = z;
+		g_timeout_add(200, runcode_scale_window_later, NULL);
 	}
 }
 
