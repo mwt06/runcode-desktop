@@ -122,20 +122,20 @@ static void runcode_scale_window(GtkWindow *win, double z) {
 	int want_h = (int)(runcode_design_h * z + 0.5);
 
 	// 不能超过显示器可用区域：窗口比屏幕还大的话标题栏会被顶出去，用户连拖都拖不回来。
+	GdkRectangle area = {0, 0, 0, 0};
 	GdkWindow *gw = gtk_widget_get_window(GTK_WIDGET(win));
 	if (gw != NULL) {
 		GdkDisplay *disp = gdk_window_get_display(gw);
 		GdkMonitor *mon = disp != NULL ? gdk_display_get_monitor_at_window(disp, gw) : NULL;
 		if (mon != NULL) {
-			GdkRectangle area;
 			gdk_monitor_get_workarea(mon, &area);
-			if (area.width > 0 && area.height > 0) {
-				if (min_w > area.width) min_w = area.width;
-				if (min_h > area.height) min_h = area.height;
-				if (want_w > area.width) want_w = area.width;
-				if (want_h > area.height) want_h = area.height;
-			}
 		}
+	}
+	if (area.width > 0 && area.height > 0) {
+		if (min_w > area.width) min_w = area.width;
+		if (min_h > area.height) min_h = area.height;
+		if (want_w > area.width) want_w = area.width;
+		if (want_h > area.height) want_h = area.height;
 	}
 
 	GdkGeometry geom = {0};
@@ -148,8 +148,21 @@ static void runcode_scale_window(GtkWindow *win, double z) {
 	if (gtk_window_is_maximized(win)) return;
 	int cur_w = 0, cur_h = 0;
 	gtk_window_get_size(win, &cur_w, &cur_h);
-	if (cur_w < want_w || cur_h < want_h) {
-		gtk_window_resize(win, cur_w < want_w ? want_w : cur_w, cur_h < want_h ? want_h : cur_h);
+	if (cur_w >= want_w && cur_h >= want_h) return;
+
+	int new_w = cur_w < want_w ? want_w : cur_w;
+	int new_h = cur_h < want_h ? want_h : cur_h;
+	gtk_window_resize(win, new_w, new_h);
+
+	// 位置也要跟着改。Wails 是按放大**之前**的尺寸把窗口摆在正中的，只改尺寸的话
+	// 窗口会朝右下长出屏幕外（真机上 1280→1920 之后右边与底部各被切掉两百多像素）。
+	// 在可用区域内重新居中，与窗口管理器原本的摆法一致。
+	if (area.width > 0 && area.height > 0) {
+		int x = area.x + (area.width - new_w) / 2;
+		int y = area.y + (area.height - new_h) / 2;
+		if (x < area.x) x = area.x;
+		if (y < area.y) y = area.y;
+		gtk_window_move(win, x, y);
 	}
 }
 
