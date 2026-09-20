@@ -221,18 +221,20 @@ func (m *runtimeManager) installSummary(id string) string {
 type runtimeResolver struct {
 	inner permissions.Resolver
 	rt    *runtimeManager
-	// trust 是安全中心加白的闸（见 trustwatch.go）。Resolve 是"命令执行前"外壳唯一
-	// 还在场的钩子，所以排队等在这里。
-	trust *trustGate
+	// trust 在跑命令前把"还欠着的安全中心放行"处理掉（见 trustwatch.go 的
+	// ensureRuntimeTrust）。Resolve 是"命令执行前"外壳唯一还在场的钩子，所以挂在这里。
+	// 是个函数而不是 *App，这样这一层仍然只认自己那点事，也好测。
+	trust func(context.Context)
 }
 
 // Resolve 见 permissions.Resolver。
 func (r runtimeResolver) Resolve(ctx context.Context, req permissions.ResolveRequest) (permissions.Action, error) {
-	// 有加白正在进行（上一条命令刚 pip 装了新库，密码框还开着）就先等它。否则用户还在
-	// 输密码，模型已经去 import 那个新库，撞上一句 failed to map segment，然后开始改
-	// 脚本——而问题根本不在脚本里。等待随回合取消而结束。
+	// 跑命令之前先把安全中心的放行处理掉：上一条命令刚装的新库、或上次开应用就欠着的
+	// 那批。它也顺带完成了排队——加白正在进行时（密码框开着）这里会一直等，否则模型
+	// 会赶在放行之前去 import，撞上一句 failed to map segment 然后开始改脚本。
+	// 随回合取消而结束。
 	if req.ToolName == bashToolName && r.trust != nil {
-		r.trust.wait(ctx)
+		r.trust(ctx)
 	}
 	action, err := r.inner.Resolve(ctx, req)
 	if err != nil || req.ToolName != runtimetool.Name || r.rt == nil {

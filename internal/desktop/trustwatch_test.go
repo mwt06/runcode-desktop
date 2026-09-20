@@ -239,3 +239,33 @@ func TestTrustGateWaitsAndRespectsCancel(t *testing.T) {
 		t.Fatal("wait did not return once the gate was free")
 	}
 }
+
+func TestEnsureRuntimeTrustClearsAnOldDebt(t *testing.T) {
+	stubKysec(t, true)
+	calls, _ := stubTrust(t, nil)
+
+	// 上次开应用时就欠着的那批：标记停在旧指纹上（装完就退出、或当时关掉了密码框），
+	// 此后目录一直没动过——真机上"设置页一直亮着授权按钮"就是这个状态。
+	dir := fakePack(t)
+	if err := writeTrustMarker(dir, "stale-fingerprint"); err != nil {
+		t.Fatal(err)
+	}
+	app := New(&recordingSink{})
+	readyPack(app, dir)
+	app.rt.update(protocol.RuntimePackPython, func(s *packState) { s.needsAuthorize = true })
+
+	// 模型跑第一条命令：不必等它装什么东西，这时候就该把欠账清掉。
+	app.ensureRuntimeTrust(context.Background())
+	if *calls != 1 {
+		t.Fatalf("calls = %d, want 1 — an old debt must be settled before the command runs", *calls)
+	}
+	if p := pythonPack(app.RuntimeStatus()); p.NeedsAuthorize {
+		t.Error("still flagged as needing authorization after it was granted")
+	}
+
+	// 清完之后，后面每条命令都不该再扫、再问。
+	app.ensureRuntimeTrust(context.Background())
+	if *calls != 1 {
+		t.Errorf("calls = %d, want it to stay 1 once nothing is pending", *calls)
+	}
+}

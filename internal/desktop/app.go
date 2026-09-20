@@ -680,7 +680,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		Resolver: privilegeResolver{inner: runtimeResolver{
 			inner: permissions.WithToolClasses(nil, hostToolClasses),
 			rt:    a.rt,
-			trust: a.trust,
+			trust: a.ensureRuntimeTrust,
 		}},
 		// Which servers we vouch for is ours to know, not the engine's: the same
 		// opt-in that earns a server the user's identity headers also lets its calls

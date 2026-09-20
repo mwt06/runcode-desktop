@@ -79,9 +79,11 @@ function PackStatus({ pack }: { pack: RuntimePack }): ReactElement {
         {managedText(pack)}
       </span>
       {systemText(pack) && <span className="block text-faint mt-0.5">{systemText(pack)}</span>}
+      {/* 一句话就够：说清后果、指出按钮。模型下次用到它时会自动弹一次密码框（见
+          internal/desktop/trustwatch.go），所以这一行不必再解释安全框那套机制。 */}
       {pack.needsAuthorize && (
         <span className="block mt-1 text-amberink">
-          麒麟安全中心还没放行它：每次运行都会在桌面弹安全框，30 秒没人点就失败。点右边「授权」输一次密码即可。
+          麒麟安全中心还没放行它，用到它的脚本会被拦下。点右边「授权」输一次密码即可。
         </span>
       )}
       {pack.stage === RuntimeStages.Failed && pack.error && (

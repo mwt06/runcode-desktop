@@ -195,7 +195,14 @@ func TestInstallSummaryForInstalledRuntime(t *testing.T) {
 
 func TestRuntimeResolverHoldsCommandsUntilTrustFinishes(t *testing.T) {
 	gate := newTrustGate()
-	r := runtimeResolver{inner: permissions.WithToolClasses(nil, hostToolClasses), rt: newTestManager(), trust: gate}
+	// 真实接的是 App.ensureRuntimeTrust（查 + 必要时弹密码框 + 排队）。这里只验
+	// "命令被挡在它后面"这一件事，所以换成一个只排队的替身。
+	var trusted int
+	r := runtimeResolver{
+		inner: permissions.WithToolClasses(nil, hostToolClasses),
+		rt:    newTestManager(),
+		trust: func(ctx context.Context) { trusted++; gate.wait(ctx) },
+	}
 	if !gate.acquire(context.Background()) {
 		t.Fatal("could not acquire a free gate")
 	}
@@ -218,6 +225,10 @@ func TestRuntimeResolverHoldsCommandsUntilTrustFinishes(t *testing.T) {
 	}
 	if waited := time.Since(start); waited > 20*time.Millisecond {
 		t.Errorf("plan_write waited %v on the trust gate", waited)
+	}
+	// 只有跑命令的那个工具会触发检查：别的工具碰不到运行时目录。
+	if trusted != 1 {
+		t.Errorf("trust check ran %d times, want exactly once (for Bash)", trusted)
 	}
 	gate.release()
 }

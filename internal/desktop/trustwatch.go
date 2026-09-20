@@ -86,6 +86,19 @@ func (a *App) noteToolFinished(toolName string) {
 	}()
 }
 
+// ensureRuntimeTrust 在跑命令**之前**把"还欠着的放行"处理掉。同步做：模型这条命令
+// 很可能正要用那个解释器，等几秒输密码，好过让它撞上一句 "failed to map segment"。
+//
+// 两种欠账都走这里：上一条命令刚装的新库（本进程内 noteToolFinished 已经问过了，这里
+// 便宜地跳过），以及上次开应用时就欠着的那批（装完就退出、或当时关掉了密码框——这正是
+// 麒麟真机上"设置页一直亮着授权按钮"的由来）。
+func (a *App) ensureRuntimeTrust(ctx context.Context) {
+	if a == nil || a.rt == nil || !kysecExecControlOn() {
+		return
+	}
+	a.autoTrustRuntimes(ctx)
+}
+
 // autoTrustRuntimes 扫一遍已装的运行时，有新的未放行文件就请用户授权。
 func (a *App) autoTrustRuntimes(ctx context.Context) {
 	if !a.trust.acquire(ctx) {
@@ -110,12 +123,14 @@ func (a *App) autoTrustPack(ctx context.Context, id string) {
 		m.mu.Unlock()
 		return
 	}
-	dir, lastStamp, declined := st.dir, st.trustStamp, st.trustDeclined
+	dir, lastStamp, declined, pendingCached := st.dir, st.trustStamp, st.trustDeclined, st.needsAuthorize
 	m.mu.Unlock()
 
 	stamp := installStamp(id, dir)
-	if stamp != "" && stamp == lastStamp {
-		return // 安装目录一个字节都没动过
+	if stamp != "" && stamp == lastStamp && (!pendingCached || declined != "") {
+		// 安装目录一个字节都没动过，而且要么没什么等着放行，要么用户刚拒绝过这一批。
+		// 两种情况都不必再扫——这条判断是"每条命令都要走一遍"的那个便宜出口。
+		return
 	}
 	pending, files, err := needsTrust(dir)
 	if err != nil {
