@@ -192,3 +192,32 @@ func TestInstallSummaryForInstalledRuntime(t *testing.T) {
 		t.Errorf("summary for an unknown runtime = %q, want empty", s)
 	}
 }
+
+func TestRuntimeResolverHoldsCommandsUntilTrustFinishes(t *testing.T) {
+	gate := newTrustGate()
+	r := runtimeResolver{inner: permissions.WithToolClasses(nil, hostToolClasses), rt: newTestManager(), trust: gate}
+	if !gate.acquire(context.Background()) {
+		t.Fatal("could not acquire a free gate")
+	}
+
+	// 加白进行中（密码框开着）：下一条命令必须等，否则它会赶在放行之前去 import 新库。
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := r.Resolve(ctx, permissions.ResolveRequest{ToolName: "Bash", Input: json.RawMessage(`{"command":"python3 x.py"}`)}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if waited := time.Since(start); waited < 20*time.Millisecond {
+		t.Errorf("Bash resolved after %v; it should wait while an authorization is in flight", waited)
+	}
+
+	// 别的工具不受影响：它们碰不到运行时目录，没有理由为此排队。
+	start = time.Now()
+	if _, err := r.Resolve(context.Background(), permissions.ResolveRequest{ToolName: plantool.Name, Input: json.RawMessage(`{}`)}); err != nil {
+		t.Fatalf("Resolve plan_write: %v", err)
+	}
+	if waited := time.Since(start); waited > 20*time.Millisecond {
+		t.Errorf("plan_write waited %v on the trust gate", waited)
+	}
+	gate.release()
+}

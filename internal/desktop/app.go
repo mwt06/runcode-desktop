@@ -130,6 +130,9 @@ type App struct {
 	// rt 是运行时环境（Python / Node / Git）的状态机（见 runtimes.go）。同 upd/rec，
 	// 它自带锁、与 mu / startMu 无嵌套关系。始终非 nil。
 	rt *runtimeManager
+	// trust 是"同一时刻只做一次安全中心加白"的闸（见 trustwatch.go）：pip 装完新库
+	// 自动请人放行，模型的下一条命令在权限检查那一步等它做完。始终非 nil。
+	trust *trustGate
 
 	// privGate / askpass / askpassSrv 是"模型用 sudo"那条链（见 privilege.go 与
 	// askpass.go）：批准过 sudo 的会话才上膛，上了膛的会话 sudo 要密码时才弹框。
@@ -277,6 +280,7 @@ func newWithBuild(sink EventSink, build host.BuildFunc) *App {
 	// 构造放在 update.go：本文件的 protocol 是**引擎**那个包，而 UpdateInfo 是外壳自己的。
 	a.upd = newUpdaterFor(a)
 	a.rt = newRuntimeManagerFor(a)
+	a.trust = newTrustGate()
 	a.privGate = newPrivilegeGate()
 	a.askpass = newAskpassBroker(func(name string, payload any) { a.sink.Emit(name, payload) }, a.privGate)
 	return a
@@ -350,6 +354,12 @@ func (s hostSinkAdapter) Emit(env protocol.Envelope) {
 	switch env.Event {
 	case EventTurnEnd, EventTurnError:
 		s.app.noteTurnDone(env.SessionID)
+	case EventToolEvent:
+		// 命令跑完看一眼：pip 刚装的新库里若有安全中心不认的程序文件，立刻请用户放行
+		// （见 trustwatch.go）。非麒麟机器上这一句直接返回。
+		if ev, ok := env.Payload.(protocol.ToolEvent); ok && ev.Type == protocol.ToolEventCompleted {
+			s.app.noteToolFinished(ev.ToolName)
+		}
 	}
 	// Record the turn lifecycle to the diagnostic log before forwarding, so a turn
 	// that fails or ends empty is traceable even when nothing renders in the UI.
@@ -670,6 +680,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		Resolver: privilegeResolver{inner: runtimeResolver{
 			inner: permissions.WithToolClasses(nil, hostToolClasses),
 			rt:    a.rt,
+			trust: a.trust,
 		}},
 		// Which servers we vouch for is ours to know, not the engine's: the same
 		// opt-in that earns a server the user's identity headers also lets its calls

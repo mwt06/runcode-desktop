@@ -190,6 +190,10 @@ type packState struct {
 	cancel context.CancelFunc
 	// needsAuthorize：麒麟安全中心还没放行这个包（见 kysec.go）。
 	needsAuthorize bool
+	// trustStamp / trustDeclined 属于"装完立刻请人放行"那条链（见 trustwatch.go）：
+	// 前者是上次检查时安装目录的样子（没变就跳过全量扫描），后者记着用户关掉密码框时
+	// 那批文件的指纹（同一批不再自动弹第二次）。
+	trustStamp, trustDeclined string
 }
 
 // runtimeManager 是全部包的状态机。它自带锁，与 App.mu / startMu 没有嵌套关系
@@ -390,9 +394,13 @@ func (m *runtimeManager) recheckTrust() {
 			debugLog("kysec recheck %s: %v", id, err)
 			continue
 		}
+		stamp := installStamp(id, dir)
 		m.mu.Lock()
 		if st := m.packs[id]; st != nil && st.dir == dir {
 			st.needsAuthorize = pending
+			// 顺手记下安装目录此刻的样子：之后每条命令跑完只比对它，没变就不再扫
+			// （见 trustwatch.go）。这里刚扫过，正是最准的一次。
+			st.trustStamp = stamp
 		}
 		m.mu.Unlock()
 	}
@@ -615,7 +623,7 @@ func (a *App) runRuntimeInstall(ctx context.Context, id string, pack protocol.Ru
 	needsAuth := false
 	if kysecExecControlOn() {
 		m.update(id, func(s *packState) { s.stage = protocol.RuntimeStageAuthorizing })
-		if err := a.trustRuntime(ctx, id, dest); err != nil {
+		if err := a.trustRuntime(ctx, id, dest, ""); err != nil {
 			debugLog("kysec trust %s: %v", id, err)
 			needsAuth = true
 		}
@@ -629,7 +637,11 @@ func (a *App) runRuntimeInstall(ctx context.Context, id string, pack protocol.Ru
 }
 
 // trustRuntime 以 root 身份把 dir 里所有 ELF 标成 verified。会弹一次应用的密码框。
-func (a *App) trustRuntime(ctx context.Context, id, dir string) error {
+//
+// purpose 是密码框上写给用户的那句话（""=装包时的默认说法）。自动加白那条链传的是
+// "刚装的 xx 库里有新文件"（见 trustwatch.go）——同一个动作，理由不同，而理由正是
+// 用户判断要不要输密码的依据。
+func (a *App) trustRuntime(ctx context.Context, id, dir, purpose string) error {
 	pending, files, err := needsTrust(dir)
 	if err != nil {
 		return err
@@ -642,8 +654,10 @@ func (a *App) trustRuntime(ctx context.Context, id, dir string) error {
 	if env == nil {
 		return errors.New("本机弹不出授权框（没有图形会话），无法加入安全中心白名单")
 	}
-	purpose := fmt.Sprintf("让麒麟安全中心放行刚装好的 %s（%d 个程序与库文件）。"+
-		"不授权也能用，只是每次运行都会弹安全框，没人点就失败。", a.rt.label(id), len(files))
+	if purpose == "" {
+		purpose = fmt.Sprintf("让麒麟安全中心放行刚装好的 %s（%d 个程序与库文件）。"+
+			"不授权也能用，只是每次运行都会弹安全框，没人点就失败。", a.rt.label(id), len(files))
+	}
 	// 上膛只覆盖这一次加白，做完立刻撤：应用自己发起的提权不留窗口。
 	a.privGate.armFor(key, purpose, askpassTimeout+time.Minute)
 	defer a.privGate.disarm(key)
@@ -801,11 +815,15 @@ func (a *App) authorizeRuntime(parent context.Context, id string) error {
 	m.mu.Unlock()
 	m.publish()
 
-	err := a.trustRuntime(ctx, id, dir)
+	err := a.trustRuntime(ctx, id, dir, "")
 	m.update(id, func(s *packState) {
 		s.cancel = nil
 		s.stage = protocol.RuntimeStageReady
 		s.needsAuthorize = err != nil
+		// 用户自己点了「授权」：把"这一批别再自动弹了"的记号清掉（见 trustwatch.go）。
+		// 成功了自然该清；失败也清——他刚刚明确表达了想授权，下次自动弹正是他要的。
+		s.trustDeclined = ""
+		s.trustStamp = installStamp(id, dir)
 	})
 	m.applyEnv()
 	m.publish()
