@@ -420,6 +420,48 @@ func TestInstallerNameIsSafe(t *testing.T) {
 	}
 }
 
+// TestInstallerExtKeepsPackageType 下好的包要保住它本来的扩展名：用户双击时系统按它
+// 选打开方式。deb 曾被存成 .zip，麒麟上双击打开的是压缩包管理器（真机实测）。
+func TestInstallerExtKeepsPackageType(t *testing.T) {
+	for url, want := range map[string]string{
+		"https://obs/zhikai/zhikai-1.0.18-kylin10-arm64.deb": ".deb",
+		"https://obs/zhikai/ZHIKAI.DEB":                      ".deb",
+		"https://obs/zhikai/zhikai-1.0.18.x86_64.rpm":        ".rpm",
+		"https://obs/zhikai/setup.exe?sig=abc":               ".exe",
+		"https://obs/zhikai/zhikai-macos.zip":                ".zip",
+	} {
+		if got := installerExt(url); got != want {
+			t.Errorf("installerExt(%q) = %q，期望 %q", url, got, want)
+		}
+	}
+}
+
+// TestFixedFieldsSurviveReset「这台机器的固有属性」在检查结果整份重置状态之后必须还在。
+// 两个重置点（已是最新 / 有新版）各走一遍：AutoRestart 当年就是只在其中一处漏带。
+func TestFixedFieldsSurviveReset(t *testing.T) {
+	u := newUpdater(nil)
+	// 每一样都填成非零值：取本机的真实值的话，Windows 上 InstallHint 是空的，
+	// 漏带它这件事在 Windows 上就测不出来。
+	u.info.Current, u.info.CanInstall, u.info.AutoRestart = "1.2.3", true, true
+	u.info.InstallHint, u.info.InstallError = "双击安装", "上次没装上"
+	want := u.snapshot()
+
+	for name, got := range map[string]protocol.UpdateInfo{
+		"available": u.available(releaseWire{Version: "9.9.9"}),
+		"latest":    u.latest(),
+	} {
+		if got.Current != want.Current || got.CanInstall != want.CanInstall ||
+			got.AutoRestart != want.AutoRestart || got.InstallHint != want.InstallHint ||
+			got.InstallError != want.InstallError {
+			t.Errorf("%s 之后固有属性丢了：\n得到 %#v\n期望 %#v", name, got, want)
+		}
+	}
+	// 不接管安装的平台，Ready 那一步只剩这一句能告诉用户怎么办，不能是空的。
+	if here := newUpdater(nil).snapshot(); !here.CanInstall && here.InstallHint == "" {
+		t.Error("本平台不由应用接管安装，却没有给出动手安装的说明")
+	}
+}
+
 // TestUpdateStatusStartsIdle 冷启动时状态是「没查过」，且当前版本已经填好——设置页
 // 一打开就该显示得出版本号，不必等任何一趟网络。
 func TestUpdateStatusStartsIdle(t *testing.T) {

@@ -91,4 +91,10 @@ type UpdateInfo struct {
 	// 单独给一个字段而不是让前端按平台猜：界面要据此把「将关闭本应用并自动完成更新」
 	// 还是「将关闭本应用并运行安装程序」写出去，说错了就是一句用户会当真的假话。
 	AutoRestart bool `json:"autoRestart"`
+	// InstallHint 是 CanInstall 为假时，下好之后给用户的那一句操作说明。
+	//
+	// 按平台由后端给，与 CanInstall/AutoRestart 同理：macOS 是把 .app 拖进「应用程序」，
+	// Linux 是双击 deb 交给系统的软件包安装器——前端写死一句的下场，是麒麟用户被
+	// 告知去拖一个他系统里根本不存在的「应用程序」文件夹（真机实测）。
+	InstallHint string `json:"installHint"`
 }

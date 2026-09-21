@@ -130,9 +130,9 @@ function UpdateBody({ update }: { update: UpdateController }): ReactElement | nu
             <span className="text-[12px] text-faint">
               {/* 三种结局各说各的，别许一个做不到的承诺：静默安装会自己回来；
                   走向导的（认不出安装目录，基本只有开发构建）要用户自己点图标；
-                  macOS 根本不由应用接管安装。 */}
+                  macOS / Linux 不由应用接管安装，怎么动手装由后端按平台给（installHint）。 */}
               {!info?.canInstall
-                ? '把新版本拖进「应用程序」覆盖旧版即可'
+                ? info?.installHint
                 : info.autoRestart
                   ? '将关闭本应用并自动完成安装，装好后会自动重新打开（需授权一次）'
                   : '将关闭本应用并运行安装程序，安装完成后重新打开即可'}

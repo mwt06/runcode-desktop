@@ -20,6 +20,9 @@ func canLaunchInstaller() bool { return true }
 // launchInstaller 完全一致：认得出自己装在哪，才敢静默装、也才知道装完拉起哪个 exe。
 func willAutoRestart() bool { return nsisInstallDirArg(appInstallRoot()) != "" }
 
+// manualInstallHint: Windows 由应用拉起安装器，没有「自己动手装」这一步。
+func manualInstallHint() string { return "" }
+
 // launchInstaller 拉起安装器。expect 是这次要装成的版本（来自服务端清单），交给
 // 看门进程当"装好了没有"的判据。
 //

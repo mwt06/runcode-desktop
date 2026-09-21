@@ -149,8 +149,23 @@ func newUpdater(emit func(protocol.UpdateInfo)) *updater {
 			Stage:       protocol.UpdateIdle,
 			CanInstall:  canLaunchInstaller(),
 			AutoRestart: willAutoRestart(),
+			InstallHint: manualInstallHint(),
 		},
 	}
+}
+
+// keepFixed 把「这台机器的固有属性」从旧状态搬到新状态。latest/available 会整份
+// 重置状态，这几样不随一次检查变化，必须原样带过来。
+//
+// 收成一个函数而不是在两个重置点各写一遍：AutoRestart 就在其中一处漏带过，表现是
+// Ready 那一步把「装好会自动回来」写成了「装完请自己打开」——一句用户会当真的假话。
+// 新加一个固有属性，只改这里。
+func keepFixed(next *protocol.UpdateInfo, prev protocol.UpdateInfo) {
+	next.Current = prev.Current
+	next.CanInstall = prev.CanInstall
+	next.AutoRestart = prev.AutoRestart
+	next.InstallHint = prev.InstallHint
+	next.InstallError = prev.InstallError
 }
 
 // newUpdaterFor 建一台绑到这个 App 事件出口的更新器。
@@ -218,11 +233,9 @@ func (u *updater) latest() protocol.UpdateInfo {
 	u.rel = releaseWire{}
 	u.mu.Unlock()
 	return u.apply(func(i *protocol.UpdateInfo) {
-		*i = protocol.UpdateInfo{
-			Stage: protocol.UpdateLatest, CheckedAt: nowRFC3339(),
-			Current: i.Current, CanInstall: i.CanInstall, AutoRestart: i.AutoRestart,
-			InstallError: i.InstallError,
-		}
+		next := protocol.UpdateInfo{Stage: protocol.UpdateLatest, CheckedAt: nowRFC3339()}
+		keepFixed(&next, *i)
+		*i = next
 	})
 }
 
@@ -231,19 +244,16 @@ func (u *updater) available(rel releaseWire) protocol.UpdateInfo {
 	u.rel = rel
 	u.mu.Unlock()
 	return u.apply(func(i *protocol.UpdateInfo) {
-		*i = protocol.UpdateInfo{
+		next := protocol.UpdateInfo{
 			Stage:       protocol.UpdateAvailable,
 			Latest:      strings.TrimSpace(rel.Version),
 			Notes:       strings.TrimSpace(rel.Notes),
 			PublishedAt: strings.TrimSpace(rel.PublishedAt),
 			Size:        rel.Size,
 			CheckedAt:   nowRFC3339(),
-			// 这三样不随一次检查变化，是这台机器的固有属性，重置状态时必须原样带过来。
-			// AutoRestart 漏带过一次，表现是 Ready 那一步把「装好会自动回来」写成了
-			// 「装完请自己打开」——一句用户会当真的假话。
-			Current: i.Current, CanInstall: i.CanInstall, AutoRestart: i.AutoRestart,
-			InstallError: i.InstallError,
 		}
+		keepFixed(&next, *i)
+		*i = next
 	})
 }
 
@@ -668,9 +678,18 @@ func safeVersion(v string) string {
 }
 
 // installerExt 取下载地址的扩展名，只认白名单里的几种；其余一律按本平台的默认。
+//
+// 扩展名决定用户双击下好的包时系统拿什么程序打开它，所以 Linux 的 .deb 必须在
+// 白名单里。它曾经不在：麒麟上下好的 deb 被存成 .zip，双击打开的是压缩包管理器，
+// 而不是软件包安装器（真机实测）。
 func installerExt(rawURL string) string {
-	def := ".exe"
-	if runtime.GOOS != "windows" {
+	var def string
+	switch runtime.GOOS {
+	case "windows":
+		def = ".exe"
+	case "linux":
+		def = ".deb"
+	default:
 		def = ".zip"
 	}
 	u, err := url.Parse(strings.TrimSpace(rawURL))
@@ -678,7 +697,7 @@ func installerExt(rawURL string) string {
 		return def
 	}
 	switch ext := strings.ToLower(path.Ext(u.Path)); ext {
-	case ".exe", ".msi", ".zip", ".dmg", ".pkg":
+	case ".exe", ".msi", ".zip", ".dmg", ".pkg", ".deb", ".rpm":
 		return ext
 	default:
 		return def

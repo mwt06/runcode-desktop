@@ -913,6 +913,7 @@ export interface UpdateInfo {
   canInstall: boolean;
   file: string;
   autoRestart: boolean;
+  installHint: string;
 }
 
 // Mirrors protocol.Warning. Warning is a non-fatal diagnostic surfaced to the UI.
