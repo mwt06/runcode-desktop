@@ -135,8 +135,17 @@ function UpdateBody({ update }: { update: UpdateController }): ReactElement | nu
             <p className="text-[12px] text-faint font-mono break-all">{info.file}</p>
           )}
           {/* 上一次点安装没装成（取消了授权、密码输错、系统在装别的）。包是好的，
-              所以留在这一步，原因写在按钮下面，改个主意直接再点。 */}
+              所以留在这一步，原因写在按钮下面，改个主意直接再点。有些原因应用解决
+              不了（不在 sudoers、安全中心拦截），所以同时给出手动安装的退路。 */}
           {failure && <InlineError variant="text">{failure}</InlineError>}
+          {failure && info?.canInstall && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" className={`${BTN} px-3`} onClick={update.reveal}>
+                改为手动安装
+              </button>
+              <span className="text-[12px] text-faint">打开安装包所在文件夹，交给系统的软件包安装器或管理员安装</span>
+            </div>
+          )}
         </div>
       )
 

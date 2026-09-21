@@ -139,4 +139,5 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"AuthorizeRuntime": hostproto.CommandTrigger,
 	"RemoveRuntime":    hostproto.CommandTrigger,
 	"InstallUpdate":    hostproto.CommandTrigger,
+	"RevealUpdate":     hostproto.CommandTrigger,
 }

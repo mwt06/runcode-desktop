@@ -15,6 +15,7 @@ import {
   errText,
   installUpdate,
   onEvent,
+  revealUpdate,
   updateStatus,
   UpdateStages,
   type UpdateInfo,
@@ -35,6 +36,8 @@ export interface UpdateController {
   download: () => void
   cancel: () => void
   install: () => void
+  /** reveal 打开安装包所在文件夹：自动安装装不上时改为手动安装的退路。 */
+  reveal: () => void
 }
 
 export function useUpdate(): UpdateController {
@@ -70,6 +73,7 @@ export function useUpdate(): UpdateController {
   const download = useCallback(() => run(downloadUpdate), [run])
   const cancel = useCallback(() => run(cancelUpdateDownload), [run])
   const install = useCallback(() => run(installUpdate), [run])
+  const reveal = useCallback(() => run(revealUpdate), [run])
 
   const stage = info?.stage ?? UpdateStages.Idle
   return {
@@ -92,5 +96,6 @@ export function useUpdate(): UpdateController {
     download,
     cancel,
     install,
+    reveal,
   }
 }

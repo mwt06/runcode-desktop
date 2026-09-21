@@ -511,6 +511,12 @@ export function revealInFolder(relPath: string): Promise<void> {
   return call<void>('RevealInFolder', relPath);
 }
 
+// RevealUpdate 打开下好的安装包所在的文件夹。 这是由应用接管安装的平台上的**退路**：自动安装装不上的原因有些是应用解决不了的 ——用户不在 sudoers 里（学校、单位的机器很常见）、安全中心拦下了没签名的包。那时 用户需要的是把包拿到手：交给系统的软件包安装器，或者拿去给管理员装。
+// kind: trigger
+export function revealUpdate(): Promise<void> {
+  return call<void>('RevealUpdate');
+}
+
 // RevertEdit restores the file for snapshotID to its turn baseline (Wails binding).
 // kind: trigger
 export function revertEdit(sessionID: string, snapshotID: string): Promise<void> {

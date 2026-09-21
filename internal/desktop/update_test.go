@@ -629,3 +629,19 @@ func TestCheckUpdateDoesNotReuseAStaleCachedPackage(t *testing.T) {
 		t.Error("落地的仍是旧内容")
 	}
 }
+
+// TestRevealUpdateNeedsAPackage「改为手动安装」只在真有一个下好的包时才去开文件夹；
+// 否则要说清楚该先下载，而不是打开一个空目录让人对着发呆。
+func TestRevealUpdateNeedsAPackage(t *testing.T) {
+	f := newUpdateFixture(t, "0.1.0")
+	if err := f.app.RevealUpdate(); err == nil || !strings.Contains(err.Error(), "下载") {
+		t.Fatalf("没有安装包时应当让用户先下载：%v", err)
+	}
+	_, file := readyToInstall(t, f, nil)
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.app.RevealUpdate(); err == nil || !strings.Contains(err.Error(), "重新下载") {
+		t.Fatalf("安装包不见了时应当让用户重新下载：%v", err)
+	}
+}

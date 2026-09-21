@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,12 +30,15 @@ import (
 // 等别的 apt 放锁（aptLockWait）、以及 apt 顺带去源里拉 Recommends。
 const aptInstallTimeout = 15 * time.Minute
 
-// relaunchScript 是装完之后把新版本拉起来的那段 sh：等 $1（本进程）退出，再 exec $2。
+// relaunchScript 是装完之后把新版本拉起来的那段 sh：等 $1（本进程）退出，再 exec $2，
+// 它自己与新版本的输出都写进 $3。
 //
 // 为什么要等：单实例锁攥在本进程手里，新版本抢先起来会看见锁、把焦点交给旧窗口然后
 // 自己退出——用户看到的是旧版本留在屏幕上。所以先等旧的退干净。
+// 为什么要留输出：真机上出现过一次「装好了、旧的退了、新的没起来」，而当时两者的输出
+// 都进了 /dev/null，安全中心、审计与系统日志里也没有一条记录，事后无从查起。
 // 参数走位置参数而不是拼进脚本：路径里有空格或引号也不会变成另一条命令。
-const relaunchScript = `while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"`
+const relaunchScript = `exec >"$3" 2>&1; while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"`
 
 // updateInstallable 判断这台机器上能不能由应用接管安装。三条都满足才行：
 //
@@ -126,7 +130,11 @@ func relaunchAfterExit() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("/bin/sh", "-c", relaunchScript, "relaunch", strconv.Itoa(os.Getpid()), exe) //nolint:gosec // 固定脚本，参数走位置参数
+	logPath := os.DevNull
+	if dir, err := updateCacheDir(); err == nil {
+		logPath = filepath.Join(dir, "relaunch.log")
+	}
+	cmd := exec.Command("/bin/sh", "-c", relaunchScript, "relaunch", strconv.Itoa(os.Getpid()), exe, logPath) //nolint:gosec // 固定脚本，参数走位置参数
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err

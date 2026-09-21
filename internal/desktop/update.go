@@ -489,6 +489,22 @@ func (a *App) InstallUpdate() error {
 	return nil
 }
 
+// RevealUpdate 打开下好的安装包所在的文件夹。
+//
+// 这是由应用接管安装的平台上的**退路**：自动安装装不上的原因有些是应用解决不了的
+// ——用户不在 sudoers 里（学校、单位的机器很常见）、安全中心拦下了没签名的包。那时
+// 用户需要的是把包拿到手：交给系统的软件包安装器，或者拿去给管理员装。
+func (a *App) RevealUpdate() error {
+	info := a.upd.snapshot()
+	if strings.TrimSpace(info.File) == "" {
+		return wireError(errors.New("安装包还没准备好，请先下载"))
+	}
+	if _, err := os.Stat(info.File); err != nil {
+		return wireError(fmt.Errorf("下载好的安装包不见了（%s），请重新下载", info.File))
+	}
+	return wireError(startAndReap(revealCommand(info.File)))
+}
+
 // runUpdateInstaller 是 InstallUpdate 调平台安装器的那一处。做成变量只为测试：真的
 // 那个在 Windows 上会 ShellExecute 安装包、在 Linux 上会 sudo apt-get，都不该在跑测试
 // 的机器上发生。生产上没有任何地方给它赋别的值。

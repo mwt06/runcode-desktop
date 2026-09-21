@@ -215,6 +215,7 @@ export {
   downloadUpdate,
   cancelUpdateDownload,
   installUpdate,
+  revealUpdate,
   webProxy,
 } from './protocol/commands'
 
