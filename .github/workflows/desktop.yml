@@ -305,6 +305,23 @@ jobs:
               ;;
           esac
           ls -la dist
+
+          # Release 是**一个平铺的命名空间**，八个目标的产物挂在同一处。deb 的规范名里
+          # 没有 V10/V11 之分（两边都是 zhikai_1.0.18-1_arm64.deb），原样挂上去就是后传的
+          # 覆盖先传的，而且没有任何报错——Release 上只剩一个，还看不出是哪一个。
+          # 所以挂 Release 的那份给 deb 换成带 flavor 的名字，与同一处的 exe/zip/裸二进制
+          # 一个命名法；artifact 里仍是规范名。**送麒麟适配认证请用 artifact 里的包**，
+          # 或把 Release 上下的改回 {Package}_{Version}_{Architecture}.deb，否则
+          # common-standards-01 判不通过。
+          mkdir -p release
+          for f in dist/*; do
+            case "$f" in
+              *.deb) cp "$f" "release/$product-$version-$flavor-$arch.deb" ;;
+              *)     cp "$f" release/ ;;
+            esac
+          done
+          ls -la release
+
           suffix=""
           if [ "${{ inputs.devtools }}" = true ]; then suffix="-devtools"; fi
           echo "name=$product-$version-${{ matrix.target }}$suffix" >> "$GITHUB_OUTPUT"
@@ -320,6 +337,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: cmd/runcode-desktop/dist/*
+          files: cmd/runcode-desktop/release/*
           # 带后缀的 tag（v1.0.0-rc.1）算预发布，不占 latest。
           prerelease: ${{ contains(github.ref_name, '-') }}

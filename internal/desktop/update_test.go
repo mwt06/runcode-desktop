@@ -116,7 +116,7 @@ func TestCheckUpdateReportsAvailable(t *testing.T) {
 	if got := q.Get("product"); got != AppProduct() {
 		t.Errorf("product = %q，期望 %q", got, AppProduct())
 	}
-	if got, want := q.Get("platform"), runtime.GOOS+"/"+runtime.GOARCH; got != want {
+	if got, want := q.Get("platform"), wantUpdateOS+"/"+runtime.GOARCH; got != want {
 		t.Errorf("platform = %q，期望 %q", got, want)
 	}
 }

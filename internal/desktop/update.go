@@ -27,7 +27,9 @@ package desktop
 //
 // 两个查询参数都不能省。product 分开是因为 XRUN 与智开是两个安装包、两个 bundle
 // 标识符（见 version.go）——给智开推 XRUN 的包等于把用户的应用换成另一个牌子；
-// platform 分开是因为 windows/amd64 的 exe 在 macOS 上毫无意义。
+// platform 分开是因为 windows/amd64 的 exe 在 macOS 上毫无意义。platform 的取值：
+// windows|darwin|linux|kylin10 / amd64|arm64，其中 kylin10 是麒麟 V10（与 V11 装不了
+// 同一个包，见 update_platform_kylin.go），linux 是 V11 及其它发行版。
 //
 // 地址与路径都可用环境变量覆盖（RUNCODE_UPDATE_BASE_URL / RUNCODE_UPDATE_PATH），
 // 换环境不必重新打包——与通行证、技能市场那几处的做法一致。
@@ -105,8 +107,9 @@ func updateEndpoint() string {
 	return base + envOr("RUNCODE_UPDATE_PATH", "/api/app/releases/latest")
 }
 
-// updatePlatform 是清单里区分安装包的平台键，形如 windows/amd64。
-func updatePlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+// updatePlatform 是清单里区分安装包的平台键，形如 windows/amd64、kylin10/arm64。
+// 前一半为什么不总是 GOOS，见 updateOS。
+func updatePlatform() string { return updateOS + "/" + runtime.GOARCH }
 
 // releaseWire 是清单响应。字段 camelCase，与 Bridge 上其它接口一致。
 type releaseWire struct {

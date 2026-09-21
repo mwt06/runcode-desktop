@@ -283,6 +283,22 @@ fi
 # 版本号从打包元数据里读(唯一事实来源,见脚本头部第 6 条)。读不到就停:一个没有版本号
 # 的构建在"检查更新"面前只会一直自称 0.0.0-dev,于是每次都提示有新版。
 cfg_get() { sed -n "s/^  $1: \"\(.*\)\"[[:space:]]*$/\1/p" build/config.yml | head -1; }
+
+# deb 一律叫 {Package}_{Version}_{Architecture}.deb，名字从包自己的 control 里读。
+# 麒麟的包规范检查（common-standards-01）要求文件名与 control 完全一致，不一致就是
+# 一条「不通过」。V10 那条的 nfpm 本来就给这个名；V11 那条走 wails3 tool package，
+# 它按 -name 起名，出来的是 bin/zhikai.deb——不带版本与架构，两个架构的包同名，挂到
+# Release 上后传的那个把先传的覆盖掉（1.0.17 的 V11 arm64 包就是这么丢的）。
+# 从 control 读而不是拿脚本里的变量拼：拼出来的名字和包里写的不一致，正是这条检查要抓的错。
+normalize_deb_names() {
+  local f std
+  command -v dpkg-deb >/dev/null 2>&1 || { echo "⚠️  没有 dpkg-deb，deb 保留原名" >&2; return 0; }
+  for f in bin/*.deb; do
+    [ -f "$f" ] || continue
+    std="bin/$(dpkg-deb -f "$f" Package)_$(dpkg-deb -f "$f" Version)_$(dpkg-deb -f "$f" Architecture).deb"
+    [ "$f" = "$std" ] || mv -f "$f" "$std"
+  done
+}
 APP_VERSION="$(cfg_get version)"
 [ -n "$APP_VERSION" ] || { echo "读不出 build/config.yml 的 info.version" >&2; exit 1; }
 
@@ -480,6 +496,7 @@ DESKTOP
     go run ./tools/icongen -src build/appicon.png -out build/linux/icons -name "$APP_NAME"
     command -v nfpm >/dev/null 2>&1 || go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
     nfpm package -f build/linux/nfpm/nfpm.yaml -p deb -t bin/
+    normalize_deb_names
     echo "▶ 已出 deb"
   fi
 
@@ -534,6 +551,8 @@ if [ "$TARGET" = darwin ] && [ -d "$APP_PATH" ]; then
     echo "▶ 已打包:bin/$APP_NAME-macos.zip"
   fi
 fi
+
+if [ "$TARGET" = linux ]; then normalize_deb_names; fi
 
 restore
 if [ "$TARGET" = darwin ]; then
