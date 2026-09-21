@@ -46,12 +46,41 @@ func aptInstallError(out string, err error) error {
 	case strings.Contains(out, "Could not get lock"), strings.Contains(out, "Unable to acquire the dpkg frontend lock"),
 		strings.Contains(out, "无法获得锁"):
 		return errors.New("系统正在安装或更新别的软件，请等它结束后再试")
+	case strings.Contains(out, "验证失败，拒绝安装"):
+		// 麒麟 dpkg 的签名校验（「应用程序来源检查」）。警告档下安全中心会弹框问，30 秒
+		// 没人点就按「禁止安装」处理——真机上最常见的就是这一种：用户没注意到那个框。
+		return errors.New("麒麟安全中心拦下了这个安装包（它还没有麒麟的认证签名）。" +
+			"请再点一次「立即安装并重启」，在安全中心弹出的提示里选「允许安装」；" +
+			"若系统设为禁止安装未知来源应用，请改为手动安装并联系管理员")
 	}
 	tail := lastLines(out, 3)
 	if tail == "" && err != nil {
 		tail = err.Error()
 	}
 	return fmt.Errorf("安装更新失败：%s", tail)
+}
+
+// parseSignStatus 把 getsignstatus 的输出（形如「麒麟签名状态：警告」）换成
+// "off" / "warning" / "on"；认不出来是 ""。
+//
+// 这就是安全中心里的「应用程序来源检查」：off 不管，warning 装未签名的包时弹框问
+// （30 秒不点即禁止），on 直接拒绝。
+func parseSignStatus(out string) string {
+	v := out
+	if _, after, ok := strings.Cut(out, "："); ok {
+		v = after
+	} else if _, after, ok := strings.Cut(out, ":"); ok {
+		v = after
+	}
+	switch v = strings.TrimSpace(v); {
+	case strings.Contains(v, "警告"):
+		return "warning"
+	case strings.Contains(v, "关闭"):
+		return "off"
+	case strings.Contains(v, "开启"), strings.Contains(v, "打开"), strings.Contains(v, "阻止"):
+		return "on"
+	}
+	return ""
 }
 
 // lastLines 取 s 的最后 n 个非空行，用「；」连起来。

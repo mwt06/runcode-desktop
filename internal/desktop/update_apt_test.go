@@ -36,6 +36,8 @@ func TestAptInstallErrorIsActionable(t *testing.T) {
 		{"jybzd is not in the sudoers file.  This incident will be reported.", "没有管理员权限"},
 		{"E: Could not get lock /var/lib/dpkg/lock-frontend - open (11: Resource temporarily unavailable)", "别的软件"},
 		{"Reading package lists...\n\nE: 软件包 zhikai 有未满足的依赖关系\nE: 依赖关系有问题\n", "依赖关系有问题"},
+		// 麒麟来源检查拒绝（真机原话）：安全中心弹框 30 秒没人点，按禁止处理。
+		{"dpkg: 处理归档 /home/u/zhikai.deb (--unpack)时出错：\n 软件包/home/u/zhikai.deb验证失败，拒绝安装！\nE: Sub-process /usr/bin/dpkg returned an error code (1)", "允许安装"},
 	}
 	for _, c := range cases {
 		if got := aptInstallError(c.out, errors.New("exit status 100")).Error(); !strings.Contains(got, c.want) {
@@ -44,6 +46,22 @@ func TestAptInstallErrorIsActionable(t *testing.T) {
 	}
 	if got := aptInstallError("", errors.New("signal: killed")).Error(); !strings.Contains(got, "signal: killed") {
 		t.Errorf("apt 什么都没说时应当带上进程错误，实际 %q", got)
+	}
+}
+
+// TestParseSignStatus 认得出 getsignstatus 的三档（真机输出是全角冒号）。
+func TestParseSignStatus(t *testing.T) {
+	for out, want := range map[string]string{
+		"麒麟签名状态：警告\n":       "warning",
+		"麒麟签名状态：关闭":         "off",
+		"麒麟签名状态：开启":         "on",
+		"sign status: 警告":   "warning",
+		"":                  "",
+		"command not found": "",
+	} {
+		if got := parseSignStatus(out); got != want {
+			t.Errorf("parseSignStatus(%q) = %q，期望 %q", out, got, want)
+		}
 	}
 }
 

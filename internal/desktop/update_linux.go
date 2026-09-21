@@ -81,12 +81,36 @@ func willAutoRestart() bool { return canLaunchInstaller() }
 // installHint：接管安装时说点了会发生什么；不接管时说打开文件夹之后怎么做——
 // 麒麟的文件管理器里双击 deb 打开的是系统的软件包安装器（真机实测），装完要重开
 // 应用，因为正在跑的这个进程还是旧的二进制。
+//
+// 麒麟开着「应用程序来源检查」时要提前说：警告档下安全中心会弹「您正在安装未知来源
+// 应用」，30 秒倒计时结束**默认是禁止**，用户不知道要点「允许安装」就会装失败。
 func installHint() string {
-	if canLaunchInstaller() {
-		return "输入一次系统密码即可完成安装，装好后会自动重新打开"
+	if !canLaunchInstaller() {
+		return "双击其中的安装包，用系统的软件包安装器装好后，重新打开本应用"
 	}
-	return "双击其中的安装包，用系统的软件包安装器装好后，重新打开本应用"
+	switch kylinSignMode() {
+	case "warning":
+		return "输入一次系统密码即可安装；安全中心提示「未知来源应用」时请选「允许安装」。装好后会自动重新打开"
+	case "on":
+		return "本机禁止安装未经麒麟签名的应用，自动安装大概率会被拒绝；装不上时请改为手动安装并联系管理员"
+	}
+	return "输入一次系统密码即可完成安装，装好后会自动重新打开"
 }
+
+// kylinSignMode 读麒麟「应用程序来源检查」的档位（见 parseSignStatus）；不是麒麟
+// 或读不出来时为 ""。getsignstatus 不用 root 就能跑（真机实测）。
+var kylinSignMode = sync.OnceValue(func() string {
+	if _, err := exec.LookPath("getsignstatus"); err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "getsignstatus").Output()
+	if err != nil {
+		return ""
+	}
+	return parseSignStatus(string(out))
+})
 
 // runInstaller 以 root 身份用 apt 装 file，成功后安排新版本在本进程退出后启动。
 // 阻塞到 apt 结束（含用户输密码的时间），之后由 InstallUpdate 让本进程退出。
