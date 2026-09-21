@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -399,6 +400,106 @@ func TestInstallUpdateNeedsAReadyPackage(t *testing.T) {
 	}
 }
 
+// readyToInstall 把 fixture 走到「待安装」，并让本机「能由应用接管安装」，换上一个
+// 记账的假安装器——真的那个会 ShellExecute / sudo apt-get。
+func readyToInstall(t *testing.T, f *updateFixture, runErr error) (calls *int, file string) {
+	t.Helper()
+	f.manifest.Version = "0.9.0"
+	if _, err := f.app.CheckUpdate(); err != nil {
+		t.Fatalf("CheckUpdate: %v", err)
+	}
+	info, err := f.app.DownloadUpdate()
+	if err != nil {
+		t.Fatalf("DownloadUpdate: %v", err)
+	}
+	f.app.upd.apply(func(i *protocol.UpdateInfo) { i.CanInstall = true })
+	n := 0
+	prev := runUpdateInstaller
+	runUpdateInstaller = func(_ *App, file, version string) error {
+		n++
+		if file != info.File || version != "0.9.0" {
+			t.Errorf("安装器拿到的是 %q / %q，期望 %q / 0.9.0", file, version, info.File)
+		}
+		return runErr
+	}
+	t.Cleanup(func() { runUpdateInstaller = prev })
+	return &n, info.File
+}
+
+// TestInstallUpdateReverifiesPackage 交给安装器（以管理员身份跑）之前要再验一遍包：
+// 下载之后它一直躺在用户可写的缓存目录里。被改过就不装、并删掉它——留着的话
+// 「重试」会按文件名再认它一次，又绕回这里。
+func TestInstallUpdateReverifiesPackage(t *testing.T) {
+	f := newUpdateFixture(t, "0.1.0")
+	calls, file := readyToInstall(t, f, nil)
+	if err := os.WriteFile(file, []byte("被人换掉的安装包"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.app.InstallUpdate()
+	if err == nil || !strings.Contains(err.Error(), "改动") {
+		t.Fatalf("被改过的包应当被拒，并说明原因：%v", err)
+	}
+	if *calls != 0 {
+		t.Error("包对不上校验和，安装器却被调用了")
+	}
+	if _, statErr := os.Stat(file); !os.IsNotExist(statErr) {
+		t.Error("对不上校验和的包应当被删掉")
+	}
+	if st := f.app.UpdateStatus().Stage; st != protocol.UpdateFailed {
+		t.Errorf("阶段 = %q，期望 %q", st, protocol.UpdateFailed)
+	}
+}
+
+// TestInstallUpdateFailureStaysReady 安装没成（取消了授权、密码错、系统在装别的）：
+// 包是好的，退回「待安装」并带上原因，用户改个主意直接再点；而且这次失败已经当面
+// 说过，下次启动不该再以「上次更新未完成」说第二遍。
+func TestInstallUpdateFailureStaysReady(t *testing.T) {
+	f := newUpdateFixture(t, "0.1.0")
+	calls, _ := readyToInstall(t, f, errors.New("已取消授权，更新没有安装"))
+
+	if err := f.app.InstallUpdate(); err == nil {
+		t.Fatal("安装器报错时 InstallUpdate 应当返回错误")
+	}
+	if *calls != 1 {
+		t.Fatalf("安装器调用次数 = %d，期望 1", *calls)
+	}
+	info := f.app.UpdateStatus()
+	if info.Stage != protocol.UpdateReady || !strings.Contains(info.Error, "取消授权") {
+		t.Errorf("失败后应当留在待安装并带上原因，实际 stage=%q error=%q", info.Stage, info.Error)
+	}
+	if note := installAttemptNote(); note != "" {
+		t.Errorf("当面报过的失败不该留到下次启动再说：%q", note)
+	}
+
+	// 改个主意再点一次：不必重新检查、重新下载。
+	if err := f.app.InstallUpdate(); err == nil || *calls != 2 {
+		t.Errorf("再点一次应当直接再装（调用 %d 次，err=%v）", *calls, err)
+	}
+}
+
+// TestInstallUpdateSuccessMarksInstalling 装成了：状态是「正在安装」（应用随后退出），
+// 并留下「这次要装成 0.9.0」的记录，供新版本起来后核对。
+func TestInstallUpdateSuccessMarksInstalling(t *testing.T) {
+	f := newUpdateFixture(t, "0.1.0")
+	calls, _ := readyToInstall(t, f, nil)
+
+	if err := f.app.InstallUpdate(); err != nil {
+		t.Fatalf("InstallUpdate: %v", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("安装器调用次数 = %d，期望 1", *calls)
+	}
+	if st := f.app.UpdateStatus().Stage; st != protocol.UpdateInstalling {
+		t.Errorf("阶段 = %q，期望 %q", st, protocol.UpdateInstalling)
+	}
+	// 本进程仍是 0.1.0，所以记录会被读成「上次更新到 0.9.0 未完成」——正是新版本
+	// 没能起来时用户该看到的那句话。
+	if note := installAttemptNote(); !strings.Contains(note, "0.9.0") {
+		t.Errorf("应当记下这次要装成 0.9.0，实际 %q", note)
+	}
+}
+
 // TestInstallerNameIsSafe 直接盯住文件名的拼法：无论直链里是什么，落地的名字都只
 // 由产品、版本、架构与一个白名单扩展名拼成。
 func TestInstallerNameIsSafe(t *testing.T) {
@@ -456,9 +557,10 @@ func TestFixedFieldsSurviveReset(t *testing.T) {
 			t.Errorf("%s 之后固有属性丢了：\n得到 %#v\n期望 %#v", name, got, want)
 		}
 	}
-	// 不接管安装的平台，Ready 那一步只剩这一句能告诉用户怎么办，不能是空的。
-	if here := newUpdater(nil).snapshot(); !here.CanInstall && here.InstallHint == "" {
-		t.Error("本平台不由应用接管安装，却没有给出动手安装的说明")
+	// Ready 那一步按钮旁边就是这一句：点了会发生什么，或者不接管安装时该怎么自己装。
+	// 哪个平台都不能是空的。
+	if here := newUpdater(nil).snapshot(); here.InstallHint == "" {
+		t.Error("本平台没有给出安装说明")
 	}
 }
 

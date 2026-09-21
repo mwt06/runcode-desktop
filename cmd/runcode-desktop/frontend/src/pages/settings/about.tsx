@@ -127,20 +127,26 @@ function UpdateBody({ update }: { update: UpdateController }): ReactElement | nu
             <button type="button" className={`${BTN} ${BTN_PRIMARY} px-4`} onClick={update.install}>
               {info?.canInstall ? '立即安装并重启' : '打开安装包所在文件夹'}
             </button>
-            <span className="text-[12px] text-faint">
-              {/* 三种结局各说各的，别许一个做不到的承诺：静默安装会自己回来；
-                  走向导的（认不出安装目录，基本只有开发构建）要用户自己点图标；
-                  macOS / Linux 不由应用接管安装，怎么动手装由后端按平台给（installHint）。 */}
-              {!info?.canInstall
-                ? info?.installHint
-                : info.autoRestart
-                  ? '将关闭本应用并自动完成安装，装好后会自动重新打开（需授权一次）'
-                  : '将关闭本应用并运行安装程序，安装完成后重新打开即可'}
-            </span>
+            {/* 点了会发生什么（或不接管安装时该怎么自己装）因平台而异，别许一个做不到的
+                承诺——这句话由后端按平台给，前端不猜。 */}
+            <span className="text-[12px] text-faint">{info?.installHint}</span>
           </div>
           {!info?.canInstall && info?.file && (
             <p className="text-[12px] text-faint font-mono break-all">{info.file}</p>
           )}
+          {/* 上一次点安装没装成（取消了授权、密码输错、系统在装别的）。包是好的，
+              所以留在这一步，原因写在按钮下面，改个主意直接再点。 */}
+          {failure && <InlineError variant="text">{failure}</InlineError>}
+        </div>
+      )
+
+    case UpdateStages.Installing:
+      return (
+        <div className={`${INSET_BOX} flex flex-col gap-2.5`}>
+          <NewVersionHead info={info} />
+          {/* Linux 上这一步要等用户在密码框里授权、再等 apt 装完，可能好一阵；
+              Windows 上一闪而过（安装器起来后应用就退出了）。 */}
+          <p className="text-[12px] text-muted">正在安装更新，请按提示完成授权…</p>
         </div>
       )
 
@@ -158,7 +164,7 @@ function UpdateBody({ update }: { update: UpdateController }): ReactElement | nu
   }
 }
 
-// NewVersionHead 是「新版本 x.y.z」那一行加更新说明，四个阶段共用。
+// NewVersionHead 是「新版本 x.y.z」那一行加更新说明，有新版之后的几个阶段共用。
 function NewVersionHead({ info }: { info: UpdateController['info'] }) {
   if (!info) return null
   return (

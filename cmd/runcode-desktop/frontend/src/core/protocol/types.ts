@@ -118,6 +118,7 @@ export const UpdateStages = {
   Downloading: 'downloading',
   Failed: 'failed',
   Idle: 'idle',
+  Installing: 'installing',
   Latest: 'latest',
   Ready: 'ready',
   Verifying: 'verifying',

@@ -80,8 +80,13 @@ export function useUpdate(): UpdateController {
       stage === UpdateStages.Available ||
       stage === UpdateStages.Downloading ||
       stage === UpdateStages.Verifying ||
-      stage === UpdateStages.Ready,
-    busy: stage === UpdateStages.Checking || stage === UpdateStages.Downloading || stage === UpdateStages.Verifying,
+      stage === UpdateStages.Ready ||
+      stage === UpdateStages.Installing,
+    busy:
+      stage === UpdateStages.Checking ||
+      stage === UpdateStages.Downloading ||
+      stage === UpdateStages.Verifying ||
+      stage === UpdateStages.Installing,
     error,
     check,
     download,

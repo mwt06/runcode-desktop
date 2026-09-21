@@ -223,7 +223,7 @@ export function installRuntime(id: string): Promise<void> {
   return call<void>('InstallRuntime', id);
 }
 
-// InstallUpdate 拉起安装器。Windows 上安装器起来之后本应用会自己退出（见 quitSoon）； 不支持直接安装的平台（macOS）则打开安装包所在的文件夹，由用户自己接手。
+// InstallUpdate 装下好的新版本，装好后本应用退出、新版本接手（见 quitSoon）。 怎么装分平台（runInstaller）：Windows 拉起 NSIS 安装器；Linux 由应用自己跑 apt， 经应用的密码框授权。不由应用接管安装的平台（macOS、开发构建）则打开安装包所在的 文件夹，由用户自己接手。
 // kind: trigger
 export function installUpdate(): Promise<void> {
   return call<void>('InstallUpdate');

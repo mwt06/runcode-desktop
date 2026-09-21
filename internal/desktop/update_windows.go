@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,8 +21,22 @@ func canLaunchInstaller() bool { return true }
 // launchInstaller 完全一致：认得出自己装在哪，才敢静默装、也才知道装完拉起哪个 exe。
 func willAutoRestart() bool { return nsisInstallDirArg(appInstallRoot()) != "" }
 
-// manualInstallHint: Windows 由应用拉起安装器，没有「自己动手装」这一步。
-func manualInstallHint() string { return "" }
+// installHint：三种结局各说各的，别许一个做不到的承诺。认得出安装目录的正式安装
+// 走静默安装、装完自己回来；认不出的（基本只有开发构建）走向导，要用户自己点图标。
+func installHint() string {
+	if willAutoRestart() {
+		return "将关闭本应用并自动完成安装，装好后会自动重新打开（需授权一次）"
+	}
+	return "将关闭本应用并运行安装程序，安装完成后重新打开即可"
+}
+
+// runInstaller 拉起 NSIS 安装器；之后由 InstallUpdate 让本应用退出。
+func (a *App) runInstaller(file, expect string) error {
+	if err := launchInstaller(file, expect); err != nil {
+		return fmt.Errorf("拉起安装程序失败: %w", err)
+	}
+	return nil
+}
 
 // launchInstaller 拉起安装器。expect 是这次要装成的版本（来自服务端清单），交给
 // 看门进程当"装好了没有"的判据。

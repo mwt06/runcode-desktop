@@ -58,6 +58,7 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -133,7 +134,7 @@ type updater struct {
 	// rel 是最近一次查到的清单原文。下载要用里面的 url/sha256，而它们不该出现在
 	// 发给前端的状态里——前端不需要知道下载直链，多一处泄漏不如不给。
 	rel releaseWire
-	// busy 是「此刻正在做什么」："" / "check" / "download"。
+	// busy 是「此刻正在做什么」："" / "check" / "download" / "install"。
 	busy string
 	// cancel 取消正在跑的那趟。取消一次 http 请求的唯一办法就是取消它的 ctx。
 	cancel context.CancelFunc
@@ -149,7 +150,7 @@ func newUpdater(emit func(protocol.UpdateInfo)) *updater {
 			Stage:       protocol.UpdateIdle,
 			CanInstall:  canLaunchInstaller(),
 			AutoRestart: willAutoRestart(),
-			InstallHint: manualInstallHint(),
+			InstallHint: installHint(),
 		},
 	}
 }
@@ -208,6 +209,8 @@ func (u *updater) begin(what string, cancel context.CancelFunc) error {
 		return nil
 	case "check":
 		return errors.New("正在检查更新，请稍候")
+	case "install":
+		return errors.New("正在安装更新，请稍候")
 	default:
 		return errors.New("正在下载更新，请稍候")
 	}
@@ -431,8 +434,11 @@ func (a *App) CancelUpdateDownload() protocol.UpdateInfo {
 	return a.upd.snapshot()
 }
 
-// InstallUpdate 拉起安装器。Windows 上安装器起来之后本应用会自己退出（见 quitSoon）；
-// 不支持直接安装的平台（macOS）则打开安装包所在的文件夹，由用户自己接手。
+// InstallUpdate 装下好的新版本，装好后本应用退出、新版本接手（见 quitSoon）。
+//
+// 怎么装分平台（runInstaller）：Windows 拉起 NSIS 安装器；Linux 由应用自己跑 apt，
+// 经应用的密码框授权。不由应用接管安装的平台（macOS、开发构建）则打开安装包所在的
+// 文件夹，由用户自己接手。
 func (a *App) InstallUpdate() error {
 	info := a.upd.snapshot()
 	if info.Stage != protocol.UpdateReady || strings.TrimSpace(info.File) == "" {
@@ -443,20 +449,50 @@ func (a *App) InstallUpdate() error {
 		// 能做的都是同一件事，重下一次。
 		return wireError(fmt.Errorf("下载好的安装包不见了（%s），请重新下载", info.File))
 	}
-	if !canLaunchInstaller() {
+	// 按状态里的 CanInstall 判，而不是再问一遍平台：界面上的按钮是照它画的，两处
+	// 取同一个事实，就不会出现「按钮写着打开文件夹、点下去却装了」。
+	if !info.CanInstall {
 		return wireError(startAndReap(revealCommand(info.File)))
 	}
+	if err := a.upd.begin("install", nil); err != nil {
+		return wireError(err)
+	}
+	defer a.upd.finish()
+
+	// 交给安装器（它以管理员身份运行）之前再验一遍：下载时验过，可从那以后它一直躺在
+	// 用户可写的缓存目录里，而接下来要以 root 执行的正是它。
+	a.upd.mu.Lock()
+	want := a.upd.rel.SHA256
+	a.upd.mu.Unlock()
+	if err := verifyFileSHA256(info.File, want); err != nil {
+		// 删掉它：留着的话「重试」→ 检查更新会按文件名再认它一次，又回到这里。
+		_ = os.Remove(info.File)
+		a.upd.fail(err)
+		return wireError(err)
+	}
+
 	// 记下"这次要装成哪一版"，下次启动据此判定装没装上（见 installAttempt）。
 	// 写失败不挡更新：少一句事后说明而已，比因为写不了一个记录文件就不给更新好。
 	if err := writeInstallAttempt(info.Latest); err != nil {
 		debugLog("update: 记录本次安装目标失败（装完将无法判定成败）: %v", err)
 	}
-	if err := launchInstaller(info.File, info.Latest); err != nil {
-		return wireError(fmt.Errorf("拉起安装程序失败: %w", err))
+	a.upd.apply(func(i *protocol.UpdateInfo) { i.Stage, i.Error = protocol.UpdateInstalling, "" })
+	if err := runUpdateInstaller(a, info.File, info.Latest); err != nil {
+		// 这次失败已经当面说了，别在下次启动时再以"上次安装未完成"说第二遍。
+		takeInstallAttempt()
+		// 退回「待安装」并带上原因：包是好的，用户改个主意（比如这回输对密码）直接
+		// 再点一次就行，不必绕回「检查更新」。
+		a.upd.apply(func(i *protocol.UpdateInfo) { i.Stage, i.Error = protocol.UpdateReady, err.Error() })
+		return wireError(err)
 	}
 	a.quitSoon()
 	return nil
 }
+
+// runUpdateInstaller 是 InstallUpdate 调平台安装器的那一处。做成变量只为测试：真的
+// 那个在 Windows 上会 ShellExecute 安装包、在 Linux 上会 sudo apt-get，都不该在跑测试
+// 的机器上发生。生产上没有任何地方给它赋别的值。
+var runUpdateInstaller = func(a *App, file, version string) error { return a.runInstaller(file, version) }
 
 // quitSoon 隔一小会儿退出应用，把舞台让给安装器。
 //
@@ -702,6 +738,27 @@ func installerExt(rawURL string) string {
 	default:
 		return def
 	}
+}
+
+// verifyFileSHA256 重算 path 的 sha256 并与 want 比对（大小写、首尾空白不计）。
+func verifyFileSHA256(path, want string) error {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" {
+		return errors.New("缺少安装包的 sha256，无法确认它没被改动过，请重新检查更新")
+	}
+	f, err := os.Open(path) //nolint:gosec // 路径是本应用缓存目录里、由 installerName 拼出的文件
+	if err != nil {
+		return fmt.Errorf("读取安装包失败: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("读取安装包失败: %w", err)
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		return fmt.Errorf("安装包在下载之后被改动过（期望 %s，实际 %s），已丢弃，请重新下载", want, got)
+	}
+	return nil
 }
 
 // downloadedInstaller 报告这一版的安装包是不是已经下好躺在本地了。

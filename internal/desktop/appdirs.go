@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
@@ -62,14 +63,28 @@ func appDataRoots() []string {
 // cannot be located. Symlinks are resolved so the root is compared in the same
 // terms IsWithinResolved will compare a target in.
 func appInstallRoot() string {
-	exe, err := os.Executable()
+	exe, err := selfExecutable()
 	if err != nil {
 		return ""
 	}
+	return filepath.Dir(exe)
+}
+
+// selfExecutable 是本程序的真实路径（符号链接已解开）。
+//
+// 去掉 " (deleted)" 后缀：Linux 上 dpkg 替换正在运行的二进制是「写新文件再改名」，
+// 旧 inode 被删，/proc/self/exe 读出来就带着这个后缀——而更新装完要拉起的正是那个
+// 路径上的新文件（见 update_linux.go）。
+func selfExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	exe = strings.TrimSuffix(exe, " (deleted)")
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	return filepath.Dir(exe)
+	return exe, nil
 }
 
 // appendRoot adds root unless it is empty or already present (the OS bases can

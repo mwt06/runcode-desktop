@@ -54,12 +54,9 @@ const (
 
 // startAskpassServer 在本用户私有的目录里开一个 Unix 套接字。
 func startAskpassServer(b *askpassBroker) (*askpassServer, error) {
-	exe, err := os.Executable()
+	exe, err := selfExecutable()
 	if err != nil {
 		return nil, err
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
 	}
 	dir, err := askpassDir()
 	if err != nil {

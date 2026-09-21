@@ -30,6 +30,9 @@ const (
 	UpdateVerifying = "verifying"
 	// UpdateReady 安装包已下好并校验通过，等用户点安装。
 	UpdateReady = "ready"
+	// UpdateInstalling 正在安装。Windows 上一闪而过（拉起安装器后应用就退出了）；
+	// Linux 上应用自己跑 apt，要等用户在密码框里授权、再等 apt 装完，得有个样子。
+	UpdateInstalling = "installing"
 	// UpdateFailed 这一轮失败了，Error 是给用户看的原因。
 	UpdateFailed = "failed"
 )
@@ -91,10 +94,11 @@ type UpdateInfo struct {
 	// 单独给一个字段而不是让前端按平台猜：界面要据此把「将关闭本应用并自动完成更新」
 	// 还是「将关闭本应用并运行安装程序」写出去，说错了就是一句用户会当真的假话。
 	AutoRestart bool `json:"autoRestart"`
-	// InstallHint 是 CanInstall 为假时，下好之后给用户的那一句操作说明。
+	// InstallHint 是 Ready 阶段安装按钮旁边的那一句说明：点了之后会发生什么，或者
+	// 不由应用接管安装时用户该怎么自己装。
 	//
-	// 按平台由后端给，与 CanInstall/AutoRestart 同理：macOS 是把 .app 拖进「应用程序」，
-	// Linux 是双击 deb 交给系统的软件包安装器——前端写死一句的下场，是麒麟用户被
-	// 告知去拖一个他系统里根本不存在的「应用程序」文件夹（真机实测）。
+	// 按平台由后端给，与 CanInstall/AutoRestart 同理：Windows 是 UAC + 安装器，
+	// Linux 是应用的密码框 + apt，macOS 是把 .app 拖进「应用程序」。前端写死一句的
+	// 下场，是麒麟用户被告知去拖一个他系统里根本不存在的「应用程序」文件夹（真机实测）。
 	InstallHint string `json:"installHint"`
 }
