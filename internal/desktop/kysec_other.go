@@ -13,5 +13,3 @@ var kysecExecControlOn = func() bool { return false }
 func kysecTrust(context.Context, []elfFile, []string) error {
 	return errors.New("本平台没有麒麟安全中心")
 }
-
-func envWith(map[string]string) []string { return nil }

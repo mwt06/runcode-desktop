@@ -136,7 +136,7 @@ type App struct {
 
 	// privGate / askpass / askpassSrv 是"模型用 sudo"那条链（见 privilege.go 与
 	// askpass.go）：批准过 sudo 的会话才上膛，上了膛的会话 sudo 要密码时才弹框。
-	// askpassSrv 在 Startup 里才起、别的平台上始终为空，所以用原子指针——会话装配与
+	// askpassSrv 在 Startup 里才起、Windows 上始终为空，所以用原子指针——会话装配与
 	// 每次权限判定都要读它，而那些路径不该为它去排 a.mu。
 	privGate   *privilegeGate
 	askpass    *askpassBroker
@@ -315,7 +315,7 @@ func (a *App) Startup() {
 	// 版本更新的自动检查。延后几秒再跑（见 updateCheckDelay）：它的结论最快也要等
 	// 用户走到设置页才会被看见，没有理由和建窗口、装内置技能抢那几秒。
 	go a.autoCheckUpdate(updateCheckDelay)
-	// sudo 的密码框服务（仅 Linux，见 askpass_linux.go）。起不来就不开放 sudo——
+	// Linux/macOS 的 sudo 密码通道；Windows 另走系统 UAC。起不来就不开放 Unix sudo——
 	// privilegePolicy 看的是 askpassReady，于是 sudo 保持引擎原来的硬拒，不会出现
 	// "批准了却拿不到密码"的半截状态。
 	if srv, err := startAskpassServer(a.askpass); err == nil {
@@ -715,7 +715,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		Policy: newOALockPolicy(
 			privilegePolicy{
 				inner:   newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPServers: passportMCPNames()}),
-				enabled: a.askpassReady,
+				enabled: a.privilegeReady,
 			},
 			func() string { return a.oaLockedModel(sctx.ID) },
 		),
@@ -788,13 +788,12 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// **两件事都要做**：只注入 PATH 的话，模型不知道 Python 在那儿，面对"生成一份
 	// 公文"会先回一句"请先安装 Python"；只写提示词当然更不行。
 	applyRuntimeEnv(a.rt, cfg)
-	// sudo：把密码助手的地址注给工具子进程，并告诉模型 sudo 能用、代价是什么。
-	// 两件事同进同退——只注环境不写提示词，模型不知道能用；只写提示词不注环境，
-	// sudo 会在没有终端的子进程里直接失败。
+	// Linux/macOS 注入密码助手环境；Windows 无密码通道、另走系统 UAC。
+	// 提示词必须与本机实际能力一致，不能让模型拿 Unix 的 -A 去调用 Windows sudo。
 	if env := a.askpassEnv(sctx.ID); env != nil {
 		mergeToolEnv(cfg, env)
-		appendSystemPrompt(cfg, privilegePrompt())
 	}
+	appendSystemPrompt(cfg, a.platformPrivilegePrompt())
 
 	// Fresh edit store per session ("已编辑" undo/review), bound to the
 	// session's edit directory before the first tool can run.

@@ -1,10 +1,8 @@
-//go:build !linux
+//go:build (!linux && !darwin) || (darwin && !cgo)
 
 package desktop
 
-// askpass 只在 Linux 上开放：来者核验靠 /proc 与 SO_PEERCRED，别处没有等价物。没有
-// 这一步，密码框就可能被模型直接拉起、把密码读进工具输出——那比没有 sudo 糟得多。
-// 于是这里的 sudo 保持引擎原来的硬拒（askpassReady 为假，privilegePolicy 不放行）。
+// Windows 用系统 UAC；macOS 的无 cgo 构建缺少 libproc 核验，保持密码通道关闭。
 
 import "errors"
 

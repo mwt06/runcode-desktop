@@ -1,21 +1,23 @@
-//go:build linux && askpass_e2e
+//go:build (linux || (darwin && cgo)) && askpass_e2e
 
 package desktop
 
-// 在真 Linux 上用真 sudo 把整条 askpass 链路走一遍。它要系统密码，所以默认不跑：
+// 在真 Linux/macOS 上用真 sudo 把整条 askpass 链路走一遍。它要系统密码，所以默认不跑：
 //
 //	go test -c -tags askpass_e2e -o askpass.test ./internal/desktop/
 //	ASKPASS_E2E_PW='…' ./askpass.test -test.run TestAskpassE2E -test.v
 //
-// 单测里的 /proc 内容是手写的样本；这里验的是**真的** sudo、真的 SO_PEERCRED、真的
-// /proc——来者核验是整个功能的安全支点，不在真机上跑过就不算数。
+// 这里验的是系统 sudo、Unix peer 凭据与 /proc 或 libproc；来者核验是整个功能
+// 的安全支点，不在真机上跑过就不算数。
 
 import (
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -56,6 +58,10 @@ func newE2E(t *testing.T) *e2eHarness {
 
 // env 是注给工具子进程的那几个变量——与 App.askpassEnv 同形。
 func (h *e2eHarness) env(session string) []string {
+	display := ":0"
+	if runtime.GOOS == "darwin" {
+		display = ""
+	}
 	return append(os.Environ(),
 		"SUDO_ASKPASS="+h.srv.exe,
 		envAskpassSocket+"="+h.srv.path,
@@ -63,14 +69,17 @@ func (h *e2eHarness) env(session string) []string {
 		envAskpassSession+"="+session,
 		// 与生产一致：桌面会话里 DISPLAY 总在（麒麟 Wayland 经 XWayland 给 :0）。从 SSH
 		// 跑这个测试时没有它，sudo 就不会自动改走 askpass。
-		"DISPLAY=:0",
+		"DISPLAY="+display,
 	)
 }
 
 // run 在没有控制终端的新会话里跑一条命令——与 Bash 工具的子进程处境一致。
 func (h *e2eHarness) run(t *testing.T, session string, name string, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("setsid", append([]string{name}, args...)...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Env = h.env(session)
 	cmd.Stdin = nil
 	out, err := cmd.CombinedOutput()
@@ -89,7 +98,7 @@ func (h *e2eHarness) gotRequest() (protocol.AskpassRequest, bool) {
 func TestAskpassE2E_RealSudoGetsPassword(t *testing.T) {
 	h := newE2E(t)
 	h.gate.arm("s1")
-	out, err := h.run(t, "s1", "sudo", "-k", "id", "-un")
+	out, err := h.run(t, "s1", "sudo", "-A", "-k", "id", "-un")
 	if err != nil || !strings.HasSuffix(out, "root") {
 		t.Fatalf("sudo via askpass failed: %v\n%s", err, out)
 	}
@@ -98,7 +107,7 @@ func TestAskpassE2E_RealSudoGetsPassword(t *testing.T) {
 		t.Fatal("UI never saw the request")
 	}
 	// 弹框里显示的是 sudo **实际**要跑的命令，取自它自己的 /proc/<pid>/cmdline。
-	if r.Command != "sudo -k id -un" {
+	if !strings.HasSuffix(r.Command, "sudo -A -k id -un") {
 		t.Errorf("dialog showed %q, want the real sudo command line", r.Command)
 	}
 	// 密码不能出现在任何工具输出里。
@@ -145,7 +154,7 @@ func TestAskpassE2E_FakeSudoScriptIsRefused(t *testing.T) {
 func TestAskpassE2E_UnarmedSessionIsRefused(t *testing.T) {
 	h := newE2E(t)
 	// 没批准过 sudo 的会话：真 sudo 发起的请求也不弹框。
-	out, err := h.run(t, "s-unarmed", "sudo", "-k", "true")
+	out, err := h.run(t, "s-unarmed", "sudo", "-A", "-k", "true")
 	if err == nil {
 		t.Fatalf("sudo succeeded without an approval: %q", out)
 	}

@@ -20,7 +20,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -227,13 +226,7 @@ func (a *App) askpassEnv(session string) map[string]string {
 	}
 }
 
-// askpassReady 报告 sudo 这条路此刻走不走得通。
-//
-// 除了服务得起来，还要有 DISPLAY：sudo 在没有终端时自动改走 askpass，前提是 DISPLAY
-// 非空（它拿这个当"有图形界面"的信号，并不真去连）。麒麟的 Wayland 会话经 XWayland
-// 带着 DISPLAY=:0，正常就满足；真没有的环境里 sudo 会报"需要终端"——那就干脆不开放，
-// 而不是伪造一个 DISPLAY：matplotlib 这类程序正是按它来挑图形后端的，给个假值会让
-// 它们去连一个不存在的显示器。
+// askpassReady 只报告密码通道；Windows 的 UAC 能力由 privilegeReady 单独报告。
 func (a *App) askpassReady() bool {
-	return a.askpassSrv.Load() != nil && os.Getenv("DISPLAY") != ""
+	return a.askpassSrv.Load() != nil && askpassAvailable()
 }

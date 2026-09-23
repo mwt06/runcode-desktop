@@ -26,8 +26,8 @@ package desktop
 //
 // # 平台
 //
-// 只在 Linux 开放。askpass 的来者核验靠 /proc 与 SO_PEERCRED，别处没有等价物；在别的
-// 平台上 sudo 保持引擎原来的硬拒（askpassSupported 为假）。
+// Linux/macOS 走应用密码框，并分别用 /proc 与 libproc 核验来者；Windows 走
+// 系统原生 sudo/UAC（24H2+，须用户自己启用），不在应用里收 Windows 密码。
 
 import (
 	"context"
@@ -35,6 +35,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
@@ -56,8 +57,11 @@ const (
 var sudoDeniedTokens = map[string]bool{
 	// 删除
 	"rm": true, "rmdir": true, "del": true, "erase": true, "shred": true, "unlink": true,
+	"rd": true, "remove-item": true, "ri": true,
 	// 格式化与直写磁盘
 	"format": true, "dd": true, "wipefs": true, "fdisk": true, "sfdisk": true, "parted": true,
+	"diskpart": true, "diskutil": true, "clear-disk": true, "format-volume": true,
+	"initialize-disk": true, "remove-partition": true,
 }
 
 // escalationTokens 是 sudo 之外的提权方式。引擎认得 su 与 runas，却不认得 pkexec 与
@@ -67,7 +71,15 @@ var escalationTokens = map[string]bool{"su": true, "doas": true, "pkexec": true,
 // tokenBase 把一个命令行片段归一成可比的命令名："/usr/bin/sudo" → "sudo"，
 // `"rm` → "rm"。
 func tokenBase(field string) string {
-	return path.Base(strings.Trim(field, "\"'`()"))
+	return strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(strings.Trim(field, "\"'`()"), `\`, "/"))), ".exe")
+}
+
+// 分隔 shell 操作符，避免 sudo.exe&... 或 sudo;... 漏过分类。不尝试解释脚本；
+// 引号内的危险词仍然保守地识别，与引擎危险词策略一致。
+func privilegeFields(command string) []string {
+	return strings.FieldsFunc(command, func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(";&|()<>", r)
+	})
 }
 
 // sudoLine 报告一条命令里有没有要执行 sudo——**不只看开头**。
@@ -81,7 +93,7 @@ func tokenBase(field string) string {
 // 逐字匹配（去引号、括号与路径前缀，与引擎 containsDangerousToken 同一取舍）：
 // `echo sudo` 也会被当成 sudo 行——它原本就被引擎按危险词硬拒，现在只是改成先问你。
 func sudoLine(command string) bool {
-	for _, f := range strings.Fields(command) {
+	for _, f := range privilegeFields(command) {
 		if tokenBase(f) == "sudo" {
 			return true
 		}
@@ -91,7 +103,7 @@ func sudoLine(command string) bool {
 
 // sudoRefusal 返回这条 sudo 命令必须拒绝的原因（""=可以拿去问用户）。
 func sudoRefusal(command string) string {
-	for _, f := range strings.Fields(command) {
+	for _, f := range privilegeFields(command) {
 		t := tokenBase(f)
 		switch {
 		case sudoDeniedTokens[t] || strings.HasPrefix(t, "mkfs"):
@@ -105,7 +117,7 @@ func sudoRefusal(command string) string {
 
 // escalationIn 返回非 sudo 行里出现的提权命令（""=没有）。
 func escalationIn(command string) string {
-	for _, f := range strings.Fields(command) {
+	for _, f := range privilegeFields(command) {
 		if t := tokenBase(f); escalationTokens[t] {
 			return t
 		}
@@ -194,7 +206,7 @@ func (p privilegePolicy) Decide(ctx context.Context, action permissions.Action) 
 		return decision
 	}
 	if p.enabled == nil || !p.enabled() {
-		return decision
+		return permissions.Deny(permissions.ReasonPolicyDenied, "desktop.privilege.unavailable")
 	}
 	if sudoRefusal(cmd) != "" {
 		return permissions.Deny(permissions.ReasonPolicyDenied, "desktop.privilege.refused")
@@ -296,18 +308,4 @@ func (g *privilegeGate) armed(session string) bool {
 		return false
 	}
 	return true
-}
-
-// ---- 提示词 --------------------------------------------------------------
-
-// privilegePrompt 告诉模型 sudo 能用、以及它的代价。只陈述事实，不下禁令：模型自己
-// 判断值不值得为这件事打扰用户两次。
-func privilegePrompt() string {
-	return "## Administrator (sudo) commands\n\n" +
-		"This reflects the current state of this app and supersedes older notes (for example in memory) saying sudo is refused. " +
-		"`sudo` works in this app, but every sudo command is shown to the user for approval, " +
-		"and the user then types their system password in a dialog — the password never reaches you. " +
-		"Each sudo command interrupts the user twice, so use it only when a task genuinely needs system-level changes " +
-		"(for example installing a system package). Commands that delete files or write to disks " +
-		"(rm, dd, mkfs, …) are refused under sudo, as are pkexec, su and doas.\n"
 }

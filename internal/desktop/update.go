@@ -437,8 +437,8 @@ func (a *App) CancelUpdateDownload() protocol.UpdateInfo {
 // InstallUpdate 装下好的新版本，装好后本应用退出、新版本接手（见 quitSoon）。
 //
 // 怎么装分平台（runInstaller）：Windows 拉起 NSIS 安装器；Linux 由应用自己跑 apt，
-// 经应用的密码框授权。不由应用接管安装的平台（macOS、开发构建）则打开安装包所在的
-// 文件夹，由用户自己接手。
+// 经应用的密码框授权；macOS 验证 bundle 签名后原位替换。不由应用接管安装的平台
+// 与开发构建则打开安装包所在的文件夹，由用户自己接手。
 func (a *App) InstallUpdate() error {
 	info := a.upd.snapshot()
 	if info.Stage != protocol.UpdateReady || strings.TrimSpace(info.File) == "" {

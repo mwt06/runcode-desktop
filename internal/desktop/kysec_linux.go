@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -76,20 +75,4 @@ func kysecError(out string, err error) error {
 		out = err.Error()
 	}
 	return fmt.Errorf("加入安全中心白名单失败：%s", out)
-}
-
-// envWith 在本进程环境上叠加 extra（同名覆盖）。
-func envWith(extra map[string]string) []string {
-	env := make([]string, 0, len(os.Environ())+len(extra))
-	for _, kv := range os.Environ() {
-		k, _, _ := strings.Cut(kv, "=")
-		if _, dup := extra[k]; dup {
-			continue
-		}
-		env = append(env, kv)
-	}
-	for k, v := range extra {
-		env = append(env, k+"="+v)
-	}
-	return env
 }
