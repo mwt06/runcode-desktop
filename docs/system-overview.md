@@ -263,7 +263,7 @@ sequenceDiagram
   A-->>FE: session:renamed
 ```
 
-事件面共 13 个：引擎 9 个（`assistant:delta` `assistant:thinking` `context:usage` `llm:retry` `permission:request` `tool:event` `turn:end` `turn:error` `turn:queued`）+ 桌面自有 4 个（`harm:autoallow` `passport:changed` `plan:updated` `session:renamed`）。
+核心回合事件来自引擎（`assistant:delta` `assistant:thinking` `context:usage` `context:compaction` `warning` `llm:retry` `permission:request` `tool:event` `turn:end` `turn:error` `turn:queued`），桌面另有宿主事件（`harm:autoallow` `passport:changed` `plan:updated` `session:renamed`）。
 
 ## 七、工具面：模型能看到什么
 

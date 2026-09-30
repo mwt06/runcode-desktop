@@ -27,7 +27,7 @@ import {
   type SessionInfo,
   type OpenSessionInfo,
   type SessionSummary,
-  type StartSessionRequest,
+  type StartSessionRequest, type SettingsView,
 } from '@/core/bridge'
 import { type ModelOption } from '@/ui/model-picker'
 import { nextMode } from '@/core/permission-modes'
@@ -52,7 +52,7 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
   const [recents, setRecents] = useState<SessionSummary[]>([])
-  const [initialReq, setInitialReq] = useState<Partial<StartSessionRequest> | null>(null)
+  const [initialReq, setInitialReq] = useState<Partial<SettingsView> | null>(null)
 
   // Load the persisted start-form values so a restart prefills them.
   useEffect(() => {
@@ -82,6 +82,10 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
   // switching 供入口回调挡住切换进行中的重复点击。
   const switchGen = useRef(0)
   const [switching, setSwitching] = useState(false)
+  function captureSwitch() {
+    const gen = switchGen.current
+    return () => gen === switchGen.current
+  }
   function beginSwitch() {
     const gen = ++switchGen.current
     setSwitching(true)
@@ -169,6 +173,7 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
   // 表单——登出后自然落到登录门(除非开了免登录)。后端会话不显式关闭(下次启动会新建
   // 或恢复),这里只重置外壳状态,并刷新预填值(登出后连接/模型可能已变)。
   function returnToStart() {
+    switchGen.current++
     setStarted(false)
     setInfo(null)
     setStartError('')
@@ -268,6 +273,27 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
       // 结果是开出一条空对话。跨工作区并行之后这是必须的，同目录时它只是一次空转。
       void refreshRecents()
     })
+  }
+
+  // Replay before submission, then focus only if the initiating action is still
+  // current. A slow branch build must not pull the user back from another chat.
+  async function runQuestionBranch(r: ResumedSession, current: () => boolean, submit: (id: string) => Promise<boolean>) {
+    const isStale = beginSwitch()
+    try {
+      await conversation.applyResumed(r, isStale)
+      void refreshOpen()
+      if (isStale() || !current()) return false
+      const i = await focusSession(r.info.sessionId)
+      if (isStale() || !current()) return false
+      setInfo(i)
+      // The branch is initialized and focused. Release navigation before waiting
+      // for its input to persist, so queued work can still be stopped or closed.
+      endSwitch(isStale)
+      const accepted = await submit(r.info.sessionId)
+      void refreshRecents()
+      void refreshOpen()
+      return accepted
+    } finally { endSwitch(isStale) }
   }
 
   // closeOne 关掉一条开着的会话。后端会把聚焦顺势落到还活着的另一条上，这里按
@@ -374,7 +400,7 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
 
   return {
     info, setInfo, started, starting, startError, recents, initialReq, setInitialReq, switching,
-    openList, titles, openAnother, focusOn, closeOne,
+    captureSwitch, runQuestionBranch, refreshOpen, openList, titles, openAnother, focusOn, closeOne,
     start, newChat, openRecent, openWorkspace, pickWorkspaceAndOpen, deleteRecent, returnToStart,
     togglePlan, chooseReasoning, chooseThinking, pickMode, toggleMode, pickModel,
   }

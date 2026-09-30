@@ -11,23 +11,33 @@ import (
 )
 
 // waitEventCmd 阻塞读一条事件;Update 处理完后再排一个,形成事件泵。
-func waitEventCmd(events <-chan tea.Msg) tea.Cmd {
+func waitEventCmd(ctx context.Context, events <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		return <-events
+		select {
+		case msg := <-events:
+			return msg
+		case <-ctx.Done():
+			return nil
+		}
 	}
 }
 
 // runTurnCmd 起一个回合。它自己不等结果——回合在独立 goroutine 里跑，完成或
 // 失败都经 events 送回,这样取消(ctx)与流式增量能并发进行。
-func runTurnCmd(ctx context.Context, service Service, text string, events chan<- tea.Msg) tea.Cmd {
+func runTurnCmd(lifetime, ctx context.Context, service Service, text string, events chan<- tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		go func() {
 			result, err := service.RunTurn(ctx, text)
+			var msg tea.Msg = turnDoneMsg{Result: result}
 			if err != nil {
-				events <- turnErrorMsg{Err: err}
-				return
+				msg = turnErrorMsg{Err: err}
 			}
-			events <- turnDoneMsg{Result: result}
+			// Turn cancellation must still reach Update (Ctrl-C waits for it).
+			// Only exiting the entire UI discards undeliverable final events.
+			select {
+			case events <- msg:
+			case <-lifetime.Done():
+			}
 		}()
 		return nil
 	}

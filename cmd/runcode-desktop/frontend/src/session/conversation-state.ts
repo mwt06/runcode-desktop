@@ -7,7 +7,8 @@
 // 这个模块是纯的（没有 React、没有 Wails），所以折叠规则可以单独测；use-conversation
 // 只负责订阅事件、把信封按 id 派发进来，以及把聚焦会话那一份交给界面渲染。
 import { type Block } from '@/chat/blocks'
-import { type PlanSnapshot } from '@/core/bridge'
+import { type ContextCompaction, type PlanSnapshot } from '@/core/bridge'
+import { fmtTokens } from '@/core/format'
 
 /** ConversationState 是**一条**对话的全部可渲染状态。 */
 export interface ConversationState {
@@ -29,12 +30,13 @@ export interface ConversationState {
   busy: boolean
   /** plan 是最近一次 TodoWrite 快照（顶部进度胶囊），null 表示模型还没记过。 */
   plan: PlanSnapshot | null
-  /** ctxTokens / ctxEstimated 是上下文占用；estimated 表示这是恢复会话时的估算值，
-   *  等这条会话自己的第一次 context:usage 到达就换成实测。 */
+  /** 上下文占用来自引擎的校准估算，与压缩预算同源，并非精确 tokenizer 计数。 */
   ctxTokens: number
   ctxEstimated: boolean
-  /** compacting 表示正在手动压缩。 */
+  /** compacting 表示正在手动或自动压缩；回合在自动压缩期间仍保持 busy。 */
   compacting: boolean
+  /** 自动压缩进度条的块 id，完成/失败时原位更新，不堆叠消息。 */
+  compactionNoticeID?: string
   /** revertedEdits 是已撤销的编辑快照 id，决定「已编辑」卡片画成灰的还是可操作的。 */
   revertedEdits: Set<string>
 }
@@ -132,4 +134,37 @@ export function withReverted(s: ConversationState, snapshotID: string): Conversa
   const next = new Set(s.revertedEdits)
   next.add(snapshotID)
   return { ...s, revertedEdits: next }
+}
+
+/** 压缩只改变运行状态与估算计数，不结束回合，也不碰已有思考消息。 */
+export function withContextCompaction(
+  state: ConversationState,
+  event: ContextCompaction,
+  noticeID: string,
+  cancelled = false,
+): ConversationState {
+  // 手动压缩仍由命令的返回值提供用量与消息条数，避免双份提示。
+  if (event.reason === 'manual') return state
+  if (!['started', 'completed', 'failed'].includes(event.phase)) return state
+  if (event.phase === 'started' && cancelled) return state
+  const started = event.phase === 'started'
+  const failed = event.phase === 'failed'
+  const id = state.compactionNoticeID ?? noticeID
+  const counts = `≈${fmtTokens(event.beforeTokens)} → ≈${fmtTokens(event.afterTokens)}`
+  const text = started
+    ? '正在压缩上下文（含思考中的理解与判断），完成后继续'
+    : failed
+      ? cancelled ? '已取消上下文压缩，原始记录已保留' : '上下文压缩未完成，原始记录（含思考）已保留'
+      : event.afterTokens < event.beforeTokens
+        ? `上下文已压缩 · ${counts}${event.reason === 'auto_in_turn' ? '，继续当前任务' : ''}`
+        : '暂无需要压缩的内容'
+  const block: Block = { kind: failed && !cancelled ? 'warning' : 'notice', id, text }
+  const index = state.blocks.findIndex((b) => b.id === id)
+  const blocks = index < 0 ? [...state.blocks, block] : state.blocks.map((b, i) => i === index ? block : b)
+  return {
+    ...state, blocks, compacting: started,
+    compactionNoticeID: started ? id : undefined,
+    ctxTokens: started ? event.beforeTokens : event.afterTokens,
+    ctxEstimated: true,
+  }
 }

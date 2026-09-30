@@ -49,6 +49,7 @@ var eventPayloads = map[string]string{
 	"EventAssistantDelta":     "AssistantDelta",
 	"EventAssistantThinking":  "AssistantDelta",
 	"EventContextUsage":       "ContextUsage",
+	"EventContextCompaction":  "ContextCompaction",
 	"EventHarmAutoAllow":      "HarmAutoAllow",
 	"EventPassportChanged":    "PassportStatus",
 	"EventRecorderLevel":      "RecorderLevel",

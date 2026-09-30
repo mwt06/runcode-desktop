@@ -87,6 +87,7 @@ describe('custom model editing', () => {
 
   it('trims display fields while leaving an entered key byte-for-byte', () => {
     expect(toCustomModelSaveRequest(draft({ apiKey: ' secret with spaces ' }), 'old')).toEqual({
+      clearImageSupport: true,
       originalName: 'old',
       name: 'local',
       provider: 'openai',

@@ -22,7 +22,7 @@
     <key>CFBundleGetInfoString</key>
     <string>An open-source AI coding companion (desktop)</string>
     <key>CFBundleIconFile</key>
-    <string>iconfile</string>
+    <string>icons.icns</string>
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>LSMinimumSystemVersion</key>

@@ -17,6 +17,13 @@ import hostproto "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 
 // CommandKinds 按名字给每条命令分类。
 var CommandKinds = map[string]hostproto.CommandKind{
+	"GetVisionSettings":          hostproto.CommandQuery,
+	"SaveVisionSettings":         hostproto.CommandTrigger,
+	"SetPlatformImageCapability": hostproto.CommandTrigger,
+	"GetQuestion":                hostproto.CommandQuery,
+	"ForkQuestion":               hostproto.CommandTrigger,
+	"SubmitQuestion":             hostproto.CommandTrigger,
+
 	// Queries (read-only, safely retriable).
 	"ActiveTenant":            hostproto.CommandQuery,
 	"CodexModels":             hostproto.CommandQuery,

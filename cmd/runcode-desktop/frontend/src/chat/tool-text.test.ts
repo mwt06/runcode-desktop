@@ -36,6 +36,21 @@ describe('parseToolInput', () => {
 })
 
 describe('toolVerbTarget', () => {
+  it('shows the real image model for live and resumed results', () => {
+    expect(toolVerbTarget(ev({ toolName: 'analyze_image', data: { model: 'Vision', cached: true } }))).toEqual({ verb: '识别图片', target: 'Vision · 已有结果' })
+    expect(toolVerbTarget(ev({ toolName: 'analyze_image', input: '{"model":"Vision","question":"chart"}' })).target).toBe('Vision')
+  })
+
+  it('shows local browser URLs for live and replayed input, without treating them as files', () => {
+    const url = 'http://localhost:5051/confirm?stage=2'
+    for (const input of [{ url }, JSON.stringify({ url })]) {
+      const event = ev({ toolName: 'open_browser', input })
+      expect(toolVerbTarget(event)).toEqual({ verb: '打开浏览器', target: url })
+      expect(toolTargetPath(event)).toBeUndefined()
+    }
+    expect(toolVerbTarget(ev({ toolName: 'open_browser', input: {} })).target).toBe('')
+  })
+
   it('collapses and clips a Bash command', () => {
     const { verb, target } = toolVerbTarget(ev({ toolName: 'Bash', input: { command: '  go   test\n./...  ' } }))
     expect(verb).toBe('运行命令')

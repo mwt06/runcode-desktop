@@ -9,10 +9,10 @@
 // 于是每次启动都落进 else 分支变成空选择——**存了却读不回来**，用户每次都要重选一遍。
 // 判据因此改成「先看 customModelName，再看 provider==='passport'」，与 buildRequest
 // 写回时的两个分支严格对称。
-import type { CustomModel, StartSessionRequest } from '@/core/bridge'
+import type { CustomModel, SettingsView } from '@/core/bridge'
 
 // modelChoice 的取值：'passport:<模型id>' | 'custom:<连接档名>' | ''（未选）。
-export function initialModelChoice(initial: Partial<StartSessionRequest>): string {
+export function initialModelChoice(initial: Partial<SettingsView>): string {
   const custom = (initial.customModelName ?? '').trim()
   if (custom) return `custom:${custom}`
   const model = (initial.model ?? '').trim()
@@ -27,7 +27,7 @@ export function initialModelChoice(initial: Partial<StartSessionRequest>): strin
 // 注意登录门优先于它：未登录且没开「免登录」时起始页显示的是登录页，调用方在
 // 那种状态下不评估自动进入（见 pages/start/index.tsx 的守卫）。
 export function canAutoStartCustom(
-  initial: Partial<StartSessionRequest>,
+  initial: Partial<SettingsView>,
   customModels: CustomModel[],
 ): boolean {
   if (!(initial.cwd ?? '').trim()) return false

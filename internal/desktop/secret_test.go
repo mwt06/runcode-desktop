@@ -31,9 +31,9 @@ func TestProtectSecretEmptyIsNotProtected(t *testing.T) {
 // are untouched, and on a protecting platform the credentials round-trip back.
 func TestProtectRequestSecretsRedactsPlaintext(t *testing.T) {
 	t.Parallel()
-	req := StartSessionRequest{APIKey: "sk-secret", AuthToken: "tok-secret", Model: "m"}
+	req := desktopConfig{APIKey: "sk-secret", AuthToken: "tok-secret", Model: "m"}
 
-	p := protectRequestSecrets(req)
+	p := protectConfigSecrets(req)
 	if p.APIKey != "" || p.AuthToken != "" {
 		t.Fatalf("plaintext credentials survived: apiKey=%q authToken=%q", p.APIKey, p.AuthToken)
 	}
@@ -42,7 +42,7 @@ func TestProtectRequestSecretsRedactsPlaintext(t *testing.T) {
 	}
 
 	if _, ok := protectSecret("probe"); ok { // platform protects
-		r := unprotectRequestSecrets(p)
+		r := unprotectConfigSecrets(p)
 		if r.APIKey != "sk-secret" || r.AuthToken != "tok-secret" {
 			t.Fatalf("round-trip = apiKey=%q authToken=%q, want the originals", r.APIKey, r.AuthToken)
 		}

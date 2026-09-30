@@ -28,8 +28,11 @@ export function ChatPane({
   scrollRef, onScroll,
   onAnswer, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
   recorderCard,
-  onGenerateMinutes,
+  onGenerateMinutes, onRetryQuestion, onEditQuestion, questionActionsDisabled,
 }: {
+  onRetryQuestion?: (id: string) => void
+  onEditQuestion?: (id: string) => void
+  questionActionsDisabled?: boolean
   blocks: Block[]
   busy: boolean
   cwd?: string
@@ -140,7 +143,7 @@ export function ChatPane({
               <BotRow key={g.id}><AgentTaskGroup tasks={g.tasks} /></BotRow>
             ) : (
               <div key={g.block.id}>
-                <BlockView block={g.block} onOpenFile={onOpenFile} resolveFile={resolveFile} onGenerateMinutes={onGenerateMinutes} />
+                <BlockView onRetryQuestion={onRetryQuestion} onEditQuestion={onEditQuestion} questionActionsDisabled={questionActionsDisabled} block={g.block} onOpenFile={onOpenFile} resolveFile={resolveFile} onGenerateMinutes={onGenerateMinutes} />
                 {g.block.kind === 'assistant' && (
                   <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} onOpen={onOpenFile} />
                 )}

@@ -1,4 +1,4 @@
-package desktop
+package appupdate
 
 import (
 	"crypto/sha256"
@@ -20,7 +20,7 @@ import (
 // updateFixture 是一套装好的测试环境：一台假网关 + 一个临时的安装包目录 + 一个
 // 指定的「当前版本」。
 type updateFixture struct {
-	app *App
+	app *Service
 	// requests 记下假网关收到的每一次请求，用来验查询参数与请求头。
 	requests []*http.Request
 	dir      string
@@ -56,19 +56,11 @@ func newUpdateFixture(t *testing.T, current string) *updateFixture {
 	}))
 	t.Cleanup(srv.Close)
 
-	// 假网关 + 临时安装目录 + 指定的当前版本，全部在测试结束时还原。
-	t.Setenv("RUNCODE_UPDATE_BASE_URL", srv.URL)
-	t.Setenv("RUNCODE_UPDATE_PATH", "/latest")
-	prevDir := updateCacheDir
-	updateCacheDir = func() (string, error) { return f.dir, nil }
-	prevVersion := appVersion
-	appVersion = current
-	t.Cleanup(func() {
-		updateCacheDir = prevDir
-		appVersion = prevVersion
+	f.app = New(Options{
+		Current: current, Product: "xrun", Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		Endpoint: srv.URL + "/latest", CacheDir: func() (string, error) { return f.dir, nil },
+		InstallHint: "测试安装器",
 	})
-
-	f.app = New(&recordingSink{})
 	f.assetURL(srv.URL + "/assets/whatever-installer.exe")
 	return f
 }
@@ -114,10 +106,10 @@ func TestCheckUpdateReportsAvailable(t *testing.T) {
 		t.Fatalf("请求次数 = %d，期望 1", len(f.requests))
 	}
 	q := f.requests[0].URL.Query()
-	if got := q.Get("product"); got != AppProduct() {
-		t.Errorf("product = %q，期望 %q", got, AppProduct())
+	if got := q.Get("product"); got != "xrun" {
+		t.Errorf("product = %q，期望 %q", got, "xrun")
 	}
-	if got, want := q.Get("platform"), wantUpdateOS+"/"+runtime.GOARCH; got != want {
+	if got, want := q.Get("platform"), runtime.GOOS+"/"+runtime.GOARCH; got != want {
 		t.Errorf("platform = %q，期望 %q", got, want)
 	}
 }
@@ -133,7 +125,7 @@ func TestCheckUpdateWorksLoggedOut(t *testing.T) {
 	// 造一个真正的未登录态。不能只靠「测试里没登录过」——New 会把本机存着的令牌
 	// 读回来（loadPersisted），在开发机上跑测试时它是**登录着**的，那样这个用例
 	// 会假装通过，而它要验的恰恰是没有令牌时的行为。
-	f.app.tokens = nil
+	f.app.opts.Token = func() string { return "" }
 
 	info, err := f.app.CheckUpdate()
 	if err != nil {
@@ -293,7 +285,7 @@ func TestDownloadUpdateVerifiesAndNamesLocally(t *testing.T) {
 		t.Fatalf("阶段 = %q，期望 %q（错误：%s）", info.Stage, protocol.UpdateReady, info.Error)
 	}
 
-	want := filepath.Join(f.dir, fmt.Sprintf("%s-0.9.0-%s-%s.exe", AppProduct(), runtime.GOARCH, f.manifest.SHA256[:8]))
+	want := filepath.Join(f.dir, fmt.Sprintf("%s-0.9.0-%s-%s.exe", "xrun", runtime.GOARCH, f.manifest.SHA256[:8]))
 	if info.File != want {
 		t.Fatalf("落地路径 = %q，期望 %q", info.File, want)
 	}
@@ -412,17 +404,15 @@ func readyToInstall(t *testing.T, f *updateFixture, runErr error) (calls *int, f
 	if err != nil {
 		t.Fatalf("DownloadUpdate: %v", err)
 	}
-	f.app.upd.apply(func(i *protocol.UpdateInfo) { i.CanInstall = true })
+	f.app.apply(func(i *protocol.UpdateInfo) { i.CanInstall = true })
 	n := 0
-	prev := runUpdateInstaller
-	runUpdateInstaller = func(_ *App, file, version string) error {
+	f.app.opts.Install = func(req InstallRequest) error {
 		n++
-		if file != info.File || version != "0.9.0" {
-			t.Errorf("安装器拿到的是 %q / %q，期望 %q / 0.9.0", file, version, info.File)
+		if req.File != info.File || req.Version != "0.9.0" || req.SHA256 != f.manifest.SHA256 {
+			t.Errorf("安装请求不匹配: %+v", req)
 		}
 		return runErr
 	}
-	t.Cleanup(func() { runUpdateInstaller = prev })
 	return &n, info.File
 }
 
@@ -468,7 +458,7 @@ func TestInstallUpdateFailureStaysReady(t *testing.T) {
 	if info.Stage != protocol.UpdateReady || !strings.Contains(info.Error, "取消授权") {
 		t.Errorf("失败后应当留在待安装并带上原因，实际 stage=%q error=%q", info.Stage, info.Error)
 	}
-	if note := installAttemptNote(); note != "" {
+	if note := f.app.installAttemptNote(); note != "" {
 		t.Errorf("当面报过的失败不该留到下次启动再说：%q", note)
 	}
 
@@ -495,7 +485,7 @@ func TestInstallUpdateSuccessMarksInstalling(t *testing.T) {
 	}
 	// 本进程仍是 0.1.0，所以记录会被读成「上次更新到 0.9.0 未完成」——正是新版本
 	// 没能起来时用户该看到的那句话。
-	if note := installAttemptNote(); !strings.Contains(note, "0.9.0") {
+	if note := f.app.installAttemptNote(); !strings.Contains(note, "0.9.0") {
 		t.Errorf("应当记下这次要装成 0.9.0，实际 %q", note)
 	}
 }
@@ -511,7 +501,7 @@ func TestInstallerNameIsSafe(t *testing.T) {
 		{"http://h/pkg.exe", `0.9.0\..\..\Startup\x`},  // Windows 分隔符
 	}
 	for _, c := range hostile {
-		got := installerName(releaseWire{URL: c.url, Version: c.version})
+		got := New(Options{Product: "xrun"}).installerName(releaseWire{URL: c.url, Version: c.version})
 		if strings.ContainsAny(got, `/\`) || strings.Contains(got, "..") {
 			t.Errorf("installerName(%q, %q) = %q，含有路径成分", c.url, c.version, got)
 		}
@@ -540,7 +530,7 @@ func TestInstallerExtKeepsPackageType(t *testing.T) {
 // TestFixedFieldsSurviveReset「这台机器的固有属性」在检查结果整份重置状态之后必须还在。
 // 两个重置点（已是最新 / 有新版）各走一遍：AutoRestart 当年就是只在其中一处漏带。
 func TestFixedFieldsSurviveReset(t *testing.T) {
-	u := newUpdater(nil)
+	u := New(Options{InstallHint: "测试安装器"})
 	// 每一样都填成非零值：取本机的真实值的话，Windows 上 InstallHint 是空的，
 	// 漏带它这件事在 Windows 上就测不出来。
 	u.info.Current, u.info.CanInstall, u.info.AutoRestart = "1.2.3", true, true
@@ -559,7 +549,7 @@ func TestFixedFieldsSurviveReset(t *testing.T) {
 	}
 	// Ready 那一步按钮旁边就是这一句：点了会发生什么，或者不接管安装时该怎么自己装。
 	// 哪个平台都不能是空的。
-	if here := newUpdater(nil).snapshot(); here.InstallHint == "" {
+	if here := New(Options{InstallHint: "测试安装器"}).snapshot(); here.InstallHint == "" {
 		t.Error("本平台没有给出安装说明")
 	}
 }
@@ -575,7 +565,7 @@ func TestUpdateStatusStartsIdle(t *testing.T) {
 	if info.Current != "1.2.3" {
 		t.Errorf("当前版本 = %q，期望 1.2.3", info.Current)
 	}
-	if info.CanInstall != canLaunchInstaller() {
+	if info.CanInstall != f.app.opts.CanInstall {
 		t.Errorf("CanInstall 应当由后端如实给出，实际 %v", info.CanInstall)
 	}
 }

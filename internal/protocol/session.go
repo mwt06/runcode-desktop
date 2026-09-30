@@ -16,17 +16,11 @@ type StartSessionRequest struct {
 	// TenantID is the selected AI.Core tenant for a passport session (multi-tenant
 	// users pick one; single-tenant is auto-selected). Empty falls back to the
 	// token's own tenant. Only meaningful when Provider == "passport".
-	TenantID  string `json:"tenantId"`
-	BaseURL   string `json:"baseURL"`
-	APIKey    string `json:"apiKey"`
-	AuthToken string `json:"authToken"`
-	// APIKeyProtected / AuthTokenProtected hold the OS-encrypted (DPAPI on Windows)
-	// credentials at rest, so desktop.json never stores a key in the clear. They are
-	// persistence-only: saveConfig fills them (clearing the plaintext) and LoadConfig
-	// restores the plaintext for the form, clearing these back out.
-	APIKeyProtected    string `json:"apiKeyProtected,omitempty"`
-	AuthTokenProtected string `json:"authTokenProtected,omitempty"`
-	PermissionMode     string `json:"permissionMode"`
+	TenantID       string `json:"tenantId"`
+	BaseURL        string `json:"baseURL"`
+	APIKey         string `json:"apiKey"`
+	AuthToken      string `json:"authToken"`
+	PermissionMode string `json:"permissionMode"`
 	// ReasoningScenario selects the "thinking model" guidance (off/auto/<scenario>).
 	ReasoningScenario string `json:"reasoningScenario"`
 	// ThinkingEffort selects provider-native reasoning strength (off/low/medium/high),
@@ -48,30 +42,6 @@ type StartSessionRequest struct {
 	MaxHistoryMessages int    `json:"maxHistoryMessages"`
 	Resume             string `json:"resume"`
 	Continue           bool   `json:"continue"`
-	// RecentWorkspaces is a most-recently-used list of previously opened workspace
-	// directories, offered in the start form so the user can reselect one without
-	// re-browsing. It is maintained backend-side (saveConfig recomputes it from the
-	// chosen CWD); values sent by the frontend are ignored.
-	RecentWorkspaces []string `json:"recentWorkspaces,omitempty"`
-	// CustomModels is the user-defined direct-connection model list, maintained
-	// backend-side (Save/Delete methods); values sent by the frontend are ignored.
-	// API keys are DPAPI-protected at rest like the top-level credentials.
-	CustomModels []CustomModel `json:"customModels,omitempty"`
-	// WebProxy is the proxy the web tools (WebFetch/WebSearch) route through, for
-	// networks where the search endpoint is unreachable directly. Like CustomModels
-	// it is maintained backend-side (SetWebProxy); values sent by the frontend are
-	// ignored, so the start form — which has no such field — cannot blank it.
-	WebProxy string `json:"webProxy,omitempty"`
-	// SkipLogin makes the start flow bypass the mandatory login page: by default the
-	// login page is required, and only when this is on may an unauthenticated user
-	// proceed straight to the workspace/model form (e.g. to use a local custom model).
-	// It is backend-owned like WebProxy — carried forward by saveConfig and changed
-	// only through SaveSettings — so an ordinary session start cannot blank it.
-	SkipLogin bool `json:"skipLogin,omitempty"`
-	// ContextAudit 持久化"上下文审核"开关（仅测试版构建有效）。后端所有,与
-	// WebProxy 同规则:saveConfig 原样带过,只有 SetContextAudit 能改;正式版构建
-	// 即使文件里是 true 也不生效(功能门在 IsTestBuild)。
-	ContextAudit bool `json:"contextAudit,omitempty"`
 }
 
 // SessionRenamed announces a session's freshly generated title.
@@ -126,26 +96,32 @@ type SessionSummary struct {
 // appeared — user/assistant bubbles plus tool execution cards — rather than a
 // flattened text-only transcript.
 type ResumedBlock struct {
-	Kind string       `json:"kind"` // "user" | "assistant" | "tool"
-	Text string       `json:"text,omitempty"`
-	Tool *ResumedTool `json:"tool,omitempty"`
+	QuestionID string          `json:"questionId,omitempty"`
+	Thinking   string          `json:"thinking,omitempty"`
+	Images     []QuestionImage `json:"images,omitempty"`
+	Kind       string          `json:"kind"` // "user" | "assistant" | "tool"
+	Text       string          `json:"text,omitempty"`
+	Tool       *ResumedTool    `json:"tool,omitempty"`
 }
 
 // ResumedTool is a reconstructed tool step. The persisted history stores only the
 // LLM messages, so live-only UI details (colored diffs, file-change chips) are not
 // recoverable; the tool name, target path, and result text are.
 type ResumedTool struct {
-	ToolName  string `json:"toolName"`
-	ToolUseID string `json:"toolUseId"`
-	Path      string `json:"path,omitempty"`
-	Input     string `json:"input,omitempty"` // the tool call's raw arguments JSON
-	IsError   bool   `json:"isError"`
-	Output    string `json:"output,omitempty"`
+	InputTokens  int    `json:"inputTokens,omitempty"`
+	OutputTokens int    `json:"outputTokens,omitempty"`
+	ToolName     string `json:"toolName"`
+	ToolUseID    string `json:"toolUseId"`
+	Path         string `json:"path,omitempty"`
+	Input        string `json:"input,omitempty"` // the tool call's raw arguments JSON
+	IsError      bool   `json:"isError"`
+	Output       string `json:"output,omitempty"`
 }
 
 // ResumedSession carries a reopened session's status plus its prior conversation
 // as rendered blocks so the frontend can repaint it.
 type ResumedSession struct {
+	Source *QuestionReference    `json:"source,omitempty"`
 	Info   hostproto.SessionInfo `json:"info"`
 	Blocks []ResumedBlock        `json:"blocks"`
 	// ContextTokens is an estimate of the reopened history's context occupancy, so

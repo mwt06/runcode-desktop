@@ -186,3 +186,13 @@ func (a *App) previewBaseURL() string {
 	}
 	return ""
 }
+
+// previewURLFor also works for a newly created, not-yet-focused branch.
+func (a *App) previewURLFor(workspace string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if ref := a.previews[workspace]; ref != nil {
+		return ref.url
+	}
+	return ""
+}

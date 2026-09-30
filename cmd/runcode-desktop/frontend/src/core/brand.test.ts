@@ -37,3 +37,22 @@ describe('selectBrand', () => {
     expect(selectBrand('zhikai').features.recorder).toBe(false)
   })
 })
+
+
+describe('国开版品牌', () => {
+  it('独立身份沿用智开视觉，显式选择国开场景且不开放录音', () => {
+    const brand = selectBrand('zhikai-guokai')
+    const standard = selectBrand('zhikai')
+    expect(brand.key).toBe('zhikai-guokai')
+    expect(brand.name).toBe('智开（国开版）')
+    expect(brand.loginHeadline).toContain('国开版')
+    expect(brand.logo.kind).toBe('image')
+    expect(brand.greeting).toBe('welcome')
+    expect(brand.greetingMark).toEqual(standard.greetingMark)
+    expect(brand.composerMark).toEqual(standard.composerMark)
+    expect(brand.features.recorder).toBe(false)
+    expect(brand.scenarioProfile).toBe('guokai')
+    expect(standard.scenarioProfile).toBe('full')
+    expect(selectBrand('runcode').scenarioProfile).toBe('full')
+  })
+})

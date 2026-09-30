@@ -30,6 +30,7 @@ export type CustomModelDraft = {
   authMode: CodexAuthMode
   apiKey: string
   clearAPIKey: boolean
+  supportsImages?: boolean
 }
 
 export const emptyCustomModelDraft = (): CustomModelDraft => ({
@@ -88,6 +89,7 @@ export function customModelOptionSub(model: CustomModel): string {
 // re-displays the saved secret.
 export function customModelDraftForEdit(model: CustomModel): CustomModelDraft {
   return {
+    supportsImages: model.supportsImages,
     name: model.name,
     provider: customModelProvider(model.provider),
     model: model.model,
@@ -104,6 +106,8 @@ export function toCustomModelSaveRequest(draft: CustomModelDraft, originalName?:
   const chatgpt = usesChatGPTLogin(draft)
   const apiKey = draft.clearAPIKey || chatgpt ? '' : draft.apiKey
   return {
+    supportsImages: draft.supportsImages,
+    clearImageSupport: draft.supportsImages == null || undefined,
     originalName: originalName || undefined,
     name: draft.name.trim(),
     provider: draft.provider,

@@ -11,6 +11,7 @@
 
 // ---- wire types (generated single source of truth) ----------------------------
 export type {
+  QuestionReference, QuestionImage, QuestionDraft, QuestionReceipt, SubmitQuestionRequest,
   AgentInfo,
   AgentList,
   AskpassRequest,
@@ -23,6 +24,8 @@ export type {
   CodexModel,
   CodexStatus,
   ContextAuditInfo,
+  ContextCompaction,
+  ModelReference, VisionSettings, SaveVisionSettingsRequest, SetPlatformImageCapabilityRequest,
   CustomModel,
   Decision,
   EditDiff,
@@ -80,6 +83,8 @@ export type {
   SecretStorage,
   StartRecordingRequest,
   StartSessionRequest,
+  SaveSettingsRequest,
+  SettingsView,
   ToolEvent,
   ToolEventType,
   ToolInfo,
@@ -103,6 +108,7 @@ export type { EventMap } from './protocol/events'
 
 // ---- commands (generated; same lowerCamel names the old helpers used) ---------
 export {
+  getQuestion, forkQuestion, submitQuestion,
   activeTenant,
   compact,
   contextAuditStatus,
@@ -122,6 +128,7 @@ export {
   injectMessageWithImages,
   interrupt,
   listAgents,
+  getVisionSettings, saveVisionSettings, setPlatformImageCapability,
   listCustomModels,
   listEdits,
   listFiles,

@@ -1,8 +1,10 @@
+import type { QuestionDraft } from '@/core/bridge'
+import { GhostBtn } from '@/ui/ghost-btn'
 // composer 是对话输入区：多行输入框、@技能 / /子代理 / #文件 三种触发的选择器、
 // 附件（选图、粘贴），以及底部工具条(拆到 ./toolbar)。选择器与附件等 UI 状态全部
 // 内化；会话状态的变更（切模式/切模型/发送/停止）一律经 on* 回调交还 App——本组件
 // 从不直接改会话状态。
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type RefObject, type Dispatch, type SetStateAction } from 'react'
 import { Icon } from '@/ui/icons'
 import { basename } from '@/core/paths'
 import { errText, pickImageAttachment, savePastedFile, listAgents, listSkills, type AgentInfo, type SessionInfo, type SkillInfo } from '@/core/bridge'
@@ -13,17 +15,23 @@ import { composerKeyAction } from './keymap'
 import { applyMention, computeMention, matchByNameOrDesc, rankFileMatches, type MentionTrigger } from './mention'
 import { AgentPicker, FilePicker, SkillPicker } from './mention-picker'
 import { ComposerToolbar } from './toolbar'
+import { useComposerResize } from './use-composer-resize'
+import { usePickerDismiss } from './use-picker-dismiss'
 import { ComposerMascot } from './mascot'
 import { ScenarioBar, ScenarioPanel, type BuiltinAction } from './scenario-bar'
-import { SCENARIOS, visibleScenarios, type Scenario } from '@/core/scenarios'
+import { visibleScenarios, type Scenario } from '@/core/scenarios'
+import { scenariosForProfile } from '@/core/scenario-profiles'
+import { BRAND } from '@/core/brand'
 
 // Composer 的对外契约：input 受控于 App（插件页“使用技能/委派子代理”要往输入框
 // 追加文案并聚焦，故 input 与 taRef 由 App 持有）；files 归 App（文件浏览器/回复
 // 产物条也要用），选择器打开时经 onRefreshFiles 请求刷新。
 export function Composer({
+  attachments, setAttachments, retry, retryDisabled, submitting, onCancelRetry, onRemoveOriginal,
   input,
   onInputChange,
   taRef,
+  chatScrollRef,
   busy,
   toast,
   info,
@@ -41,9 +49,17 @@ export function Composer({
   builtinScenarios = {},
   onPickScenario,
 }: {
+  attachments: Attachment[]
+  setAttachments: Dispatch<SetStateAction<Attachment[]>>
+  retry?: { original: QuestionDraft; images: number[] }
+  retryDisabled: boolean
+  submitting: boolean
+  onCancelRetry: () => void
+  onRemoveOriginal: (index: number) => void
   input: string
   onInputChange: (v: string) => void
   taRef: RefObject<HTMLTextAreaElement>
+  chatScrollRef: RefObject<HTMLDivElement>
   busy: boolean
   toast: string
   info: SessionInfo | null
@@ -52,7 +68,7 @@ export function Composer({
   onRefreshFiles: () => void
   // onSend 的三个参数：发给模型的正文、图片附件路径、以及可选的“气泡里显示成什么”
   // （非图片附件的路径写在正文里，用户自己那句话才是气泡该显示的东西）。
-  onSend: (text: string, attachments: string[], display?: string) => void
+  onSend: (text: string, attachments: string[], display?: string) => Promise<boolean>
   // onNotify 是本组件唯一的报错出口（粘贴超限、落盘失败），由 App 接到 toast 上。
   onNotify?: (msg: string) => void
   onStop: () => void
@@ -68,12 +84,19 @@ export function Composer({
   // input，那两样都归 App 持有。
   onPickScenario: (s: Scenario) => void
 }) {
+  const inputId = useId()
+  const resize = useComposerResize(taRef, chatScrollRef)
   const [mention, setMention] = useState<{ query: string; start: number; sel: number; trigger: MentionTrigger } | null>(null)
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const closeMention = useCallback(() => setMention(null), [])
+  const [sending, setSending] = useState(false)
+  const sendingRef = useRef(false)
+  const originalImages = (retry?.original.images ?? []).filter((i) => retry?.images.includes(i.index))
+  const locked = submitting || sending || (!!retry && retryDisabled)
   // dropping = 正有文件悬在输入区上方，用来显示"松开以添加附件"。
   const [dropping, setDropping] = useState(false)
   // 展开着的场景分类 id；'' = 没展开。与 mention 一样是纯界面状态，留在本组件。
   const [scenarioCat, setScenarioCat] = useState('')
+  const closeScenario = useCallback(() => setScenarioCat(''), [])
   const [chatSkills, setChatSkills] = useState<SkillInfo[]>([])
   const [chatAgents, setChatAgents] = useState<AgentInfo[]>([])
   const selItemRef = useRef<HTMLDivElement>(null)
@@ -101,8 +124,13 @@ export function Composer({
   const mentionCount =
     mention?.trigger === '@' ? skillMatches.length : mention?.trigger === '/' ? agentMatches.length : fileMatches.length
 
+  const mentionVisible = !!mention && (mentionCount > 0 || (mention.trigger === '#' && mention.query === ''))
+  const mentionRegion = usePickerDismiss(mentionVisible && mention ? `${mention.trigger}:${mention.start}` : '', closeMention)
+
   function syncMention(value: string, cursor: number) {
+    mentionRegion.keepOpen()
     const m = computeMention(value, cursor)
+    if (m) closeScenario()
     setMention(m ? { ...m, sel: 0 } : null)
   }
 
@@ -137,6 +165,8 @@ export function Composer({
   }
 
   function openFilePicker() {
+    mentionRegion.keepOpen()
+    closeScenario()
     const ta = taRef.current
     const sep = input && !/\s$/.test(input) ? ' ' : ''
     const next = input + sep + '#'
@@ -151,6 +181,8 @@ export function Composer({
   // typing the trigger at the composer start. Both are start-of-input commands that
   // replace the whole input on pick, so each opens a fresh one.
   function openTriggerPicker(trigger: '@' | '/') {
+    mentionRegion.keepOpen()
+    closeScenario()
     onInputChange(trigger)
     setMention({ query: '', start: 0, sel: 0, trigger })
     setCaret(1)
@@ -237,27 +269,33 @@ export function Composer({
   //
   // display 让气泡显示用户自己那句话，而不是拼上附件路径的完整正文。一个字没打、
   // 只粘了文件时传 undefined，气泡退回显示正文——否则那条气泡会是空的。
-  function handleSend() {
+  async function handleSend() {
+    if (locked || sendingRef.current) return
     const text = input.trim()
-    if (!text && attachments.length === 0) return
+    if (!text && attachments.length === 0 && originalImages.length === 0) return
     const images = attachments.filter((a) => a.image).map((a) => a.path)
     const body = sendText(input, attachments)
-    onInputChange('')
-    setAttachments([])
-    onSend(body, images, text || undefined)
+    sendingRef.current = true
+    setSending(true)
+    try { await onSend(body, images, text || undefined) }
+    catch (e) { onNotify?.(errText(e)) }
+    finally { sendingRef.current = false; setSending(false) }
   }
 
   const hoverMention = (i: number) => setMention((m) => (m ? { ...m, sel: i } : m))
   // 本次构建实际画得出来的分类：内置功能分类要有 App 交来的动作才算有（见
   // visibleScenarios），否则整类不画。
-  const categories = visibleScenarios(SCENARIOS, builtinScenarios)
+  const categories = visibleScenarios(scenariosForProfile(BRAND.scenarioProfile), builtinScenarios)
   const scenarioOpen = categories.find((c) => c.id === scenarioCat) ?? null
+  const scenarioRegion = usePickerDismiss(!mention && scenarioOpen ? scenarioOpen.id : '', closeScenario)
 
   return (
     // data-file-drop-target 是给 Wails 的 runtime 看的：它在 documentElement 上统一
     // 接管外部文件拖拽，只在带这个属性的元素上放行（其余地方显示"禁止放置"光标）。
     // 属性缺了的话，拖到输入框上会是一个禁止图标，而 drop 永远不来。
     <footer
+      ref={resize.footerRef}
+      {...mentionRegion.pointerProps}
       data-file-drop-target
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -279,38 +317,64 @@ export function Composer({
           </div>
         </div>
       )}
-      {info?.planMode && (
-        <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-xl px-3.5 py-2.5">
-          <span className="text-primaryink flex-none"><Icon name="compass" size={16} /></span>
-          <span className="text-[13px] text-primaryink flex-1 min-w-0">计划模式：先调研、产出方案；可以新建和修改文件，但不会删除文件或执行命令。方案给出后可选择如何继续。</span>
-        </div>
-      )}
-      {/* 场景面板与三个 mention 选择器并列摆放：它们都靠 footer 的 relative 定位，
-          浮在整个输入区正上方。mention 触发时让位——同一位置不能叠两块。 */}
-      {!mention && scenarioOpen && (
-        <ScenarioPanel category={scenarioOpen} onPick={(s) => { setScenarioCat(''); onPickScenario(s) }} />
-      )}
-      {mention?.trigger === '@' && skillMatches.length > 0 && (
-        <SkillPicker items={skillMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
-      )}
-      {mention?.trigger === '/' && agentMatches.length > 0 && (
-        <AgentPicker items={agentMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
-      )}
-      {mention?.trigger === '#' && (fileMatches.length > 0 || mention.query === '') && (
-        <FilePicker items={fileMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
-      )}
-      <ScenarioBar
-        categories={categories}
-        openId={scenarioCat}
-        onToggle={(id) => setScenarioCat((cur) => (cur === id ? '' : id))}
-        builtins={builtinScenarios}
-      />
+      {/* contents 不建立新的定位参照；点击边界只含候选，鼠标活动范围是整个 footer。 */}
+      <div className="contents" ref={mentionRegion.regionRef}>
+        {mention?.trigger === '@' && skillMatches.length > 0 && (
+          <SkillPicker items={skillMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
+        )}
+        {mention?.trigger === '/' && agentMatches.length > 0 && (
+          <AgentPicker items={agentMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
+        )}
+        {mention?.trigger === '#' && (fileMatches.length > 0 || mention.query === '') && (
+          <FilePicker items={fileMatches} sel={mention.sel} selRef={selItemRef} onHover={hoverMention} onPick={pick} />
+        )}
+      </div>
+      <div className="flow-root" ref={scenarioRegion.regionRef} {...scenarioRegion.pointerProps}>
+        {info?.planMode && (
+          <div className="flex items-center gap-2.5 mb-2 bg-primarysoft border border-primary rounded-xl px-3.5 py-2.5">
+            <span className="text-primaryink flex-none"><Icon name="compass" size={16} /></span>
+            <span className="text-[13px] text-primaryink flex-1 min-w-0">计划模式：先调研、产出方案；可以新建和修改文件，但不会删除文件或执行命令。方案给出后可选择如何继续。</span>
+          </div>
+        )}
+        {!mention && scenarioOpen && (
+          <ScenarioPanel category={scenarioOpen} onPick={(s) => { closeScenario(); onPickScenario(s) }} />
+        )}
+        <ScenarioBar
+          categories={categories}
+          openId={!mention ? scenarioCat : ''}
+          onToggle={(id) => { closeMention(); setScenarioCat((cur) => (cur === id ? '' : id)) }}
+          onClose={closeScenario}
+          builtins={builtinScenarios}
+        />
+      </div>
       {/* 这层 relative 是插画的定位参照：它绝对定位贴在输入框上沿(bottom-full)，
           **不占布局高度**——放进正常流里它会自己占一行，把上面「录音纪要」那排
           快捷技能整体顶走。它的下半身本来就被画布裁掉，是「从边缘探头」的画法，
           中间留空隙就会显得是渲染缺了一块。 */}
       <div className="relative">
       <ComposerMascot />
+      {retry && <div className="mb-2 bg-surface2 border border-line2 rounded-card px-3 py-2 text-[12px] text-muted">
+        <div className="flex items-center justify-between gap-2"><span className="font-medium text-ink2">正在修改原提问</span><GhostBtn disabled={submitting || sending} onClick={onCancelRetry}>取消修改</GhostBtn></div>
+        <p>将从这条提问重新开始。原记录保留，已生成的文件不会撤销。</p>
+        {originalImages.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{originalImages.map((i) => <span key={i.index} className="inline-flex items-center gap-1 bg-surface rounded-field px-2 py-1"><Icon name="file" size={12} />{i.name}<GhostBtn disabled={locked} title={`移除${i.name}`} onClick={() => onRemoveOriginal(i.index)}>✕</GhostBtn></span>)}</div>}
+      </div>}
+      <div className="relative">
+      <div
+        role="separator"
+        aria-label="调整输入框高度"
+        aria-orientation="horizontal"
+        aria-controls={inputId}
+        aria-valuemin={resize.bounds.min}
+        aria-valuemax={resize.bounds.max}
+        aria-valuenow={resize.height}
+        aria-valuetext={`${resize.height} 像素`}
+        tabIndex={0}
+        title="拖动调整输入框高度，双击恢复默认"
+        className="group/resize absolute -top-1.5 left-1/2 -translate-x-1/2 z-10 flex h-3 w-16 items-center justify-center cursor-row-resize touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        {...resize.handleProps}
+      >
+        <span className="h-1 w-8 rounded-full bg-line2 transition-colors group-hover/resize:bg-faint group-focus-visible/resize:bg-primary group-active/resize:bg-primary" />
+      </div>
       {/* 附件条是输入卡片的顶层：卡片本身由「附件条 + 输入框 + 工具条」三块拼成，
           各自只画自己那一边的边框，靠 border-t-0/border-b-0 消掉接缝处的双线。
           放在卡片里而不是卡片外，是因为附件属于「这条待发的消息」，跟着输入内容走；
@@ -329,14 +393,18 @@ export function Composer({
       )}
       <textarea
         ref={taRef}
-        className={`block w-full resize-none min-h-[46px] max-h-[200px] bg-surface text-ink border-x border-line2 px-4 py-3.5 outline-none placeholder:text-faint ${attachments.length > 0 ? '' : 'border-t rounded-t-card'}`}
+        id={inputId}
+        style={{ height: resize.height }}
+        readOnly={submitting || sending}
+        className={`block w-full resize-none overflow-y-auto bg-surface text-ink border-x border-line2 px-4 py-3.5 outline-none placeholder:text-faint ${attachments.length > 0 ? '' : 'border-t rounded-t-card'}`}
         value={input}
         placeholder={busy ? '回合进行中——输入后 Enter 立即补充，模型会在当前步骤结束后看到' : '继续对话，@ 技能，/ 子代理，# 文件；Enter 发送，Shift+Enter 换行'}
         onChange={(e) => {
           onInputChange(e.target.value)
           syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
         }}
-        onClick={(e) => syncMention(input, e.currentTarget.selectionStart ?? input.length)}
+        // 点回输入框只关闭候选；继续键入/移动光标才重新匹配，避免同一次点击又弹出。
+        onClick={closeMention}
         onPaste={(e) => void handlePaste(e)}
         onKeyUp={(e) => {
           if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
@@ -344,6 +412,7 @@ export function Composer({
           }
         }}
         onKeyDown={(e) => {
+          mentionRegion.keepOpen()
           // 按键归属见 keymap（纯函数，含输入法与 Shift+Enter 的用例）。'default'
           // 就是不拦，换行、光标移动等原生行为都走这条路。
           const action = composerKeyAction(e, !!mention && mentionCount > 0)
@@ -360,16 +429,18 @@ export function Composer({
               setMention(null)
               break
             case 'send':
-              handleSend()
+              void handleSend()
               break
           }
         }}
       />
       </div>
+      </div>
       <ComposerToolbar
         info={info}
         busy={busy}
-        canSend={!!input.trim() || attachments.length > 0}
+        canSend={!locked && (!!input.trim() || attachments.length > 0 || originalImages.length > 0)}
+        sendLabel={retry ? '重新生成' : undefined}
         onOpenSkillPicker={() => openTriggerPicker('@')}
         onOpenAgentPicker={() => openTriggerPicker('/')}
         onOpenFilePicker={openFilePicker}
@@ -379,7 +450,7 @@ export function Composer({
         onChooseReasoning={onChooseReasoning}
         onChooseThinking={onChooseThinking}
         onPickModel={onPickModel}
-        onSend={handleSend}
+        onSend={() => void handleSend()}
         onStop={onStop}
       />
     </footer>

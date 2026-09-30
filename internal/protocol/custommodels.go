@@ -10,11 +10,12 @@ package protocol
 // 并把 Base URL 指向本地那个负责补凭据与指纹头的小代理，见 internal/codexproxy。密钥字段仅用于桌面端持久化，
 // ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
 type CustomModel struct {
-	Name      string `json:"name"`
-	Provider  string `json:"provider,omitempty"`
-	Model     string `json:"model"`
-	BaseURL   string `json:"baseURL"`
-	HasAPIKey bool   `json:"hasAPIKey,omitempty"`
+	SupportsImages *bool  `json:"supportsImages,omitempty"`
+	Name           string `json:"name"`
+	Provider       string `json:"provider,omitempty"`
+	Model          string `json:"model"`
+	BaseURL        string `json:"baseURL"`
+	HasAPIKey      bool   `json:"hasAPIKey,omitempty"`
 	// AuthMode 只对 provider="codex" 有意义："chatgpt" = 用登录的 ChatGPT 订阅
 	// (凭据是设备码登录来的 OAuth 令牌，由桌面端统一保管并自动续期)，
 	// "apikey"/空 = 用下面那把 API 密钥连第三方 Codex 中转。
@@ -27,12 +28,14 @@ type CustomModel struct {
 // SaveCustomModelRequest 新增或修改一个自定义模型。编辑时 OriginalName 定位旧
 // 记录；APIKey 留空表示保留旧密钥，ClearAPIKey 才显式清除，两者不能同时使用。
 type SaveCustomModelRequest struct {
-	OriginalName string `json:"originalName,omitempty"`
-	Name         string `json:"name"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model"`
-	BaseURL      string `json:"baseURL"`
-	AuthMode     string `json:"authMode,omitempty"`
-	APIKey       string `json:"apiKey,omitempty"`
-	ClearAPIKey  bool   `json:"clearAPIKey,omitempty"`
+	SupportsImages    *bool  `json:"supportsImages,omitempty"`
+	ClearImageSupport bool   `json:"clearImageSupport,omitempty"`
+	OriginalName      string `json:"originalName,omitempty"`
+	Name              string `json:"name"`
+	Provider          string `json:"provider,omitempty"`
+	Model             string `json:"model"`
+	BaseURL           string `json:"baseURL"`
+	AuthMode          string `json:"authMode,omitempty"`
+	APIKey            string `json:"apiKey,omitempty"`
+	ClearAPIKey       bool   `json:"clearAPIKey,omitempty"`
 }

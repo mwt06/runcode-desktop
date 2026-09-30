@@ -19,7 +19,7 @@ import {
   activeTenant, errText, Events, listCustomModels, onEvent,
   passportLogin, passportLogout, passportModels, passportStatus, passportTenants, passportValidate,
   pickWorkspaceFolder, setActiveTenant,
-  type CustomModel, type StartSessionRequest,
+  type CustomModel, type StartSessionRequest, type SettingsView,
 } from '@/core/bridge'
 import { Splash, SplashSpinner } from './splash'
 import { LoginGate } from './login-gate'
@@ -28,7 +28,7 @@ import { canAutoStartCustom, initialModelChoice } from './restore'
 import { InlineError } from '@/ui/feedback'
 import { InsetRow, INSET_BOX } from '@/ui/layout'
 
-export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: Partial<StartSessionRequest> }) {
+export function StartForm({ onStart, starting, error, initial }: { onStart: (req: StartSessionRequest) => void; starting: boolean; error: string; initial: Partial<SettingsView> }) {
   const [cwd, setCwd] = useState(initial.cwd ?? '')
   const [account, setAccount] = useState(initialPassportAccountSnapshot)
   const accountCoordinator = useRef<PassportAccountCoordinator | null>(null)
@@ -170,7 +170,8 @@ export function StartForm({ onStart, starting, error, initial }: { onStart: (req
     if (modelChoice.startsWith('custom:')) {
       const cm = customModels.find((m) => `custom:${m.name}` === modelChoice)
       if (!cm) return null
-      return { ...base, provider: cm.provider || 'openai', model: cm.model, customModelName: cm.name }
+      // 目录暂时加载失败时也保留已选租户，识图不能因此改走令牌的另一个租户。
+      return { ...base, provider: cm.provider || 'openai', model: cm.model, customModelName: cm.name, tenantId: passport.loggedIn ? tenantId : '' }
     }
     return null
   }

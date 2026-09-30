@@ -397,7 +397,7 @@ func TestResumeKeepsRunningSessionOpen(t *testing.T) {
 	}
 	waitStarted(t, runningSess, "running")
 
-	res, err := app.ResumeSession("另一条历史对话")
+	res, err := app.ResumeSession("sess_other_history")
 	if err != nil {
 		t.Fatalf("恢复历史对话: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestResumeUsesTheFocusedWorkspace(t *testing.T) {
 	if _, err := app.FocusSession(idA); err != nil {
 		t.Fatalf("聚焦回 A: %v", err)
 	}
-	if _, err := app.ResumeSession("dir1-的某条历史"); err != nil {
+	if _, err := app.ResumeSession("sess_dir1_history"); err != nil {
 		t.Fatalf("恢复历史对话: %v", err)
 	}
 	resumed := <-built

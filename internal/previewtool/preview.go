@@ -44,6 +44,11 @@ func New() tool.Tool { return Tool{} }
 // Name is the tool name the model calls.
 func (Tool) Name() string { return Name }
 
+// InputPresentation previews the primary argument while the model composes it.
+func (Tool) InputPresentation() tool.InputPresentation {
+	return tool.InputPresentation{PrimaryField: "path"}
+}
+
 // Description tells the model when to reach for this tool.
 func (Tool) Description() string {
 	return "Open a workspace file in the user's desktop preview panel. Call this after you " +

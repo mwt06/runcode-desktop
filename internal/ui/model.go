@@ -26,6 +26,7 @@ const (
 // box, the approval queue and the per-turn counters shown in the status line.
 // Everything it needs from the engine goes through Service.
 type Model struct {
+	ctx      context.Context
 	service  Service
 	status   Status
 	commands *slashRegistry
@@ -65,6 +66,15 @@ type Model struct {
 
 // Option customizes a Model at construction.
 type Option func(*Model)
+
+// WithContext sets the UI lifetime, distinct from cancelling an individual turn.
+func WithContext(ctx context.Context) Option {
+	return func(m *Model) {
+		if ctx != nil {
+			m.ctx = ctx
+		}
+	}
+}
 
 // CustomCommand is a user-defined slash command: its name, a one-line summary for
 // help, and a prompt-template body expanded and submitted on invocation.
@@ -126,6 +136,7 @@ func New(service Service, opts ...Option) Model {
 		currentAssistant: -1,
 		toolMessages:     map[string]int{},
 		events:           make(chan tea.Msg, eventBufferSize),
+		ctx:              context.Background(),
 		followOutput:     true,
 	}
 	for _, opt := range opts {
@@ -147,7 +158,7 @@ func AssistantDelta(text string) tea.Msg {
 
 // Init starts the event pump.
 func (m Model) Init() tea.Cmd {
-	return waitEventCmd(m.events)
+	return waitEventCmd(m.ctx, m.events)
 }
 
 // Update handles one bubbletea message and returns the next model state.
@@ -166,29 +177,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamDeltaMsg:
 		m.appendAssistantDelta(msg.Text)
 		m.refreshViewport()
-		return m, waitEventCmd(m.events)
+		return m, waitEventCmd(m.ctx, m.events)
 	case toolEventMsg:
 		m.applyToolEvent(msg.Event)
 		m.refreshViewport()
-		return m, waitEventCmd(m.events)
+		return m, waitEventCmd(m.ctx, m.events)
 	case approvalRequestMsg:
 		m.enqueueApproval(msg)
 		m.relayout()
-		return m, waitEventCmd(m.events)
+		return m, waitEventCmd(m.ctx, m.events)
 	case turnDoneMsg:
 		m.finishTurn(msg.Result)
 		m.refreshViewport()
 		if m.exitingAfterCancel {
 			return m, tea.Quit
 		}
-		return m, waitEventCmd(m.events)
+		return m, waitEventCmd(m.ctx, m.events)
 	case turnErrorMsg:
 		m.finishTurnError(msg.Err)
 		m.refreshViewport()
 		if m.exitingAfterCancel {
 			return m, tea.Quit
 		}
-		return m, waitEventCmd(m.events)
+		return m, waitEventCmd(m.ctx, m.events)
 	case resetDoneMsg:
 		m.messages = []ChatMessage{{Role: RoleSystem, Text: "history cleared"}}
 		m.toolMessages = map[string]int{}
@@ -398,7 +409,7 @@ func (m Model) startTurn(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.ctx)
 	m.turnCancel = cancel
 	m.inFlight = true
 	m.lastError = ""
@@ -408,7 +419,7 @@ func (m Model) startTurn(text string) (tea.Model, tea.Cmd) {
 	m.currentAssistant = len(m.messages) - 1
 	m.followOutput = true
 	m.refreshViewport()
-	return m, runTurnCmd(ctx, m.service, text, m.events)
+	return m, runTurnCmd(m.ctx, ctx, m.service, text, m.events)
 }
 
 func (m *Model) resize() {

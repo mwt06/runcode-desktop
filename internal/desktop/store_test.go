@@ -133,7 +133,7 @@ func TestSaveConfigKeepsTenantWhenRequestHasNone(t *testing.T) {
 	isolateConfigDir(t)
 
 	// 用户选定了租户（走 SetActiveTenant 的持久化路径）。
-	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+	if err := updateRawConfig(func(raw *desktopConfig) error {
 		raw.TenantID = "wjtest"
 		return nil
 	}); err != nil {
@@ -154,7 +154,7 @@ func TestSaveConfigKeepsTenantWhenRequestHasNone(t *testing.T) {
 func TestSaveConfigOverwritesTenantWhenRequestHasOne(t *testing.T) {
 	isolateConfigDir(t)
 
-	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+	if err := updateRawConfig(func(raw *desktopConfig) error {
 		raw.TenantID = "old"
 		return nil
 	}); err != nil {
@@ -221,7 +221,7 @@ func TestContextLimitsAreSettingsOwned(t *testing.T) {
 	}
 
 	// 设置页把某项清空（= 回默认）也得留得住：沿用规则不能把它倒回旧值。
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.MaxTokens = 0
 		return nil
 	}); err != nil {

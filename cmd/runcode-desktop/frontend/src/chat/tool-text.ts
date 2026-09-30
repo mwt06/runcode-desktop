@@ -49,6 +49,13 @@ export function toolVerbTarget(t: ToolEvent): { verb: string; target: string } {
     case 'Glob':
       target = clip(String(o.pattern ?? ''), 44)
       break
+    case 'analyze_image':
+      target = clip(String(parseToolInput(t.data).model ?? o.model ?? o.question ?? ''), 56)
+      if (parseToolInput(t.data).cached) target += ' · 已有结果'
+      break
+    case 'open_browser':
+      target = clip(String(o.url ?? ''), 64)
+      break
     case 'WebFetch':
       try { target = new URL(String(o.url ?? '')).host } catch { target = clip(String(o.url ?? ''), 44) }
       break

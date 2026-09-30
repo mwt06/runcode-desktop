@@ -13,7 +13,7 @@ export const TOOL_ICON: Record<string, string> = {
   Read: 'file', Write: 'pencil', Edit: 'pencil', Delete: 'trash',
   Bash: 'terminal', BashOutput: 'terminal', KillShell: 'terminal',
   Grep: 'search', Glob: 'search', WebFetch: 'globe', WebSearch: 'globe',
-  TodoWrite: 'grid', Analyze: 'sparkles', AskUser: 'chat', open_preview: 'file',
+  TodoWrite: 'grid', Analyze: 'sparkles', analyze_image: 'file-image', AskUser: 'chat', open_preview: 'file',
   Task: 'bot', Skill: 'book', Remember: 'sparkles',
   Wait: 'clock', GetCurrentTime: 'clock', install_runtime: 'terminal',
   'general-purpose': 'bot', 'code-reviewer': 'shield', 'code-explorer': 'search',

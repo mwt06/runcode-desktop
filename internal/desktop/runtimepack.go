@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/wt68/runcode/internal/protocol"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/executil"
 )
 
 // packSpec 是一个运行时包的静态定义。
@@ -158,7 +159,9 @@ var versionRe = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
 func probeVersion(ctx context.Context, exePath string) string {
 	ctx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, exePath, "--version").CombinedOutput() //nolint:gosec // 探测的是 LookPath 找到的系统命令，参数固定
+	cmd := exec.CommandContext(ctx, exePath, "--version") //nolint:gosec // 探测的是 LookPath 找到的系统命令，参数固定
+	executil.HideConsoleWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return ""
 	}

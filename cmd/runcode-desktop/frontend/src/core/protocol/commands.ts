@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SecretStorage, SessionInfo, SessionSummary, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, ToolInfo, UpdateInfo } from './types';
+import type { AgentList, AgentSaveRequest, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, QuestionDraft, QuestionReceipt, QuestionReference, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SaveSettingsRequest, SaveVisionSettingsRequest, SecretStorage, SessionInfo, SessionSummary, SetPlatformImageCapabilityRequest, SettingsView, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, SubmitQuestionRequest, ToolInfo, UpdateInfo, VisionSettings } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -49,7 +49,7 @@ export function cancelRuntimeInstall(id: string): Promise<void> {
   return call<void>('CancelRuntimeInstall', id);
 }
 
-// CancelUpdateDownload 取消正在跑的下载（或检查）。重复调用是安全的：没有在跑的 时候它什么也不做，只把当前状态回给调用方。
+// CancelUpdateDownload cancels an outstanding download or manifest request.
 // kind: idempotent-set
 export function cancelUpdateDownload(): Promise<UpdateInfo> {
   return call<UpdateInfo>('CancelUpdateDownload');
@@ -61,7 +61,7 @@ export function checkRuntimes(): Promise<RuntimeInfo> {
   return call<RuntimeInfo>('CheckRuntimes');
 }
 
-// CheckUpdate 向网关要一次清单，把结果落成状态机的新状态并返回。
+// CheckUpdate checks for a release explicitly requested by the user.
 // kind: query
 export function checkUpdate(): Promise<UpdateInfo> {
   return call<UpdateInfo>('CheckUpdate');
@@ -169,7 +169,7 @@ export function discardRecording(): Promise<void> {
   return call<void>('DiscardRecording');
 }
 
-// DownloadUpdate 下载并校验安装包，成功后状态变成「待安装」。 它会一直跑到下完为止（几分钟量级），期间进度经 EventUpdate 推给前端——与技能 安装同一种形状：命令的 promise 表示「这件事成没成」，过程走事件。
+// DownloadUpdate downloads and verifies the selected release.
 // kind: trigger
 export function downloadUpdate(): Promise<UpdateInfo> {
   return call<UpdateInfo>('DownloadUpdate');
@@ -181,10 +181,28 @@ export function focusSession(sessionID: string): Promise<SessionInfo> {
   return call<SessionInfo>('FocusSession', sessionID);
 }
 
+// ForkQuestion saves a separate prefix and opens it without focusing or executing it.
+// kind: trigger
+export function forkQuestion(ref: QuestionReference): Promise<ResumedSession> {
+  return call<ResumedSession>('ForkQuestion', ref);
+}
+
 // GetProtocolInfo reports the wire-protocol version this host implements, so a frontend built against a different protocol can detect the mismatch instead of failing on a missing field.
 // kind: query
 export function getProtocolInfo(): Promise<Info> {
   return call<Info>('GetProtocolInfo');
+}
+
+// GetQuestion returns the original input, including image handles, for editing.
+// kind: query
+export function getQuestion(ref: QuestionReference): Promise<QuestionDraft> {
+  return call<QuestionDraft>('GetQuestion', ref);
+}
+
+// GetVisionSettings returns credential-free image routing preferences.
+// kind: query
+export function getVisionSettings(): Promise<VisionSettings> {
+  return call<VisionSettings>('GetVisionSettings');
 }
 
 // ImportAgent opens a file picker for an existing agent .md and copies it into the given scope's agents directory under its declared name.
@@ -223,7 +241,7 @@ export function installRuntime(id: string): Promise<void> {
   return call<void>('InstallRuntime', id);
 }
 
-// InstallUpdate 装下好的新版本，装好后本应用退出、新版本接手（见 quitSoon）。 怎么装分平台（runInstaller）：Windows 拉起 NSIS 安装器；Linux 由应用自己跑 apt， 经应用的密码框授权。不由应用接管安装的平台（macOS、开发构建）则打开安装包所在的 文件夹，由用户自己接手。
+// InstallUpdate dispatches a verified package to the platform installer.
 // kind: trigger
 export function installUpdate(): Promise<void> {
   return call<void>('InstallUpdate');
@@ -289,10 +307,10 @@ export function listTools(): Promise<ToolInfo[] | null> {
   return call<ToolInfo[] | null>('ListTools');
 }
 
-// LoadConfig returns the last-used session request to prefill the start form, or sensible defaults when none has been saved.
+// LoadConfig returns a redacted view to prefill the start/settings forms, or sensible defaults when none has been saved.
 // kind: query
-export function loadConfig(): Promise<StartSessionRequest> {
-  return call<StartSessionRequest>('LoadConfig');
+export function loadConfig(): Promise<SettingsView> {
+  return call<SettingsView>('LoadConfig');
 }
 
 // McpMarket returns the platform MCP market (installable servers) from the bridge's GET /api/mcp/market.
@@ -511,7 +529,7 @@ export function revealInFolder(relPath: string): Promise<void> {
   return call<void>('RevealInFolder', relPath);
 }
 
-// RevealUpdate 打开下好的安装包所在的文件夹。 这是由应用接管安装的平台上的**退路**：自动安装装不上的原因有些是应用解决不了的 ——用户不在 sudoers 里（学校、单位的机器很常见）、安全中心拦下了没签名的包。那时 用户需要的是把包拿到手：交给系统的软件包安装器，或者拿去给管理员装。
+// RevealUpdate opens the downloaded package's directory as a manual fallback.
 // kind: trigger
 export function revealUpdate(): Promise<void> {
   return call<void>('RevealUpdate');
@@ -571,9 +589,9 @@ export function saveRecorderSettings(s: RecorderSettings): Promise<void> {
   return call<void>('SaveRecorderSettings', s);
 }
 
-// SaveSettings persists the settings form and applies what a running session can change without a rebuild (model, permission mode).
+// SaveSettings 只写设置页拥有的字段，不重新解析或切换连接。 startMu 与会话/连接切换共用；持久化成功后才更新下一场会话的配置。
 // kind: idempotent-set
-export function saveSettings(req: StartSessionRequest): Promise<SessionInfo> {
+export function saveSettings(req: SaveSettingsRequest): Promise<SessionInfo> {
   return call<SessionInfo>('SaveSettings', req);
 }
 
@@ -581,6 +599,12 @@ export function saveSettings(req: StartSessionRequest): Promise<SessionInfo> {
 // kind: idempotent-set
 export function saveSkill(req: SkillSaveRequest): Promise<SkillList> {
   return call<SkillList>('SaveSkill', req);
+}
+
+// SaveVisionSettings validates the fixed destination without changing the main model.
+// kind: trigger
+export function saveVisionSettings(req: SaveVisionSettingsRequest): Promise<VisionSettings> {
+  return call<VisionSettings>('SaveVisionSettings', req);
 }
 
 // SecretStorageStatus 告诉前端本机能不能安全保存登录状态（纯读，结果有缓存）。
@@ -649,6 +673,12 @@ export function setPlanMode(sessionID: string, on: boolean): Promise<SessionInfo
   return call<SessionInfo>('SetPlanMode', sessionID, on);
 }
 
+// SetPlatformImageCapability sets or removes one tenant-scoped local override.
+// kind: trigger
+export function setPlatformImageCapability(req: SetPlatformImageCapabilityRequest): Promise<VisionSettings> {
+  return call<VisionSettings>('SetPlatformImageCapability', req);
+}
+
 // SetReasoningScenario switches the in-conversation "thinking model" (off/auto/<scenario>) and returns the updated status.
 // kind: idempotent-set
 export function setReasoningScenario(sessionID: string, scenario: string): Promise<SessionInfo> {
@@ -709,13 +739,19 @@ export function stopRecording(): Promise<RecordingInfo> {
   return call<RecordingInfo>('StopRecording');
 }
 
+// SubmitQuestion binds accepted input to a durable identity.
+// kind: trigger
+export function submitQuestion(req: SubmitQuestionRequest): Promise<QuestionReceipt> {
+  return call<QuestionReceipt>('SubmitQuestion', req);
+}
+
 // SwitchModel changes the model for the running session, spanning both platform (passport) and custom direct-connection models so the in-chat picker can offer either.
 // kind: trigger
 export function switchModel(sessionID: string, kind: string, name: string): Promise<SessionInfo> {
   return call<SessionInfo>('SwitchModel', sessionID, kind, name);
 }
 
-// UpdateStatus 返回更新器此刻的状态。纯读、不联网：界面打开时先画它，联网那一步 由启动时的自动检查或用户点「检查更新」负责。
+// UpdateStatus returns the current update snapshot without network access.
 // kind: query
 export function updateStatus(): Promise<UpdateInfo> {
   return call<UpdateInfo>('UpdateStatus');

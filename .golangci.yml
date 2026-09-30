@@ -21,6 +21,10 @@ linters:
         # 进出(这是桌面应用的工作区,不是服务端私有状态);文件本身仍是 0600。
         - G301
   exclusions:
+    paths:
+      # npm dependencies may embed other-language sources (flatted ships Go).
+      # They are third-party code, not part of the desktop Go source we own.
+      - '(^|/)node_modules/'
     rules:
       # 测试里的未查错(httptest handler 写响应、清理调用)与安全类告警(临时目录
       # 权限、fixture 路径)属于可接受噪音;errcheck/gosec 的价值在生产路径。

@@ -19,8 +19,10 @@
 # 用法(在 cmd/runcode-desktop 下执行):
 #   ./scripts/build-desktop.sh                              # 默认品牌(XRUN),当前平台
 #   ./scripts/build-desktop.sh --brand zhikai               # 智开,当前平台
+#   ./scripts/build-desktop.sh --brand zhikai-guokai        # 智开（国开版）,仅三类场景
 #   ./scripts/build-desktop.sh --brand zhikai --universal   # 智开,macOS 通用二进制
 #   ./scripts/build-desktop.sh --brand zhikai --zip         # 打完再压成可分发的 zip(macOS)
+#   ./scripts/build-desktop.sh --brand zhikai-guokai --installer --zip # macOS: DMG + app.zip
 #   ./scripts/build-desktop.sh --brand zhikai --installer   # 智开,连 Windows 安装包(NSIS)
 #   ./scripts/build-desktop.sh --test                       # 测试版:含"上下文审核"等仅测试版功能
 #   ./scripts/build-desktop.sh --runtime-manifest 'https://obs/p/runtimes-{platform}.json'
@@ -50,7 +52,7 @@
 # 可执行文件名与 .desktop 文件名,而 deb 包名规范不接受中文。桌面菜单里显示的仍是
 # 中文,那个走 .desktop 的 Name 字段。
 #
-# --installer 出 NSIS 安装包(仅 Windows;macOS 走 .app + --zip)。需要 makensis:
+# --installer: Windows 出 NSIS，Linux 出 deb，macOS 出 DMG（可同时 --zip）。Windows 需要 makensis:
 #   winget install --id NSIS.NSIS -e
 # 默认装到 C:\Program Files\Ouc\desk_agent(要管理员;目录定在 build/windows/nsis/project.nsi
 # 的 InstallDir)。加 --install-scope user 改成装进用户目录、免 UAC。
@@ -130,8 +132,10 @@ case "$BRAND" in
     APP_NAME="XRUN"; WIN_TITLE="XRUN"; VITE_BRAND_VALUE=""; BUNDLE_ID="cn.ouconline.ai.xrun"; PRODUCT="xrun" ;;
   zhikai)
     APP_NAME="智开"; WIN_TITLE="智开"; VITE_BRAND_VALUE="zhikai"; BUNDLE_ID="cn.ouconline.ai.zhikai"; PRODUCT="zhikai" ;;
+  zhikai-guokai)
+    APP_NAME="智开（国开版）"; WIN_TITLE="智开（国开版）"; VITE_BRAND_VALUE="zhikai-guokai"; BUNDLE_ID="cn.ouconline.ai.zhikai.guokai"; PRODUCT="zhikai-guokai" ;;
   *)
-    echo "未知品牌: $BRAND(可用: runcode, zhikai)" >&2; exit 2 ;;
+    echo "未知品牌: $BRAND(可用: runcode, zhikai, zhikai-guokai)" >&2; exit 2 ;;
 esac
 
 # Linux 上应用名必须是 ASCII:它同时当二进制名、deb 包名与 .desktop 的文件名,而
@@ -274,6 +278,11 @@ fi
 # 要临时联动本地引擎(比如验证一个还没打 tag 的引擎改动),加 --local-engine——
 # 那样出来的包不可复现,别拿去发版。
 if [ "$LOCAL_ENGINE" = 1 ]; then
+  # 不能只跳过 tidy 却仍编固定 tag：确认引擎确实是工作区的 main module。
+  if [ "$(go list -m -f '{{.Main}}' gitlab.ouc-online.com.cn/aibase/agentloop)" != true ]; then
+    echo "--local-engine 需要有效的 go.work，且包含本地 agentloop；请检查 GOWORK 设置" >&2
+    exit 1
+  fi
   echo "⚠️  --local-engine:走 go.work 联动 ../agentloop,产物不可复现,勿用于发版"
 else
   export GOWORK=off
@@ -517,13 +526,16 @@ wails3 task "$TASK" \
   APP_NAME="$APP_NAME" \
   DISPLAY_NAME="$DISPLAY_NAME" \
   LDFLAGS_EXTRA="$LDFLAGS_EXTRA" \
+  LOCAL_ENGINE="$LOCAL_ENGINE" \
   ${EXTRA_TAGS:+EXTRA_TAGS="$EXTRA_TAGS"} \
   ${SCOPE_ARG:+"$SCOPE_ARG"}
 
 # ---- macOS:签名与公证(都可选,未配置则跳过) ----------------------------------
 # v3 的产物在 bin/ 而不是 v2 的 build/bin/。
 APP_PATH="bin/$APP_NAME.app"
-if [ "$TARGET" = darwin ] && [ -d "$APP_PATH" ]; then
+if [ "$TARGET" = darwin ]; then
+  # 校验真实 .app，也核验 Go 二进制吃到了品牌/版本 ldflags，不能只看外层清单。
+  python3 scripts/verify-macos-bundle.py "$APP_PATH" --name "$APP_NAME"     --bundle-id "$BUNDLE_ID" --version "$APP_CORE_VERSION" --app-version "$APP_VERSION" --product "$PRODUCT" --check-build
   if [ -n "${APPLE_SIGN_ID:-}" ]; then
     echo "▶ 代码签名:$APPLE_SIGN_ID"
     # --deep 已被 Apple 弃用;--options runtime(强化运行时)是公证的前置条件。
@@ -541,8 +553,20 @@ if [ "$TARGET" = darwin ] && [ -d "$APP_PATH" ]; then
       rm -f "bin/$APP_NAME-notarize.zip"
     fi
   else
-    echo "ℹ️  未设 APPLE_SIGN_ID:产物未签名。自用可右键「打开」绕过 Gatekeeper;"
+    echo "ℹ️  未设 APPLE_SIGN_ID:产物仅有本地临时签名，未做 Developer ID 签名/公证;"
     echo "    要分发给别人请配好签名与公证(见脚本头部注释)。"
+  fi
+
+  if [ "$DO_INSTALLER" = 1 ]; then
+    # 子 shell 的 EXIT trap 只清自己的暂存，不能覆盖外层品牌资产还原。
+    (
+      stage=$(mktemp -d "${TMPDIR:-/tmp}/zhikai-dmg.XXXXXX")
+      trap 'rm -rf "$stage"' EXIT
+      ditto "$APP_PATH" "$stage/$APP_NAME.app"
+      ln -s /Applications "$stage/Applications"
+      hdiutil create -volname "$APP_NAME" -srcfolder "$stage" -format UDZO         -ov "bin/$APP_NAME-macos.dmg"
+    )
+    echo "▶ 已打包:bin/$APP_NAME-macos.dmg"
   fi
 
   if [ "$DO_ZIP" = 1 ]; then

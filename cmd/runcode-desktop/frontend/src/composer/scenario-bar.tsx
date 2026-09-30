@@ -31,11 +31,12 @@ export interface BuiltinAction {
   title?: string
 }
 
-export function ScenarioBar({ categories, openId, onToggle, builtins }: {
+export function ScenarioBar({ categories, openId, onToggle, onClose, builtins }: {
   categories: ScenarioCategory[]
   /** 当前展开的分类 id；'' 表示都没展开。 */
   openId: string
   onToggle: (id: string) => void
+  onClose: () => void
   /** 内置功能分类的动作，按 BUILTIN_CATEGORY 的值取。 */
   builtins: Record<string, BuiltinAction>
 }) {
@@ -61,7 +62,11 @@ export function ScenarioBar({ categories, openId, onToggle, builtins }: {
             type="button"
             // 内置功能分类点了直接执行，不展开二级：录音是点一下就该开始的动作，
             // 中间插一层「请选择」纯属多余。
-            onClick={() => (builtin ? builtin.onPick() : onToggle(c.id))}
+            onClick={() => {
+              if (builtin) { onClose(); builtin.onPick() }
+              else onToggle(c.id)
+            }}
+            aria-expanded={builtin ? undefined : on}
             disabled={builtin?.disabled}
             title={builtin?.title ?? `${c.name}（${c.items.length} 个场景）`}
             className={`flex-none inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] whitespace-nowrap transition disabled:opacity-45 disabled:cursor-default ${

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/wt68/runcode/internal/appupdate"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +52,7 @@ func installHint() string {
 }
 func cleanStaleWatchers() {}
 
-func (a *App) runInstaller(file, expect string) error {
+func (a *App) runInstaller(file, expect, hash string) error {
 	target := installedMacBundle()
 	if target == "" {
 		return errors.New("请先把应用移入「应用程序」，再使用自动更新")
@@ -72,10 +73,7 @@ func (a *App) runInstaller(file, expect string) error {
 	if err := copyFileStreaming(file, archive); err != nil {
 		return err
 	}
-	a.upd.mu.Lock()
-	hash := strings.ToLower(strings.TrimSpace(a.upd.rel.SHA256))
-	a.upd.mu.Unlock()
-	if err := verifyFileSHA256(archive, hash); err != nil {
+	if err := appupdate.VerifyFileSHA256(archive, hash); err != nil {
 		return err
 	}
 	appname, err := validateMacUpdateZip(archive)

@@ -25,8 +25,11 @@ import (
 	"syscall"
 	"time"
 
+	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 )
+
+const sessionCloseTimeout = 15 * time.Second
 
 // config 是进程级配置，flag > env > 内置默认 三级解析。
 //
@@ -122,8 +125,9 @@ func run(args []string) error {
 	hub := newHub(logger.Printf)
 	mgr := host.NewManager(host.Options{
 		// DefaultBuild = engine.Build：真实 LLM 会话。测试注入 fake（见 fakes_test.go）。
-		Build: host.DefaultBuild,
-		Sink:  hub,
+		Build:     host.DefaultBuild,
+		Sink:      hub,
+		Configure: configureSession,
 		Limits: host.Limits{
 			MaxSessions:        cfg.MaxSessions,
 			MaxConcurrentTurns: cfg.MaxTurns,
@@ -156,7 +160,7 @@ func run(args []string) error {
 	}
 
 	logger.Printf("shutting down ...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
 	defer cancel()
 	// 先 CloseAll（中断在跑的回合、按序关闭 engine 资源），再 dropAll 让所有
 	// SSE handler 退出，最后 Shutdown 等 HTTP 连接排空——顺序反了 Shutdown 会
@@ -170,4 +174,9 @@ func run(args []string) error {
 	}
 	logger.Printf("bye")
 	return nil
+}
+
+// The wire carries turn summaries; full request snapshots are not consumed.
+func configureSession(_ host.SessionContext, _ *engine.Config, opts *engine.Options) {
+	opts.OmitRequestSnapshots = true
 }

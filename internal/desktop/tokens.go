@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 // tokenManager 持有 Passport 令牌：内存为准，Windows 上经 DPAPI 落盘以便重启恢复。
 // Token() 同时就是 LLM 引擎的 TokenSource——每次请求前保证 access token 新鲜。
 type tokenManager struct {
+	identity string // Login epoch for opaque-token cache isolation; refresh preserves it.
 	tokenURL string // 完整令牌端点 URL
 	clientID string
 	hc       *http.Client
@@ -111,6 +113,7 @@ func (m *tokenManager) ForceRefresh() {
 func (m *tokenManager) Set(ts tokenSet) {
 	m.mu.Lock()
 	m.ts = ts
+	m.identity = rand.Text()
 	m.mu.Unlock()
 	persistTokens(ts)
 }
@@ -119,6 +122,7 @@ func (m *tokenManager) Set(ts tokenSet) {
 func (m *tokenManager) setInMemory(ts tokenSet) {
 	m.mu.Lock()
 	m.ts = ts
+	m.identity = rand.Text()
 	m.mu.Unlock()
 }
 
@@ -130,6 +134,7 @@ func (m *tokenManager) Clear() {
 }
 
 func (m *tokenManager) clearLocked() {
+	m.identity = rand.Text()
 	m.ts = tokenSet{}
 	if path, err := passportTokenPath(); err == nil {
 		_ = os.Remove(path)

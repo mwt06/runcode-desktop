@@ -120,7 +120,7 @@ func TestInstallerParamsEmptyWhenDirUnknown(t *testing.T) {
 // 顺带钉住"大小对得上就不重拷"：一次更新里用户可能点好几次安装，没必要每次都搬
 // 几十 MB。用 Truncate 造一个同样大小的桩，测试本身也就不必真的复制一遍测试二进制。
 func TestStageWatcherCopiesOutsideTheInstallDir(t *testing.T) {
-	dir := attemptFixture(t, "0.1.4")
+	dir := watcherFixture(t, "0.1.4")
 
 	self, err := os.Executable()
 	if err != nil {
@@ -163,7 +163,7 @@ func TestStageWatcherCopiesOutsideTheInstallDir(t *testing.T) {
 // 一起删了，后果分别是"每次都要重下一百多 MB"和"更新失败从此又变回无声"。当前版本
 // 的那份也不能删——它此刻很可能正在跑。
 func TestCleanStaleWatchersSparesEverythingElse(t *testing.T) {
-	dir := attemptFixture(t, "0.1.4")
+	dir := watcherFixture(t, "0.1.4")
 	keep := []string{watcherName(), "zhikai-0.1.4-amd64-8d29f084.exe", "install-attempt.json"}
 	drop := []string{"updater-0.1.3.2.exe", "updater-0.0.0-dev.exe"}
 	for _, name := range append(append([]string{}, keep...), drop...) {
@@ -209,4 +209,18 @@ func TestNormalizeDirMatchesRegistryWriting(t *testing.T) {
 	if normalizeDir(`  `) != "" || normalizeDir(`\`) != "" {
 		t.Error("空路径应当归一成空串，否则会跟某个真实目录意外相等")
 	}
+}
+
+// 平台看门程序仍使用宿主缓存路径；不改更新服务的依赖或全局函数。
+func watcherFixture(t *testing.T, version string) string {
+	t.Helper()
+	isolateConfigDir(t)
+	previous := appVersion
+	appVersion = version
+	t.Cleanup(func() { appVersion = previous })
+	dir, err := updateCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

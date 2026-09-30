@@ -114,7 +114,7 @@ var kylinSignMode = sync.OnceValue(func() string {
 
 // runInstaller 以 root 身份用 apt 装 file，成功后安排新版本在本进程退出后启动。
 // 阻塞到 apt 结束（含用户输密码的时间），之后由 InstallUpdate 让本进程退出。
-func (a *App) runInstaller(file, expect string) error {
+func (a *App) runInstaller(file, expect, _ string) error {
 	const key = "app:update"
 	env := a.askpassEnv(key)
 	if env == nil {

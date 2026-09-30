@@ -1,9 +1,11 @@
+import { useChatDrafts } from '@/session/use-chat-drafts'
+import { useQuestionRetry } from '@/session/use-question-retry'
 // App 只做两件事：把各个 hook 接起来（会话 / 对话 / 权限队列 / 预览栏 / 文件），
 // 以及按当前视图摆放 shell 组件。任何具体逻辑都不在这里——需要改行为时去
 // session/ 下对应的 hook，需要改样子去 shell/ 或各页面。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePersistentBool } from '@/hooks/use-persistent-state'
-import { Events, errText, installMarketSkill, listSkills, loadConfig, onEvent, passportLogout, readRecordingTranscript, recorderSettings, skillMarket, type SessionInfo } from '@/core/bridge'
+import { errText, loadConfig, passportLogout, type SessionInfo } from '@/core/bridge'
 import { passportDisplayName } from '@/core/passport-account'
 import { BRAND } from '@/core/brand'
 import { isPreviewable, toWorkspaceRel } from '@/preview/classify'
@@ -28,13 +30,10 @@ import { PreviewSide } from '@/shell/preview-side'
 import { Sidebar } from '@/shell/sidebar'
 import { Composer } from '@/composer'
 import { type BuiltinAction } from '@/composer/scenario-bar'
-import { InstallOverlay, type InstallState } from '@/composer/install-overlay'
-import { applyScenario, skillHint, type Scenario } from '@/core/scenarios'
+import { InstallOverlay } from '@/composer/install-overlay'
 import { LiveRecorderCard } from '@/chat/recorder-card'
-import {
-  buildDigestPrompt, buildMinutesPrompt, digestDisplayText, docDisplayText, minutesFileName,
-  pickMinutesSkill, recordingMark, type MinutesStage, type RecordingMark,
-} from '@/recorder/minutes'
+import { useScenarioActions } from '@/session/use-scenario-actions'
+import { useRecordingMinutes } from '@/session/use-recording-minutes'
 import { show as showRecorderWindow } from '@/recorder/window-api'
 import { PluginsPage } from '@/pages/plugins'
 import { MarketPage } from '@/pages/market'
@@ -48,7 +47,6 @@ export type View = 'chat' | 'settings' | 'plugins' | 'market' | 'permissions' | 
 export default function App() {
   const [view, setView] = useState<View>('chat')
   // 输入草稿按会话存：在 A 里写了一半切到 B，那半句不该跟着过去。
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const taRef = useRef<HTMLTextAreaElement>(null)
   // 侧栏折叠态：上提到这里，让折叠开关能放到主栏顶部状态条（「空闲」前），
   // 而侧栏本身按此 prop 变宽窄。
@@ -64,25 +62,8 @@ export default function App() {
   // 会话的状态。与改动前一致：那时的状态本来也要等 applyResumed/reset 才换掉。
   const [focusedId, setFocusedId] = useState('')
 
-  const input = drafts[focusedId] ?? ''
-  const setInput = (v: string | ((prev: string) => string)) =>
-    setDrafts((d) => ({ ...d, [focusedId]: typeof v === 'function' ? v(d[focusedId] ?? '') : v }))
-  // 正在安装的技能；null = 没在装。名字是点击那一刻就知道的，进度靠事件补。
-  const [installing, setInstalling] = useState<InstallState | null>(null)
-
-  // 安装进度：后端每走一步发一条（见 internal/desktop/skillmarket.go）。
-  //
-  // 订阅**常驻**，不是装的时候才挂：挂载订阅有一次异步往返，等点了再挂会漏掉最前面
-  // 那几条——而 detail 阶段恰恰是最快的那一段，漏了就会看到进度环空转一下才动。
-  useEffect(() => onEvent(Events.SkillInstall, (p) => {
-    setInstalling((cur) => (cur ? { ...cur, progress: p } : cur))
-  }), [])
-
-  // 输入框当前内容的镜像。装技能要等网络，那期间用户可能接着打字——回来时拿闭包里
-  // 捕获的旧 input 去算，会把他刚打的字整段顶掉。每次渲染都刷新，读的永远是最新值。
-  const inputRef = useRef(input)
-  inputRef.current = input
-
+  const drafts = useChatDrafts(focusedId)
+  const { input, setInput } = drafts
   const toast = useToast()
   const permissions = usePermissionQueue(focusedId)
   // sudo 密码框：请求可能来自任何一条会话（不只是当前聚焦的），所以挂在最外层。
@@ -122,61 +103,9 @@ export default function App() {
     }
     : {}
 
-  // ensureSkill 保证场景关联的技能在本机可用，返回它到底能不能用。
-  //
-  // 顺序是「先看本地、再看市场」：绝大多数时候技能已经装好了，那一步是读磁盘、
-  // 没有网络往返，也不需要登录。只有真缺的时候才去市场，而市场要登录、要选租户、
-  // 还要 manageapi 授权——把这些前置条件套在每一次点场景上是不合适的。
-  //
-  // 装到**用户级**：内置场景在哪个项目里都该能用；装进项目级会跟着工作区走，还会
-  // 往用户的仓库里塞 .runcode/skills。
-  const ensureSkill = async (name: string): Promise<boolean> => {
-    const local = await listSkills().catch(() => null)
-    if ((local?.skills ?? []).some((s) => s.name === name)) return true
-
-    setInstalling({ name, progress: null })
-    try {
-      const page = await skillMarket(false)
-      const hit = (page.skills ?? []).find((s) => s.name === name)
-      if (!hit) {
-        // 场景表里写着这个技能，市场上却没有——多半是被下架或改名了。说清楚是
-        // 「市场里没有」，别让人以为是网络问题去反复重试。
-        toast.show(`市场里没有「${name}」技能，这次先不带它跑`)
-        return false
-      }
-      await installMarketSkill(hit.id, 'user')
-      toast.show(`已安装「${name}」技能`)
-      return true
-    } catch (e) {
-      toast.show(errText(e))
-      return false
-    } finally {
-      // 撤面板放在 finally：装失败时也得撤，否则用户会被一个永远转下去的遮罩困住。
-      setInstalling(null)
-    }
-  }
-
-  // 选了一个场景：确保关联技能可用，然后把提示词填进输入框，并**选中第一个
-  // 【占位符】**，用户接着打字就替换掉它。
-  //
-  // 不直接发送——模型收到「帮我调研【XX话题】」只能反问，而那一问一答本可以省掉。
-  // 填法（空则替换、有字则另起一段追加）见 applyScenario。
-  //
-  // 技能装不上（没登录、市场下架了、下载接口抽风）**不挡着填提示词**：那段提示词
-  // 本身就是完整可用的，装了技能只是效果更好。这时候只是不点名技能——点名一个不
-  // 存在的技能，模型会去调 Skill 工具然后报一句找不到，比不提它还糟。
-  const pickScenario = async (sc: Scenario) => {
-    const ready = sc.skill ? await ensureSkill(sc.skill) : false
-    const { value, start, end } = applyScenario(inputRef.current, skillHint(ready ? sc.skill : '') + sc.prompt)
-    setInput(value)
-    // 等这次 setState 渲染完再动选区：现在设会被随后的受控更新冲掉。
-    requestAnimationFrame(() => {
-      const ta = taRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(start, end)
-    })
-  }
+  const { installing, pickScenario } = useScenarioActions({
+    sessionId: focusedId, input, setInput, textarea: taRef, notify: toast.show,
+  })
 
   const conversation = useConversation({
     focusedId,
@@ -189,76 +118,20 @@ export default function App() {
   })
 
 
-  // 会后纪要：录音一结束就把转写交给模型。
-  //
-  // 走的是当前这条对话，而不是另起一个后台任务——设计稿里纪要就出现在对话流里，
-  // 用户接着能直接追问「第三条待办是谁负责的」，那要求它和会话共享上下文。
-  //
-  // 两段：'digest' 是录完自动发的速览（短、不落盘），'doc' 是用户看完速览点按钮要
-  // 的正式纪要文档。两段共用这一个函数，因为除了提示词之外的每一步都一样——确认有
-  // 会话、读转写、在对话里只显示一句短的。分成两个函数写过一版，结果是错误提示和
-  // 空转写的判断各写了一遍，改一处漏一处。
-  const minutesFired = useRef('')
-  const sendRecordingRequest = useCallback(async (mark: RecordingMark, stage: MinutesStage) => {
-    if (!mark.id) return
-    if (!infoRef.current) {
-      toast.show('还没有进行中的对话，无法生成纪要')
-      return
-    }
-    try {
-      const text = await readRecordingTranscript(mark.id)
-      if (!text.trim()) {
-        toast.show('这场录音没有转写文字，生成不了纪要')
-        return
-      }
-      // 对话里只显示一句话。整篇转写照旧发给模型，但几千字铺在对话流里会把用户
-      // 自己的历史整个冲掉——设计稿那个位置本来就只有一句「录音纪要」。
-      // 附了什么要说清楚，不能让人不知道自己刚把什么送了出去。
-      if (stage === 'digest') {
-        // 速览不挂技能：技能一加载，整套公文模板就跟着进来，产出又变回一篇长文，
-        // 两段式就白做了（见 buildDigestPrompt）。顺带省掉一次 listSkills。
-        await conversation.send(buildDigestPrompt({ mark, transcript: text }), [], digestDisplayText(mark.title))
-        return
-      }
-      const list = await listSkills().catch(() => null)
-      // 只把**启用着的**技能交给挑选：停用的技能引擎不会加载，点名它只会换来一句
-      // 「找不到这个技能」，比不点名更糟。两个作用域任一停用即视为不可用，与插件页
-      // 的「实际启用 = 两处都没关」是同一个判据。
-      const usable = (list?.skills ?? []).filter((s) => !s.disabledUser && !s.disabledProject)
-      const skill = pickMinutesSkill(usable.map((s) => s.name))
-      await conversation.send(
-        buildMinutesPrompt({ mark, transcript: text, skill, outPath: minutesFileName(mark) }),
-        [],
-        docDisplayText(mark.title),
-      )
-    } catch (e) {
-      toast.show(errText(e))
-    }
-  }, [conversation, toast])
-
-  // 录完自动走一次：先把卡片钉进对话（它属于这条对话，不是浮在界面上的东西），
-  // 再发请求。用 id 记名而不是布尔量：连着录两场时第二场也要触发，而同一场
-  // 不能因为别的状态事件再触发一遍——那是一次白花钱的重复调用。
-  useEffect(() => {
-    const rec = recorder.info
-    if (!rec || rec.state !== 'stopped' || !rec.id || !rec.transcript) return
-    if (minutesFired.current === rec.id) return
-    minutesFired.current = rec.id
-    const mark = recordingMark(rec)
-    conversation.pushRecording(mark)
-    void (async () => {
-      // 录完这一刻现读设置，不在前端留一份镜子：这条路一场录音只走一次，一次文件读
-      // 换来的是「刚在设置页改完就生效」，不必再为它做订阅或失效。读不出来按默认的
-      // 两段式走——出速览是更轻的那条路，选错了代价小。
-      const auto = await recorderSettings().then((s) => s.autoFullMinutes).catch(() => false)
-      await sendRecordingRequest(mark, auto ? 'doc' : 'digest')
-    })()
-  }, [recorder.info, conversation, sendRecordingRequest])
+  const { sendRecordingRequest } = useRecordingMinutes({
+    sessionId: focusedId, recording: recorder.info, send: async (...args) => { await conversation.send(...args) },
+    pushRecording: conversation.pushRecording, notify: toast.show,
+  })
   const session = useSession({
     busy: conversation.busy,
     conversation,
     showToast: toast.show,
     onEnterChat: () => setView('chat'),
+  })
+  const questionRetry = useQuestionRetry({
+    sessionId: focusedId,
+    blocked: conversation.busy || conversation.compacting || session.switching,
+    drafts, conversation, session, textarea: taRef, notify: toast.show,
   })
   useEffect(() => {
     infoRef.current = session.info
@@ -355,11 +228,7 @@ export default function App() {
             // 这条会话的界面态跟着它一起走：预览标签（存着它的编辑快照 id）、
             // 输入草稿。对话状态由 closeOne 里的 dropSession 负责。
             preview.dropSession(id)
-            setDrafts((d) => {
-              const next = { ...d }
-              delete next[id]
-              return next
-            })
+            drafts.update(id, () => ({ text: '', attachments: [] }))
             void session.closeOne(id)
           }}
           currentId={session.info?.sessionId}
@@ -448,6 +317,9 @@ export default function App() {
           ) : (
             <>
               <ChatPane
+                onRetryQuestion={(id) => void questionRetry.retry(id)}
+                onEditQuestion={(id) => void questionRetry.edit(id)}
+                questionActionsDisabled={questionRetry.disabled}
                 blocks={conversation.blocks}
                 busy={conversation.busy}
                 cwd={session.info?.cwd}
@@ -482,16 +354,25 @@ export default function App() {
               )}
 
               <Composer
+                key={focusedId}
+                attachments={drafts.attachments}
+                setAttachments={drafts.setAttachments}
+                retry={questionRetry.editing}
+                retryDisabled={questionRetry.disabled}
+                submitting={questionRetry.pending || session.switching || conversation.compacting}
+                onCancelRetry={questionRetry.cancel}
+                onRemoveOriginal={questionRetry.removeImage}
                 input={input}
                 onInputChange={setInput}
                 taRef={taRef}
+                chatScrollRef={conversation.scrollRef}
                 busy={conversation.busy}
                 toast={toast.text}
                 info={session.info}
                 files={workspace.files}
                 sessionId={session.info?.sessionId}
                 onRefreshFiles={workspace.refresh}
-                onSend={(text, attach, display) => void conversation.send(text, attach, display)}
+                onSend={questionRetry.send}
                 onNotify={toast.show}
                 onStop={conversation.stop}
                 onToggleMode={session.toggleMode}

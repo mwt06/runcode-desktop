@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { type Block } from '@/chat/blocks'
 import {
-  convOf, dropConv, emptyConversation, lastUserText, patchConv, withReverted,
+  convOf, dropConv, emptyConversation, lastUserText, patchConv, withReverted, withContextCompaction,
   type ConvMap,
 } from './conversation-state'
 
@@ -119,5 +119,44 @@ describe('withReverted', () => {
   it('已经在里面时原样返回，不制造新对象', () => {
     const s = withReverted(emptyConversation, 'snap1')
     expect(withReverted(s, 'snap1')).toBe(s)
+  })
+})
+
+describe('withContextCompaction', () => {
+  const event = { phase: 'started', reason: 'auto_in_turn', beforeTokens: 28000, afterTokens: 28000, maxContextTokens: 32768 }
+
+  it('自动压缩保持忙碌，完成原位更新并保留原思考块', () => {
+    const thinking: Block = { kind: 'assistant', id: 'thought', text: '', thinking: '只有思考里才有的结论', streaming: false, ts: '' }
+    const initial = { ...emptyConversation, busy: true, blocks: [thinking] }
+    const started = withContextCompaction(initial, event, 'compact')
+    expect(started.busy).toBe(true)
+    expect(started.compacting).toBe(true)
+    expect(started.blocks[0]).toBe(thinking)
+    const done = withContextCompaction(started, { ...event, phase: 'completed', afterTokens: 18000 }, 'unused')
+    expect(done.busy).toBe(true)
+    expect(done.compacting).toBe(false)
+    expect(done.ctxTokens).toBe(18000)
+    expect(done.ctxEstimated).toBe(true)
+    expect(done.blocks).toHaveLength(2)
+    expect(done.blocks[0]).toBe(thinking)
+    expect(done.blocks[1]).toMatchObject({ id: 'compact', text: expect.stringContaining('继续当前任务') })
+  })
+
+  it('失败或取消不假报压缩成功，且不修改其它会话', () => {
+    const before: ConvMap = { a: { ...emptyConversation, busy: true }, b: emptyConversation }
+    const running = patchConv(before, 'a', (s) => withContextCompaction(s, event, 'c'))
+    const failed = patchConv(running, 'a', (s) => withContextCompaction(s, { ...event, phase: 'failed' }, 'unused'))
+    expect(failed.b).toBe(before.b)
+    expect(failed.a.ctxTokens).toBe(28000)
+    expect(failed.a.compacting).toBe(false)
+    expect(failed.a.blocks[0]).toMatchObject({ kind: 'warning', text: expect.stringContaining('未完成') })
+    const cancelled = withContextCompaction(running.a, { ...event, phase: 'failed' }, 'unused', true)
+    expect(cancelled.blocks[0]).toMatchObject({ kind: 'notice', text: expect.stringContaining('已取消') })
+    expect(withContextCompaction(cancelled, event, 'late', true)).toBe(cancelled)
+  })
+
+  it('手动返回值拥有自己的提示，未知事件不改状态', () => {
+    expect(withContextCompaction(emptyConversation, { ...event, reason: 'manual' }, 'c')).toBe(emptyConversation)
+    expect(withContextCompaction(emptyConversation, { ...event, phase: 'unknown' }, 'c')).toBe(emptyConversation)
   })
 })

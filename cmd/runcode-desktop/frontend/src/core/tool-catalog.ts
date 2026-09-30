@@ -27,6 +27,8 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   Analyze: { verb: '结构化分析', label: '结构化分析', desc: '为当前思考协议记录结构化分析。' },
   // AskUser 有意不给 verb：它的工具行以原名显示（提问本身由 AskCard 呈现）。
   AskUser: { label: '询问用户', desc: '向用户提问并停下等待回复，用于需要用户决策或缺少关键信息时。' },
+  analyze_image: { verb: '识别图片', label: '图片识别', desc: '仅文本模型使用设置中的识图模型分析已授权图片；不改变主模型。' },
+  open_browser: { verb: '打开浏览器', label: '打开本地网页', desc: '经批准在系统浏览器打开本机的确认页或预览页；不会代你点击或确认(仅桌面版)。' },
   open_preview: { verb: '预览', label: '预览产物', desc: '在桌面预览面板打开工作区文件(仅桌面版)。' },
   ReadOffice: { verb: '读取文档', label: '读取 Office 文档', desc: '把 .docx/.xlsx/.pptx 读成结构化文本(文字、字体、格式、版式)，按页返回，长文档可续读(仅桌面版)。' },
   // plan_write 有意不给 verb：它不出现在工具行里，产出直接进计划模式的阶段进度条与
@@ -42,8 +44,10 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   ListMcpPrompts: { verb: '列出提示词', label: '列出 MCP 提示词', desc: '列出 MCP 服务器提供的提示词。' },
   GetMcpPrompt: { verb: '取提示词', label: '获取 MCP 提示词', desc: '取出一个 MCP 提示词的内容。' },
   // OA 办公工具(仅桌面版、且仅通行证连接 + 该租户开通了本地模型时才出现)。全部
-  // 只读,身份取自登录令牌,只查得到本人的数据。名字带 oa_ 前缀是为了不与技能/MCP/
+  // 远端只读，附件下载会写本地工作区；身份取自登录令牌。名字带 oa_ 前缀是为了不与技能/MCP/
   // 其它内置工具撞名——会话内工具名唯一,撞名是装配失败而不是覆盖。
+  oa_attachments: { verb: '列出附件', label: 'OA 附件列表', desc: '列出文档或流程中的可识别附件。' },
+  oa_download_attachment: { verb: '下载附件', label: 'OA 附件下载', desc: '将你有权查看的 OA 附件下载到当前工作区，不覆盖已有文件。' },
   oa_todo: { verb: '待办事项', label: 'OA 待办', desc: '查询你在 OA 里的待办流程。' },
   oa_done: { verb: '已办事项', label: 'OA 已办', desc: '查询你在 OA 里的已办流程。' },
   oa_created: { verb: '我发起的流程', label: 'OA 我发起的', desc: '查询你在 OA 里发起的流程。' },

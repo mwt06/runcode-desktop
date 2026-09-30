@@ -181,7 +181,7 @@ func TestSetActiveTenantPersistsAndRestores(t *testing.T) {
 
 func TestNewRestoresPersistedActiveTenant(t *testing.T) {
 	isolateConfigDir(t)
-	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+	if err := updateRawConfig(func(raw *desktopConfig) error {
 		raw.TenantID = " persisted "
 		return nil
 	}); err != nil {
@@ -285,7 +285,7 @@ func TestSaveSettingsKeepsPassportWiring(t *testing.T) {
 	if _, err := app.StartSession(req); err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	if _, err := app.SaveSettings(req); err != nil {
+	if _, err := app.SaveSettings(SaveSettingsRequest{PermissionMode: "interactive"}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	app.mu.Lock()
@@ -314,10 +314,7 @@ func TestSaveSettingsForNextTenantDoesNotChangeLiveModel(t *testing.T) {
 	if err := app.SetActiveTenant("tenant-b"); err != nil {
 		t.Fatalf("SetActiveTenant: %v", err)
 	}
-	next := start
-	next.Model = "model-b"
-	next.TenantID = "tenant-b"
-	if _, err := app.SaveSettings(next); err != nil {
+	if _, err := app.SaveSettings(SaveSettingsRequest{PermissionMode: "interactive", MaxTokens: 1234}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 
@@ -326,8 +323,8 @@ func TestSaveSettingsForNextTenantDoesNotChangeLiveModel(t *testing.T) {
 	liveModel := app.liveConfig.Model
 	liveTenant := app.livePassportTenant
 	app.mu.Unlock()
-	if nextModel != "model-b" {
-		t.Fatalf("next model = %q, want model-b", nextModel)
+	if nextModel != "model-a" {
+		t.Fatalf("settings must not change next model: %q", nextModel)
 	}
 	if liveModel != "model-a" || liveTenant != "tenant-a" {
 		t.Fatalf("live connection changed: model=%q tenant=%q", liveModel, liveTenant)

@@ -24,12 +24,16 @@ type PassportStatus struct {
 //   - ContextTokens 是该模型的上下文窗口。本地模型的窗口通常远小于云端模型，
 //     切过去时要按它重设会话预算，否则历史一长第一次请求就超限。0 = 未声明，
 //     沿用会话原值。
+//
+// VisionDefault is the unique tenant-authorized platform image fallback, not OA.
 type PassportModel struct {
-	ID            string `json:"id"`
-	OwnedBy       string `json:"ownedBy"`
-	Local         bool   `json:"local,omitempty"`
-	LocalDefault  bool   `json:"localDefault,omitempty"`
-	ContextTokens int    `json:"contextTokens,omitempty"`
+	VisionDefault  bool   `json:"visionDefault,omitempty"`
+	SupportsImages *bool  `json:"supportsImages,omitempty"`
+	ID             string `json:"id"`
+	OwnedBy        string `json:"ownedBy"`
+	Local          bool   `json:"local,omitempty"`
+	LocalDefault   bool   `json:"localDefault,omitempty"`
+	ContextTokens  int    `json:"contextTokens,omitempty"`
 }
 
 // PassportTenant 是当前用户可用的租户（Bridge /api/tenants）。

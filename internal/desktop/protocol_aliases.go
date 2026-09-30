@@ -60,6 +60,11 @@ const (
 //
 //nolint:revive // 再导出别名:文档以定义方的 protocol 包为准(见上)
 type (
+	QuestionReference     = protocol.QuestionReference
+	QuestionImage         = protocol.QuestionImage
+	QuestionDraft         = protocol.QuestionDraft
+	SubmitQuestionRequest = protocol.SubmitQuestionRequest
+	QuestionReceipt       = hostproto.QuestionReceipt
 	// Turn stream, session state and approval — the engine host's contract.
 	SessionInfo       = hostproto.SessionInfo
 	AssistantDelta    = hostproto.AssistantDelta
@@ -70,6 +75,8 @@ type (
 
 	// Session lifecycle beyond the host's own state.
 	StartSessionRequest = protocol.StartSessionRequest
+	SaveSettingsRequest = protocol.SaveSettingsRequest
+	SettingsView        = protocol.SettingsView
 	SessionRenamed      = protocol.SessionRenamed
 	CompactResult       = protocol.CompactResult
 	OpenSessionInfo     = protocol.OpenSessionInfo

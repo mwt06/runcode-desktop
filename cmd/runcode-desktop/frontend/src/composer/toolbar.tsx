@@ -48,7 +48,7 @@ const THINKING_LABEL: Record<string, string> = { low: '低', medium: '中', high
 export function ComposerToolbar({
   info,
   busy,
-  canSend,
+  canSend, sendLabel,
   onOpenSkillPicker,
   onOpenAgentPicker,
   onOpenFilePicker,
@@ -63,6 +63,7 @@ export function ComposerToolbar({
 }: {
   info: SessionInfo | null
   busy: boolean
+  sendLabel?: string
   canSend: boolean
   onOpenSkillPicker: () => void
   onOpenAgentPicker: () => void
@@ -274,7 +275,7 @@ export function ComposerToolbar({
             <button className="w-10 h-10 border-none rounded-btn flex-none bg-red text-white inline-flex items-center justify-center cursor-pointer shadow-lift-danger hover:brightness-105" onClick={onStop} title="停止"><Icon name="stop" size={16} /></button>
           </div>
         ) : (
-          <button className="w-10 h-10 border-none rounded-btn flex-none bg-primary text-white inline-flex items-center justify-center cursor-pointer shadow-lift hover:brightness-105 disabled:opacity-40 disabled:shadow-none disabled:cursor-default" onClick={onSend} disabled={!canSend} title="发送"><Icon name="send" size={17} /></button>
+          <button className={`${sendLabel ? 'min-w-10' : 'w-10'} h-10 border-none rounded-btn flex-none bg-primary text-white inline-flex items-center justify-center cursor-pointer shadow-lift hover:brightness-105 disabled:opacity-40 disabled:shadow-none disabled:cursor-default`} onClick={onSend} disabled={!canSend} title={sendLabel ?? '发送'} aria-label={sendLabel ?? '发送'}>{sendLabel ? <span className="px-2 text-[12px] whitespace-nowrap">{sendLabel}</span> : <Icon name="send" size={17} />}</button>
         )}
       </div>
     </div>

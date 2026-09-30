@@ -61,6 +61,11 @@ func New(inst Installer) tool.Tool { return Tool{inst: inst} }
 // Name returns "install_runtime".
 func (Tool) Name() string { return Name }
 
+// InputPresentation previews the primary argument while the model composes it.
+func (Tool) InputPresentation() tool.InputPresentation {
+	return tool.InputPresentation{PrimaryField: "runtime"}
+}
+
 // Description says when to call it (only when the task needs the runtime and the
 // system prompt's runtime section says it is missing) and what the user will see —
 // an approval prompt, and on 银河麒麟 a password dialog — so the model can tell the

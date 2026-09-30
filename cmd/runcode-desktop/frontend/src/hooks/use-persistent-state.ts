@@ -17,12 +17,13 @@ export function usePersistentBool(key: string, fallback: boolean): [boolean, () 
 }
 
 // usePersistentNumber 同上，但值由调用方在提交时显式写入(拖拽调宽这类连续变化
-// 不该每一帧都落盘，所以 commit 与 setValue 分开)。
+// 不该每一帧都落盘，所以 commit 与 setValue 分开)。松手时可传最终值，避免
+// 同一帧内 setValue 尚未渲染，commit 却保存了上一次的数值。
 export function usePersistentNumber(
   key: string,
   parse: (stored: number) => number,
-): [number, (v: number) => void, () => void] {
+): [number, (v: number) => void, (finalValue?: number) => void] {
   const [value, setValue] = useState<number>(() => parse(Number(localStorage.getItem(key))))
-  const commit = () => localStorage.setItem(key, String(value))
+  const commit = (finalValue = value) => localStorage.setItem(key, String(finalValue))
   return [value, setValue, commit]
 }

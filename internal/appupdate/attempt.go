@@ -1,4 +1,4 @@
-package desktop
+package appupdate
 
 import (
 	"encoding/json"
@@ -22,7 +22,7 @@ import (
 //     0.1.2"：静默模式下 NSIS 遇到写不动的文件是跳过并继续，注册表照写。
 //
 // 唯一不会骗人的判据是**应用自己报出来的版本**：它就是那个被跑起来的二进制。所以
-// 拉起安装器之前先记下"这次要装成 X"，下次启动拿 X 和 AppVersion() 一比即可。
+// 拉起安装器之前先记下"这次要装成 X"，下次启动拿 X 和 u.opts.Current 一比即可。
 //
 // # 它同时补上了"失败无声"这个窟窿
 //
@@ -43,8 +43,8 @@ type installAttempt struct {
 //
 // 放缓存目录而不是配置目录，理由和安装包一样——它是一次性的过程状态，丢了最坏的
 // 后果只是少报一句话，没有任何值得跟着漫游配置同步的东西。
-func attemptFile() (string, error) {
-	dir, err := updateCacheDir()
+func (u *Service) attemptFile() (string, error) {
+	dir, err := u.opts.CacheDir()
 	if err != nil {
 		return "", err
 	}
@@ -56,14 +56,14 @@ func attemptFile() (string, error) {
 // 由**应用**写而不是由看门进程写，是有意的：看门进程可能压根没起来（被杀软拦下、
 // 复制失败），而那恰恰是最需要报出来的一种失败。写在应用这边，只要用户还能打开
 // 应用，这句话就一定说得出来。
-func writeInstallAttempt(version string) error {
-	path, err := attemptFile()
+func (u *Service) writeInstallAttempt(version string) error {
+	path, err := u.attemptFile()
 	if err != nil {
 		return err
 	}
 	blob, err := json.Marshal(installAttempt{
 		Version: strings.TrimSpace(version),
-		From:    AppVersion(),
+		From:    u.opts.Current,
 		At:      nowRFC3339(),
 	})
 	if err != nil {
@@ -76,8 +76,8 @@ func writeInstallAttempt(version string) error {
 //
 // 删掉是语义的一部分：这句话只该说一遍。留着的话，一个装不上的版本会在此后每次
 // 启动都弹同一句警告，而用户对此无能为力——那不是提示，是噪音。
-func takeInstallAttempt() (installAttempt, bool) {
-	path, err := attemptFile()
+func (u *Service) takeInstallAttempt() (installAttempt, bool) {
+	path, err := u.attemptFile()
 	if err != nil {
 		return installAttempt{}, false
 	}
@@ -101,12 +101,12 @@ func takeInstallAttempt() (installAttempt, bool) {
 //
 // 判据是 **当前版本 < 记录里的目标版本**，不是"不相等"：用户完全可能在这中间手工
 // 装了个更新的版本，那时上一次自动更新没走完也不再是个问题，不该再提。
-func installAttemptNote() string {
-	att, ok := takeInstallAttempt()
+func (u *Service) installAttemptNote() string {
+	att, ok := u.takeInstallAttempt()
 	if !ok {
 		return ""
 	}
-	if compareVersions(AppVersion(), att.Version) >= 0 {
+	if CompareVersions(u.opts.Current, att.Version) >= 0 {
 		return ""
 	}
 	when := ""
@@ -114,5 +114,5 @@ func installAttemptNote() string {
 		when = t.Format("01-02 15:04") + " "
 	}
 	return fmt.Sprintf("%s那次更新到 %s 没有完成，当前仍是 %s。可以再试一次；若反复失败，请检查安全软件是否拦截了安装程序。",
-		when, att.Version, AppVersion())
+		when, att.Version, u.opts.Current)
 }

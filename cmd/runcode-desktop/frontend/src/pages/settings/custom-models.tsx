@@ -17,6 +17,7 @@ import {
   type CustomModelDraft,
 } from '@/core/custom-models'
 import { deleteCustomModel, errText, saveCustomModel, type CodexModel, type CustomModel } from '@/core/bridge'
+import { imageCapabilityLabel, imageCapabilityValue } from '@/core/vision'
 import { Section } from './section'
 import { CodexLoginRow } from './codex-login'
 import { InlineError } from '@/ui/feedback'
@@ -59,7 +60,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
 
   return (
     <Section title="自定义模型" hint="直连接入点，开始页可选">
-      <p className="text-[12px] text-muted -mt-1.5">除通行证平台模型外，可添加 OpenAI 兼容、Anthropic 或 Codex 接入点（各自带 Base URL 与密钥）。</p>
+      <p className="text-[12px] text-muted -mt-1.5">除通行证平台模型外，可添加 OpenAI 兼容、Anthropic 或 Codex 接入点（各自带 Base URL 与密钥）。删除默认识图模型后需重新选择兜底。</p>
       <p className="text-[12px] text-faint -mt-1">
         OpenAI 有两套协议：绝大多数网关走「OpenAI 兼容」（<span className="font-mono">/chat/completions</span>），少数端点和较新的推理模型只提供「OpenAI Responses」（<span className="font-mono">/responses</span>）。若报 404 或提示模型不支持，换另一个试试。
       </p>
@@ -68,7 +69,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
           {models.map((m) => (
             <div key={m.name} className={`flex items-center justify-between rounded-field border bg-surface2 px-3 py-2 text-[13px] ${editing?.name === m.name ? 'border-primary' : 'border-line2'}`}>
               <span className="truncate">
-                {m.name}
+                {m.name} · {imageCapabilityLabel(m.supportsImages)}
                 <span className="text-muted"> · {customModelProviderLabel(m.provider)} · {m.model}</span>
                 <span className="text-faint font-mono text-[11px]"> {m.baseURL}</span>
               </span>
@@ -99,7 +100,15 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
             {CUSTOM_MODEL_PROVIDERS.map((p) => <option key={p} value={p}>{customModelProviderLabel(p)}</option>)}
           </SelectField>
         </div>
-        {draft.provider === 'codex' && (
+        <label className="flex flex-col gap-1 text-[12px] text-muted">
+          图片能力
+          <SelectField value={draft.supportsImages == null ? 'unknown' : String(draft.supportsImages)} onChange={(v) => patchDraft({ supportsImages: imageCapabilityValue(v) })}>
+            <option value="unknown">未标注 · 保留原图直传</option>
+            <option value="true">支持图片 · 直接交给此模型</option>
+            <option value="false">仅文本 · 使用默认识图模型</option>
+          </SelectField>
+        </label>
+        {draft.provider === 'codex'  && (
           <SelectField value={draft.authMode} onChange={(v) => patchDraft({ authMode: codexAuthMode(v) })}>
             <option value="chatgpt">用 ChatGPT 订阅登录</option>
             <option value="apikey">用 API 密钥连第三方 Codex 中转</option>

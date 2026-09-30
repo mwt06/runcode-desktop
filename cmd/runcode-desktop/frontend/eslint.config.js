@@ -1,5 +1,4 @@
-// ESLint 只为一件事存在:替我们盯住 TypeScript 看不见的 React 规则——尤其是
-// hook 的依赖数组。tsc 能证明类型对,证明不了 useEffect 少列了一个依赖。
+// ESLint 检查 React 生命周期与目录依赖边界：类型正确不代表依赖方向正确。
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
@@ -24,4 +23,20 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
+  ...[
+    { layer: 'core', allowed: ['core', 'assets'] },
+    { layer: 'ui', allowed: ['ui', 'core', 'assets'] },
+    { layer: 'hooks', allowed: ['hooks'] },
+  ].map(({ layer, allowed }) => ({
+    files: [`src/${layer}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { regex: `^@/(?!(?:${allowed.join('|')})(?:/|$))`, message: '底层模块不能反向依赖业务上层。' },
+        { group: ['../**'], message: '跨目录使用 @/ 别名，避免绕过分层检查。' },
+      ] }],
+      'no-restricted-syntax': ['error', {
+        selector: 'ImportExpression', message: '底层模块使用静态导入，使分层边界可检查。',
+      }],
+    },
+  })),
 )

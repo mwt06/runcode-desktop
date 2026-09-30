@@ -17,9 +17,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf16"
+
+	"gitlab.ouc-online.com.cn/aibase/agentloop/executil"
 )
 
 // officeAutomation 描述一类文档怎么被驱动:先试哪些 ProgID、集合叫什么、另存为的
@@ -62,7 +63,7 @@ func convertOfficeToPDF(src, dst string) error {
 	// 可注入的缝——路径里有分号、&、反引号都只是字符串内容。
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShell(script)) //nolint:gosec // 见上：命令固定，载荷是引用安全的编码脚本
 	// 没有这行,每次预览都会闪一个控制台窗口——桌面应用里那是明显的瑕疵。
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	executil.HideConsoleWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		return fmt.Errorf("转换超时（%s）", officeConvertTimeout)

@@ -7,8 +7,10 @@ tasks:
     # Universal/multi-arch builds invoke this concurrently from parallel deps;
     # two `go mod tidy` processes racing on go.mod can corrupt it (#4637).
     run: once
+    # go mod tidy 不使用 go.work；本地引擎新增了未发布的包时，它会错误地去 tag 找包。
+    # 只允许品牌脚本显式 --local-engine 时跳过；正常构建/发布仍执行 tidy。
     cmds:
-      - go mod tidy
+      - '{{if eq (.LOCAL_ENGINE | default "0") "1"}}echo "Local engine: skip go mod tidy (go.work)"{{else}}go mod tidy{{end}}'
 
   install:frontend:deps:
     summary: Install frontend dependencies

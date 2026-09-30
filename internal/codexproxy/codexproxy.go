@@ -171,6 +171,7 @@ func (s *Server) Close() error {
 	}
 	s.done = true
 	s.mu.Unlock()
+	s.client.CloseIdleConnections()
 	return s.srv.Close()
 }
 

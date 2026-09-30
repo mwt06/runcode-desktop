@@ -12,7 +12,7 @@ func TestSaveSettingsPersistsSkipLoginAndCarriesForward(t *testing.T) {
 	if app.LoadConfig().SkipLogin {
 		t.Fatal("default SkipLogin should be false (login required)")
 	}
-	if _, err := app.SaveSettings(StartSessionRequest{SkipLogin: true, PermissionMode: "interactive"}); err != nil {
+	if _, err := app.SaveSettings(SaveSettingsRequest{SkipLogin: true, PermissionMode: "interactive"}); err != nil {
 		t.Fatalf("SaveSettings enable: %v", err)
 	}
 	if !app.LoadConfig().SkipLogin {
@@ -25,7 +25,7 @@ func TestSaveSettingsPersistsSkipLoginAndCarriesForward(t *testing.T) {
 		t.Fatal("carry-forward failed: SkipLogin lost after a plain saveConfig")
 	}
 
-	if _, err := app.SaveSettings(StartSessionRequest{SkipLogin: false, PermissionMode: "interactive"}); err != nil {
+	if _, err := app.SaveSettings(SaveSettingsRequest{SkipLogin: false, PermissionMode: "interactive"}); err != nil {
 		t.Fatalf("SaveSettings disable: %v", err)
 	}
 	if app.LoadConfig().SkipLogin {
@@ -39,7 +39,7 @@ func TestSaveSettingsPersistsSkipLoginAndCarriesForward(t *testing.T) {
 // through its persisted-profile override instead of reverting the connection.
 func TestPersistConnectionChoiceCustomModel(t *testing.T) {
 	isolateConfigDir(t)
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.Provider = "passport"
 		cfg.Model = "glm-4.6"
 		cfg.TenantID = "tenant-old"
@@ -78,7 +78,7 @@ func TestPersistConnectionChoiceCustomModel(t *testing.T) {
 // tenant is left exactly as it was, because SetActiveTenant is its only writer.
 func TestPersistConnectionChoicePlatformModel(t *testing.T) {
 	isolateConfigDir(t)
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.Provider = "openai"
 		cfg.CustomModelName = "GPT-5"
 		cfg.Model = "gpt-5"

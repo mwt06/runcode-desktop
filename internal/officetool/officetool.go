@@ -68,6 +68,11 @@ func New(extraRoots ...string) tool.Tool { return Tool{extraRoots: extraRoots} }
 // Name is the tool name the model calls.
 func (Tool) Name() string { return Name }
 
+// InputPresentation previews the primary argument while the model composes it.
+func (Tool) InputPresentation() tool.InputPresentation {
+	return tool.InputPresentation{PrimaryField: "path"}
+}
+
 // Description steers the model to this tool for Office files, where plain Read
 // returns unreadable binary.
 func (Tool) Description() string {

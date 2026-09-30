@@ -50,8 +50,12 @@ func publicCustomModels(raw []CustomModel) []CustomModel {
 // resolveCustomModel 按显示名解析一条直连配置。密钥只在这里短暂进入 Go 内存，
 // 供起会话和对话内切换使用，不经过 Wails bridge 返回前端。
 func (a *App) resolveCustomModel(name string) (CustomModel, error) {
+	return resolveCustomModelFrom(loadRawConfig(), name)
+}
+
+func resolveCustomModelFrom(stored desktopConfig, name string) (CustomModel, error) {
 	name = strings.TrimSpace(name)
-	for _, m := range loadRawConfig().CustomModels {
+	for _, m := range stored.CustomModels {
 		if m.Name != name {
 			continue
 		}
@@ -116,8 +120,6 @@ func customModelPersistenceRequest(original, resolved StartSessionRequest) Start
 	original.BaseURL = ""
 	original.APIKey = ""
 	original.AuthToken = ""
-	original.APIKeyProtected = ""
-	original.AuthTokenProtected = ""
 	return original
 }
 
@@ -139,12 +141,15 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	if !supportedCustomModelProvider(req.Provider) {
 		return nil, wireError(unsupportedProviderError(req.Provider))
 	}
+	if req.ClearImageSupport && req.SupportsImages != nil {
+		return nil, wireError(errors.New("不能同时设置和清除图片能力标记"))
+	}
 	if req.ClearAPIKey && req.APIKey != "" {
 		return nil, wireError(errors.New("不能同时替换和清除 API 密钥"))
 	}
 
 	var result []CustomModel
-	err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	err := updateRawConfig(func(cfg *desktopConfig) error {
 		source := -1
 		target := -1
 		for i, existing := range cfg.CustomModels {
@@ -180,6 +185,21 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 			AuthMode: req.AuthMode,
 		}
 		switch {
+		case req.ClearImageSupport:
+		case req.SupportsImages != nil:
+			supported := *req.SupportsImages
+			persisted.SupportsImages = &supported
+		case source >= 0:
+			persisted.SupportsImages = cfg.CustomModels[source].SupportsImages
+		}
+		if ref := cfg.Vision.DefaultModel; ref != nil && ref.Kind == "custom" && ((req.OriginalName != "" && ref.Name == req.OriginalName) || ref.Name == req.Name) {
+			if persisted.SupportsImages == nil || !*persisted.SupportsImages {
+				return errors.New("此模型正在作为图片识别兜底，请先更换或清除默认识图模型")
+			}
+			ref.Name = req.Name
+		}
+		cfg.VisionRevision++
+		switch {
 		case req.ClearAPIKey:
 			// Explicit clear: leave both secret fields empty.
 		case req.APIKey != "":
@@ -207,6 +227,8 @@ func (a *App) SaveCustomModel(req SaveCustomModelRequest) ([]CustomModel, error)
 	if err != nil {
 		return nil, wireError(err)
 	}
+
+	a.renameVisionReferences(req.OriginalName, req.Name)
 
 	// If the live session is running the model just edited, its open connection is
 	// still the pre-edit one — rebuild it against the new config so the change takes
@@ -249,7 +271,7 @@ func normalizeCustomModelProvider(provider string) string {
 func (a *App) DeleteCustomModel(name string) ([]CustomModel, error) {
 	name = strings.TrimSpace(name)
 	var result []CustomModel
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		next := cfg.CustomModels[:0]
 		for _, m := range cfg.CustomModels {
 			if m.Name != name {
@@ -257,6 +279,11 @@ func (a *App) DeleteCustomModel(name string) ([]CustomModel, error) {
 			}
 		}
 		cfg.CustomModels = next
+		if ref := cfg.Vision.DefaultModel; ref != nil && ref.Kind == "custom" && ref.Name == name {
+			cfg.Vision.DefaultModel = nil
+			cfg.Vision.Disabled = true
+		}
+		cfg.VisionRevision++
 		if cfg.CustomModelName == name {
 			cfg.CustomModelName = ""
 			cfg.Provider = ""

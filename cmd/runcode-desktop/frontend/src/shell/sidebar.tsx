@@ -209,6 +209,7 @@ export function Sidebar({
           ) : (
             recents.map((s) => {
               const active = s.id === currentId
+              const opened = active || openSessions.some((o) => o.id === s.id)
               return (
                 <div
                   key={s.id}
@@ -221,12 +222,12 @@ export function Sidebar({
                   <Icon name="file" size={15} />
                   <span className="flex-1 min-w-0 truncate">{s.title}</span>
                   <span className="text-faint text-[11px] flex-none group-hover:hidden">{s.when}</span>
-                  {/* 当前会话不提供删除:后端会拒绝(删掉后下一个回合会把文件重建成
+                  {/* 打开中的会话不提供删除:后端会拒绝(删掉后下一个回合会把文件重建成
                       只含新内容的僵尸会话),这里直接不给入口,免得引到一条错误提示上。 */}
                   <button
                     type="button"
-                    disabled={active}
-                    title={active ? '当前会话不可删除；请先新建或切换到其它会话' : '删除此会话（不可恢复）'}
+                    disabled={opened}
+                    title={opened ? '打开中的会话不可删除；请先关闭该会话' : '删除此会话（不可恢复）'}
                     onClick={(e) => {
                       e.stopPropagation()
                       setConfirmDel(s)

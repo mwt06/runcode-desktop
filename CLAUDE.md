@@ -17,7 +17,22 @@
 2. **桌面外壳（`cmd/runcode-desktop`，嵌套 module）**——Wails/CGO 重依赖隔离层。
 3. **服务端骨架（`cmd/runcode-server`，嵌套 module）**——独立仓库服务端的可跑参考实现。
 
-`go.work` 已提交（use：`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`）供本地联动；**CI/发布链路一律 `GOWORK=off`**，此时引擎按 go.mod require 的 tag 版本经 `GOPRIVATE` 从内网 GitLab 解析——引擎改动须打新 tag 并升 require 才进 CI/发布（GitHub CI 够不着内网 GitLab，见 `.github/workflows/ci.yml` 顶部 TODO）。
+`go.work` 已提交（use：`.`、`./cmd/runcode-desktop`、`./cmd/runcode-server`、`../agentloop`）供本地联动；**CI/发布链路一律 `GOWORK=off`**。本机正式构建经 `GOPRIVATE` 从内网 GitLab 解析固定 tag；GitHub CI 经 `.github/actions/setup-engine` 用 `ENGINE_REPO_TOKEN` checkout `mwt06/agentloop` 的同一 tag，再向三个 module 注入仅 CI 使用的临时 replace。该 action 在 checkout/replace 前用 `check-version.sh` 核验三模块 require 一致，不能靠 workspace 或临时 replace 掩盖版本漂移。引擎改动须发布真实 tag 并同时升三个 require 才进正式发布。
+
+**本地引擎测试打包与 tidy**：`go mod tidy` 不使用 `go.work`，引擎新增未发布包（如 `imageinput`）时会错误地去固定 tag 找包。品牌脚本的 `--local-engine` 会先验证引擎是工作区 main module，再向 Taskfile 传 `LOCAL_ENGINE=1`，仅此模式跳过 tidy；正式构建仍传 0 并执行 tidy，不能靠临时 replace 掩盖依赖漂移。
+
+### 引擎升级接入契约
+
+- CLI/TUI、desktop、server 均启用 `Options.OmitRequestSnapshots`：不在回合结果保留完整请求历史；上下文审核仍走 `LLMRequestObserver`，不依赖这些结果快照。
+- 宿主工具通过 `tool.InputPresentationProvider` 声明流式主参数（文件路径、运行时名称、计划阶段）；这仅控制展示，不改变 schema、授权或执行，更不是敏感参数隐藏机制。
+- 引擎 `host.Manager.Close` 先取消并等待构建/回合（含收尾回调）和状态落盘操作，再关资源；失败保留关闭中的会话供重试，不接受新回合或同 ID 重建。`OnTurnEnd` 不能同步关闭自身会话，否则会等待自己。desktop 关闭失败必须向上传错，不标已关闭、不丢编辑复审/预览引用；TUI 退出先停止事件发送、取消并等待回合，再用独立有界 context 清理。不能复用已取消的回合 context 做清理。
+- **2026-09-30 已随引擎 `v0.15.0` 发布**：包含上述 API/关闭修复、上下文预算、提问分支、图片路由与后台无控制台工具。GitLab 与 GitHub 镜像使用同一 tag，三个 module 统一 require `v0.15.0`。正式构建使用 `GOWORK=off`；仅开发联调显式 `--local-engine`，不能拿工作区验证替代固定 tag 验证。
+
+### 上下文自动压缩契约
+
+- 主请求前按完整请求的校准估算检查预算，达到 **80%** 自动压缩，目标约 **60%**；低于 80% 才继续原回合，不重跑已完成工具。失败/不收敛明确报错，不用仅回收少量 tokens 的提示冒充压缩成功。输出上限也受剩余窗口约束。
+- **思考原文留在完整历史，且必须参与摘要**；摘要保留理解、判断依据、结论、不确定性和未完成事项，近期思考在预算允许时保留原文。不能只取 TextContent 而漏掉 thinking；原生 reasoning 是否能回传仍取决于 provider，不在这次压缩改动中假装补齐。
+- `context:compaction` 由引擎 host 发出开始/完成/失败事件，前端按 sessionId 更新，自动压缩期间不清 busy，摘要重试不清主回答。协议经 protogen 生成。以上已包含在固定引擎 `v0.15.0`，正式打包不需要 `--local-engine`。
 
 ### 常用命令（根目录执行）
 
@@ -31,11 +46,19 @@
 
 ### `internal/` 文件分工
 
-两个大包，各自一个包内按职责分文件（Go 里"目录结构"就是包，包内靠文件名分工），外加一个只放类型的 `internal/protocol`：
+按功能模块组织；Wails 入口保留在 `desktop.App`，能独立拥有状态与流程的能力下沉为独立包，依赖只朝下：
 
 - **`internal/protocol`**（桌面自己的 wire 类型：设置表单、通行证、技能/子代理/MCP/工具管理页、编辑复审、harm 提示）。**加字段、加 DTO 请加在这里，不要加进引擎**——引擎的 `agentloop/protocol` 只负责"跑一个回合"的契约（assistant delta / 工具事件 / 审批 / 回合结果 / 会话状态 / 错误 / envelope），且与 `cmd/runcode-server` 共享。判据是"谁产生它"：引擎 `host` 包产生或消费的归引擎，只有本外壳用的归这里，**没有例外**。命令清单 `CommandKinds` 就在这里（`internal/protocol/commands.go`）——**新增一个 Wails 命令只改本仓**，引擎不必发版；引擎只保留分类词汇 `protocol.CommandKind` 与三个常量（"query 意味着什么"两端必须一致，"有哪些命令"各自声明，`cmd/runcode-server` 另有自己的一份）。两个包由 `tools/protogen` 合并生成同一份 TS，重名会直接报错。
-- **`internal/desktop`**（桌面核心，Wails 把 `App` 的导出方法绑给前端，所以命令必须都挂在同一个类型上，不能拆包）：`app.go` 只留 App 结构与会话开关；回合在 `turn.go`、自动标题在 `title.go`、运行中可变的会话设置在 `session_settings.go`；其余按功能各自成文件（`skills` / `agents` / `mcp` / `passport` / `oauth` / `tokens` / `preview` / `editstore` / `plan`（阶段化计划模式的阶段机与审批闸门）/ `custommodels` / `config` / `store` / `disabled` / `harm` / `appdirs`（本应用自己的安装/数据目录不再走"项目外授权"，包一层 `permissions.Policy`）/ `update`（版本更新的状态机：查网关清单 → 下载 → 校验 sha256 → 拉起安装器；`version.go` 是版本号与产品标识，两者都由打包脚本经 `-ldflags` 注入）/ `download`（带进度与 sha256 的大文件下载，更新、技能市场与运行时包三处共用） / `runtimes`（运行时环境：Python/Node/Git 的绿色包，查清单 → 下载 → 校验 → 解压到用户目录，**全程不提权**；`runtimepack.go` 是"本机知识"——包内布局与系统探测，故意不来自服务端清单；`runtimeenv.go` 把它接进 PATH 与 `SystemPromptAppend`，两者缺一不可：只给 PATH 模型不知道 Python 在那儿，还会回一句"请先安装 Python"。**PATH 只写进本进程、不放进 `engine.Config.ToolEnv`**：ToolEnv 是开对话那一刻的快照，放进去就把这个对话的 PATH 冻住了，对话中途装上的运行时在这个对话里永远找不到；引擎的 Bash 每条命令都现读 `os.Environ()`，所以写进程 PATH 就够。模型那条安装路在 `runtimetool.go`（清单没取就先取、设置页正在装就等、装好没放行就补授权；`runtimeResolver` 给审批弹窗配"装什么、多大"那句话——引擎的审批请求里不带工具参数）；`untargz.go` 是它专用的解压器——运行时包用 tar.gz 而非技能包那种 zip，因为里面有符号链接与可执行位） / `privilege` + `askpass`（让模型用 sudo，**两道人工关**：先在应用里审批那条命令——永不记住、永不被裁判自动放行——再在应用自己的弹框里输系统密码，模型永远看不到。askpass 就是本应用二进制自身（`IsAskpass`/`RunAskpass`，`main.go` 与 `main_kylin.go` 都要在单实例锁之前处理掉）；服务端对每个连接核验来者：同一用户、是本应用二进制、**父进程名为 sudo 且有效 UID 为 0**——只看名字会被一个叫 sudo 的脚本骗过（麒麟真机实测）。Linux 要求 `DISPLAY` 非空（sudo 自动改走 askpass 的前提）；macOS 复用 Unix 密码通道，用 `LOCAL_PEERPID`/`LOCAL_PEERCRED` + libproc 核验本应用及有效 UID 为 0 的系统 `/usr/bin/sudo`（`askpass_darwin.go`，桌面 cgo 构建开放，无 cgo 构建关闭），模型显式用 `sudo -A -k`，不伪造 DISPLAY。Windows 走原生 sudo/UAC（Windows 11 24H2+，须用户自己在系统设置启用），只读系统/组织策略，不自动改安全设置；新窗口模式不可假定已拿到输出或退出码（`privilege_windows.go`）。sudo 下的 rm/dd/mkfs 等仍然硬拒，pkexec/doas 一律拒——引擎的特权名单漏了它们，pkexec 会绕开应用内审批。端到端测试 `askpass_e2e_test.go` 带构建标记，要在真 Linux/macOS 上用真 sudo 跑；不需要密码的冒充请求测试在 `askpass_transport_test.go`）/ …）。技能与子代理共用的作用域目录解析与命名规则在 `resources.go`（`resourceRoot(kindSkills|kindAgents, scope)`），别再各写一份。
+- **`internal/desktop`**（桌面核心，Wails 把 `App` 的导出方法绑给前端，所以命令仍挂在同一个类型上；这只约束绑定入口，不妨碍实现委托给独立服务）：`app.go` 只留 App 结构与会话开关；回合在 `turn.go`、自动标题在 `title.go`、运行中可变的会话设置在 `session_settings.go`；其余按功能各自成文件（`skills` / `agents` / `mcp` / `passport` / `oauth` / `tokens` / `preview` / `editstore` / `plan`（阶段化计划模式的阶段机与审批闸门）/ `custommodels` / `config` / `store` / `disabled` / `harm` / `appdirs`（本应用自己的安装/数据目录不再走"项目外授权"，包一层 `permissions.Policy`）/ `update`（更新命令门面与宿主装配，完整状态机/流程在 `internal/appupdate`；平台安装器仍留本包，通过包含文件、版本、SHA256 的不可变请求接入；`version.go` 是版本号与产品标识，两者都由打包脚本经 `-ldflags` 注入）/ `download`（到 `internal/download` 的薄适配，更新、技能市场与运行时包复用同一份带进度与 sha256 的有界下载实现） / `runtimes`（运行时环境：Python/Node/Git 的绿色包，查清单 → 下载 → 校验 → 解压到用户目录，**全程不提权**；`runtimepack.go` 是"本机知识"——包内布局与系统探测，故意不来自服务端清单；`runtimeenv.go` 把它接进 PATH 与 `SystemPromptAppend`，两者缺一不可：只给 PATH 模型不知道 Python 在那儿，还会回一句"请先安装 Python"。**PATH 只写进本进程、不放进 `engine.Config.ToolEnv`**：ToolEnv 是开对话那一刻的快照，放进去就把这个对话的 PATH 冻住了，对话中途装上的运行时在这个对话里永远找不到；引擎的 Bash 每条命令都现读 `os.Environ()`，所以写进程 PATH 就够。模型那条安装路在 `runtimetool.go`（清单没取就先取、设置页正在装就等、装好没放行就补授权；`runtimeResolver` 给审批弹窗配"装什么、多大"那句话——引擎的审批请求里不带工具参数）；`untargz.go` 是它专用的解压器——运行时包用 tar.gz 而非技能包那种 zip，因为里面有符号链接与可执行位） / `privilege` + `askpass`（让模型用 sudo，**两道人工关**：先在应用里审批那条命令——永不记住、永不被裁判自动放行——再在应用自己的弹框里输系统密码，模型永远看不到。askpass 就是本应用二进制自身（`IsAskpass`/`RunAskpass`，`main.go` 与 `main_kylin.go` 都要在单实例锁之前处理掉）；服务端对每个连接核验来者：同一用户、是本应用二进制、**父进程名为 sudo 且有效 UID 为 0**——只看名字会被一个叫 sudo 的脚本骗过（麒麟真机实测）。Linux 要求 `DISPLAY` 非空（sudo 自动改走 askpass 的前提）；macOS 复用 Unix 密码通道，用 `LOCAL_PEERPID`/`LOCAL_PEERCRED` + libproc 核验本应用及有效 UID 为 0 的系统 `/usr/bin/sudo`（`askpass_darwin.go`，桌面 cgo 构建开放，无 cgo 构建关闭），模型显式用 `sudo -A -k`，不伪造 DISPLAY。Windows 走原生 sudo/UAC（Windows 11 24H2+，须用户自己在系统设置启用），只读系统/组织策略，不自动改安全设置；新窗口模式不可假定已拿到输出或退出码（`privilege_windows.go`）。sudo 下的 rm/dd/mkfs 等仍然硬拒，pkexec/doas 一律拒——引擎的特权名单漏了它们，pkexec 会绕开应用内审批。端到端测试 `askpass_e2e_test.go` 带构建标记，要在真 Linux/macOS 上用真 sudo 跑；不需要密码的冒充请求测试在 `askpass_transport_test.go`）/ …）。技能与子代理共用的作用域目录解析与命名规则在 `resources.go`（`resourceRoot(kindSkills|kindAgents, scope)`），别再各写一份。
 - **`internal/ui`**（CLI 的 TUI）：`model.go` 是 bubbletea 生命周期；工具事件归并在 `tool_events.go`、异步命令工厂在 `tea_commands.go`（与 `slash_commands.go` 的斜杠命令是两回事）；渲染分 `render.go`（组装）/ `render_approval.go` / `render_tools.go` / `markdown.go` / `format.go`，调色板集中在 `render.go`。包说明见 `doc.go`。
+
+### 功能边界与配置契约
+
+- **`internal/appupdate`**：更新服务拥有检查、下载/校验、取消、安装调度、缓存与上次安装结果的状态；通过 `Options` 注入网络、缓存、令牌来源、平台安装/打开文件夹/退出及事件出口，不接收 `*desktop.App`。`deps_test.go` 用 `go list -deps` 守住传递依赖边界。版本比较也在此，桌面版本号/产品标识的 ldflags 路径不变。
+- **`internal/download`**：共用下载基础设施，不依赖 desktop 或更新服务；下载请求不带账号凭据，超时/取消和体积上限由调用方指定。
+- **配置四种角色分开**：协议 `StartSessionRequest` 只管启动；`SaveSettingsRequest` 只管设置页拥有的字段；`SettingsView` 是脱敏读取视图（`LoadConfig` 返回它）；`desktop/desktop_config.go` 的私有 `desktopConfig` 兼容旧 `desktop.json`，密文凭据和模型存储不得回到公共请求里。保存设置不再接受连接/模型/租户/思考强度快照，它们各走专用命令。
+- 所有配置读改写经过 `store.go` 的 `configMu` + `writeConfigHeld` 原子写；`SaveSettings` 一次更新并返回持久化失败。启动保存从旧配置出发，仅改启动字段，不为每个新应用设置补一条“沿用旧值”。
+- 会话/权限/OA 的装配顺序不因拆包改变；本轮不拆账号/会话协调、不引入 DI 容器或通用事件总线。
 
 自检：`go build ./...`、`go test -race ./internal/... ./cmd/runcode/...`、`golangci-lint run ./...`。**lint 存量已清零，新增告警一律当回归处理**（不再有"既有基线"可推诿）。豁免只有两种合法形式：`.golangci.yml` 里按类别写明理由的排除（G104/G304/G301、测试排除），或单点 `//nolint:linter // 原因`。加新的豁免前先确认不是真问题。
 
@@ -107,6 +130,8 @@
 
 **应用对 SIGTERM 是正常响应的**（实测 ~540 ms 退出，Wails v2 接管了 SIGTERM/SIGINT 并调 `gtk_main_quit`），别被"发了 TERM 没死"骗到——它的信号 goroutine 只 `<-signalChannel` 一次，已经收过一次信号、退出流程卡住的进程不会再响应第二次 TERM。
 
+**Windows 后台子进程不弹黑窗**：`-H windowsgui` 只管主 EXE，后台 `exec.Command` 仍须在启动前调用引擎 `executil.HideConsoleWindow`（`HideWindow` + `CREATE_NO_WINDOW`，保留已有进程属性；非 Windows 空操作）。启动时 Python/Node/Git 版本探测、Office 转换，以及引擎 Bash/MCP stdio/hooks 共用它，输出、错误和取消仍走原通道。不要拿它隐藏浏览器、安装器、UAC 或明确请求的 sudo 新窗口；更新看门沿用自己的脱离进程策略。共用包已随引擎 `v0.15.0` 发布。
+
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。
 - **按品牌打包用 `scripts/build-desktop.sh`**（在 `cmd/runcode-desktop` 下执行），它一次配齐品牌的六处开关——前端 `VITE_BRAND`、Go 窗口标题与单实例锁 `-ldflags`、应用名/产物名、`build/` 下的图标与 macOS `Info.plist`、以及**版本号与产品标识**（`-X internal/desktop.appVersion/.appProduct`，版本更新要用）——构建完自动还原这些打包资产，工作区不留脏改动。手敲 `wails3 task build` 只会改到应用名，成品会出现"界面是智开、bundle 标识符还是 XRUN"这类只在装机后才看得出的错配。
   ```bash
@@ -123,6 +148,8 @@
 
 分发给他人需签名+公证，否则 Gatekeeper 拦截（自用可右键「打开」绕过）：设 `APPLE_SIGN_ID`（签名）与 `APPLE_KEYCHAIN_PROFILE`（公证）后脚本自动执行。`.app` 压缩必须用 `ditto -c -k --keepParent`，`zip` 不保留符号链接与权限位、会破坏签名。
 
+**macOS 图标与安装包**：四份默认/开发/品牌 plist 的 `CFBundleIconFile` 必须指向实际复制进 Resources 的 `icons.icns`；曾写成 `iconfile`，造成成品没有系统图标。`scripts/verify-macos-bundle.py` 校验完成的 .app 的图标结构、品牌、版本、可执行文件和 Go ldflags；`build/darwin/Taskfile.yml` 必须传递 `LDFLAGS_EXTRA`，否则外层清单虽对、二进制仍是默认品牌/开发版本。品牌脚本在 Mac 上 `--installer --zip` 同时产出 DMG（.app + Applications 链接）和 ditto app.zip；临时 staging 的清理不能覆盖品牌资产还原 trap。CI 挂载 DMG 后再验包并用 iconutil 解码图标，没有 Apple 凭据时仅临时签名、未公证，不保证 Gatekeeper 放行。
+
 **macOS 自动更新（`update_darwin.go`）**：从 `/Applications` 或 `~/Applications` 内的 `.app` 启动才开放「安装并重启」；开发构建、挂载盘、AppTranslocation 仍走手动安装。更新包必须是 `ditto --keepParent` 打的单一顶层 `.app` zip。先做 sha256 快照校验、归档越界/链接检查，再用系统工具校验 bundle ID、版本、架构、完整签名与 Gatekeeper；现有应用有 TeamIdentifier 时新版必须同团队。**发布包必须能通过 `spctl --assess --type execute`（正常分发需签名+公证）**，未签名包只提供手动安装退路，不移除隔离属性、不关闭 Gatekeeper。能写安装目录与旧 bundle 时不提权；需要时走 `sudo -A -k` + 应用密码框，root 私有暂存中再验 zip 哈希与签名。在同卷完整暂存后换名替换，失败恢复旧版；回滚也失败则保留备份路径。正常用户身份的 `open` 等旧 PID 退出后重新打开，新进程不会带 root 权限。`update_bundle_transaction_test.go` 用真实 shell/文件操作验证替换、回滚、信号中断，签名与 libproc 的真机验收仍要在 Mac 上跑。
 
 **通行证令牌的落盘（三平台已各自实现，但依赖系统钥匙串）。** Windows 走 DPAPI（`secret_windows.go`，纯加密、无依赖）；macOS 走钥匙串、Linux 走 Secret Service（`secret_darwin.go` / `secret_linux.go`，共用 `secret_keyring.go` 那层——钥匙串里只放一把主密钥，凭据本身 AES-GCM 加密后留在 `desktop.json`）。**取不到钥匙串就拒绝落盘**，宁可让用户重新登录，也不把密钥和密文一起明文放在同一台机器上。
@@ -133,9 +160,11 @@ Linux 上要两个包才能用，少一个都不行（2026-09-18 在麒麟 V10 S
 
 #### 品牌（白标，`frontend/src/core/brand.ts`）
 
-界面上的名字/标记/文案（标题栏、起始页、登录门、空对话引导）全部读 `BRAND`，不在组件里写死。多套品牌都留在 `brand.ts` 的 `BRANDS` 里，构建时选一套——**原品牌永远保留，不是被替换**。当前两套：`runcode`（XRUN，内置 X 矢量标，"AI 编程助手"）、`zhikai`（智开，`@/assets/zhikai-logo.png` 位图，"AI 办公助手"）。换品牌两种等效方式:构建前设 `VITE_BRAND=zhikai`，或改 `brand.ts` 的 `DEFAULT_BRAND` 一行;拼错/未知值一律回落默认品牌（`selectBrand` 有单测）。位图 < 4KB 被 Vite 内联成 data URI，产物自包含、运行期不联网。加品牌只改 `BRANDS`；新增图片走 `@/assets` 导入。
+界面上的名字/标记/文案（标题栏、起始页、登录门、空对话引导）全部读 `BRAND`，不在组件里写死。多套品牌都留在 `brand.ts` 的 `BRANDS` 里，构建时选一套——**原品牌永远保留，不是被替换**。基础两套：`runcode`（XRUN，内置 X 矢量标，"AI 编程助手"）、`zhikai`（智开，`@/assets/zhikai-logo.png` 位图，"AI 办公助手"）。换品牌两种等效方式:构建前设 `VITE_BRAND=zhikai`，或改 `brand.ts` 的 `DEFAULT_BRAND` 一行;拼错/未知值一律回落默认品牌（`selectBrand` 有单测）。位图 < 4KB 被 Vite 内联成 data URI，产物自包含、运行期不联网。加品牌只改 `BRANDS`；新增图片走 `@/assets` 导入。
 
 OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题是前端自绘）在 Go 侧 `main.go` 的 `brandTitle`，默认 `XRUN`，打包智开版时 `wails build -ldflags "-X main.brandTitle=智开"` 配合 `VITE_BRAND=zhikai`。`wails.json` 的 `outputfilename`（exe 名）是静态项，要改 exe 名单独改它。
+
+**国开版智开**：`--brand zhikai-guokai` / `VITE_BRAND=zhikai-guokai`，显示名/EXE 为 `智开（国开版）`，bundle/单实例 ID 为 `cn.ouconline.ai.zhikai.guokai`，更新产品键为 `zhikai-guokai`，不复用普通智开的更新通道。`Brand.scenarioProfile` 选择 `core/scenario-profiles.ts` 的目录：国开版只显示 OA信息查询、格式校验、幻灯片，OA 七项用专属文案；后两类直接复用公共目录，原 XRUN/智开不变。场景选择先于 `visibleScenarios` 的内置动作过滤，不修改生成的 `SCENARIOS`。这只是入口与文案配置，不是工具授权或 OA 权限边界，也不代表账号/数据目录隔离。OA 查询仍需原有后端和用户权限。
 
 #### 前端目录（`cmd/runcode-desktop/frontend/src`）
 
@@ -150,11 +179,11 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 | `preview/` | 预览：`classify`/`tabs`（纯逻辑）、`file-panel`/`diff-panel`/`pane`/`file-browser`，Office 查看器在 `viewers/` |
 | `composer/` | 输入区：`keymap`（按键归属：输入法组字 > 候选框 > 发送/换行，纯函数）、`mention`（触发解析与候选排序，纯函数）、`paste`（粘贴/拖放的附件：收哪些、怎么命名、非图片文件怎么写进正文，纯函数；拖放另需 `main.go` 的 `EnableFileDrop` 与输入区的 `data-file-drop-target`）、`mention-picker`、`toolbar`、`index` |
 | `pages/` | 整页：`plugins/`、`permissions`、`mcp`、`memory`、`start/`、`settings/` |
-| `session/` | 应用状态与副作用钩子：`use-conversation`（引擎事件订阅在此）、`use-session`、`use-plan`（阶段化计划模式的运行状态与审批草稿）、`use-permission-queue`、`use-preview-panel`、`use-workspace-files`、`use-auto-preview`、`use-toast`、`use-update`（版本更新；状态在 Go 侧，这里只做它的镜子） |
+| `session/` | 应用状态与副作用钩子：`use-conversation`（引擎事件订阅在此）、`use-session`、`use-plan`（阶段化计划模式的运行状态与审批草稿）、`use-permission-queue`、`use-preview-panel`、`use-workspace-files`、`use-auto-preview`、`use-toast`、`use-update`（版本更新；状态在 Go 侧，这里只做它的镜子）、`use-scenario-actions`（场景关联技能安装与填入草稿）、`use-recording-minutes`（录音结束去重与速览/纪要流程，复用 `recorder/minutes` 纯函数） |
 | `shell/` | 外壳组件：`title-bar`、`status-bar`、`chat-pane`、`preview-side`、`permission-modal`、`sidebar` |
 | `dev/` | 预览页，不进正常流程：`?preview=ui` 公共组件画廊（**改样式后的视觉回归就看它**——自动化检查证明不了观感）、`?preview=tools` 工具卡、`?preview=thinking` 思考面板 |
 
-`App.tsx` 只负责把上述钩子接起来并按视图摆放 shell 组件，不放具体逻辑。改行为找 `session/`，改样子找 `shell/` 或对应页面。
+`App.tsx` 只负责把上述钩子接起来并按视图摆放 shell 组件，不放具体逻辑。场景/纪要的异步结果受 `session/action-scope` 会话代际约束，切走再切回也不复活旧动作。`core/ui/hooks` 的反向导入由 ESLint 拦截，跨目录使用 `@/`，不得用相对父目录或动态导入绕过。改行为找 `session/`，改样子找 `shell/` 或对应页面。
 
 **公共组件与设计 token 的完整说明在 [`frontend/src/ui/README.md`](cmd/runcode-desktop/frontend/src/ui/README.md)**——token 对照表、每个组件的用法与**何时不该用**、以及每条约束各自是从哪次真实事故来的。写前端前先看它，改 `ui/` 下的东西请同步它。铁律五条：
 
@@ -165,3 +194,38 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 5. **把 Enter / 方向键当快捷键前先过 `isComposingKey`**，否则中日韩输入法组字时会被抢键。
 
 前端自检（在 `frontend/` 下）：`npm run typecheck`、`npm run lint`、`npx vitest run`、`npm run build`。**`npm run lint` 不是可选项**——`tsc` 证明不了 `useEffect` 少列依赖，`react-hooks/exhaustive-deps` 才管这件事，`session/` 下的钩子全靠它兜底。要豁免必须写 `// eslint-disable-next-line` 并在上方注明为什么（现有两处：通行证协调器只建一次、起始页自动进入只评估一次）。纯逻辑模块（`chat/tool-text`、`chat/blocks`、`chat/plan-draft`（审批区清单的增删/排序/整理）、`preview/classify`、`preview/tabs`、`composer/mention`、`composer/keymap`、`composer/paste`、`ui/keys`、`ui/model-picker`（`toModelOptions`：平台+自定义候选合并，输入框与设置页共用）、`pages/mcp-draft`、`core/custom-models`、`core/passport-account`、`core/brand`）都有单测，新增纯函数请一并补测。
+
+### 本地交互网页与环境提示
+
+- 会话环境来自引擎动态提示词：当前工作区、系统/进程架构、每次主请求刷新的日期和实际 Shell。工作区不是技能目录；技能相对资源按 Skill 返回的目录定位，产物默认留在工作区，不从当前界面聚焦目录猜另一会话的路径。
+- 桌面专属 `internal/browsertool` 的 `open_browser` 只接受本机回环 HTTP(S) URL，经 `ExtraTools` 注册、`ClassMutating` 分类，沿用审批/计划模式/OA 闸门，不注入子代理。先用有界 TCP 探测端口，不发业务 HTTP 请求；不硬编码端口。它是系统浏览器打开入口，不是浏览器自动化或网络沙箱；网页后续导航/请求仍按浏览器正常规则执行。返回成功只代表已发起打开，不代表页面渲染或用户确认。
+- `desktop/browser*.go` 与通行证/Codex 登录复用平台打开器，模型 URL 的回环限制在工具层（登录仍可开远程认证页）；不经 shell 拼接 URL。`browser.go` 的桌面提示说明 `open_preview` 与网页的区别，以及 Bash 前台最多 120 秒、长时间等待用户确认应走后台命令和 BashOutput。不能伪造确认结果或反复启动服务器。
+- 原生浏览器冒烟测试为显式 opt-in：`RUNCODE_BROWSER_SMOKE=1 go test ./internal/desktop -run '^TestBrowserNativeSmoke$' -count=1 -v`，会真实打开一个无账号/项目数据的本地测试页；普通测试不会打开浏览器。历史 ppt-master 记录不替代当前技能版本的真机验收。环境段改动已随引擎 `v0.15.0` 发布。
+
+### 提问重生成
+
+- 用户气泡的“重新生成 / 修改后重试”创建独立会话分支，不是追加同一句话，也不改写源历史、不回滚文件。入口在 `desktop/questions.go` 与 `session/use-question-retry.ts`，编辑前的文字/附件草稿按会话保存，取消时恢复。
+- 提问按来源 `sessionId + questionId` 定位。新输入经 `host.SubmitQuestion` 确认落盘后才返回回执（中途补充在真正纳入历史时确认，取消不会挂住调用方）；旧记录由 `sessions.IdentifyQuestions` 生成稳定兼容 ID，不重写原文件。渲染块 ID 与提问 ID 不能混用，气泡缩略文案不能作为原始输入。
+- 分支读取 **完整持久化历史**，不能拿已压缩的 `Session.History()` 或前端数组截断。前缀保留 thinking、图片、成对工具记录；原图用来源绑定的索引复用持久化字节，不能凭文件名猜路径。回放也必须保留 thinking 与纯图片提问。
+- 分支继承来源条目的连接及当前运行时设置，不能从当前聚焦会话猜配置。OA 锁在复制历史前落盘，空前缀也要恢复计划模式等元数据；一次性授权不复制。创建不抢焦点，前端先回放再聚焦/提交，异步期间切换或关闭使旧动作失效。初次提交失败保留修改稿，同一分支不能重复作为未执行的重试入口。
+- `host.WithIdleSession` 将分支读取/手动压缩与回合、设置变更、关闭隔离；`OnTurnStart` 在准入后、任何模型/工具执行前初始化编辑与计划记账，不在异步提交回执之后清基线。本功能已随引擎 `v0.15.0` 发布。
+
+### OA 附件下载
+
+`internal/oatool` 的 `oa_attachments` 列出文档/流程附件，`oa_download_attachment` 经 Bridge 的 `/[t/{tenantId}/]v1/oa/attachments/download` 下载到**调用会话**工作区的 `OA附件/download-<随机值>/`。后者是 `ClassMutating`（远端只读，但会写本地），其余 OA 查询仍是只读；沿用本地模型 Gate、OA 会话锁及子代理不注入 OA 工具的规则。参数只接受来源类型、来源 ID、附件 ID，不允许任意 URL、userid 或目标路径。Go rooted filesystem 防止链接越界，独立目录+排他创建防覆盖，限制 100 MiB，断流/取消清理半成品；不会自动解压、执行或预览。
+
+需要同时部署 Bridge 与 Python OA 服务的新接口，仅更新桌面不生效。Python 每次下载重新读取来源并核对附件归属，用该用户的 OA Session 下载；不把 JSESSIONID 发给桌面。当前解析同源 FileDownload 附件链接与明确的 fileid/filename 记录（包括嵌套表单），扫描图保留原行为；未知 OA 表单结构明确提示暂未识别，不能当作“没有附件”。真实部署字段仍需脱敏样本验收，合成 fixture 不替代真机验证。
+
+**附件标识不能直接当物理文件 ID（2026-09-24 错文件回归）**：Python 的 `oa_attachment_refs.py` 保留表单 `fileid` 作为逻辑附件引用，实际下载取同记录的 `imagefileid` 或经当前用户鉴权的 `/api/doc/save/getAccListForEdit?id=<文档ID>` 返回值（该接口的 `dataList[].id` 是文档 ID、`fileid` 才是物理文件 ID）。不能猜同号文件，多条/不一致/未知映射一律拒绝。`oa_attachment_names.py` 解码旧式百分号文件名、对比源/响应文件名并阻止明显的 docx→OLE 错配（加密 OOXML 也会拒绝）。新客户端要求每次实际下载响应带 `X-OA-Attachment-Contract: 2`；Bridge 0.2.2 校验并转发此标记、把已知错误码转成固定中文说明；OA 服务对应 0.5.2。只更新 EXE、旧 Bridge 丢失标记、滚动升级打到旧 OA Pod，都会拒绝保存而非降级到旧下载逻辑。需先部署配套服务再验收；不把合成回归当作真实 OA 字段验收。
+
+### 模型图片能力与默认识图
+
+- **平台默认识图**：Bridge 模型目录用独立的 `vision-default: true`（唯一且须 `supports-images: true`），只向获授权租户下发 `vision_default`。桌面未手选时跟随调用会话的平台/租户，手选优先，`Vision.Disabled` 明确关闭；不把平台默认落盘成手选。自定义会话创建/切换/分支也保留绑定租户，不从焦点猜。目录按 Bridge/租户/账号分区，60 秒 TTL、有界刷新，迟到响应不能串账号；回合冻结目标，缺默认/无授权/过期刷新失败只在需要识图时明确报错，不阻断纯文字。删除手选自定义识图模型会关闭兜底，防止悄悄改投平台；OA 第二识图连接禁令不变。需要新版 Bridge 与桌面，既有 0.2.3 镜像不含此新增功能。
+
+- 图片能力是**每个模型的三态** `SupportsImages *bool`：true 原图直传，false 使用默认识图，nil 未标注兼容原图直传。不能按名称/provider 猜。自定义模型编辑省略字段保留原标记，`ClearImageSupport` 才清除；平台本机覆盖按 Bridge + 租户 + 模型定位，上游可提供 `supports_images`。设置页“图片识别”只允许明确支持图片的候选。
+- 视觉配置只经 `GetVisionSettings` / `SaveVisionSettings` / `SetPlatformImageCapability`，不塞入启动/普通设置的旧快照。默认保存结构化 `ModelReference`，不复制密钥；自定义重命名同步引用，删除默认模型清除选择。活会话绑定自己的引用，回合开始冻结配置，不从焦点猜。平台凭据可正常刷新，登录账号变化使旧请求失效；Codex 识图使用临时的固定上游代理，不复用会随配置编辑改目的地的聊天代理。
+- 引擎 `Options.Images` / `imageinput` 统一处理用户图、Read/MCP 嵌套工具图和子代理。仅文本模型的请求用文字投影，原图、提问和主模型不变；新图先识别再算预算，旧图用会话内容指纹引用按需查看。`analyze_image` 只接受已授权引用与问题，不接受任意路径/URL/目的模型；文件先走 Read 原授权。未注入端口的 CLI/server 不变。
+- 宿主 `internal/vision` 只发送图片和当前必要问题，无主历史/工具；120 秒、全进程最多两个推理请求、至多两次分析尝试（空白/仅思考/截断或可重试传输失败；provider 自动传输重试关闭，以便每次发送前重查 OA/账号 gate；平台 401 仍可刷新一次）、每图 8 MiB、每次至多 8 张、本轮至多 32 张新图、输出有上限。仅 URL、格式不符、空/仅思考/截断/取消或未配置明确报错，不悄悄直传给仅文本模型。思考保留在分析记录，参与压缩；识图 API 用量单列，分析文字仍计入主上下文。
+- **OA 锁定会话禁止任何第二识图连接**（包括自定义/Codex），缓存读取与每次推理都再过调用会话的 live gate；需要支持图片的原绑定内网模型，不用“已选默认模型”绕开 OA 边界。
+- `.runcode/image-analysis/<会话ID的sha256>.json` 是有界、原子、rooted 的派生记录，不含原图/凭据；恢复展示真实已保存结果。分支只复制问题和全部图片均属于前缀的分析，重新绑定图片引用，不能把后续分析倒灌到过去；损坏按缺缓存处理。删除会话前须关闭它，不能删除仍在后台持有历史/分析写入器的非聚焦会话。
+- 所需 agentloop API 已随 `v0.15.0` 发布，三个 module 固定到该 tag；真实第三方模型兼容性、真实 OA 图片与其它平台 GUI 不能拿合成 HTTP/UI fixture 冒充验收。

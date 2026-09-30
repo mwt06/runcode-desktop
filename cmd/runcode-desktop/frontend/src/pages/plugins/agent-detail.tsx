@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { BTN, BTN_PRIMARY, BTN_DANGER } from '@/ui/tokens'
 import { FIELD_CLS, LABEL_CLS } from '@/ui/fields'
-import { ModelSelect, type ModelOption } from '@/ui/model-picker'
+import { ModelSelect, toModelOptions, type ModelOption } from '@/ui/model-picker'
 import { deleteAgent, errText, listTools, saveAgent, sessionModels, type AgentInfo, type ToolInfo } from '@/core/bridge'
 import { BUILTIN_AGENTS } from './builtin-agents'
 import { ToolMultiSelect } from './tool-multi-select'
@@ -33,7 +33,7 @@ export function AgentDetail({ agent, onBack, onChanged, onUse }: {
   useEffect(() => {
     listTools().then((l) => setToolOptions(l ?? [])).catch(() => {})
     sessionModels()
-      .then((platform) => setModelOptions((platform ?? []).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy }))))
+      .then((platform) => setModelOptions(toModelOptions(platform ?? [], [])))
       .catch(() => setModelOptions([]))
   }, [])
 

@@ -80,6 +80,11 @@ func New(store Store) tool.Tool { return Tool{store: store} }
 // Name returns "plan_write".
 func (Tool) Name() string { return Name }
 
+// InputPresentation previews the primary argument while the model composes it.
+func (Tool) InputPresentation() tool.InputPresentation {
+	return tool.InputPresentation{PrimaryField: "stage"}
+}
+
 // Description teaches the model the whole protocol: the three stages, what each one
 // must contain, and that the run ends at a user approval gate it must not walk past.
 // It lives here rather than in the system prompt because the tool is the thing being

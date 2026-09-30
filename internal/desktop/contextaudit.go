@@ -401,7 +401,7 @@ func (a *App) SetContextAudit(enabled bool) (ContextAuditInfo, error) {
 	} else {
 		info = a.audit.disable()
 	}
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.ContextAudit = enabled
 		return nil
 	}); err != nil {

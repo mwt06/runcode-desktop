@@ -266,12 +266,13 @@ func (s *server) rpcCloseSession(ctx context.Context, body []byte) (rpcResponse,
 	if req.SessionID == "" {
 		return rpcResponse{}, &protocol.Error{Code: protocol.ErrCodeInvalidArgument, Message: "sessionId is required"}
 	}
-	err = s.mgr.Close(ctx, req.SessionID)
-	// 无论 Close 结果如何都断开订阅者：会话已不在（或正在消失），流没有存在意义。
-	s.hub.dropSession(req.SessionID)
-	if err != nil {
+	closeCtx, cancel := context.WithTimeout(ctx, sessionCloseTimeout)
+	defer cancel()
+	if err := s.mgr.Close(closeCtx, req.SessionID); err != nil {
+		// 超时/清理失败保留会话供重试；回合仍可能发出最后的事件。
 		return rpcResponse{}, err
 	}
+	s.hub.dropSession(req.SessionID)
 	return rpcResponse{body: okResponse{OK: true}}, nil
 }
 

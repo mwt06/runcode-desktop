@@ -132,7 +132,7 @@ func TestSaveCustomModelRenamesAndRejectsConflict(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.CustomModelName = "A"
 		cfg.Provider = "openai"
 		cfg.Model = "model-a"
@@ -170,7 +170,7 @@ func TestDeleteCustomModelClearsSelectedProfileReference(t *testing.T) {
 	if _, err := app.SaveCustomModel(SaveCustomModelRequest{Name: "selected", Model: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.CustomModelName = "selected"
 		cfg.Provider = "openai"
 		cfg.Model = "m"
@@ -195,7 +195,7 @@ func TestSaveCustomModelSecretIntentAndRedaction(t *testing.T) {
 
 	// Seed an opaque protected value directly. Keep/clear semantics must not depend
 	// on this test platform having DPAPI available.
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.CustomModels = []CustomModel{{
 			Name: "secured", Provider: "openai", Model: "m", APIKeyProtected: "opaque-ciphertext",
 		}}
@@ -253,7 +253,7 @@ func TestSaveCustomModelSecretIntentAndRedaction(t *testing.T) {
 
 func TestListCustomModelsLegacyProviderDefaultsToOpenAI(t *testing.T) {
 	isolateConfigDir(t)
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.CustomModels = []CustomModel{{Name: "legacy", Model: "m"}}
 		return nil
 	}); err != nil {
@@ -268,18 +268,21 @@ func TestListCustomModelsLegacyProviderDefaultsToOpenAI(t *testing.T) {
 
 func TestLoadConfigDoesNotExposeCustomModelStorage(t *testing.T) {
 	isolateConfigDir(t)
-	if err := updateRawConfig(func(cfg *StartSessionRequest) error {
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.CustomModels = []CustomModel{{Name: "secured", Model: "m", APIKey: "legacy-plaintext", APIKeyProtected: "ciphertext"}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	got := New(&recordingSink{}).LoadConfig()
-	if len(got.CustomModels) != 0 {
-		t.Fatalf("LoadConfig exposed backend-owned custom models: %+v", got.CustomModels)
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.APIKey != "" || got.AuthToken != "" || got.APIKeyProtected != "" || got.AuthTokenProtected != "" {
-		t.Fatalf("LoadConfig exposed top-level credentials: %+v", got)
+	for _, key := range []string{"apiKey", "authToken", "apiKeyProtected", "authTokenProtected", "customModels"} {
+		if strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("LoadConfig exposed %s", key)
+		}
 	}
 }
 
@@ -287,7 +290,6 @@ func TestCustomModelPersistenceRequestDropsExpandedCredentials(t *testing.T) {
 	original := StartSessionRequest{
 		CWD: "workspace", CustomModelName: " local ", Provider: "malicious", Model: "wrong",
 		BaseURL: "https://client.invalid", APIKey: "client-secret", AuthToken: "client-token",
-		APIKeyProtected: "client-protected", AuthTokenProtected: "client-auth-protected",
 	}
 	resolved := StartSessionRequest{
 		CWD: "workspace", CustomModelName: "local", Provider: "anthropic", Model: "claude",
@@ -297,7 +299,7 @@ func TestCustomModelPersistenceRequestDropsExpandedCredentials(t *testing.T) {
 	if got.CustomModelName != "local" || got.Provider != "anthropic" || got.Model != "claude" {
 		t.Fatalf("identity = %+v, want canonical resolved profile", got)
 	}
-	if got.BaseURL != "" || got.APIKey != "" || got.AuthToken != "" || got.APIKeyProtected != "" || got.AuthTokenProtected != "" {
+	if got.BaseURL != "" || got.APIKey != "" || got.AuthToken != "" {
 		t.Fatalf("persistence request retained expanded credentials: %+v", got)
 	}
 }

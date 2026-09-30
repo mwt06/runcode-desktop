@@ -5,7 +5,7 @@ import { Icon } from '@/ui/icons'
 import { type ToolEvent } from '@/core/bridge'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { buildFileTree, classifyPreview, fileColor, kindIcon, type FileNode } from '@/preview/classify'
-import { formatInput, lineClass, toolInputObj } from './tool-text'
+import { formatInput, lineClass, toolInputObj, parseToolInput } from './tool-text'
 
 // kvRows renders a compact key→value table for a tool's structured input.
 function kvRows(rows: ([string, unknown] | false | null | undefined)[]) {
@@ -52,6 +52,8 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
   const o = toolInputObj(tool)
   const s = (k: string) => (o[k] != null ? String(o[k]) : '')
   switch (tool.toolName) {
+    case 'analyze_image':
+      return kvRows([['模型', parseToolInput(tool.data).model ?? o.model ?? '默认识图模型'], ['图片', `${Array.isArray(o.images) ? o.images.length : 0} 张已授权图片`], ['问题', s('question')]])
     case 'Bash':
       if (s('command')) return (
         <div>
@@ -149,6 +151,7 @@ export function ToolDetail({ tool }: { tool: ToolEvent }) {
       <div>
         <div className="text-[11px] text-faint mb-1 tracking-wide">参数</div>
         <ToolInputView tool={tool} />
+        {tool.toolName === 'analyze_image' && ((tool.inputTokens ?? 0) + (tool.outputTokens ?? 0) > 0) && <p className="text-[11px] text-muted mt-2">识图用量：输入 {tool.inputTokens ?? 0} / 输出 {tool.outputTokens ?? 0} tokens · 独立调用用量；分析文字计入主模型上下文</p>}
       </div>
 
       <div>

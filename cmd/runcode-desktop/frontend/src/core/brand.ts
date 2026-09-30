@@ -6,6 +6,7 @@
 //   1. 构建前设环境变量 VITE_BRAND=zhikai(供 CI/打包脚本,不改源码);
 //   2. 把下面的 DEFAULT_BRAND 改成 'zhikai'(改一行,提交即生效)。
 // 拼错或未知的值一律回落 DEFAULT_BRAND,绝不因为一个笔误就静默换掉品牌。
+import type { ScenarioProfile } from './scenario-profiles'
 import zhikaiLogo from '@/assets/zhikai-logo.png'
 import zhikaiMascot from '@/assets/zhikai-mascot.gif'
 import zhikaiComposerMascot from '@/assets/zhikai-composer.gif'
@@ -63,6 +64,8 @@ export type Brand = {
   // features 必填:加品牌时必须对每个功能表个态,漏了就编译不过——默认继承一套
   // 的话,新品牌会悄悄带上别人没想清楚的功能。
   features: BrandFeatures
+  // 只控制场景入口和文案，不是工具或 OA 权限开关。
+  scenarioProfile: ScenarioProfile
 }
 
 // 想换品牌:改这里,或设 VITE_BRAND。
@@ -77,6 +80,7 @@ const BRANDS: Record<string, Brand> = {
     greeting: 'explore',
     logo: { kind: 'mark' },
     features: { recorder: true },
+    scenarioProfile: 'full',
   },
   zhikai: {
     key: 'zhikai',
@@ -89,6 +93,19 @@ const BRANDS: Record<string, Brand> = {
     composerMark: { src: zhikaiComposerMascot, alt: '智开', height: 64 },
     // 录音纪要临时下线,见 BrandFeatures.recorder。
     features: { recorder: false },
+    scenarioProfile: 'full',
+  },
+  'zhikai-guokai': {
+    key: 'zhikai-guokai',
+    name: '智开（国开版）',
+    tagline: '你的 AI 办公助手 · 国开版',
+    loginHeadline: '智开AI（国开版），您的AI办公助手',
+    greeting: 'welcome',
+    logo: { kind: 'image', src: zhikaiLogo, alt: '智开（国开版）' },
+    greetingMark: { src: zhikaiMascot, alt: '智开', size: 96 },
+    composerMark: { src: zhikaiComposerMascot, alt: '智开', height: 64 },
+    features: { recorder: false },
+    scenarioProfile: 'guokai',
   },
 }
 

@@ -304,7 +304,7 @@ func TestCatalogShape(t *testing.T) {
 			}
 		}
 	}
-	if len(Names()) != len(catalog) {
+	if len(Names()) != len(catalog)+1 {
 		t.Fatalf("Names() = %d entries, catalog has %d", len(Names()), len(catalog))
 	}
 }

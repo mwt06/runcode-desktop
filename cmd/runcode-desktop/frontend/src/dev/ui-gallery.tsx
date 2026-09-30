@@ -5,6 +5,7 @@
 // 靠 tsc/eslint/vitest 是证明不了观感的，改完开这一页扫一眼最快。
 // 配套的文字说明见 ui/README.md——那边讲"何时用哪个"，这边讲"长什么样"。
 import { useState } from 'react'
+import { BlockView } from '@/chat/block-view'
 import { Banner, InlineError, SystemNote, type Tone } from '@/ui/feedback'
 import { PreviewLoading, PreviewSkeleton } from '@/preview/loading'
 import { INSET_BOX, InsetRow, PageShell, Placeholder } from '@/ui/layout'
@@ -118,6 +119,18 @@ export function UIGallery() {
         <SystemNote sub={<span className="text-[11px] text-faint font-mono tabular-nums">↑12.3k ↓4.5k · 当前上下文 ≈48k</span>}>
           带 sub 第二行（压缩条用）
         </SystemNote>
+      </Group>
+
+      <Group title="自动重试" note="自动恢复中的小停顿用中性提示，不当作警告。具体原因可悬停查看。">
+        <div id="retry-preview">
+          <BlockView block={{ kind: 'retry', id: 'retry-example', reason: '模型仅返回思考或空内容，未返回回答或工具调用', attempt: 1, maxAttempts: 2 }} />
+        </div>
+      </Group>
+
+      <Group title="提问操作" note="图标操作保持低干扰；悬停看说明，键盘与读屏仍可识别。">
+        <div id="question-actions-preview">
+          <BlockView block={{ kind: 'user', id: 'question-example', questionId: 'question-demo', text: '请根据原始材料生成总结。', ts: '' }} onRetryQuestion={() => {}} onEditQuestion={() => {}} />
+        </div>
       </Group>
 
       <Group title="反馈 · Banner / InlineError" note="Banner 有标题时正文用 ink，无标题时正文继承 tone 色。">

@@ -35,7 +35,7 @@ on:
         description: 打哪个品牌
         type: choice
         default: zhikai
-        options: [zhikai, runcode, all]
+        options: [zhikai, zhikai-guokai, runcode, all]
       targets:
         description: 打哪些目标
         type: choice
@@ -75,6 +75,9 @@ jobs:
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v4
+      - name: 打包契约检查
+        run: python3 -m unittest discover -s cmd/runcode-desktop/scripts -p '*_test.py'
       - id: pick
         shell: bash
         env:
@@ -111,7 +114,7 @@ jobs:
           esac
 
           case "$BRAND" in
-            all) brands='"zhikai","runcode"' ;;
+            all) brands='"zhikai","zhikai-guokai","runcode"' ;;
             *)   brands="\"$BRAND\"" ;;
           esac
 
@@ -254,7 +257,7 @@ jobs:
           rt=(--runtime-manifest "https://files-aibase.ouc-online.com.cn/zhikai/runtimepacks/runtimes-{platform}.json")
           case "${{ matrix.target }}" in
             windows-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer "${rt[@]}" ;;
-            macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --zip "${rt[@]}" ;;
+            macos-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --zip "${rt[@]}" ;;
             linux-*)   ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --gtk3 "${rt[@]}" ;;
             kylin10-*) ./scripts/build-desktop.sh --brand "${{ matrix.brand }}" --installer --kylin "${rt[@]}" ${{ inputs.devtools && '--devtools' || '' }} ;;
           esac
@@ -268,8 +271,10 @@ jobs:
           set -euo pipefail
           version=$(sed -n 's/^  version: "\(.*\)"[[:space:]]*$/\1/p' build/config.yml | head -1)
           case "${{ matrix.brand }}" in
-            zhikai)  app=智开; product=zhikai ;;
-            runcode) app=XRUN; product=xrun ;;
+            zhikai)  app=智开; product=zhikai; bundle_id=cn.ouconline.ai.zhikai ;;
+            zhikai-guokai) app="智开（国开版）"; product=zhikai-guokai; bundle_id=cn.ouconline.ai.zhikai.guokai ;;
+            runcode) app=XRUN; product=xrun; bundle_id=cn.ouconline.ai.xrun ;;
+            *) echo "未知品牌" >&2; exit 1 ;;
           esac
           arch="${{ matrix.target }}"; arch="${arch##*-}"
           mkdir -p dist
@@ -279,8 +284,26 @@ jobs:
               for f in bin/"$app"-*-installer.exe; do
                 [ -f "$f" ] && cp "$f" "dist/$product-$version-windows-$arch-setup.exe"
               done
+              test -s "dist/$product-$version-windows-$arch-setup.exe"
               ;;
             macos-*)
+              bundle="bin/$app.app"
+              python3 scripts/verify-macos-bundle.py "$bundle" --name "$app" \
+                --bundle-id "$bundle_id" --version "${version%%-*}" --app-version "$version" --product "$product" --check-build
+              native_arch="$arch"; [ "$arch" != amd64 ] || native_arch=x86_64
+              lipo -verify_arch "$native_arch" "$bundle/Contents/MacOS/$app"
+              codesign --verify --deep --strict "$bundle"
+              hdiutil verify "bin/$app-macos.dmg"
+              (
+                mount=$(mktemp -d)
+                trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true; rmdir "$mount" 2>/dev/null || true' EXIT
+                hdiutil attach "bin/$app-macos.dmg" -readonly -nobrowse -mountpoint "$mount"
+                python3 scripts/verify-macos-bundle.py "$mount/$app.app" --name "$app" \
+                  --bundle-id "$bundle_id" --version "${version%%-*}" --app-version "$version" --product "$product" --check-build
+                test "$(readlink "$mount/Applications")" = /Applications
+                iconutil -c iconset "$mount/$app.app/Contents/Resources/icons.icns" -o "$RUNNER_TEMP/check.iconset"
+              )
+              cp "bin/$app-macos.dmg" "dist/$product-$version-macos-$arch.dmg"
               cp "bin/$app-macos.zip" "dist/$product-$version-macos-$arch.zip"
               ;;
             linux-*|kylin10-*)
@@ -299,8 +322,14 @@ jobs:
               # 适配认证直接过不去。V10/V11 的区分改由 artifact 名承担——下载下来
               # 的压缩包本来就叫 zhikai-<版本>-kylin10-<架构>，信息没丢。
               for f in bin/*.deb; do
-                [ -f "$f" ] && cp "$f" "dist/$(basename "$f")"
+                [ -f "$f" ] || continue
+                test "$(dpkg-deb -f "$f" Package)" = "$product"
+                test "$(dpkg-deb -f "$f" Architecture)" = "$arch"
+                test "$(basename "$f")" = "${product}_$(dpkg-deb -f "$f" Version)_${arch}.deb"
+                dpkg-deb --fsys-tarfile "$f" | tar -xOf - "./opt/apps/$product/$product" | cmp - "bin/$product"
+                cp "$f" "dist/$(basename "$f")"
               done
+              compgen -G "dist/*.deb" >/dev/null
               [ -f "bin/$product" ] && cp "bin/$product" "dist/$product-$version-$flavor-$arch"
               ;;
           esac
@@ -319,6 +348,17 @@ jobs:
               *.deb) cp "$f" "release/$product-$version-$flavor-$arch.deb" ;;
               *)     cp "$f" release/ ;;
             esac
+          done
+          # 分目录计算，Release 中 deb 改名后校验单也必须跟着改；名称按目标隔离。
+          sums="$product-$version-${{ matrix.target }}-SHA256SUMS.txt"
+          for directory in dist release; do
+            (
+              cd "$directory"
+              for f in *; do
+                [ "$f" != "$sums" ] || continue
+                if command -v sha256sum >/dev/null; then sha256sum "$f"; else shasum -a 256 "$f"; fi
+              done > "$sums"
+            )
           done
           ls -la release
 

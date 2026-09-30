@@ -50,29 +50,14 @@ func defaultRequest() StartSessionRequest {
 	}
 }
 
-// LoadConfig returns the last-used session request to prefill the start form, or
+// LoadConfig returns a redacted view to prefill the start/settings forms, or
 // sensible defaults when none has been saved.
-func (a *App) LoadConfig() StartSessionRequest {
-	path, err := desktopConfigPath()
-	if err != nil {
-		return defaultRequest()
+func (a *App) LoadConfig() SettingsView {
+	cfg, ok := loadRawConfigOK()
+	if !ok {
+		cfg = configFromRequest(defaultRequest())
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return defaultRequest()
-	}
-	var req StartSessionRequest
-	if err := json.Unmarshal(data, &req); err != nil {
-		return defaultRequest()
-	}
-	// Custom models are backend-owned records and may contain OS-protected keys.
-	// The renderer obtains their redacted summaries through ListCustomModels only.
-	req.CustomModels = nil
-	req.APIKey = ""
-	req.AuthToken = ""
-	req.APIKeyProtected = ""
-	req.AuthTokenProtected = ""
-	return req
+	return cfg.view()
 }
 
 // persistThinkingEffort updates only the thinking-effort field of the saved start
@@ -81,11 +66,12 @@ func (a *App) LoadConfig() StartSessionRequest {
 // non-fatal. The lock spans the read and the write: a concurrent save between the
 // two would otherwise be clobbered by this stale snapshot.
 func (a *App) persistThinkingEffort(effort string) {
-	configMu.Lock()
-	defer configMu.Unlock()
-	req := a.LoadConfig()
-	req.ThinkingEffort = effort
-	saveConfigHeld(req)
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
+		cfg.ThinkingEffort = effort
+		return nil
+	}); err != nil {
+		debugLog("persist thinking effort: %v", err)
+	}
 }
 
 // maxRecentWorkspaces caps the MRU workspace list so the picker stays short and
@@ -103,59 +89,45 @@ func saveConfig(req StartSessionRequest) {
 
 // saveConfigHeld is saveConfig's body; the caller must hold configMu (the
 // carry-forward read below and the write form one read-modify-write cycle).
-func saveConfigHeld(req StartSessionRequest) {
-	path, err := desktopConfigPath()
-	if err != nil {
-		return
+func saveConfigHeld(input StartSessionRequest) {
+	// 从现有存储出发，只写启动命令拥有的字段。以后增加应用级设置，不必再来补一行沿用。
+	cfg, hadPrev := loadRawConfigOK()
+	req := protectConfigSecrets(configFromRequest(input))
+	cfg.CWD = req.CWD
+	cfg.Provider = req.Provider
+	cfg.Model = req.Model
+	cfg.CustomModelName = req.CustomModelName
+	cfg.BaseURL = req.BaseURL
+	cfg.APIKey = req.APIKey
+	cfg.AuthToken = req.AuthToken
+	cfg.PermissionMode = req.PermissionMode
+	cfg.ReasoningScenario = req.ReasoningScenario
+	cfg.ThinkingEffort = req.ThinkingEffort
+	cfg.HarmJudgeModel = req.HarmJudgeModel
+	cfg.HarmJudgeVotes = req.HarmJudgeVotes
+	cfg.Resume = req.Resume
+	cfg.Continue = req.Continue
+	cfg.APIKeyProtected = req.APIKeyProtected
+	cfg.AuthTokenProtected = req.AuthTokenProtected
+	cfg.RecentWorkspaces = mergeRecentWorkspaces(cfg.RecentWorkspaces, req.CWD)
+	// 上下文设置由设置页拥有；首次启动才采用请求的默认种子。
+	if !hadPrev {
+		cfg.MaxTokens, cfg.MaxContextTokens, cfg.MaxHistoryMessages = req.MaxTokens, req.MaxContextTokens, req.MaxHistoryMessages
 	}
-	// The MRU workspace list is server-owned: recompute it from the previously
-	// persisted list plus the workspace being saved, ignoring whatever the frontend
-	// sent (it only ever echoes back what it was given).
-	prev, hadPrev := loadRawConfigOK()
-	req.RecentWorkspaces = mergeRecentWorkspaces(prev.RecentWorkspaces, req.CWD)
-	req.CustomModels = prev.CustomModels
-	req.WebProxy = prev.WebProxy
-	req.SkipLogin = prev.SkipLogin
-	req.ContextAudit = prev.ContextAudit
-	// 「上下文长度控制」那一组（最大输出 tokens / 上下文预算 / 历史消息上限）是**设置页
-	// 独占**的：起始页不渲染它们，只按 wire 零值发过来（见 pages/start/index.tsx）。把那些
-	// 零值原样落盘，等于每开一次新会话就把用户填的清一次——实测症状是「设置里改完最大
-	// 输出，重启后从起始页进一次就没了」。
-	//
-	// 办法与 SkipLogin 同一套:这里一律沿用已落盘的值,SaveSettings 是它们唯一的写入口。
-	// 只有还没有配置文件时例外——那时沿用会把 defaultRequest 播下的 260k 预算抹成 0,
-	// 所以首次保存保留请求自带的种子值。
-	if hadPrev {
-		req.MaxTokens = prev.MaxTokens
-		req.MaxContextTokens = prev.MaxContextTokens
-		req.MaxHistoryMessages = prev.MaxHistoryMessages
+	// 空租户表示本次会话无关，显式清空只能走 SetActiveTenant。
+	if strings.TrimSpace(req.TenantID) != "" {
+		cfg.TenantID = req.TenantID
 	}
-	// 租户是**账号级**选择，写它的三层职责各不相同：
-	//   SetActiveTenant        权威写入，含显式设空（=用令牌自带租户）；
-	//   persistConnectionChoice 完全不碰——换模型与"我属于哪个组织"无关；
-	//   这里（会话级保存）      只在非空时覆盖。
-	// 非空的来源都是前端当下的活动租户，与 SetActiveTenant 刚落盘的值一致，覆盖无害；
-	// 而空**不表示"请清除租户"**，只表示"本次会话与租户无关"——自定义连接的启动请求
-	// 里 TenantID 天然是空的（它直连自己的 Base URL，不经租户）。若把空原样落盘，用一次
-	// 自定义模型就会把已选租户抹掉，多租户用户下次启动便要重新选一遍。
-	if strings.TrimSpace(req.TenantID) == "" {
-		req.TenantID = prev.TenantID
+	if err := writeConfigHeld(cfg); err != nil {
+		debugLog("persist session config: %v", err)
 	}
-	req = protectRequestSecrets(req)
-	data, err := json.MarshalIndent(req, "", "  ")
-	if err != nil {
-		return
-	}
-	// Atomic replace (temp + rename): a crash mid-write must never leave a torn
-	// config holding half of the encrypted credentials or the MRU list.
-	_ = writeFileAtomic(filepath.Dir(path), filepath.Base(path), data)
 }
 
-// protectRequestSecrets replaces the plaintext credential fields with their
+// protectConfigSecrets replaces the plaintext credential fields with their
 // encrypted form for persistence, so the on-disk config never holds a key in the
 // clear. Where the platform has no protection available, the credential is dropped
 // (the user re-enters it or supplies it via the environment) rather than stored.
-func protectRequestSecrets(req StartSessionRequest) StartSessionRequest {
+func protectConfigSecrets(req desktopConfig) desktopConfig {
 	req.APIKeyProtected, _ = protectSecret(req.APIKey)
 	req.AuthTokenProtected, _ = protectSecret(req.AuthToken)
 	req.APIKey = ""
@@ -163,9 +135,8 @@ func protectRequestSecrets(req StartSessionRequest) StartSessionRequest {
 	return req
 }
 
-// unprotectRequestSecrets restores the plaintext credentials from their encrypted
-// form (for the start form), clearing the protected fields.
-func unprotectRequestSecrets(req StartSessionRequest) StartSessionRequest {
+// unprotectConfigSecrets restores credentials only for backend session assembly.
+func unprotectConfigSecrets(req desktopConfig) desktopConfig {
 	if req.APIKeyProtected != "" {
 		if s, ok := unprotectSecret(req.APIKeyProtected); ok {
 			req.APIKey = s
@@ -181,10 +152,10 @@ func unprotectRequestSecrets(req StartSessionRequest) StartSessionRequest {
 	return req
 }
 
-// loadRawConfig reads the persisted request without falling back to defaults, so
+// loadRawConfig reads the persisted config without falling back to defaults, so
 // saveConfig can carry forward server-owned fields (the MRU workspace list). A
 // missing/corrupt file yields a zero request, which is the correct seed.
-func loadRawConfig() StartSessionRequest {
+func loadRawConfig() desktopConfig {
 	req, _ := loadRawConfigOK()
 	return req
 }
@@ -192,18 +163,18 @@ func loadRawConfig() StartSessionRequest {
 // loadRawConfigOK is loadRawConfig plus "was there anything to read". The flag
 // matters where a zero value is a real setting rather than "unset": carrying a
 // missing file's zeros forward would silently clear a seeded default.
-func loadRawConfigOK() (StartSessionRequest, bool) {
+func loadRawConfigOK() (desktopConfig, bool) {
 	path, err := desktopConfigPath()
 	if err != nil {
-		return StartSessionRequest{}, false
+		return desktopConfig{}, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return StartSessionRequest{}, false
+		return desktopConfig{}, false
 	}
-	var req StartSessionRequest
+	var req desktopConfig
 	if err := json.Unmarshal(data, &req); err != nil {
-		return StartSessionRequest{}, false
+		return desktopConfig{}, false
 	}
 	return req, true
 }
@@ -225,20 +196,25 @@ func withStoredContextLimits(req StartSessionRequest) StartSessionRequest {
 	return req
 }
 
-// updateRawConfig applies mutate to a fresh read of the persisted request and
+// updateRawConfig applies mutate to a fresh read of the persisted config and
 // writes the result back atomically, all under configMu. It is the only way to
 // change individual persisted fields (custom models, web proxy, tenant): callers
 // that did their own load→mutate→save would race other writers and lose updates.
 // Validation that depends on the current snapshot belongs in mutate; returning an
 // error aborts without writing. Persistence failures are returned so settings UIs
 // never report success for a change that did not reach disk.
-func updateRawConfig(mutate func(*StartSessionRequest) error) error {
+func updateRawConfig(mutate func(*desktopConfig) error) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 	cfg := loadRawConfig()
 	if err := mutate(&cfg); err != nil {
 		return err
 	}
+	return writeConfigHeld(cfg)
+}
+
+// writeConfigHeld is the single atomic persistence path; caller holds configMu.
+func writeConfigHeld(cfg desktopConfig) error {
 	path, err := desktopConfigPath()
 	if err != nil {
 		return err

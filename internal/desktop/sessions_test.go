@@ -19,7 +19,7 @@ func TestDeleteSessionRefusesActiveSession(t *testing.T) {
 	if err == nil {
 		t.Fatal("deleting the active session must be refused")
 	}
-	if !strings.Contains(err.Error(), "当前正在进行的会话") {
+	if !strings.Contains(err.Error(), "仍然打开的会话") {
 		t.Fatalf("err = %v, want it to name the active-session reason", err)
 	}
 }
@@ -94,5 +94,14 @@ func TestToResumedBlocksSkipsInjectedContextAndEmptyTurns(t *testing.T) {
 	}
 	if blocks[1].Kind != "tool" || blocks[1].Tool.ToolName != "Bash" || !blocks[1].Tool.IsError {
 		t.Fatalf("block1 = %#v, want failed Bash tool", blocks[1])
+	}
+}
+
+func TestDeleteSessionRefusesUnfocusedOpenSession(t *testing.T) {
+	a := &App{workspace: t.TempDir()}
+	focusOn(a, "focused", "")
+	a.sessions["unfocused"] = &sessionEntry{id: "unfocused"}
+	if err := a.DeleteSession("unfocused"); err == nil {
+		t.Fatal("deleted a live analysis/history writer")
 	}
 }

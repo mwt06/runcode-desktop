@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/wt68/runcode/internal/appupdate"
 	"golang.org/x/sys/windows"
 )
 
@@ -31,7 +32,7 @@ func installHint() string {
 }
 
 // runInstaller 拉起 NSIS 安装器；之后由 InstallUpdate 让本应用退出。
-func (a *App) runInstaller(file, expect string) error {
+func (a *App) runInstaller(file, expect, _ string) error {
 	if err := launchInstaller(file, expect); err != nil {
 		return fmt.Errorf("拉起安装程序失败: %w", err)
 	}
@@ -193,7 +194,7 @@ func stageWatcher() (string, error) {
 // watcherName 是副本的文件名。带版本号，好让"这一版的看门程序"和"上一版留下的"
 // 是两个文件——升级之后旧的那个才删得掉（见 cleanStaleWatchers）。
 func watcherName() string {
-	return "updater-" + safeVersion(AppVersion()) + ".exe"
+	return "updater-" + appupdate.SafeVersion(AppVersion()) + ".exe"
 }
 
 // cleanStaleWatchers 删掉不属于当前版本的看门程序副本，由启动时调用。

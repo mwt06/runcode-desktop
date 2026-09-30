@@ -292,9 +292,8 @@ func oaSwitchingError(localModel string) error {
 
 // oaToolClasses 是 OA 工具的权限归类。
 //
-// 全部 ClassReadOnly(免审批)。三条理由:它们物理上只读(服务端没有任何写接口)、
-// 只读得到调用者本人的数据(身份来自令牌,模型改不了)、且该不该让你看由 OA 自己
-// 判权。让用户为查一次待办点一下确认,只会把审批训练成无意识的点击。
+// 查询 ClassReadOnly；下载虽然不修改远端 OA，但要写本地文件，必须 ClassMutating。
+// 下载仍经过同一套本地模型 Gate，不能借附件接口绕开 OA 锁。
 //
 // 归类必须由供给工具的一方给出:引擎的解析器按固定工具名分支,不认识的名字会解析
 // 成 unknown/高风险,而默认策略对它是**硬拒**——漏了这张表的表现是工具一调就被拒。
@@ -303,6 +302,7 @@ var oaToolClasses = func() map[string]permissions.ToolClass {
 	for _, name := range oatool.Names() {
 		out[name] = permissions.ClassReadOnly
 	}
+	out[oatool.DownloadName] = permissions.ClassMutating
 	return out
 }()
 

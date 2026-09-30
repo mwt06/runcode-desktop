@@ -43,6 +43,8 @@ describe('toolVerb', () => {
   it('covers the desktop host tools', () => {
     expect(toolVerb('ReadOffice')).toBe('读取文档')
     expect(toolVerb('open_preview')).toBe('预览')
+    expect(toolVerb('open_browser')).toBe('打开浏览器')
+    expect(toolLabel('open_browser')).toBe('打开本地网页')
   })
 
   it('covers the engine MCP built-ins, which carry no mcp__ prefix', () => {
@@ -67,4 +69,10 @@ describe('toolLabel', () => {
     expect(toolLabel('ReadOffice')).toBe('读取 Office 文档')
     expect(toolLabel('ListMcpResources')).toBe('列出 MCP 资源')
   })
+})
+
+it('labels OA attachment discovery and local downloads separately', () => {
+  expect(toolLabel('oa_attachments')).toBe('OA 附件列表')
+  expect(toolLabel('oa_download_attachment')).toBe('OA 附件下载')
+  expect(toolVerb('oa_download_attachment')).toBe('下载附件')
 })

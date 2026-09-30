@@ -5,6 +5,7 @@
 // 只有「模型说的话」进 BotRow(助手列)。系统自己的播报一律走 ui/feedback 的
 // SystemNote 分割线条——此前错误/警告是助手列里的气泡、提示是居中胶囊、压缩与
 // 重试各自手写了一遍同样的分割线，四种形状表达同一件事。
+import { GhostBtn } from '@/ui/ghost-btn'
 import { Icon } from '@/ui/icons'
 import { Markdown } from '@/ui/markdown'
 import { SystemNote } from '@/ui/feedback'
@@ -19,8 +20,11 @@ import { AgentTaskCard } from './agent-task'
 import { ExecutionCard } from './execution-card'
 import { RecordingCard } from './recorder-card'
 
-export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes }: {
+export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes, onRetryQuestion, onEditQuestion, questionActionsDisabled }: {
   block: Block
+  onRetryQuestion?: (id: string) => void
+  onEditQuestion?: (id: string) => void
+  questionActionsDisabled?: boolean
   onOpenFile?: (relPath: string) => void
   resolveFile?: (token: string) => string | null
   onGenerateMinutes?: (mark: RecordingMark) => void
@@ -32,7 +36,7 @@ export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes }:
   switch (block.kind) {
     case 'user':
       return (
-        <div className="flex justify-end anim-rise">
+        <div className="group flex flex-col items-end gap-1 anim-rise">
           <div className="min-w-0 max-w-[82%] rounded-[13px] px-3.5 py-2 text-[14px] text-ink leading-[1.55] bg-userbg">
             {block.attachments && block.attachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-1.5">
@@ -45,6 +49,18 @@ export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes }:
             )}
             {block.text && <div className="whitespace-pre-wrap break-words">{block.text}</div>}
           </div>
+          {block.questionId && (onRetryQuestion || onEditQuestion) && (
+            <div className="flex items-center opacity-60 group-hover:opacity-100 focus-within:opacity-100">
+              <GhostBtn disabled={questionActionsDisabled} onClick={() => onRetryQuestion?.(block.questionId!)} title="重新生成：从这条提问重新开始；原记录保留，文件不会撤销">
+                <Icon name="refresh" size={16} />
+                <span className="sr-only">重新生成</span>
+              </GhostBtn>
+              <GhostBtn disabled={questionActionsDisabled} onClick={() => onEditQuestion?.(block.questionId!)} title="修改后重试">
+                <Icon name="pencil" size={16} />
+                <span className="sr-only">修改后重试</span>
+              </GhostBtn>
+            </div>
+          )}
         </div>
       )
     case 'assistant': {
@@ -110,8 +126,9 @@ export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes }:
       )
     case 'retry':
       return (
-        <SystemNote tone="warning" title="模型请求中断，正在自动重试（磁盘记录不受影响）">
-          {retryReasonLabel(block.reason)} · 重试 {block.attempt}/{block.maxAttempts}
+        <SystemNote title={`自动重试：${retryReasonLabel(block.reason)}（完整历史不受影响）`}>
+          刚才没接上，我再试一下
+          <span className="font-mono tabular-nums">{block.attempt}/{block.maxAttempts}</span>
         </SystemNote>
       )
     case 'usage':

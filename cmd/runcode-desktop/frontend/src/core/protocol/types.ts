@@ -13,6 +13,7 @@ export const Events = {
   AskpassRequest: 'askpass:request',
   AssistantDelta: 'assistant:delta',
   AssistantThinking: 'assistant:thinking',
+  ContextCompaction: 'context:compaction',
   ContextUsage: 'context:usage',
   HarmAutoAllow: 'harm:autoallow',
   OABlocked: 'oa:blocked',
@@ -263,6 +264,15 @@ export interface ContextAuditInfo {
   dir: string;
 }
 
+// Mirrors protocol.ContextCompaction. ContextCompaction is progress of a bounded context-control pass.
+export interface ContextCompaction {
+  phase: string;
+  reason: string;
+  beforeTokens: number;
+  afterTokens: number;
+  maxContextTokens: number;
+}
+
 // Mirrors protocol.ContextUsage. ContextUsage reports how full the context window is right now, emitted before each model round-trip inside a turn.
 export interface ContextUsage {
   contextTokens: number;
@@ -272,6 +282,7 @@ export interface ContextUsage {
 
 // Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点，与通行证平台模型并列显示在模型 选择器里。Provider 通常是引擎 provider registry 的名称（openai/ openai-responses/anthropic），由 llm.IsRegistered 校验而非本仓库的名单；旧配置 没有该字段时由桌面端按 openai 兼容处理。 唯一的例外是 "codex"：它是**外壳层**的服务商，引擎注册表里没有这个名字。 桌面端在解析时把它翻译成 openai-responses（Codex 说的就是 Responses 协议）， 并把 Base URL 指向本地那个负责补凭据与指纹头的小代理，见 internal/codexproxy。密钥字段仅用于桌面端持久化， ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
 export interface CustomModel {
+  supportsImages?: boolean;
   name: string;
   provider?: string;
   model: string;
@@ -408,6 +419,14 @@ export interface MemoryInfo {
   project: string[] | null;
 }
 
+// Mirrors protocol.ModelReference. ModelReference identifies a saved connection, not just an ambiguous model ID.
+export interface ModelReference {
+  kind: string;
+  name: string;
+  bridge?: string;
+  tenantId?: string;
+}
+
 // Mirrors protocol.OABlocked. OABlocked 说明某一次工具调用被"OA 数据只进本地模型"的闸门拦下了，而且外壳已经 排好自动切换。 它只为界面呈现而生：那次调用在模型眼里是失败的（工具结果带 IsError，模型要据此 停下来），但对用户不是——系统正在自动恢复，这一轮随后会被本地模型整个重跑。 界面据此把那张工具卡从红色的"执行失败"改写成中性的"已阻止 · 正在切换"。
 export interface OABlocked {
   toolUseId: string;
@@ -428,8 +447,10 @@ export interface OutputLine {
   text: string;
 }
 
-// Mirrors protocol.PassportModel. PassportModel 是 Bridge /v1/models 列表项。 Local 及其后两个字段是本产品对 OpenAI 模型清单的扩展，由基座的 bridge.catalog 下发（改 ConfigMap 即生效，客户端不必发版）: - Local 标记该模型的推理在内网完成。**客户端只认这个标记、不做二次判断**—— "这个 id 的渠道到底指向哪里"只有基座知道，把它写死在客户端等于让两处事实 互相漂移。标记错了的后果是保密数据出内网，所以基座那边要在配置旁写明依据。 - LocalDefault 指定 Local 模型里默认用哪一个。只标 Local 不够:清单顺序一变 就换了模型，而"换哪个模型"必须是显式声明。 - ContextTokens 是该模型的上下文窗口。本地模型的窗口通常远小于云端模型， 切过去时要按它重设会话预算，否则历史一长第一次请求就超限。0 = 未声明， 沿用会话原值。
+// Mirrors protocol.PassportModel. PassportModel 是 Bridge /v1/models 列表项。 Local 及其后两个字段是本产品对 OpenAI 模型清单的扩展，由基座的 bridge.catalog 下发（改 ConfigMap 即生效，客户端不必发版）: - Local 标记该模型的推理在内网完成。**客户端只认这个标记、不做二次判断**—— "这个 id 的渠道到底指向哪里"只有基座知道，把它写死在客户端等于让两处事实 互相漂移。标记错了的后果是保密数据出内网，所以基座那边要在配置旁写明依据。 - LocalDefault 指定 Local 模型里默认用哪一个。只标 Local 不够:清单顺序一变 就换了模型，而"换哪个模型"必须是显式声明。 - ContextTokens 是该模型的上下文窗口。本地模型的窗口通常远小于云端模型， 切过去时要按它重设会话预算，否则历史一长第一次请求就超限。0 = 未声明， 沿用会话原值。 VisionDefault is the unique tenant-authorized platform image fallback, not OA.
 export interface PassportModel {
+  visionDefault?: boolean;
+  supportsImages?: boolean;
   id: string;
   ownedBy: string;
   local?: boolean;
@@ -508,12 +529,44 @@ export interface PlanStep {
   files?: string[] | null;
 }
 
+// Mirrors protocol.PlatformImageCapability. PlatformImageCapability is a local override of optional catalog metadata.
+export interface PlatformImageCapability {
+  model: ModelReference;
+  supportsImages: boolean;
+}
+
 // Mirrors protocol.ProjectContextInfo. ProjectContextInfo is the workspace's project-instructions file (RUNCODE.md or AGENT.md), for viewing and editing.
 export interface ProjectContextInfo {
   path: string;
   name: string;
   content: string;
   exists: boolean;
+}
+
+// Mirrors protocol.QuestionDraft. QuestionDraft is the actual submitted text, not the bubble's shortened label.
+export interface QuestionDraft {
+  source: QuestionReference;
+  text: string;
+  images: QuestionImage[] | null;
+}
+
+// Mirrors protocol.QuestionImage. QuestionImage exposes metadata only; original bytes remain in session storage.
+export interface QuestionImage {
+  index: number;
+  name: string;
+  mediaType: string;
+}
+
+// Mirrors protocol.QuestionReceipt. QuestionReceipt binds an accepted user input to its durable question identity.
+export interface QuestionReceipt {
+  questionId: string;
+  startedTurn: boolean;
+}
+
+// Mirrors protocol.QuestionReference. QuestionReference identifies one original user input, never a UI block index.
+export interface QuestionReference {
+  sessionId: string;
+  questionId: string;
 }
 
 // Mirrors protocol.RecorderDevice. RecorderDevice 是「麦克风 ∨」下拉里的一项。
@@ -622,6 +675,9 @@ export interface ResultImage {
 
 // Mirrors protocol.ResumedBlock. ResumedBlock is one rendered item of a reopened conversation.
 export interface ResumedBlock {
+  questionId?: string;
+  thinking?: string;
+  images?: QuestionImage[] | null;
   kind: string;
   text?: string;
   tool?: ResumedTool;
@@ -629,6 +685,7 @@ export interface ResumedBlock {
 
 // Mirrors protocol.ResumedSession. ResumedSession carries a reopened session's status plus its prior conversation as rendered blocks so the frontend can repaint it.
 export interface ResumedSession {
+  source?: QuestionReference;
   info: SessionInfo;
   blocks: ResumedBlock[] | null;
   contextTokens: number;
@@ -636,6 +693,8 @@ export interface ResumedSession {
 
 // Mirrors protocol.ResumedTool. ResumedTool is a reconstructed tool step.
 export interface ResumedTool {
+  inputTokens?: number;
+  outputTokens?: number;
   toolName: string;
   toolUseId: string;
   path?: string;
@@ -696,6 +755,8 @@ export interface RuntimePack {
 
 // Mirrors protocol.SaveCustomModelRequest. SaveCustomModelRequest 新增或修改一个自定义模型。编辑时 OriginalName 定位旧 记录；APIKey 留空表示保留旧密钥，ClearAPIKey 才显式清除，两者不能同时使用。
 export interface SaveCustomModelRequest {
+  supportsImages?: boolean;
+  clearImageSupport?: boolean;
   originalName?: string;
   name: string;
   provider?: string;
@@ -704,6 +765,23 @@ export interface SaveCustomModelRequest {
   authMode?: string;
   apiKey?: string;
   clearAPIKey?: boolean;
+}
+
+// Mirrors protocol.SaveSettingsRequest. SaveSettingsRequest 只包含设置页拥有的字段，连接与租户由专用命令管理。
+export interface SaveSettingsRequest {
+  permissionMode: string;
+  harmJudgeModel: string;
+  harmJudgeVotes: number;
+  maxTokens: number;
+  maxContextTokens: number;
+  maxHistoryMessages: number;
+  skipLogin?: boolean;
+}
+
+// Mirrors protocol.SaveVisionSettingsRequest. SaveVisionSettingsRequest changes only the default destination, not a stale snapshot of the catalog or credentials.
+export interface SaveVisionSettingsRequest {
+  disabled?: boolean;
+  defaultModel?: ModelReference;
 }
 
 // Mirrors protocol.SecretStorage. SecretStorage 报告本机能不能安全保存登录状态。 凭据保护在取不到系统钥匙串时**故意不落盘**（理由见 desktop/secret_keyring.go）。 这个取舍是对的，但此前它是全静默的——用户看到的只有"怎么每次都要重新登录"， 而真正的原因可能只是少装了一个包。这三个字段就是为了把那句话说出来。
@@ -741,6 +819,34 @@ export interface SessionSummary {
   title: string;
   when: string;
   turns: number;
+}
+
+// Mirrors protocol.SetPlatformImageCapabilityRequest. SetPlatformImageCapabilityRequest updates one override; nil removes it.
+export interface SetPlatformImageCapabilityRequest {
+  model: ModelReference;
+  supportsImages?: boolean;
+}
+
+// Mirrors protocol.SettingsView. SettingsView 是脱敏只读视图，不包含凭据或存储记录。
+export interface SettingsView {
+  cwd: string;
+  provider: string;
+  model: string;
+  customModelName?: string;
+  tenantId: string;
+  baseURL: string;
+  permissionMode: string;
+  reasoningScenario: string;
+  thinkingEffort: string;
+  harmJudgeModel: string;
+  harmJudgeVotes: number;
+  maxTokens: number;
+  maxContextTokens: number;
+  maxHistoryMessages: number;
+  recentWorkspaces?: string[] | null;
+  webProxy?: string;
+  skipLogin?: boolean;
+  contextAudit?: boolean;
 }
 
 // Mirrors protocol.SkillInfo. SkillInfo is one project skill for the UI's skill manager.
@@ -824,8 +930,6 @@ export interface StartSessionRequest {
   baseURL: string;
   apiKey: string;
   authToken: string;
-  apiKeyProtected?: string;
-  authTokenProtected?: string;
   permissionMode: string;
   reasoningScenario: string;
   thinkingEffort: string;
@@ -836,11 +940,16 @@ export interface StartSessionRequest {
   maxHistoryMessages: number;
   resume: string;
   continue: boolean;
-  recentWorkspaces?: string[] | null;
-  customModels?: CustomModel[] | null;
-  webProxy?: string;
-  skipLogin?: boolean;
-  contextAudit?: boolean;
+}
+
+// Mirrors protocol.SubmitQuestionRequest. SubmitQuestionRequest supports ordinary input and a prepared retry branch.
+export interface SubmitQuestionRequest {
+  sessionId: string;
+  text: string;
+  imagePaths: string[] | null;
+  source?: QuestionReference;
+  originalImages: number[] | null;
+  allowSteering: boolean;
 }
 
 // Mirrors protocol.ToolEvent. ToolEvent is the wire form of one tool-lifecycle update.
@@ -915,6 +1024,14 @@ export interface UpdateInfo {
   file: string;
   autoRestart: boolean;
   installHint: string;
+}
+
+// Mirrors protocol.VisionSettings. VisionSettings configures the fixed destination for automatic image analysis.
+export interface VisionSettings {
+  disabled?: boolean;
+  bridge?: string;
+  defaultModel?: ModelReference;
+  platformCapabilities: PlatformImageCapability[] | null;
 }
 
 // Mirrors protocol.Warning. Warning is a non-fatal diagnostic surfaced to the UI.

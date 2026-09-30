@@ -9,6 +9,7 @@ package desktop
 
 import (
 	"errors"
+	"os"
 	"strings"
 
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
@@ -24,111 +25,51 @@ func (a *App) SetPermissionMode(sessionID, mode string) error {
 	return wireError(a.mgr.SetPermissionMode(id, mode))
 }
 
-// SaveSettings persists the settings form and applies what a running session can
-// change without a rebuild (model, permission mode). Connection settings
-// (provider, base URL, API key, max tokens) are stored and take effect on the
-// next New/Resume session. It returns the (possibly updated) session status; an
-// empty status with nil error means the settings were saved with no live session.
-func (a *App) SaveSettings(req StartSessionRequest) (SessionInfo, error) {
+// SaveSettings 只写设置页拥有的字段，不重新解析或切换连接。
+// startMu 与会话/连接切换共用；持久化成功后才更新下一场会话的配置。
+func (a *App) SaveSettings(req SaveSettingsRequest) (SessionInfo, error) {
+	switch req.PermissionMode {
+	case "safe", "interactive", "judge", "flight":
+	default:
+		return SessionInfo{}, wireError(errors.New("不支持的权限模式"))
+	}
+	if req.MaxTokens < 0 || req.MaxContextTokens < 0 || req.MaxHistoryMessages < 0 || req.HarmJudgeVotes < 0 {
+		return SessionInfo{}, wireError(errors.New("上下文限制与判定次数不能为负数"))
+	}
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
-	a.mu.Lock()
-	ws := a.workspace
-	nextTenant := a.passportTenant
-	a.mu.Unlock()
-	if strings.TrimSpace(req.CWD) == "" {
-		req.CWD = ws
-	}
-	// 与 SwitchModel 同一把锁。设置页的模型栏是拿当前模型预填的,所以"改别的设置
-	// 顺手保存"照常通过;只有真的去改模型才会撞上这里。
-	if locked := a.oaLockedModel(a.focusedSessionID()); locked != "" {
-		if strings.TrimSpace(req.CustomModelName) != "" || !oaModelSwitchAllowed(locked, req.Model) {
-			return SessionInfo{}, wireError(oaLockedSwitchError(locked))
-		}
-	}
-
-	// Connection selection is backend-owned: the settings renderer may hold an old
-	// initial request after an in-chat connection switch. Preserve the latest saved
-	// Passport/custom profile instead of allowing unrelated settings to restore it.
-	persisted := loadRawConfig()
-	if strings.TrimSpace(persisted.CustomModelName) != "" || strings.EqualFold(strings.TrimSpace(persisted.Provider), "passport") {
-		req.Provider = persisted.Provider
-		req.CustomModelName = persisted.CustomModelName
-		req.BaseURL = ""
-		req.APIKey = ""
-		req.AuthToken = ""
-		if strings.EqualFold(strings.TrimSpace(persisted.Provider), "passport") {
-			req.TenantID = nextTenant
-		}
-	}
-
-	// Resolve first so persistence can canonicalize the profile while still dropping
-	// its backend-only API key/Base URL copy.
-	resolvedReq, resolveErr := a.resolveCustomModelRequest(req)
-	if resolveErr != nil {
-		return SessionInfo{}, wireError(resolveErr)
-	}
-	saveConfig(customModelPersistenceRequest(req, resolvedReq))
-
-	// SkipLogin is backend-owned (saveConfig carries it forward, so the line above
-	// preserved the old value). SaveSettings is its sole setter: apply the form's
-	// choice explicitly so the login-page requirement can be toggled from Settings
-	// without adding a dedicated Wails command.
-	_ = updateRawConfig(func(cfg *StartSessionRequest) error {
-		cfg.SkipLogin = req.SkipLogin
-		// 「上下文长度控制」那一组同理：saveConfig 对它们一律沿用旧值（起始页只发零值，
-		// 见 saveConfigHeld），所以这里是它们唯一的写入口——把某项清空回默认也走这条。
+	if err := updateRawConfig(func(cfg *desktopConfig) error {
+		cfg.PermissionMode = req.PermissionMode
+		cfg.HarmJudgeModel = strings.TrimSpace(req.HarmJudgeModel)
+		cfg.HarmJudgeVotes = req.HarmJudgeVotes
 		cfg.MaxTokens = req.MaxTokens
 		cfg.MaxContextTokens = req.MaxContextTokens
 		cfg.MaxHistoryMessages = req.MaxHistoryMessages
+		cfg.SkipLogin = req.SkipLogin
 		return nil
-	})
-
-	// Rebuild the stored engine config so a subsequent New/Resume session adopts the
-	// new connection settings; the workspace stays put. Resolve a custom profile in
-	// the backend first, mirroring StartSession, so saving unrelated settings cannot
-	// replace its endpoint with blank fields. applyPassport keeps managed Bridge
-	// wiring instead of degrading to a literal "passport" provider.
-	if ws != "" {
-		if cfg, err := buildConfig(resolvedReq); err == nil {
-			cfg.CWD = ws
-			cfg = a.applyPassport(cfg, resolvedReq)
-			isPassport := strings.EqualFold(strings.TrimSpace(resolvedReq.Provider), "passport")
-			if isPassport && !a.tokens.LoggedIn() {
-				return SessionInfo{}, wireError(errors.New("未登录通行证，请先登录后再选择平台模型"))
-			}
-			a.mu.Lock()
-			a.config = cfg
-			a.configPassport = isPassport
-			if isPassport {
-				a.passportTenant = strings.TrimSpace(resolvedReq.TenantID)
-			}
-			sameLiveConnection := a.liveEntryLocked() != nil && isPassport == a.livePassport
-			if sameLiveConnection && isPassport {
-				sameLiveConnection = strings.TrimSpace(resolvedReq.TenantID) == a.livePassportTenant
-			}
-			a.mu.Unlock()
-			if sameLiveConnection && strings.TrimSpace(req.CustomModelName) == "" {
-				if m := strings.TrimSpace(req.Model); m != "" {
-					_ = a.SetModel("", m)
-					a.mu.Lock()
-					a.liveConfig.Model = m
-					a.mu.Unlock()
-				}
-			}
-		}
+	}); err != nil {
+		return SessionInfo{}, wireError(err)
 	}
-
-	// Permission mode is connection-independent and can always be applied live.
-	if req.PermissionMode != "" {
-		_ = a.SetPermissionMode("", req.PermissionMode)
+	a.mu.Lock()
+	a.config.PermissionMode = req.PermissionMode
+	a.config.HarmJudgeModel = firstNonEmpty(req.HarmJudgeModel, os.Getenv("RUNCODE_HARM_JUDGE_MODEL"))
+	a.config.HarmJudgeVotes = harmVotesFromRequest(StartSessionRequest{HarmJudgeVotes: req.HarmJudgeVotes})
+	a.config.MaxTokens = maxTokensOrDefault(req.MaxTokens)
+	a.config.MaxContextTokens = req.MaxContextTokens
+	a.config.MaxHistoryMessages = req.MaxHistoryMessages
+	e := a.liveEntryLocked()
+	id := ""
+	if e != nil {
+		id = e.id
 	}
-
-	info, err := a.Status("")
-	if err != nil {
+	a.mu.Unlock()
+	if id == "" {
 		return SessionInfo{}, nil
 	}
-	return info, nil
+	if err := a.SetPermissionMode(id, req.PermissionMode); err != nil {
+		return SessionInfo{}, err
+	}
+	return a.Status(id)
 }
 
 // SetModel switches the model used for subsequent turns.
@@ -167,9 +108,9 @@ func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 	}
 	a.mu.Lock()
 	id, busy := e.id, e.turnActive
-	cfg := a.liveConfig
-	livePassport := a.livePassport
-	liveTenant := a.livePassportTenant
+	cfg := e.connectionConfig
+	livePassport := e.passport
+	liveTenant := e.tenantID
 	nextTenant := a.passportTenant
 	oaLocked := e.oaLocalModel
 	a.mu.Unlock()
@@ -213,7 +154,7 @@ func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 			}
 			cfg.Provider, cfg.BaseURL, cfg.APIKey = provider, baseURL, apiKey
 		}
-		info, err := a.rebuildResumingWithConnectionHeld(cfg, id, false, "")
+		info, err := a.rebuildResumingWithConnectionHeld(cfg, id, false, liveTenant, modelReference{Kind: "custom", Name: name})
 		if err != nil {
 			return SessionInfo{}, err
 		}
@@ -277,7 +218,7 @@ func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 // 空串表示"本次与租户无关"。结果是**在对话内切一次自定义模型就把已选租户清空**，
 // 下次启动被迫重选。少一个写入者，这类分叉就不会再出现。
 func persistConnectionChoice(provider, model, customModelName string) {
-	_ = updateRawConfig(func(cfg *StartSessionRequest) error {
+	_ = updateRawConfig(func(cfg *desktopConfig) error {
 		cfg.Provider = provider
 		cfg.Model = model
 		cfg.CustomModelName = customModelName
@@ -293,7 +234,7 @@ func persistConnectionChoice(provider, model, customModelName string) {
 // rebuildResumingWithConnectionHeld rebuilds the session from cfg while
 // resuming the current conversation. Explicit connection identity keeps custom
 // URLs and Passport routing distinct. The caller must hold startMu.
-func (a *App) rebuildResumingWithConnectionHeld(cfg engine.Config, resumeID string, passport bool, tenantID string) (SessionInfo, error) {
+func (a *App) rebuildResumingWithConnectionHeld(cfg engine.Config, resumeID string, passport bool, tenantID string, refs ...modelReference) (SessionInfo, error) {
 	cfg.Resume = resumeID
 	cfg.Continue = false
 	cfg.SessionID = ""
@@ -301,7 +242,7 @@ func (a *App) rebuildResumingWithConnectionHeld(cfg engine.Config, resumeID stri
 	// 连接"），它的 CWD 是上一次建会话时的快照，多工作区并行之后可能是别人的目录。
 	// 照抄的话，换一次模型就会把这条会话搬到另一个工作区里去。
 	cfg.CWD = a.workspaceOfSession(resumeID)
-	info, err := a.openSessionWithConnectionHeld(cfg, passport, tenantID)
+	info, err := a.openSessionWithConnectionHeld(cfg, passport, tenantID, refs...)
 	if err != nil {
 		return SessionInfo{}, wireError(err)
 	}

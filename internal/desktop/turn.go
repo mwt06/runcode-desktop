@@ -7,9 +7,11 @@ package desktop
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
 )
 
 // SendMessage runs one user turn asynchronously. It returns immediately; the
@@ -60,12 +62,16 @@ func (a *App) sendUserTurn(sessionID, text string, images []llm.ImageSource, wit
 	if err != nil {
 		return err
 	}
+	if !e.questionMu.TryLock() {
+		return host.ErrBusy
+	}
+	defer e.questionMu.Unlock()
 	a.mu.Lock()
 	provider, model := a.liveConfig.Provider, a.liveConfig.Model
 	livePassport := a.livePassport
 	a.mu.Unlock()
 	// 只读字段,取到条目后脱锁用(见 sessionEntry 的并发约定)。
-	id, edits, plans := e.id, e.edits, e.plans
+	id := e.id
 
 	a.mu.Lock()
 	prevText := e.lastUserText
@@ -88,17 +94,6 @@ func (a *App) sendUserTurn(sessionID, text string, images []llm.ImageSource, wit
 		a.mu.Unlock()
 		debugLog("turn submit rejected: %v", err)
 		return err
-	}
-	// Reset the per-turn edit baselines. This runs just after the turn
-	// goroutine launched but strictly before any tool can execute (the turn
-	// first completes a model round-trip), so it is observably equivalent to
-	// the pre-host "BeginTurn before RunTurn".
-	edits.BeginTurn()
-	// Same window for 计划模式: a turn submitted while plan mode is on opens a fresh
-	// planning run (unless one is already planning or waiting for approval), so the
-	// board is live before plan_write's first stage lands.
-	if plans != nil {
-		plans.NoteUserTurn()
 	}
 	return nil
 }
@@ -128,19 +123,37 @@ func (a *App) ResolvePermission(sessionID, id, decision string) error {
 
 // Compact summarizes the oldest turns now and reports the message counts.
 func (a *App) Compact(sessionID string) (CompactResult, error) {
-	session, err := a.engineSessionOf(sessionID)
+	id, err := a.sessionIDOf(sessionID)
 	if err != nil {
 		return CompactResult{}, wireError(err)
 	}
-	before, after, usage, err := session.Compact(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	var result CompactResult
+	err = a.mgr.WithIdleSession(ctx, id, func(ctx context.Context, _ host.Session, _ sessions.Backend) error {
+		session, err := a.engineSessionOf(id)
+		if err != nil {
+			return err
+		}
+		before, after, usage, err := session.Compact(ctx)
+		if err != nil {
+			return err
+		}
+		result = CompactResult{Before: before, After: after, ContextTokens: session.EstimateContextTokens(), InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}
+		return nil
+	})
+	return result, wireError(err)
+}
+
+// The host admits the turn before this callback, but cannot execute tools until
+// it returns. Do not reset edit baselines after an asynchronous receipt arrives.
+func (a *App) onTurnStart(sessionID string) {
+	e, err := a.entryOf(sessionID)
 	if err != nil {
-		return CompactResult{}, wireError(err)
+		return
 	}
-	return CompactResult{
-		Before:        before,
-		After:         after,
-		ContextTokens: session.EstimateContextTokens(),
-		InputTokens:   usage.InputTokens,
-		OutputTokens:  usage.OutputTokens,
-	}, nil
+	e.edits.BeginTurn()
+	if e.plans != nil {
+		e.plans.NoteUserTurn()
+	}
 }

@@ -4,17 +4,15 @@
 // 阶段化计划模式是第三块状态，独立在 use-plan 里，与这里只经 send 相连。
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
+  submitQuestion,
+  type SubmitQuestionRequest,
   compact as compactSession,
   Events,
   errText,
-  injectMessage,
-  injectMessageWithImages,
   interrupt,
   listEdits,
   onEnvelope,
   revertEdit,
-  sendMessage,
-  sendMessageWithImages,
   type PermissionRequest,
   type PlanSnapshot,
   type ResumedSession,
@@ -33,11 +31,10 @@ import {
   type AgentNested,
   type Block,
 } from '@/chat/blocks'
-import { fmtTokens } from '@/core/format'
 import { basename } from '@/core/paths'
 import { digestDisplayText, docDisplayText, minutesDisplayText, parseRecordingMarker, type RecordingMark } from '@/recorder/minutes'
 import {
-  convOf, dropConv, lastUserText, patchConv, sessionOf, withReverted,
+  convOf, dropConv, lastUserText, patchConv, sessionOf, withReverted, withContextCompaction,
   type ConvMap, type ConversationState,
 } from './conversation-state'
 
@@ -96,8 +93,6 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
 
   const setBlocks = (u: Upd<Block[]>) => blocksOf(focusedRef.current, (prev) => apply(u, prev))
   const setBusy = (v: boolean) => patch(focusedRef.current, (s) => ({ ...s, busy: v }))
-  const setCtxTokens = (v: number) => patch(focusedRef.current, (s) => ({ ...s, ctxTokens: v }))
-  const setCtxEstimated = (v: boolean) => patch(focusedRef.current, (s) => ({ ...s, ctxEstimated: v }))
   const setCompacting = (v: boolean) => patch(focusedRef.current, (s) => ({ ...s, compacting: v }))
 
   const push = (b: Block) => setBlocks((prev) => [...prev, b])
@@ -209,17 +204,21 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
       // Live context occupancy: emitted before every model round-trip inside a turn,
       // and again right after automatic context control shortens the history, so the
       // meter shows both the climb and the drop as they happen.
+      onEnvelope(Events.ContextCompaction, (env) => {
+        const sid = sessionOf(env)
+        patch(sid, (s) => withContextCompaction(s, env.payload, nextID(), userStopped.current.has(sid)))
+      }),
       onEnvelope(Events.ContextUsage, (env) => {
-        patch(sessionOf(env), (s) => ({ ...s, ctxTokens: env.payload.contextTokens, ctxEstimated: false }))
+        patch(sessionOf(env), (s) => ({ ...s, ctxTokens: env.payload.contextTokens, ctxEstimated: true }))
       }),
       onEnvelope(Events.TurnEnd, (env) => {
         const end = env.payload
         const sid = sessionOf(env)
         patch(sid, (s) => ({
           ...s,
-          busy: false,
-          // 有 contextTokens 才更新:现在是按已提交的历史实测出来的。
-          ...(end.contextTokens ? { ctxTokens: end.contextTokens, ctxEstimated: false } : {}),
+          busy: false, compacting: false, compactionNoticeID: undefined,
+          // 与引擎预算门槛同源的估算；清空后的零值也必须更新。
+          ctxTokens: end.contextTokens, ctxEstimated: true,
         }))
         userStopped.current.delete(sid)
         // TODO(P3 多工作区): 这里刷的是"当前工作区"的文件列表。等会话可以各在
@@ -230,14 +229,6 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
         cb.current.permissions.clear(sid)
         blocksOf(sid, (prev) => {
           let next = finalizeTools(finalizeStreaming(prev))
-          // Context control ran during this turn. Say so: the meter just fell, and an
-          // unexplained drop reads as a glitch rather than the system working.
-          if (end.contextTokensSaved) {
-            next = [...next, {
-              kind: 'notice', id: nextID(),
-              text: `上下文已自动整理，回收约 ${fmtTokens(end.contextTokensSaved)} tokens(过期的工具产出会按需重新读取)`,
-            }]
-          }
           // Did THIS turn produce assistant text? Scoped to the current turn so an
           // earlier reply can't mask an empty one (see turnProducedText).
           const producedText = turnProducedText(next)
@@ -280,7 +271,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
       onEnvelope(Events.TurnError, (env) => {
         const { error } = env.payload
         const sid = sessionOf(env)
-        patch(sid, (s) => ({ ...s, busy: false }))
+        patch(sid, (s) => ({ ...s, busy: false, compacting: false, compactionNoticeID: undefined }))
         cb.current.permissions.clear(sid)
         // 只有用户确实点了「停止」,取消才当作停止吞掉(乐观停止已把界面收成「已停止」)。
         // 上游/网络/超时导致的取消不是用户意图,必须显示——否则就成了"错误了却看不到
@@ -356,50 +347,35 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   //
   // 代价：会话恢复时历史由引擎回放，那边只有真正的 text，所以恢复后会看到全文。
   // 这是可接受的——恢复本来就是"看当时到底发生了什么"的场景。
-  async function send(text: string, attach: string[] = [], display?: string) {
-    if (!text && attach.length === 0) return
-    // 回合进行中:改为"中途插入"——把消息交给引擎,在下一个工具回合边界喂给模型
-    // (mid-turn steering),而不是被丢弃或干等整轮结束。见 supplement。
-    if (busy) { void supplement(text, attach, display); return }
-    const names = attach.map((p) => basename(p))
-    // 这一轮属于**按下发送时**的那条会话:下面几步是异步的,中途聚焦可能已经切走。
-    const sid = focusedRef.current
-    // A fresh turn is not a stop: any cancellation from here on must surface.
+  // IDs bind a receipt to its exact optimistic row, even after switching away.
+  async function submitFor(req: SubmitQuestionRequest, display?: string, names: string[] = []) {
+    const sid = req.sessionId
+    const blockId = nextID()
     userStopped.current.delete(sid)
     chatStick.current = true
-    push({ kind: 'user', id: nextID(), text: display ?? text, ts: now(), attachments: names.length ? names : undefined })
-    setBusy(true)
+    blocksOf(sid, (prev) => [...prev, { kind: 'user', id: blockId, text: display ?? req.text, ts: now(), attachments: names }])
+    patch(sid, (s) => ({ ...s, busy: true }))
     try {
-      if (attach.length) await sendMessageWithImages(sid, text, attach)
-      else await sendMessage(sid, text)
+      const receipt = await submitQuestion(req)
+      blocksOf(sid, (prev) => prev.map((b) => b.id === blockId && b.kind === 'user' ? { ...b, questionId: receipt.questionId } : b))
+      // Never set busy here: a fast model may have already emitted turn:end.
+      return true
     } catch (e) {
-      setBusy(false)
-      pushError(errText(e))
+      blocksOf(sid, (prev) => {
+        const remaining = prev.filter((b) => b.id !== blockId)
+        const last = remaining[remaining.length - 1]
+        const text = errText(e)
+        return userStopped.current.has(sid) || (last?.kind === 'error' && last.text === text)
+          ? remaining : [...remaining, { kind: 'error', id: nextID(), text }]
+      })
+      if (!req.allowSteering) patch(sid, (s) => ({ ...s, busy: false }))
+      return false
     }
   }
 
-  // supplement 是"补充/中途插入":回合进行中把消息插进正在跑的回合。引擎在下一次
-  // 模型调用前(当前工具回合结束时)把它喂进上下文,模型随即就能看到,无需等整轮跑完。
-  // 消息先乐观入流(用户能立刻看到自己插了什么);若插入时回合恰好已结束(竞态),引擎
-  // 退化为新起一轮并回传 startedTurn=true,这里据此把 busy 重新置起。
-  async function supplement(text: string, attach: string[] = [], display?: string) {
-    if (!text && attach.length === 0) return
-    const names = attach.map((p) => basename(p))
-    const sid = focusedRef.current
-    chatStick.current = true
-    push({ kind: 'user', id: nextID(), text: display ?? text, ts: now(), attachments: names.length ? names : undefined })
-    try {
-      const startedTurn = attach.length
-        ? await injectMessageWithImages(sid, text, attach)
-        : await injectMessage(sid, text)
-      // 竞态:插入时回合刚结束,引擎改起新一轮——补上 busy(当前回合的 turn:end 已把它置回 false)。
-      if (startedTurn) {
-        userStopped.current.delete(focusedRef.current)
-        setBusy(true)
-      }
-    } catch (e) {
-      pushError(errText(e))
-    }
+  async function send(text: string, attach: string[] = [], display?: string) {
+    if (!text && attach.length === 0) return false
+    return submitFor({ sessionId: focusedRef.current, text, imagePaths: attach, originalImages: [], allowSteering: busy }, display, attach.map(basename))
   }
 
   // 乐观停止：立即取消引擎回合，并即刻收尾 UI（清 busy、结束流式渲染）。
@@ -411,6 +387,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
     userStopped.current.add(focusedRef.current)
     void interrupt(focusedRef.current)
     setBusy(false)
+    setCompacting(false)
     setBlocks((prev) => finalizeTools(finalizeStreaming(prev)))
   }
 
@@ -418,26 +395,21 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   // 重新发给模型的内容。
   async function compact() {
     if (busy || compacting || !infoRef.current) return
-    setCompacting(true)
+    const sid = focusedRef.current
+    const beforeTokens = ctxTokens
+    patch(sid, (s) => ({ ...s, compacting: true }))
     try {
-      const r = await compactSession(focusedRef.current)
-      if (r.after < r.before) {
-        // Compaction happened: mark the fold point with a divider in the flow
-        // (carrying the summary call's own token spend and the new context size), and
-        // drop the context meter now to the estimated post-compaction size (the next
-        // real turn replaces it with a provider-measured exact count).
-        push({ kind: 'compaction', id: nextID(), before: r.before, after: r.after, inTok: r.inputTokens, outTok: r.outputTokens, contextTokens: r.contextTokens })
-        setCtxTokens(r.contextTokens)
-        setCtxEstimated(true)
-      } else {
-        // Nothing to compact: a transient hint above the composer, not a row that
-        // piles up in the conversation on repeated presses of a short chat.
+      const r = await compactSession(sid)
+      patch(sid, (s) => ({ ...s, ctxTokens: r.contextTokens, ctxEstimated: true }))
+      if (r.after < r.before || r.contextTokens < beforeTokens) {
+        blocksOf(sid, (prev) => [...prev, { kind: 'compaction', id: nextID(), before: r.before, after: r.after, inTok: r.inputTokens, outTok: r.outputTokens, contextTokens: r.contextTokens }])
+      } else if (focusedRef.current === sid) {
         showToast('暂无可压缩内容（最近对话已很精简）')
       }
     } catch (e) {
-      pushError(errText(e))
+      blocksOf(sid, (prev) => [...prev, { kind: 'error', id: nextID(), text: errText(e) }])
     } finally {
-      setCompacting(false)
+      patch(sid, (s) => ({ ...s, compacting: false }))
     }
   }
 
@@ -508,13 +480,13 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
             const text = stage === 'digest' ? digestDisplayText(mark.title)
               : stage === 'doc' ? docDisplayText(mark.title)
                 : minutesDisplayText(mark.title)
-            const user: Block = { kind: 'user', id: nextID(), text, ts: '' }
+            const user: Block = { kind: 'user', id: nextID(), questionId: b.questionId, text, ts: '', attachments: b.images?.map((i) => i.name) }
             if (stage === 'doc') return [user]
             return [{ kind: 'recording', id: nextID(), mark }, user]
           }
-          return [{ kind: 'user', id: nextID(), text: b.text ?? '', ts: '' }]
+          return [{ kind: 'user', id: nextID(), questionId: b.questionId, text: b.text ?? '', ts: '', attachments: b.images?.map((i) => i.name) }]
         }
-        if (b.kind === 'assistant') return [{ kind: 'assistant', id: nextID(), text: b.text ?? '', streaming: false, ts: '' }]
+        if (b.kind === 'assistant') return [{ kind: 'assistant', id: nextID(), text: b.text ?? '', thinking: b.thinking, streaming: false, ts: '' }]
         // Rebuild a tool execution card from the persisted result. Live-only
         // details (colored diffs, file chips) aren't stored, so the card shows the
         // tool, its target, and the result text. (Partial: a malformed block may
@@ -532,6 +504,8 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
             type: t.isError ? 'failed' : 'completed',
             toolName: t.toolName,
             toolUseID: t.toolUseId,
+            inputTokens: t.inputTokens,
+            outputTokens: t.outputTokens,
             input: t.input,
             message: t.isError ? 'completed with error' : 'completed',
             files: matched ?? (t.path ? [{ path: t.path }] : undefined),
@@ -560,6 +534,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
     setPlanOpen(false)
     // Seed the usage bar with the reopened history's estimated occupancy so it
     // isn't 0; the first turn replaces it with the provider's exact count.
+    if (r.source) setBlocks((prev) => [{ kind: 'notice', id: nextID(), text: '从这条提问重新开始，之前的对话会保留，文件不会自动回退。' }, ...prev])
     setCtxTokens(r.contextTokens ?? 0)
     setCtxEstimated((r.contextTokens ?? 0) > 0)
   }
@@ -599,6 +574,6 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
     blocks, harmAllows, oaBlocked, busy, plan, planOpen, setPlanOpen, busyBySession, lastUserBySession, dropSession,
     ctxTokens, ctxEstimated, compacting, revertedEdits,
     scrollRef, onChatScroll,
-    send, stop, compact, undo, pushError, reset, applyResumed, pushRecording,
+    send, submitFor, stop, compact, undo, pushError, reset, applyResumed, pushRecording,
   }
 }

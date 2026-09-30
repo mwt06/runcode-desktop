@@ -9,7 +9,7 @@ import { type RecordingMark } from '@/recorder/minutes'
 // the streamed assistant text and the child tool events (merged by tool-use id).
 export type AgentNested = { agent: string; text: string; tools: ToolEvent[]; usage?: { inTok: number; outTok: number; durMs?: number } }
 export type Block =
-  | { kind: 'user'; id: string; text: string; ts: string; attachments?: string[] }
+  | { kind: 'user'; id: string; questionId?: string; text: string; ts: string; attachments?: string[] }
   | { kind: 'assistant'; id: string; text: string; thinking?: string; streaming: boolean; ts: string }
   | { kind: 'tool'; id: string; tool: ToolEvent; nested?: AgentNested }
   | { kind: 'error'; id: string; text: string }
@@ -152,6 +152,9 @@ export function mergeTool(prev: ToolEvent | undefined, ev: ToolEvent): ToolEvent
     // Side-channel payload (edit metadata / plan snapshot) arrives on the final
     // event; keep whichever event carries it so the edited card survives the merge.
     data: ev.data ?? prev.data,
+    inputTokens: ev.inputTokens ?? prev.inputTokens,
+    outputTokens: ev.outputTokens ?? prev.outputTokens,
+    durationMs: ev.durationMs ?? prev.durationMs,
   }
 }
 

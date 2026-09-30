@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wt68/runcode/internal/appupdate"
+	"github.com/wt68/runcode/internal/browsertool"
 	"github.com/wt68/runcode/internal/codexauth"
 	"github.com/wt68/runcode/internal/codexproxy"
 	"github.com/wt68/runcode/internal/officetool"
@@ -22,6 +24,7 @@ import (
 	"github.com/wt68/runcode/internal/skilltool"
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/imageinput"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
@@ -67,7 +70,13 @@ type Quitter interface{ Quit() }
 //     期间做慢操作。等到某个字段真需要长时间持有(比如以后每会话一条连接),再给
 //     条目加锁,并遵守 startMu → App.mu → entry.mu 的次序。
 type sessionEntry struct {
-	id string
+	modelRef   modelReference
+	questionMu sync.Mutex // serializes submission preparation without holding App.mu
+	// Creation connection belongs to this entry, not whichever session has focus.
+	connectionConfig engine.Config
+	passport         bool
+	tenantID         string
+	id               string
 	// seq 是登记序号(打开的先后)。会话列表按它排——**不能**按 a.sessions 的遍历序:
 	// Go 的 map 遍历是随机的,每次回读列表都会换一个顺序,界面上的行于是自己在跳。
 	// 用户点一行、列表重排、再点同一个位置就点到了别人身上——这类"点错了会话"的
@@ -112,6 +121,9 @@ type sessionEntry struct {
 // methods never block the UI thread: long work (a turn) runs on host-owned
 // goroutines and reports back through events.
 type App struct {
+	configModelRef   modelReference
+	pendingVisionRef modelReference
+	visionModels     map[string]visionCatalog
 	// out is the shell's raw sink; host envelopes are forwarded to it verbatim
 	// (hostSinkAdapter). sink wraps the same sink for process-level events
 	// (passport:changed, ...) that belong to no session — see envelopeSink for
@@ -125,7 +137,7 @@ type App struct {
 
 	// upd 是版本更新的状态机（见 update.go）。它自带锁，与 mu / startMu 没有嵌套
 	// 关系——更新与对话是两条互不相干的线（同 rec）。始终非 nil。
-	upd *updater
+	upd *appupdate.Service
 
 	// rt 是运行时环境（Python / Node / Git）的状态机（见 runtimes.go）。同 upd/rec，
 	// 它自带锁、与 mu / startMu 无嵌套关系。始终非 nil。
@@ -262,11 +274,12 @@ func newWithBuild(sink EventSink, build host.BuildFunc) *App {
 		codex: newCodexAccount(),
 	}
 	a.mgr = host.NewManager(host.Options{
-		Build:     build,
-		Sink:      hostSinkAdapter{app: a},
-		Limits:    host.Limits{}, // single-user shell: unbounded, IdleTimeout 0
-		Configure: a.configureSession,
-		OnTurnEnd: a.onTurnEnd,
+		Build:       build,
+		Sink:        hostSinkAdapter{app: a},
+		Limits:      host.Limits{}, // single-user shell: unbounded, IdleTimeout 0
+		Configure:   a.configureSession,
+		OnTurnEnd:   a.onTurnEnd,
+		OnTurnStart: a.onTurnStart,
 	})
 	pc := passportConfig()
 	a.tokens = newTokenManager(pc.tokenURL(), pc.ClientID, passportHTTP(), func() {
@@ -618,6 +631,9 @@ func (a *App) SetQuitter(q Quitter) { a.quit = q }
 // waved through by the harm judge's "safe" verdict, refused in plan and safe mode —
 // and remembers a grant only for the exact same arguments (python ≠ node).
 //
+// open_browser is also ClassMutating: handing a page to the user's browser is
+// an external action, not a file preview or evidence of user confirmation.
+//
 // It is stated here rather than left to the engine on purpose: two of these names
 // still appear in the engine's own resolver switch, which is the engine knowing
 // about desktop-only tools. Classifying them here is what lets that go away.
@@ -627,10 +643,12 @@ func (a *App) SetQuitter(q Quitter) { a.quit = q }
 // 让"某些会话里 OA 工具一调就被拒"这种问题多一个可能来源。
 var hostToolClasses = func() map[string]permissions.ToolClass {
 	m := map[string]permissions.ToolClass{
-		plantool.Name:    permissions.ClassReadOnly,
-		previewtool.Name: permissions.ClassReadOnly,
-		officetool.Name:  permissions.ClassReadOnly,
-		runtimetool.Name: permissions.ClassMutating,
+		plantool.Name:       permissions.ClassReadOnly,
+		previewtool.Name:    permissions.ClassReadOnly,
+		officetool.Name:     permissions.ClassReadOnly,
+		runtimetool.Name:    permissions.ClassMutating,
+		browsertool.Name:    permissions.ClassMutating,
+		imageinput.ToolName: permissions.ClassReadOnly,
 	}
 	for name, class := range oaToolClasses {
 		m[name] = class
@@ -670,6 +688,8 @@ const harmAutoAllowLimit = 1000
 // only after Create succeeds (openSessionHeld); a failed build leaves the
 // previous session's wiring untouched.
 func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opts *engine.Options) {
+	// Audit uses the request observer; turn results need no retained snapshots.
+	opts.OmitRequestSnapshots = true
 	store, err := engine.NewAllowStore(cfg.CWD)
 	if err != nil {
 		// A corrupt allow file must not block the session: degrade to an
@@ -692,7 +712,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		// runtimeResolver 只做展示：给 install_runtime 的审批弹窗配一句"装的是什么、
 		// 多大、装到哪"（见 runtimetool.go）。
 		Resolver: privilegeResolver{inner: runtimeResolver{
-			inner: permissions.WithToolClasses(nil, hostToolClasses),
+			inner: browserResolver{inner: permissions.WithToolClasses(nil, hostToolClasses)},
 			rt:    a.rt,
 			trust: a.ensureRuntimeTrust,
 		}},
@@ -754,6 +774,9 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	// runtimetool.go）。每次调用都要用户批准（ClassMutating，见 hostToolClasses）。
 	// 只进主会话：子代理拿不到 ExtraTools，提示词里给了它们"请用户去设置页装"的退路。
 	opts.ExtraTools = append(opts.ExtraTools, runtimetool.New(runtimeInstaller{app: a}))
+	// Browser navigation is a user-visible external action, not a read-only preview.
+	opts.ExtraTools = append(opts.ExtraTools, browsertool.New(openBrowserContext))
+	appendSystemPrompt(cfg, localBrowserPrompt)
 	// The desktop's Skill tool discloses exactly what the engine's does and
 	// additionally announces each load, so the chat can show which skill the model
 	// picked up and what it is for. Which skills exist stays the engine's business
@@ -781,6 +804,8 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	if IsTestBuild() {
 		opts.LLMRequestObserver = a.audit.observer(sctx.ID)
 	}
+
+	a.configureImages(sctx, *cfg, opts)
 
 	// 运行时环境（见 runtimeenv.go）：把应用自带的 Python/Node/Git 前置到工具子进程
 	// 的 PATH，并告诉模型本机到底有什么。
@@ -835,7 +860,7 @@ func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
 	a.workspace = cfg.CWD
 	a.mu.Unlock()
 	isPassport := strings.EqualFold(strings.TrimSpace(req.Provider), "passport")
-	info, err := a.openSessionWithConnectionHeld(cfg, isPassport, req.TenantID)
+	info, err := a.openSessionWithConnectionHeld(cfg, isPassport, req.TenantID, modelReference{Kind: "custom", Name: req.CustomModelName})
 	if err != nil {
 		return SessionInfo{}, wireError(err)
 	}
@@ -866,22 +891,24 @@ func (a *App) openSessionHeld(cfg engine.Config) (SessionInfo, error) {
 // 这条规矩是被同一个 bug 反复教出来的:三次报障都是"我发出去的活正跑着,点了个
 // 别的东西,它就没了"——先是新建对话,再是换工作区,最后是点最近对话。替换式打开
 // 留给真正意味着"这条会话要被换掉"的地方:换模型/改设置的原地重建、重载 MCP。
-func (a *App) addSessionHeld(cfg engine.Config, passport bool, tenantID string) (SessionInfo, error) {
+func (a *App) addSessionHeld(cfg engine.Config, passport bool, tenantID string, refs ...modelReference) (SessionInfo, error) {
 	if info, ok, err := a.focusIfAlreadyOpenHeld(cfg.Resume); ok {
 		return info, err
 	}
-	return a.buildSessionHeld(cfg, passport, tenantID)
+	return a.buildSessionHeld(cfg, passport, tenantID, refs...)
 }
 
 // openSessionWithConnectionHeld is openSessionHeld with explicit connection
 // identity. Callers that build a new connection pass its origin directly; callers
 // that reuse a.config use openSessionHeld and inherit the stored identity.
-func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, tenantID string) (SessionInfo, error) {
+func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, tenantID string, refs ...modelReference) (SessionInfo, error) {
 	if info, ok, err := a.focusIfAlreadyOpenHeld(cfg.Resume); ok {
 		return info, err
 	}
-	a.closeCurrentHeld()
-	return a.buildSessionHeld(cfg, passport, tenantID)
+	if err := a.closeCurrentHeld(); err != nil {
+		return SessionInfo{}, err
+	}
+	return a.buildSessionHeld(cfg, passport, tenantID, refs...)
 }
 
 // focusIfAlreadyOpenHeld 拦下「要恢复的这条会话已经开着，而且不是聚焦的那条」，
@@ -928,7 +955,12 @@ func (a *App) focusIfAlreadyOpenHeld(resume string) (SessionInfo, bool, error) {
 // "先关掉当前那条"是调用方的策略(替换式打开:StartSession / NewSession /
 // ResumeSession 都是这个语义),不是"开一条会话"本身的一部分。多会话要的正是
 // 不带那道策略的这一半。调用方须持 startMu。
-func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string) (SessionInfo, error) {
+func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string, refs ...modelReference) (SessionInfo, error) {
+	return a.buildSessionModeHeld(context.Background(), cfg, passport, tenantID, true, refs...)
+}
+
+// Background branches are registered before the frontend chooses to focus them.
+func (a *App) buildSessionModeHeld(ctx context.Context, cfg engine.Config, passport bool, tenantID string, focus bool, refs ...modelReference) (SessionInfo, error) {
 	// Refresh the web-tool proxy from the persisted setting so "生效于下个会话"
 	// holds even when cfg is a reused a.config snapshot from an earlier build.
 	cfg.WebProxy = loadRawConfig().WebProxy
@@ -940,13 +972,21 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 	// identity to the servers that the platform market marked as its own.
 	//
 	cfg.MCPServers, cfg.AllowMCPSampling = loadDesktopMCP(cfg.CWD)
-	a.attachMCPPassport(cfg.MCPServers)
+	if passport {
+		applyMCPPassport(cfg.MCPServers, passportMCPNames(), func() (map[string]string, error) { return passportHeaders(a.tokens.Token, tenantID) })
+	} else {
+		a.attachMCPPassport(cfg.MCPServers)
+	}
 	// 恢复一条读过 OA 的会话时,把模型钉回它锁定的本地模型(见 oaswitch.go)。
 	// 少了这一步,"关掉重开"就是绕过 OA 锁的现成办法——恢复出来的历史照样带着 OA
 	// 数据,锁却随上一个进程一起没了。
 	cfg = a.restoreOALockHeld(cfg)
 
-	id, st, err := a.mgr.Create(context.Background(), cfg)
+	modelRef := a.referenceForBuild(cfg, passport, tenantID, refs)
+	a.mu.Lock()
+	a.pendingVisionRef = modelRef
+	a.mu.Unlock()
+	id, st, err := a.mgr.Create(ctx, cfg)
 	a.mu.Lock()
 	pendingEdits, pendingPlans, pendingEmit := a.pendingEdits, a.pendingPlans, a.pendingEmit
 	a.pendingEdits, a.pendingPlans, a.pendingEmit = nil, nil, nil
@@ -958,7 +998,10 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 	// "until a new session replaces them",替换点就是这里。
 	a.dropClosedLocked()
 	// 登记顺带把 focused 与 workspace 一起切到新会话(见 focusLocked)。
-	a.registerSessionLocked(id, cfg.CWD, pendingEdits, pendingPlans, pendingEmit)
+	a.registerSessionModeLocked(id, cfg.CWD, pendingEdits, pendingPlans, pendingEmit, focus)
+	entry := a.entryLocked(id)
+	entry.connectionConfig, entry.passport, entry.tenantID = cfg, passport, strings.TrimSpace(tenantID)
+	entry.modelRef = modelRef
 	// 锁跟着会话进内存:此后闸门、模型切换拦截、出网工具封锁读的都是这一份。
 	oaLock, oaLocked := readOALock(cfg.CWD, id)
 	if oaLocked {
@@ -966,16 +1009,19 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 			e.oaLocalModel = oaLock.LocalModel
 		}
 	}
-	a.config = cfg
-	a.configPassport = passport
-	a.liveConfig = cfg
-	a.livePassport = passport
-	// 见下方 oaLocked 那段:sidecar 会在这之后把模型拉回去,所以锁着的会话要再钉一次。
-	if passport {
-		a.passportTenant = strings.TrimSpace(tenantID)
-		a.livePassportTenant = strings.TrimSpace(tenantID)
-	} else {
-		a.livePassportTenant = ""
+	if focus {
+		a.configModelRef = modelRef
+		a.config = cfg
+		a.configPassport = passport
+		a.liveConfig = cfg
+		a.livePassport = passport
+		// 见下方 oaLocked 那段:sidecar 会在这之后把模型拉回去,所以锁着的会话要再钉一次。
+		if passport {
+			a.passportTenant = strings.TrimSpace(tenantID)
+			a.livePassportTenant = strings.TrimSpace(tenantID)
+		} else {
+			a.livePassportTenant = ""
+		}
 	}
 	a.mu.Unlock()
 
@@ -1002,13 +1048,17 @@ func (a *App) buildSessionHeld(cfg engine.Config, passport bool, tenantID string
 // with no session. The edit store handle survives so a closed session's
 // "已编辑" records stay reviewable until a new session replaces them
 // (pre-host behavior).
-func (a *App) closeCurrentHeld() {
+const sessionCloseTimeout = 15 * time.Second
+
+func (a *App) closeCurrentHeld() error {
 	a.mu.Lock()
 	e := a.entryLocked(a.focused)
 	a.mu.Unlock()
 	// 留着条目:替换式打开时界面上那条对话还在,「已编辑」卡片要能继续复审,
 	// 直到新会话开出来(buildSessionHeld 里的 dropClosedLocked)把它换掉。
-	a.closeEntryHeld(e, false)
+	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+	defer cancel()
+	return a.closeEntryHeld(ctx, e, false)
 }
 
 // closeEntryHeld 关掉一条会话:引擎那边取消回合、拒掉挂起的授权、关会话,
@@ -1019,9 +1069,9 @@ func (a *App) closeCurrentHeld() {
 //     「已编辑」卡片要能继续复审,所以条目留着、focused 也不动。
 //   - true —— 用户主动关掉这条会话。它从界面上整个消失了,留着只是占内存,
 //     还会让"打开中的会话"列表多出一条已经死掉的。
-func (a *App) closeEntryHeld(e *sessionEntry, drop bool) {
+func (a *App) closeEntryHeld(ctx context.Context, e *sessionEntry, drop bool) error {
 	if e == nil {
-		return
+		return nil
 	}
 	a.mu.Lock()
 	id := ""
@@ -1030,7 +1080,9 @@ func (a *App) closeEntryHeld(e *sessionEntry, drop bool) {
 	}
 	a.mu.Unlock()
 	if id != "" {
-		_ = a.mgr.Close(context.Background(), id)
+		if err := a.mgr.Close(ctx, id); err != nil {
+			return fmt.Errorf("关闭会话失败，可重试: %w", err)
+		}
 	}
 	a.mu.Lock()
 	e.closed = true
@@ -1053,6 +1105,7 @@ func (a *App) closeEntryHeld(e *sessionEntry, drop bool) {
 	}
 	a.mu.Unlock()
 	a.stopPreview(previewWorkspaceOf(e))
+	return nil
 }
 
 // registerSessionLocked 把 Create 成功的会话登记进会话表并聚焦它。调用方持 a.mu。
@@ -1061,6 +1114,10 @@ func (a *App) closeEntryHeld(e *sessionEntry, drop bool) {
 // 前先 closeCurrentHeld)。拆出来是为了让开一条会话与关掉旧的这两件事分开:
 // 多会话 UI(P2)要的正是前者不带后者。
 func (a *App) registerSessionLocked(id, workspace string, edits *editStore, plans *planStore, emit func(string, any)) {
+	a.registerSessionModeLocked(id, workspace, edits, plans, emit, true)
+}
+
+func (a *App) registerSessionModeLocked(id, workspace string, edits *editStore, plans *planStore, emit func(string, any), focus bool) {
 	a.sessionSeq++
 	entry := &sessionEntry{id: id, seq: a.sessionSeq, workspace: workspace, emit: emit, edits: edits, plans: plans}
 	// Configure 一定在 Create 成功前跑过,所以这两个不该为 nil;真为 nil 时用兜底
@@ -1072,7 +1129,9 @@ func (a *App) registerSessionLocked(id, workspace string, edits *editStore, plan
 		entry.plans = a.idlePlans
 	}
 	a.sessions[id] = entry
-	a.focusLocked(entry)
+	if focus {
+		a.focusLocked(entry)
+	}
 }
 
 // focusLocked 把聚焦切到 e,并把工作区一并搬过去。调用方持 a.mu;e 为 nil 表示
@@ -1088,6 +1147,10 @@ func (a *App) focusLocked(e *sessionEntry) {
 	}
 	a.focused = e.id
 	a.workspace = e.workspace
+	if e.connectionConfig.Model != "" {
+		a.liveConfig, a.livePassport = e.connectionConfig, e.passport
+		a.livePassportTenant = e.tenantID
+	}
 }
 
 // dropClosedLocked 清掉表里已关闭的条目。调用方持 a.mu。
@@ -1194,7 +1257,7 @@ func (a *App) sessionInfo(st engine.Status) SessionInfo {
 		InputPricePerMTok:  st.InputPricePerMTok,
 		OutputPricePerMTok: st.OutputPricePerMTok,
 		PricingSource:      st.PricingSource,
-		PreviewBaseURL:     a.previewBaseURL(),
+		PreviewBaseURL:     a.previewURLFor(st.CWD),
 	}
 }
 

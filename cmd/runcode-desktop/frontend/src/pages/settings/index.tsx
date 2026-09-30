@@ -7,7 +7,7 @@ import { BTN, BTN_PRIMARY } from '@/ui/tokens'
 import { toModelOptions, type ModelOption } from '@/ui/model-picker'
 import {
   errText, listCustomModels, saveSettings,
-  type CustomModel, type PassportModel, type SessionInfo, type StartSessionRequest,
+  type CustomModel, type PassportModel, type SessionInfo, type SettingsView,
 } from '@/core/bridge'
 import { Toggle } from '@/ui/toggle'
 import { BRAND } from '@/core/brand'
@@ -15,6 +15,7 @@ import { Section } from './section'
 import { AccountSection } from './account'
 import { SessionSection } from './session'
 import { CustomModelsSection } from './custom-models'
+import { VisionSection } from './vision'
 import { ProxySection } from './proxy'
 import { RecorderSection } from './recorder'
 import { ContextSection } from './context'
@@ -27,7 +28,7 @@ import { type UpdateController } from '@/session/use-update'
 import { useRuntimes } from '@/session/use-runtimes'
 
 export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchModel }: {
-  initial: Partial<StartSessionRequest>
+  initial: Partial<SettingsView>
   info: SessionInfo | null
   busy: boolean
   // update 由 App 持有（侧栏那颗小红点也读它），这里只是把它交给「关于与更新」。
@@ -39,7 +40,7 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
 }) {
   // The session's model is now switched live (see 模型 field below), so it is read
   // straight from the running session, not a form field. Permission mode still prefers
-  // the live session; connection settings come from the saved config.
+  // the live session. Saving this form never sends connection fields.
   const [harmJudgeModel, setHarmJudgeModel] = useState(initial.harmJudgeModel ?? '')
   const [harmJudgeVotes, setHarmJudgeVotes] = useState(initial.harmJudgeVotes ?? 1)
   const [permissionMode, setPermissionMode] = useState(info?.permissionMode || initial.permissionMode || 'interactive')
@@ -69,23 +70,13 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
   // stays platform-only for the harm-judge field, which takes a bare model id the
   // engine resolves — a custom profile's display name is not such an id.
   const switchOpts = toModelOptions(platformModels, customModels)
-  const modelOpts: ModelOption[] = platformModels.map((m): ModelOption => ({ id: m.id, label: m.id, sub: m.ownedBy, kind: 'platform' }))
+  const modelOpts = toModelOptions(platformModels, [])
   async function save() {
     setSaving(true)
     setSaved(false)
     setError('')
     try {
       const i = await saveSettings({
-        cwd: info?.cwd ?? '',
-        // The model/connection is switched live via onSwitchModel and persisted
-        // backend-side; echo the current live model so saving other settings neither
-        // clobbers nor reverts it (SaveSettings sees the same connection).
-        model: info?.model ?? '',
-        // provider/baseURL/apiKey 不在设置里编辑（通行证会话自动接线、自定义模型
-        // 各自带连接）；原样透传避免保存设置时改动会话接线。
-        provider: initial.provider ?? '',
-        baseURL: initial.baseURL ?? '',
-        apiKey: '',
         permissionMode,
         maxTokens: maxTokens.trim() ? parseInt(maxTokens, 10) || 0 : 0,
         maxContextTokens,
@@ -93,17 +84,6 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
         harmJudgeModel,
         harmJudgeVotes,
         skipLogin,
-        // Preserved (edited via the in-conversation picker, not this form) so saving
-        // connection settings does not silently reset the reasoning strength.
-        thinkingEffort: initial.thinkingEffort ?? '',
-        // 本表单不涉及的字段按 wire 零值发送 —— 与旧版直接省略这些键时 Go 端
-        // json 反序列化得到的零值完全一致（生成的 StartSessionRequest 为全量必填）。
-        customModelName: initial.customModelName ?? '',
-        tenantId: activeTenantId,
-        authToken: '',
-        reasoningScenario: '',
-        resume: '',
-        continue: false,
       })
       if (i && i.model) onSaved(i)
       setSaved(true)
@@ -149,6 +129,7 @@ export function SettingsPage({ initial, info, busy, update, onSaved, onSwitchMod
           modelOpts={modelOpts}
         />
         <CustomModelsSection models={customModels} onChanged={setCustomModels} />
+        <VisionSection tenantId={activeTenantId} platform={platformModels} custom={customModels} onPlatformChanged={setPlatformModels} />
         <ProxySection />
         {/* 录音设置跟着「录音纪要」这个功能走：品牌关掉它时这块也不画，否则设置页
             里留着一组调不出任何界面的开关。 */}

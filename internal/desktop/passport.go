@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -217,7 +215,7 @@ func (a *App) SetActiveTenant(tenantID string) error {
 	tenantID = strings.TrimSpace(tenantID)
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
-	if err := updateRawConfig(func(raw *StartSessionRequest) error {
+	if err := updateRawConfig(func(raw *desktopConfig) error {
 		raw.TenantID = tenantID
 		return nil
 	}); err != nil {
@@ -267,7 +265,22 @@ func (a *App) PassportModels(tenantID string) ([]PassportModel, error) {
 // 每次成功都顺手刷新本地模型缓存：模型清单本来就是这一份，让 OA 那边再拉一趟只会
 // 多一次网络、还可能拿到与选择器不一致的两份视图。
 func (a *App) passportModelsTimeout(tenantID string, timeout time.Duration) ([]PassportModel, error) {
-	body, _, err := a.bridgeGetStatusTimeout(tenantPathPrefix(tenantID)+"/v1/models", timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return a.passportModelsContext(ctx, tenantID)
+}
+
+func (a *App) passportModelsContext(ctx context.Context, tenantID string) ([]PassportModel, error) {
+	actor := a.visionAccountIdentity()
+	scope := platformModelRef(tenantID, "")
+	body, status, err := a.bridgeGetStatusContext(ctx, tenantPathPrefix(tenantID)+"/v1/models")
+	if status == http.StatusUnauthorized && ctx.Err() == nil && a.visionAccountIdentity() == actor {
+		a.tokens.ForceRefresh()
+		if a.visionAccountIdentity() != actor {
+			return nil, wireError(errNotLoggedIn)
+		}
+		body, _, err = a.bridgeGetStatusContext(ctx, tenantPathPrefix(tenantID)+"/v1/models")
+	}
 	if err != nil {
 		return nil, wireError(err)
 	}
@@ -276,11 +289,13 @@ func (a *App) passportModelsTimeout(tenantID string, timeout time.Duration) ([]P
 	// "没有本地模型"——于是 OA 工具不注册，而不是错把云端模型当成本地的。
 	var payload struct {
 		Data []struct {
-			ID            string `json:"id"`
-			OwnedBy       string `json:"owned_by"`
-			Local         bool   `json:"local"`
-			LocalDefault  bool   `json:"local_default"`
-			ContextTokens int    `json:"context_tokens"`
+			ID             string `json:"id"`
+			OwnedBy        string `json:"owned_by"`
+			SupportsImages *bool  `json:"supports_images"`
+			VisionDefault  bool   `json:"vision_default"`
+			Local          bool   `json:"local"`
+			LocalDefault   bool   `json:"local_default"`
+			ContextTokens  int    `json:"context_tokens"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -289,12 +304,27 @@ func (a *App) passportModelsTimeout(tenantID string, timeout time.Duration) ([]P
 	models := make([]PassportModel, 0, len(payload.Data))
 	for _, m := range payload.Data {
 		models = append(models, PassportModel{
-			ID:            m.ID,
-			OwnedBy:       m.OwnedBy,
-			Local:         m.Local,
-			LocalDefault:  m.LocalDefault,
-			ContextTokens: m.ContextTokens,
+			SupportsImages: m.SupportsImages,
+			VisionDefault:  m.VisionDefault,
+			ID:             m.ID,
+			OwnedBy:        m.OwnedBy,
+			Local:          m.Local,
+			LocalDefault:   m.LocalDefault,
+			ContextTokens:  m.ContextTokens,
 		})
+	}
+	if a.visionAccountIdentity() != actor {
+		return nil, wireError(errors.New("加载模型期间账号已变化，请重试"))
+	}
+	if scope != platformModelRef(tenantID, "") {
+		return nil, wireError(errors.New("加载模型期间平台已变化，请重试"))
+	}
+	a.rememberVisionCatalog(scope, actor, models)
+	stored := loadRawConfig()
+	for i := range models {
+		if v := imageOverride(stored, platformModelRef(tenantID, models[i].ID)); v != nil {
+			models[i].SupportsImages = v
+		}
 	}
 	a.rememberLocalModel(tenantID, models)
 	return models, nil
@@ -384,13 +414,17 @@ func (a *App) bridgeGetStatus(path string) ([]byte, int, error) {
 // on a latency-sensitive path (session startup) that must not stall on a slow or
 // unreachable bridge.
 func (a *App) bridgeGetStatusTimeout(path string, timeout time.Duration) ([]byte, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return a.bridgeGetStatusContext(ctx, path)
+}
+
+func (a *App) bridgeGetStatusContext(ctx context.Context, path string) ([]byte, int, error) {
 	tok, err := a.tokens.Token()
 	if err != nil {
 		return nil, 0, wireError(err)
 	}
 	cfg := passportConfig()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BridgeBaseURL+path, nil)
 	if err != nil {
 		return nil, 0, wireError(err)
@@ -429,19 +463,4 @@ func (a *App) applyPassport(cfg engine.Config, req StartSessionRequest) engine.C
 // 那个加固客户端拒连回环/内网地址，而 Bridge 常部署在内网。
 func passportHTTP() *http.Client {
 	return &http.Client{Timeout: 60 * time.Second}
-}
-
-// openBrowser 用系统默认浏览器打开 URL（登录页）。
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		// rundll32 是打开默认浏览器的稳妥方式（explorer 对带 query 的 URL 处理不一致）
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	return startAndReap(cmd)
 }

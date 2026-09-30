@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wt68/runcode/internal/vision"
+
+	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/mcp"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/sessions"
@@ -115,21 +118,20 @@ func (a *App) ListSessions() ([]SessionSummary, error) {
 // 活动会话不可删除。它此前被允许("只是让它不可恢复"),但那个说法已不成立:
 // 引擎的 JSONLStore 按批 open/append/close 且带 O_CREATE,所以删掉文件后的下一个
 // 回合会把它重新创建出来——留下一个只含删除后内容、历史却已丢失的僵尸会话,反而
-// 比不删更糟。要删就先新建或切到别的会话。
+// 比不删更糟。要删就先关闭对应会话（仅切换焦点不够）。
 func (a *App) DeleteSession(id string) error {
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
 	a.mu.Lock()
 	ws := a.workspace
-	current := ""
-	if e := a.liveEntryLocked(); e != nil {
-		current = e.id
-	}
+	_, opened := a.sessions[strings.TrimSpace(id)]
 	a.mu.Unlock()
 	id = strings.TrimSpace(id)
 	if ws == "" || id == "" {
 		return wireError(errors.New("无效的会话"))
 	}
-	if current != "" && id == current {
-		return wireError(errors.New("不能删除当前正在进行的会话；请先新建或切换到其它会话再删除"))
+	if opened {
+		return wireError(errors.New("不能删除仍然打开的会话；请先关闭该会话再删除"))
 	}
 	backend, err := sessions.OpenBackend(ws, sessions.BackendJSONL)
 	if err != nil {
@@ -139,6 +141,9 @@ func (a *App) DeleteSession(id string) error {
 	deleter, ok := backend.(sessions.Deleter)
 	if !ok {
 		return wireError(errors.New("当前会话存储不支持删除"))
+	}
+	if err := vision.NewStore(ws, id).Delete(context.Background()); err != nil {
+		return wireError(err)
 	}
 	if err := deleter.Delete(context.Background(), id); err != nil {
 		return wireError(err)
@@ -183,11 +188,33 @@ func (a *App) ResumeSession(id string) (ResumedSession, error) {
 	if err != nil {
 		return ResumedSession{}, wireError(err)
 	}
-	return ResumedSession{
-		Info:          info,
-		Blocks:        toResumedBlocks(session.History()),
-		ContextTokens: session.EstimateContextTokens(),
-	}, nil
+	var blocks []ResumedBlock
+	var source *QuestionReference
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err = a.mgr.WithIdleSession(ctx, info.SessionID, func(ctx context.Context, _ host.Session, backend sessions.Backend) error {
+		history, err := backend.LoadHistory(ctx, info.SessionID)
+		if err != nil {
+			return err
+		}
+		history, err = sessions.IdentifyQuestions(info.SessionID, history)
+		if err != nil {
+			return err
+		}
+		blocks = imageAnalysisBlocks(ctx, ws, info.SessionID, toResumedBlocks(history))
+		meta, err := backend.LoadMeta(ctx, info.SessionID)
+		if err != nil {
+			return err
+		}
+		if meta.ParentSessionID != "" {
+			source = &QuestionReference{SessionID: meta.ParentSessionID, QuestionID: meta.ParentQuestionID}
+		}
+		return nil
+	})
+	if err != nil {
+		return ResumedSession{}, wireError(err)
+	}
+	return ResumedSession{Info: info, Blocks: blocks, ContextTokens: session.EstimateContextTokens(), Source: source}, nil
 }
 
 // PickWorkspaceFolder opens a native directory picker and returns the chosen path
@@ -257,8 +284,7 @@ func (a *App) NewSession() (SessionInfo, error) {
 // toResumedBlocks reconstructs a conversation's rendered blocks from its message
 // history: user/assistant text bubbles plus a tool block per tool result. Tool
 // blocks are paired with their originating tool_use (by id) so the tool name and
-// target path survive. Empty (tool-only) assistant turns, thinking blocks, and
-// injected hook/session-start context are dropped, matching the live view.
+// target path survive. Thinking and images survive replay; runtime context is not shown as a question.
 func toResumedBlocks(history []llm.Message) []ResumedBlock {
 	// First pass: index every tool_use by id so a later tool_result can recover its
 	// tool name and target path.
@@ -279,14 +305,26 @@ func toResumedBlocks(history []llm.Message) []ResumedBlock {
 	for _, m := range history {
 		switch m.Role {
 		case llm.RoleUser:
-			text := strings.TrimSpace(llm.TextContent(m))
-			if text == "" || strings.HasPrefix(text, "Additional context from") {
+			if !sessions.IsQuestion(m) {
 				continue
 			}
-			out = append(out, ResumedBlock{Kind: "user", Text: text})
+			var images []llm.ImageSource
+			for _, b := range m.Content {
+				if b.Type == llm.ContentBlockTypeImage && b.Source != nil {
+					images = append(images, *b.Source)
+				}
+			}
+			out = append(out, ResumedBlock{Kind: "user", Text: llm.TextContent(m), QuestionID: m.ID, Images: questionImages(images)})
 		case llm.RoleAssistant:
-			if text := strings.TrimSpace(llm.TextContent(m)); text != "" {
-				out = append(out, ResumedBlock{Kind: "assistant", Text: text})
+			text := strings.TrimSpace(llm.TextContent(m))
+			var thinking strings.Builder
+			for _, b := range m.Content {
+				if b.Type == llm.ContentBlockTypeThinking {
+					thinking.WriteString(b.Text)
+				}
+			}
+			if text != "" || thinking.Len() > 0 {
+				out = append(out, ResumedBlock{Kind: "assistant", Text: text, Thinking: thinking.String()})
 			}
 		case llm.RoleTool:
 			for _, b := range m.Content {

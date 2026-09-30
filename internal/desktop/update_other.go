@@ -14,7 +14,7 @@ func willAutoRestart() bool { return false }
 func installHint() string { return "请手动安装下载好的更新包" }
 
 // runInstaller 不会被调到（canLaunchInstaller 恒为假），留着只为编译。
-func (a *App) runInstaller(string, string) error {
+func (a *App) runInstaller(string, string, string) error {
 	return errors.New("本平台不支持由应用直接安装更新")
 }
 

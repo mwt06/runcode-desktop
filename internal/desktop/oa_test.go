@@ -212,8 +212,12 @@ func TestHostToolClassesCoverEveryOATool(t *testing.T) {
 			t.Errorf("tool %q has no permission class; it would be hard-denied", name)
 			continue
 		}
-		if class != permissions.ClassReadOnly {
-			t.Errorf("tool %q class = %v, want ClassReadOnly", name, class)
+		want := permissions.ClassReadOnly
+		if name == oatool.DownloadName {
+			want = permissions.ClassMutating
+		}
+		if class != want {
+			t.Errorf("tool %q class = %v, want %v", name, class, want)
 		}
 	}
 }

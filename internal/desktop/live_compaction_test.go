@@ -41,7 +41,7 @@ func TestReopenCarriesConfiguredContextBudget(t *testing.T) {
 	}
 	preserveDesktopConfig(t)
 	app := New(&recordingSink{})
-	req := app.LoadConfig()
+	req := loadRawConfig().startRequest()
 	if strings.EqualFold(req.Provider, "passport") {
 		// A passport session requires a live login (StartSession refuses without
 		// one); this self-contained test can't provide that, so skip.

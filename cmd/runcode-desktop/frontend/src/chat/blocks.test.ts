@@ -327,3 +327,9 @@ describe('resumedMatchedFiles', () => {
     expect(resumedMatchedFiles('Glob', {}, '')).toBeNull()
   })
 })
+
+it('keeps image-model usage separate across progress and completion', () => {
+  const start = { type: 'started', toolName: 'analyze_image', toolUseID: 'image' } as ToolEvent
+  const progress = mergeTool(start, { ...start, type: 'progress', inputTokens: 42, outputTokens: 9 })
+  expect(mergeTool(progress, { ...start, type: 'completed' })).toMatchObject({ inputTokens: 42, outputTokens: 9 })
+})

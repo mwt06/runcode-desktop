@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Icon } from './icons'
 import { Popover, type PopoverPlacement } from './popover'
 import { FIELD_CLS } from './fields'
+import { imageCapabilityLabel } from '@/core/vision'
 import { customModelOptionSub } from '@/core/custom-models'
 import { type CustomModel, type PassportModel } from '@/core/bridge'
 
@@ -12,7 +13,7 @@ import { type CustomModel, type PassportModel } from '@/core/bridge'
 // submits (a platform model id, or a custom connection's name/model id depending
 // on the caller); `modelId` is the session-model id it maps to when that differs
 // (custom connections), used only to mark the current selection.
-export type ModelOption = { id: string; label: string; sub?: string; kind: 'platform' | 'custom'; modelId?: string }
+export type ModelOption = { id: string; label: string; sub?: string; kind: 'platform' | 'custom'; modelId?: string; supportsImages?: boolean }
 
 // toModelOptions merges the platform (passport) and local custom models into the one
 // option list every model switcher shows — the composer's in-chat picker and the
@@ -22,8 +23,8 @@ export type ModelOption = { id: string; label: string; sub?: string; kind: 'plat
 // so the current live model (which reports the id, not the profile name) still marks.
 export function toModelOptions(platform: PassportModel[], custom: CustomModel[]): ModelOption[] {
   return [
-    ...platform.map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy })),
-    ...custom.map((c): ModelOption => ({ kind: 'custom', id: c.name, label: c.name, sub: customModelOptionSub(c), modelId: c.model })),
+    ...platform.map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy, ...(m.supportsImages == null ? {} : { supportsImages: m.supportsImages }) })),
+    ...custom.map((c): ModelOption => ({ kind: 'custom', id: c.name, label: c.name, sub: customModelOptionSub(c), modelId: c.model, ...(c.supportsImages == null ? {} : { supportsImages: c.supportsImages }) })),
   ]
 }
 
@@ -82,7 +83,8 @@ export function ModelPickerPopover({ open, onClose, placement, className, option
               className={`w-full text-left px-3.5 py-2 flex items-center gap-2 hover:bg-surface2 transition ${cur ? 'text-primary' : 'text-ink'}`}
             >
               <span className="font-mono text-[13px] truncate flex-1">{o.label}</span>
-              {o.kind === 'custom' && <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-primarysoft text-primaryink flex-none">自定义</span>}
+              <span className="text-[10px] text-muted flex-none" title="图片能力由设置页标注；未标注时保留原图直传">{imageCapabilityLabel(o.supportsImages)}</span>
+              {o.kind === 'custom'  && <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-primarysoft text-primaryink flex-none">自定义</span>}
               {o.sub && o.sub !== o.label && <span className="text-[11px] text-faint flex-none truncate max-w-[110px]">{o.sub}</span>}
               {cur && <span className="text-primary text-[13px] flex-none">✓</span>}
             </button>

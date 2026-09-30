@@ -32,8 +32,9 @@ func (r *defaultChatRunner) sessionFor(cfg chatConfig, runtime chatIO) (*engine.
 		return r.session, nil
 	}
 	opts := engine.Options{
-		Warn:            runtime.Err,
-		TelemetryWriter: runtime.Err,
+		OmitRequestSnapshots: true,
+		Warn:                 runtime.Err,
+		TelemetryWriter:      runtime.Err,
 	}
 	// Stream assistant deltas straight to the command's output writer (the
 	// shell-friendly chat path); otherwise Run returns the final text.

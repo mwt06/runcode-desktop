@@ -34,13 +34,15 @@ type argSpec struct {
 	required bool
 }
 
-// catalog 是全部 15 条只读能力。
+// catalog 是只读查询能力；下载工具单独实现，因为它会写工作区。
 //
 // required 的判断与服务端略有出入,是有意的:服务端把参数全设成可选、在 handler 里
 // 回一句"请提供流程ID"。那等于用一整个工具往返换一条本可以写在 schema 里的约束。
 // 确实非填不可的(流程/文档 id、要查的人名)在这里标成 required,留空有意义的
 // (搜索关键词、文档栏目、通讯录范围)保持可选。
 var catalog = []descriptor{
+	{name: "oa_attachments", remote: "attachments", desc: "列出某个 OA 文档或流程中可识别的附件，返回附件ID与文件名；需要原文件时用 oa_download_attachment 下载。",
+		args: []argSpec{{name: "sourceType", desc: "document（文档）或 request（流程）", required: true}, {name: "sourceId", desc: "文档ID或流程ID", required: true}}},
 	{name: "oa_todo", remote: "my_todo", desc: "查询【我】的待办流程"},
 	{name: "oa_done", remote: "my_done", desc: "查询【我】的已办流程"},
 	{name: "oa_created", remote: "my_created", desc: "查询【我】发起的流程"},
@@ -72,7 +74,7 @@ var catalog = []descriptor{
 	},
 	{
 		name: "oa_doc_content", remote: "doc_content",
-		desc: "读取某个文档的正文内容（扫描件公文会用视觉模型识别）",
+		desc: "读取某个文档的正文内容与可识别附件（扫描件附原图）；原附件用 oa_attachments 列出，再用 oa_download_attachment 下载。",
 		args: []argSpec{{name: "docId", required: true,
 			desc: "文档ID（来自 oa_search_docs / oa_browse_docs 的结果，或用户直接给出的）"}},
 	},
@@ -101,7 +103,7 @@ func Names() []string {
 	for _, d := range catalog {
 		out = append(out, d.name)
 	}
-	return out
+	return append(out, DownloadName)
 }
 
 // schema 把 args 拼成工具的入参 schema。

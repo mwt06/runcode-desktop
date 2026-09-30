@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -95,37 +97,54 @@ func pickSessionForTUI(cfg chatConfig) (chosenID string, cancelled bool, err err
 	return res.SessionID, res.Cancelled, nil
 }
 
-func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) error {
+func (r *defaultTuiRunner) Run(ctx context.Context, cfg chatConfig) (runErr error) {
+	lifetime, stop := context.WithCancel(ctx)
+	defer stop()
 	service, err := newTuiSessionService(cfg)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = service.Close(ctx) }()
+	defer func() {
+		stop() // Release blocked event senders before joining the engine turn.
+		closeCtx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+		defer cancel()
+		runErr = errors.Join(runErr, service.Close(closeCtx))
+	}()
 
 	customCommands, commandProblems := loadCustomCommands(cfg.CWD, userConfigDir())
 	reportCommandProblems(os.Stderr, commandProblems)
-	model := ui.New(service, ui.WithCustomCommands(uiCustomCommands(customCommands)))
+	model := ui.New(service, ui.WithContext(lifetime), ui.WithCustomCommands(uiCustomCommands(customCommands)))
 	events := model.Events()
-	service.onDelta = func(delta string) { events <- ui.AssistantDelta(delta) }
+	service.onDelta = func(delta string) {
+		select {
+		case events <- ui.AssistantDelta(delta):
+		case <-lifetime.Done():
+		}
+	}
 	if service.approver != nil {
 		service.approver.SetEvents(events)
 	}
-	bridgeCtx, stopBridge := context.WithCancel(ctx)
+	bridgeCtx, stopBridge := context.WithCancel(lifetime)
 	defer stopBridge()
 	go bridgeTuiToolEvents(bridgeCtx, service.toolEvents, events)
 
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(model, tea.WithContext(lifetime), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = program.Run()
 	return err
 }
 
 type tuiSessionService struct {
 	cfg        chatConfig
-	session    *engine.Session
+	session    tuiEngineSession
 	onDelta    func(string)
 	approver   *ui.Approver
 	toolEvents chan tool.Event
+	mu         sync.Mutex
+	closing    bool
 	closed     bool
+	active     chan struct{}
+	cancel     context.CancelFunc
+	cleanup    *tuiCloseAttempt
 }
 
 func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
@@ -146,7 +165,8 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 		},
 	})
 	session, err := engine.Build(cfg, engine.Options{
-		Permissions: permissionService,
+		OmitRequestSnapshots: true,
+		Permissions:          permissionService,
 		StreamDelta: func(delta string) {
 			if service.onDelta != nil {
 				service.onDelta(delta)
@@ -166,6 +186,11 @@ func newTuiSessionService(cfg chatConfig) (*tuiSessionService, error) {
 }
 
 func (s *tuiSessionService) RunTurn(ctx context.Context, userText string) (ui.TurnResult, error) {
+	ctx, done, err := s.beginOperation(ctx)
+	if err != nil {
+		return ui.TurnResult{}, err
+	}
+	defer done()
 	text, images := parseImageAttachments(userText, s.cfg.CWD)
 	result, err := s.session.RunTurnWithImages(ctx, text, images)
 	if err != nil {
@@ -186,12 +211,22 @@ func (s *tuiSessionService) RunTurn(ctx context.Context, userText string) (ui.Tu
 	return turn, nil
 }
 
-func (s *tuiSessionService) Reset(context.Context) error {
+func (s *tuiSessionService) Reset(ctx context.Context) error {
+	_, done, err := s.beginOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
 	s.session.ResetHistory()
 	return nil
 }
 
 func (s *tuiSessionService) Compact(ctx context.Context) (ui.CompactResult, error) {
+	ctx, done, err := s.beginOperation(ctx)
+	if err != nil {
+		return ui.CompactResult{}, err
+	}
+	defer done()
 	before, after, _, err := s.session.Compact(ctx)
 	if err != nil {
 		return ui.CompactResult{}, err
@@ -208,14 +243,6 @@ func (s *tuiSessionService) SetPermissionMode(mode string) error {
 // the engine's live model.
 func (s *tuiSessionService) SetModel(model string) error {
 	return s.session.SetModel(model)
-}
-
-func (s *tuiSessionService) Close(ctx context.Context) error {
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	return s.session.Close(ctx)
 }
 
 func (s *tuiSessionService) Status() ui.Status {

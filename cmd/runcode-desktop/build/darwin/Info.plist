@@ -31,7 +31,7 @@
     <key>CFBundleGetInfoString</key>
     <string>An open-source AI coding companion (desktop)</string>
     <key>CFBundleIconFile</key>
-    <string>iconfile</string>
+    <string>icons.icns</string>
     <!-- 简体中文优先:菜单栏与系统弹窗(如目录选择授权)按此选择语言。 -->
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>

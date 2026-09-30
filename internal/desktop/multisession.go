@@ -7,6 +7,7 @@ package desktop
 // 不动。引擎（host.Manager）本来就支持多会话，挡住的一直是外壳这层策略。
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -55,9 +56,13 @@ func (a *App) OpenSession(workspace string) (SessionInfo, error) {
 	// 换了目录才写配置：记进最近工作区（MRU），下次启动能预填/重开。开在当前
 	// 目录时什么都没变，不必为每次「新建对话」都写一遍磁盘。
 	if dir != ws {
-		req := a.LoadConfig()
-		req.CWD = dir
-		saveConfig(req)
+		if err := updateRawConfig(func(cfg *desktopConfig) error {
+			cfg.CWD = dir
+			cfg.RecentWorkspaces = mergeRecentWorkspaces(cfg.RecentWorkspaces, dir)
+			return nil
+		}); err != nil {
+			debugLog("persist workspace: %v", err)
+		}
 	}
 	return info, nil
 }
@@ -100,8 +105,9 @@ func (a *App) CloseSession(sessionID string) error {
 		e = a.entryLocked(strings.TrimSpace(sessionID))
 	}
 	a.mu.Unlock()
-	a.closeEntryHeld(e, true)
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+	defer cancel()
+	return wireError(a.closeEntryHeld(ctx, e, true))
 }
 
 // OpenSessions 列出此刻**开着**的会话，供界面画会话列表。
@@ -147,8 +153,14 @@ func (a *App) CloseAllSessions() error {
 		all = append(all, e)
 	}
 	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+	defer cancel()
 	for _, e := range all {
-		a.closeEntryHeld(e, true)
+		_ = a.mgr.Interrupt(e.id)
 	}
-	return nil
+	var err error
+	for _, e := range all {
+		err = errors.Join(err, a.closeEntryHeld(ctx, e, true))
+	}
+	return wireError(err)
 }

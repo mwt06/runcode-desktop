@@ -56,12 +56,16 @@ func newChatCmd(runner chatRunner) *cobra.Command {
 		Short:        "Run one provider-backed chat turn",
 		Args:         cobra.ArbitraryArgs,
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			cfg, err := chatConfigFromCommand(cmd)
 			if err != nil {
 				return err
 			}
-			defer func() { _ = closeChatRunner(cmd.Context(), runner) }()
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+				defer cancel()
+				runErr = errors.Join(runErr, closeChatRunner(ctx, runner))
+			}()
 			loop, err := cmd.Flags().GetBool("loop")
 			if err != nil {
 				return err

@@ -35,8 +35,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        version=$(sed -n 's|^[[:space:]]*gitlab\.ouc-online\.com\.cn/aibase/agentloop[[:space:]]\{1,\}\(v[^[:space:]]*\).*|\1|p' go.mod | head -1)
-        [ -n "$version" ] || { echo "go.mod 里找不到 agentloop 的 require 行" >&2; exit 1; }
+        version=$(bash "$GITHUB_ACTION_PATH/check-version.sh")
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "引擎版本: $version"
 

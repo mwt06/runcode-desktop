@@ -1,6 +1,6 @@
-// Package oatool implements the desktop's OA office tools: 15 read-only
+// Package oatool implements the desktop's OA office tools: read-only
 // capabilities of the school's OA system (待办/已办/流程详情、通讯录、公文检索与
-// 正文), reached through the platform Bridge with the signed-in user's Passport
+// 正文) and workspace attachment downloads, reached through the platform Bridge with the signed-in user's Passport
 // token.
 //
 // # 身份
@@ -98,7 +98,7 @@ func New(cfg Config) []tool.Tool {
 	for _, d := range catalog {
 		out = append(out, Tool{cfg: cfg, desc: d})
 	}
-	return out
+	return append(out, DownloadTool{cfg: cfg})
 }
 
 // Tool 是一条 OA 只读工具。
@@ -165,14 +165,8 @@ const (
 // 顺序是这个函数里唯一要紧的事:**先过 Gate,再谈别的**。Gate 之前不做任何网络
 // 动作,连令牌都不取。
 func (t Tool) Run(ctx context.Context, raw json.RawMessage, tctx *tool.Context, _ chan<- tool.Event) (tool.Result, error) {
-	if t.cfg.Gate != nil {
-		toolUseID := ""
-		if tctx != nil {
-			toolUseID = tctx.ToolUseID
-		}
-		if err := t.cfg.Gate(ctx, t.desc.name, toolUseID); err != nil {
-			return errorResult(err.Error()), nil
-		}
+	if err := t.cfg.gate(ctx, t.Name(), tctx); err != nil {
+		return errorResult(err.Error()), nil
 	}
 
 	args, err := t.parseArgs(raw)
@@ -408,3 +402,15 @@ func truncate(s string) string {
 
 // ErrGateClosed 是 Gate 拒绝时的兜底措辞,供没有更具体说明的调用方复用。
 var ErrGateClosed = errors.New("OA 数据只能在本地模型会话中读取。")
+
+// gate is shared by queries and downloads; it precedes tokens, network and local writes.
+func (cfg Config) gate(ctx context.Context, name string, tctx *tool.Context) error {
+	if cfg.Gate == nil {
+		return nil
+	}
+	id := ""
+	if tctx != nil {
+		id = tctx.ToolUseID
+	}
+	return cfg.Gate(ctx, name, id)
+}

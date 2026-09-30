@@ -208,3 +208,8 @@ if (isComposingKey(e)) return   // 放在所有 Enter/方向键快捷键判断�
 **`?preview=ui` 也是视觉回归的检查台。** token 化、字号并档、圆角合并这类改动，`tsc` / `eslint` / `vitest` 一个都证明不了观感——改完开这一页扫一眼最快。
 
 画廊里色板/圆角/阴影都经 `var(--color-…)` 这类 CSS 变量取值，而不是 `` `bg-${name}` `` 拼类名：**Tailwind 只扫源码里的字面类名，运行时拼出来的那个永远不会被生成**（`PageShell` 的 `width` 走内联 style 也是同一个原因）。副作用是它顺带验证了 token 真的存在——变量名拼错，那一格就是空的。
+
+`GhostBtn` 支持原生 `disabled`：操作暂不可用时禁用点击与键盘激活，并降低透明度；不要只用 CSS 假装禁用。
+
+模型选择器的 `supportsImages?: boolean` 显示「支持图片 / 仅文本 / 未标注」三态标签；未知不按名称推断。默认识图候选由 `core/vision` 提供，调用方用来源、平台和租户定位，不能只比较裸模型 ID。
+`analyze_image` 使用图片图标；展开卡片按识图模型、图片数、问题展示，识图 API 用量独立列出，分析文字仍计入主模型上下文。

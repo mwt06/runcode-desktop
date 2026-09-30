@@ -11,6 +11,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -53,7 +54,7 @@ func load(path string) (*image.RGBA, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	decoded, err := png.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -80,37 +81,46 @@ func scale(src *image.RGBA, size int) *image.RGBA {
 			if x1 == x0 {
 				x1++
 			}
-			var r, g, b, a, n uint32
+			var r, g, b, a, n uint64
 			for sy := y0; sy < y1 && sy < sh; sy++ {
 				for sx := x0; sx < x1 && sx < sw; sx++ {
 					i := src.PixOffset(sx, sy)
-					r += uint32(src.Pix[i])
-					g += uint32(src.Pix[i+1])
-					b += uint32(src.Pix[i+2])
-					a += uint32(src.Pix[i+3])
+					r += uint64(src.Pix[i])
+					g += uint64(src.Pix[i+1])
+					b += uint64(src.Pix[i+2])
+					a += uint64(src.Pix[i+3])
 					n++
 				}
 			}
 			i := dst.PixOffset(x, y)
-			dst.Pix[i] = uint8(r / n)
-			dst.Pix[i+1] = uint8(g / n)
-			dst.Pix[i+2] = uint8(b / n)
-			dst.Pix[i+3] = uint8(a / n)
+			dst.Pix[i] = averageByte(r, n)
+			dst.Pix[i+1] = averageByte(g, n)
+			dst.Pix[i+2] = averageByte(b, n)
+			dst.Pix[i+3] = averageByte(a, n)
 		}
 	}
 	return dst
 }
 
-func save(path string, img image.Image) error {
+// averageByte makes the byte boundary explicit; an empty source is transparent.
+func averageByte(sum, count uint64) uint8 {
+	if count == 0 {
+		return 0
+	}
+	value := sum / count
+	if value > 255 {
+		return 255
+	}
+	return uint8(value)
+}
+
+func save(path string, img image.Image) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if err := png.Encode(f, img); err != nil {
-		return err
-	}
-	return f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
+	return png.Encode(f, img)
 }
 
 func fatal(err error) {
