@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import plistlib
 import struct
-import shlex
 import subprocess
 
 
@@ -40,19 +39,13 @@ def validate_bundle(app, name, bundle_id, version, product, check_build=False, a
     if not executable.is_file() or executable.stat().st_size == 0 or not os.access(executable, os.X_OK):
         raise ValueError("bundle executable is missing, empty, or not executable")
     if check_build:
-        metadata = subprocess.check_output(["go", "version", "-m", str(executable)], text=True)
-        assignments = []
-        for line in metadata.splitlines():
-            parts = shlex.split(line)
-            if len(parts) != 2 or parts[0] != "build" or not parts[1].startswith("-ldflags="):
-                continue
-            flags = shlex.split(parts[1].split("=", 1)[1])
-            assignments.extend(flags[i + 1] for i, flag in enumerate(flags[:-1]) if flag == "-X")
-        for key, value in {"main.brandTitle": name, "main.brandID": bundle_id,
-                           "github.com/wt68/runcode/internal/desktop.appVersion": app_version or version,
-                           "github.com/wt68/runcode/internal/desktop.appProduct": product}.items():
-            if key + "=" + value not in assignments:
-                raise ValueError("binary did not receive branding/version flag: " + key)
+        # Inspect live values: -trimpath deliberately omits -ldflags metadata.
+        actual = json.loads(subprocess.check_output(
+            [str(executable.resolve()), "--build-info"], text=True, encoding="utf-8", timeout=15))
+        expected = {"name": name, "bundleID": bundle_id,
+                    "version": app_version or version, "product": product}
+        if actual != expected:
+            raise ValueError(f"binary identity mismatch: expected {expected!r}, got {actual!r}")
     return {"bundle": str(app), "name": name, "id": bundle_id, "version": version, "icon": icon}
 
 

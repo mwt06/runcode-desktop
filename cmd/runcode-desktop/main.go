@@ -256,6 +256,12 @@ func main() {
 	if desktop.IsAskpass() {
 		os.Exit(desktop.RunAskpass(os.Args))
 	}
+	if handled, err := printBuildInfo(os.Args, os.Stdout); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	sink := &eventSink{}
 	dlg := &wailsDialog{}

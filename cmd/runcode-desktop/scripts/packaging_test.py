@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import plistlib
 import struct
@@ -66,18 +67,21 @@ class PackagingContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 checker.validate_bundle(*args)
 
-    def test_binary_brand_flags_are_required_and_exact(self):
+    def test_binary_identity_is_required_and_exact(self):
         with tempfile.TemporaryDirectory() as directory:
             app = self.fixture(directory)
-            flags = '-w -s -X main.brandTitle=Example -X main.brandID=test.example -X github.com/wt68/runcode/internal/desktop.appVersion=1.2.0-rc.1 -X github.com/wt68/runcode/internal/desktop.appProduct=example'
-            metadata = '\tbuild\t-ldflags="' + flags + '"\n'
-            with patch.object(checker.subprocess, "check_output", return_value=metadata):
+            identity = {"name": "Example", "bundleID": "test.example", "version": "1.2.0-rc.1", "product": "example"}
+            with patch.object(checker.subprocess, "check_output", return_value=json.dumps(identity)) as run:
                 checker.validate_bundle(app, "Example", "test.example", "1.2.0", "example", True, "1.2.0-rc.1")
+                run.assert_called_once_with([str((app / "Contents/MacOS/Example").resolve()), "--build-info"],
+                                            text=True, encoding="utf-8", timeout=15)
                 with self.assertRaises(ValueError):
                     checker.validate_bundle(app, "Example", "test.example", "1.2.0", "example", True)
-            with patch.object(checker.subprocess, "check_output", return_value='\tbuild\t-ldflags="-w -s"\n'):
-                with self.assertRaises(ValueError):
-                    checker.validate_bundle(app, "Example", "test.example", "1.2.0", "example", True)
+            for bad in [{}, {**identity, "name": "XRUN"}, {**identity, "bundleID": "wrong"},
+                        {**identity, "product": "xrun"}, {**identity, "version": "0.0.0-dev"}]:
+                with self.subTest(identity=bad), patch.object(checker.subprocess, "check_output", return_value=json.dumps(bad)):
+                    with self.assertRaises(ValueError):
+                        checker.validate_bundle(app, "Example", "test.example", "1.2.0", "example", True, "1.2.0-rc.1")
 
 
 if __name__ == "__main__":

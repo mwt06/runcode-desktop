@@ -183,6 +183,12 @@ func main() {
 	if desktop.IsAskpass() {
 		os.Exit(desktop.RunAskpass(os.Args))
 	}
+	if handled, err := printBuildInfo(os.Args, os.Stdout); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	// 关掉 WebKit 的加速合成，否则麒麟 V10 上**界面整个画不出来**。
 	//
