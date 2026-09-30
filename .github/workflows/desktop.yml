@@ -291,7 +291,8 @@ jobs:
               python3 scripts/verify-macos-bundle.py "$bundle" --name "$app" \
                 --bundle-id "$bundle_id" --version "${version%%-*}" --app-version "$version" --product "$product" --check-build
               native_arch="$arch"; [ "$arch" != amd64 ] || native_arch=x86_64
-              lipo -verify_arch "$native_arch" "$bundle/Contents/MacOS/$app"
+              # -verify_arch consumes every following argument as an architecture.
+              lipo "$bundle/Contents/MacOS/$app" -verify_arch "$native_arch"
               codesign --verify --deep --strict "$bundle"
               hdiutil verify "bin/$app-macos.dmg"
               (

@@ -26,6 +26,10 @@ class PackagingContractTest(unittest.TestCase):
         self.assertIn('cp build/darwin/icons.icns', tasks)
         self.assertIn('-ldflags="-w -s {{.LDFLAGS_EXTRA}}"', tasks)
 
+    def test_lipo_input_precedes_variadic_architectures(self):
+        workflow = (ROOT.parents[1] / ".github/workflows/desktop.yml").read_text(encoding="utf-8")
+        self.assertIn('lipo "$bundle/Contents/MacOS/$app" -verify_arch "$native_arch"', workflow)
+
     def test_brand_identities_are_distinct(self):
         for brand, name, bundle_id in [("zhikai", "智开", "cn.ouconline.ai.zhikai"),
                                        ("zhikai-guokai", "智开（国开版）", "cn.ouconline.ai.zhikai.guokai")]:
