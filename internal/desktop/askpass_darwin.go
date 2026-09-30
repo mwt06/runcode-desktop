@@ -4,6 +4,7 @@ package desktop
 
 // libproc 取的是内核记录的可执行路径，不信 argv[0] 或进程的自报身份。
 // 无 cgo 的 CLI/服务端仍可编译，只是不开放密码通道（askpass_other.go）。
+
 /*
 #cgo LDFLAGS: -lproc
 #include <libproc.h>
