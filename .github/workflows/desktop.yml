@@ -40,7 +40,7 @@ on:
         description: 打哪些目标
         type: choice
         default: all
-        options: [all, windows-only, macos-only, linux-only, kylin10-only]
+        options: [all, windows-only, windows-arm64-only, macos-only, linux-only, kylin10-only]
       devtools:
         # 只对麒麟 V10 生效（它是 Wails v2 的构建标记）。打开后 WebView 的 developer
         # extras 可用，窗口里按 Ctrl-Shift-F12 开检查器——麒麟上出白屏或前端异常时，
@@ -107,6 +107,7 @@ jobs:
           kylin='{"target":"kylin10-amd64","os":"ubuntu-22.04","container":"ubuntu:20.04"},{"target":"kylin10-arm64","os":"ubuntu-22.04-arm","container":"ubuntu:20.04"}'
           case "$TARGETS" in
             windows-only) targets="$win" ;;
+            windows-arm64-only) targets='{"target":"windows-arm64","os":"windows-11-arm"}' ;;
             macos-only)   targets="$mac" ;;
             linux-only)   targets="$linux" ;;
             kylin10-only) targets="$kylin" ;;
@@ -244,8 +245,8 @@ jobs:
             # 是为了不把一个临时模块塞进仓库。
             shim="$(cygpath -m "$RUNNER_TEMP")/ccshim"
             mkdir -p "$shim"
-            cp ../../.github/ccshim/main.go "$shim/main.go"
-            ( cd "$shim" && go mod init ccshim >/dev/null && go build -o ccshim.exe . )
+            cp ../../.github/ccshim/main.go ../../.github/ccshim/main_test.go "$shim/"
+            ( cd "$shim" && go mod init ccshim >/dev/null && go test ./... && go build -o ccshim.exe . )
             export CC="$shim/ccshim.exe" CXX=clang++
           fi
           # 运行时环境（Python/Node/Git 绿色包）的清单地址。走对象存储上的静态清单，
@@ -280,6 +281,7 @@ jobs:
           mkdir -p dist
           case "${{ matrix.target }}" in
             windows-*)
+              python3 scripts/verify-windows-executable.py "bin/$app.exe" --arch "$arch"
               cp "bin/$app.exe" "dist/$product-$version-windows-$arch.exe"
               for f in bin/"$app"-*-installer.exe; do
                 [ -f "$f" ] && cp "$f" "dist/$product-$version-windows-$arch-setup.exe"

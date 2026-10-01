@@ -130,6 +130,8 @@
 
 **应用对 SIGTERM 是正常响应的**（实测 ~540 ms 退出，Wails v2 接管了 SIGTERM/SIGINT 并调 `gtk_main_quit`），别被"发了 TERM 没死"骗到——它的信号 goroutine 只 `<-signalChannel` 一次，已经收过一次信号、退出流程卡住的进程不会再响应第二次 TERM。
 
+**Windows ARM64 的 GUI 子系统**：`-H windowsgui` 在 Go → MSVC clang → lld-link 链上曾产出 Subsystem=3 的控制台 EXE；`.github/ccshim` 把 `-mwindows` / `-mconsole` 明确转为链接器 `/subsystem:windows` / `/subsystem:console`，不改有意的控制台程序。CI 用 `scripts/verify-windows-executable.py` 读取最终 PE，两个架构的桌面主程序都必须是 GUI（Subsystem=2），不能仅凭构建参数或 NSIS 安装器自己不弹窗判断。
+
 **Windows 后台子进程不弹黑窗**：`-H windowsgui` 只管主 EXE，后台 `exec.Command` 仍须在启动前调用引擎 `executil.HideConsoleWindow`（`HideWindow` + `CREATE_NO_WINDOW`，保留已有进程属性；非 Windows 空操作）。启动时 Python/Node/Git 版本探测、Office 转换，以及引擎 Bash/MCP stdio/hooks 共用它，输出、错误和取消仍走原通道。不要拿它隐藏浏览器、安装器、UAC 或明确请求的 sudo 新窗口；更新看门沿用自己的脱离进程策略。共用包已随引擎 `v0.15.0` 发布。
 
 - `*.exe`（`XRUN.exe`、根目录的 `runcode-desktop.exe` 等）是 `.gitignore` 的构建产物，不进版本库。

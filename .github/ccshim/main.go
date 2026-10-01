@@ -1,5 +1,5 @@
-// ccshim 是 windows-arm64 交叉编译时套在 clang 外面的一层壳：把 -mthreads 滤掉，
-// 其余参数原样转交。
+// ccshim 是 windows-arm64 构建时套在 MSVC 目标 clang 外面的一层壳：
+// 过滤无效的 -mthreads，并把 Go 的子系统选项明确传给 lld-link。
 //
 // 为什么需要它：-mthreads 不是本仓传的，是 Go 自己给 runtime/cgo 加的 cgo 指令
 // （MinGW 的线程安全异常处理开关），改不了也关不掉。而 clang 对
@@ -25,15 +25,28 @@ import (
 	"os/exec"
 )
 
-func main() {
-	args := make([]string, 0, len(os.Args))
-	for _, a := range os.Args[1:] {
-		if a == "-mthreads" {
+// Clang's MSVC driver can leave -mwindows builds as console executables.
+// Pass the subsystem to lld-link explicitly; preserve intentional console builds.
+func clangArgs(input []string) []string {
+	args := make([]string, 0, len(input))
+	for _, a := range input {
+		switch a {
+		case "-mthreads":
 			continue
+		case "-mwindows":
+			args = append(args, "-Xlinker", "/subsystem:windows")
+		case "-mconsole":
+			args = append(args, "-Xlinker", "/subsystem:console")
+		default:
+			args = append(args, a)
 		}
-		args = append(args, a)
 	}
-	cmd := exec.Command("clang", args...)
+	return args
+}
+
+func main() {
+	args := clangArgs(os.Args[1:])
+	cmd := exec.Command("clang", args...) //nolint:gosec // Compiler shim forwards build flags to fixed clang, without a shell.
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
