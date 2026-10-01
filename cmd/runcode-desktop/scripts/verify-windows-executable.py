@@ -37,4 +37,5 @@ if __name__ == '__main__':
     parser.add_argument('--arch', choices=['amd64', 'arm64'], required=True)
     parser.add_argument('--check-startup', action='store_true')
     args = parser.parse_args()
-    print(json.dumps(validate_executable(args.executable, args.arch, args.check_startup), ensure_ascii=False))
+    # ASCII JSON also works with redirected output on legacy Windows code pages.
+    print(json.dumps(validate_executable(args.executable, args.arch, args.check_startup)))

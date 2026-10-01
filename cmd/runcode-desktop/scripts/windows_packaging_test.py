@@ -1,5 +1,8 @@
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 import struct
 import tempfile
@@ -14,7 +17,7 @@ spec.loader.exec_module(checker)
 class WindowsExecutableTest(unittest.TestCase):
     def test_architecture_and_gui_are_required(self):
         with tempfile.TemporaryDirectory() as root:
-            exe = Path(root) / 'app.exe'
+            exe = Path(root) / '智开.exe'
             for arch, machine in [('amd64', 0x8664), ('arm64', 0xaa64)]:
                 data = bytearray(512)
                 data[:2] = b'MZ'
@@ -25,6 +28,10 @@ class WindowsExecutableTest(unittest.TestCase):
                 struct.pack_into('<H', data, 220, 2)
                 exe.write_bytes(data)
                 self.assertEqual(checker.validate_executable(exe, arch)['subsystem'], 'GUI')
+                cli = subprocess.run([sys.executable, str(Path(checker.__file__)), str(exe), '--arch', arch],
+                                     capture_output=True, check=True, timeout=15,
+                                     env={**os.environ, 'PYTHONIOENCODING': 'cp1252', 'PYTHONUTF8': '0'})
+                self.assertEqual(json.loads(cli.stdout.decode('ascii'))['executable'], str(exe))
                 info = {'name': 'Example', 'bundleID': 'test.example', 'version': '1.0.20', 'product': 'example'}
                 with patch.object(checker.subprocess, 'check_output', return_value=json.dumps(info)) as run:
                     self.assertEqual(checker.validate_executable(exe, arch, True)['buildInfo'], info)
