@@ -23,11 +23,19 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Clang's MSVC driver can leave -mwindows builds as console executables.
 // Pass the subsystem to lld-link explicitly; preserve intentional console builds.
 func clangArgs(input []string) []string {
+	explicitEntry := false
+	for _, a := range input {
+		option := strings.TrimPrefix(strings.ToLower(a), "-wl,")
+		if strings.HasPrefix(option, "/entry:") || strings.HasPrefix(option, "-entry:") {
+			explicitEntry = true
+		}
+	}
 	args := make([]string, 0, len(input))
 	for _, a := range input {
 		switch a {
@@ -35,6 +43,11 @@ func clangArgs(input []string) []string {
 			continue
 		case "-mwindows":
 			args = append(args, "-Xlinker", "/subsystem:windows")
+			if !explicitEntry {
+				// Go cgo emits main, not WinMain. Keep CRT initialization,
+				// then let it enter Go; GUI only controls console allocation.
+				args = append(args, "-Xlinker", "/entry:mainCRTStartup")
+			}
 		case "-mconsole":
 			args = append(args, "-Xlinker", "/subsystem:console")
 		default:

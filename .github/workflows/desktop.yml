@@ -281,7 +281,7 @@ jobs:
           mkdir -p dist
           case "${{ matrix.target }}" in
             windows-*)
-              python3 scripts/verify-windows-executable.py "bin/$app.exe" --arch "$arch"
+              python3 scripts/verify-windows-executable.py "bin/$app.exe" --arch "$arch" --check-startup
               cp "bin/$app.exe" "dist/$product-$version-windows-$arch.exe"
               for f in bin/"$app"-*-installer.exe; do
                 [ -f "$f" ] && cp "$f" "dist/$product-$version-windows-$arch-setup.exe"
