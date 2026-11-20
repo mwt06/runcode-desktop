@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/wt68/runcode/internal/appupdate"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/wt68/runcode/internal/appupdate"
 
 	"golang.org/x/sys/unix"
 )

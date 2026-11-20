@@ -18,4 +18,14 @@ describe('toModelOptions', () => {
   it('两侧为空时得到空列表', () => {
     expect(toModelOptions([], [])).toEqual([])
   })
+
+  it('仅生图模型不出现在任何文本模型候选里', () => {
+    const profile = { available: true, supportedSizes: ['1024x1024'], defaultSize: '1024x1024', responseFormats: ['url'] }
+    const platform: PassportModel[] = [
+      { id: 'chat', ownedBy: 'p' },
+      { id: 'image-only', ownedBy: 'v', capabilities: ['image_generation'], imageGeneration: profile },
+      { id: 'dual', ownedBy: 'p', capabilities: ['chat', 'image_generation'], imageGeneration: profile },
+    ]
+    expect(toModelOptions(platform, []).map((o) => o.id)).toEqual(['chat', 'dual'])
+  })
 })

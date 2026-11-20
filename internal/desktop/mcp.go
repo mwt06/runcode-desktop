@@ -180,7 +180,12 @@ func (a *App) ReloadMCPServers() (bool, error) {
 	cfg.Resume = id
 	cfg.Continue = false
 	cfg.SessionID = ""
+	a.mu.Lock()
+	entry := a.entryLocked(id)
+	a.mu.Unlock()
+	a.emitPreviewLifecycle(entry, "invalidating", "")
 	if _, err := a.openSessionHeld(cfg); err != nil {
+		a.emitPreviewLifecycle(entry, "closed", "")
 		return false, wireError(err)
 	}
 	return true, nil

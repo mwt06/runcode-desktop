@@ -1,0 +1,87 @@
+/* 设置页分类目录的布局。只作用于 .settings-* 命名空间，颜色与圆角走 token 变量。
+ *
+ * 宽窄断点不在这里用媒体/容器查询判断：use-settings-navigation 按 .settings-layout
+ * 的 clientWidth 算出 narrow，写到 data-narrow 上，组件与样式读同一个结论。两处各算
+ * 一遍的话，863/864 这种边界上会出现"样式已是单列、组件还是左侧目录"的错配。 */
+
+.settings-shell {
+  container: settings-shell / inline-size;
+}
+
+/* 不加边框和内边距：它的 clientWidth 就是断点的唯一尺寸来源。 */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  column-gap: 24px;
+  align-items: start;
+  min-width: 0;
+}
+
+/* 窄布局改成普通块：网格项的 sticky 只能在自己的网格区域里移动，顶部目录放在第一行
+ * 就根本吸不住。 */
+.settings-layout[data-narrow='true'] {
+  display: block;
+}
+
+/* 宽目录在滚动根里吸顶；比视口高时自己滚动，max-height 取滚动根高度减去上下各 12px。
+ * overscroll-behavior 阻止滚到头时把滚动传给正文。 */
+.settings-nav {
+  position: sticky;
+  top: 12px;
+  max-height: calc(var(--settings-root-h, 100vh) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-width: 0;
+}
+
+.settings-compact-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 12px;
+  padding: 8px 0 10px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-line2);
+}
+
+.settings-nav-item {
+  overflow-wrap: anywhere;
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* 不给 .settings-section 设 display：作者样式里任何 display 都会盖掉 [hidden]。 */
+.settings-section {
+  min-width: 0;
+  border-radius: var(--radius-card);
+}
+
+.settings-section[hidden] {
+  display: none;
+}
+
+.settings-section:focus {
+  outline: none;
+}
+
+.settings-section:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}

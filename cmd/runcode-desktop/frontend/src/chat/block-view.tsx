@@ -7,20 +7,25 @@
 // 重试各自手写了一遍同样的分割线，四种形状表达同一件事。
 import { GhostBtn } from '@/ui/ghost-btn'
 import { Icon } from '@/ui/icons'
-import { Markdown } from '@/ui/markdown'
 import { SystemNote } from '@/ui/feedback'
+import { AssistantMarkdown } from './assistant-markdown'
 import { WarnTriangle } from '@/ui/glyphs'
 import { fmtDuration, fmtTokens } from '@/core/format'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { type RecordingMark } from '@/recorder/minutes'
 import { type Block, retryReasonLabel } from './blocks'
 import { BotRow } from './bot-row'
-import { ThinkingPanel } from './thinking-panel'
 import { AgentTaskCard } from './agent-task'
 import { ExecutionCard } from './execution-card'
 import { RecordingCard } from './recorder-card'
+import {
+  displayImageGenerationSizeLabel,
+  scrubImageGenerationAssistantText,
+} from './image-generation-note'
+import type { CodePreviewTarget } from '@/preview/code-preview'
 
-export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes, onRetryQuestion, onEditQuestion, questionActionsDisabled }: {
+export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes, onRetryQuestion, onEditQuestion, questionActionsDisabled, textOnly = false, onContentHeightChange, onOpenImageGenerationSettings, sessionId, onOpenCodePreview }: {
+  textOnly?: boolean
   block: Block
   onRetryQuestion?: (id: string) => void
   onEditQuestion?: (id: string) => void
@@ -28,6 +33,10 @@ export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes, o
   onOpenFile?: (relPath: string) => void
   resolveFile?: (token: string) => string | null
   onGenerateMinutes?: (mark: RecordingMark) => void
+  onContentHeightChange?: () => void
+  onOpenImageGenerationSettings?: () => void
+  sessionId?: string
+  onOpenCodePreview?: (target: CodePreviewTarget) => void
 }) {
   // While an assistant answer streams, keep it in a fixed-height window pinned to
   // the newest text (consistent with the tool/agent cards); release to full height
@@ -48,43 +57,63 @@ export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes, o
               </div>
             )}
             {block.text && <div className="whitespace-pre-wrap break-words">{block.text}</div>}
-          </div>
-          {block.questionId && (onRetryQuestion || onEditQuestion) && (
+          </div>          {block.questionId && (onRetryQuestion || onEditQuestion) && (
             <div className="flex items-center opacity-60 group-hover:opacity-100 focus-within:opacity-100">
-              <GhostBtn disabled={questionActionsDisabled} onClick={() => onRetryQuestion?.(block.questionId!)} title="重新生成：从这条提问重新开始；原记录保留，文件不会撤销">
+              <GhostBtn disabled={questionActionsDisabled} onClick={() => onRetryQuestion?.(block.questionId!)} aria-label="重新生成" title="重新生成：从这条提问重新开始；原记录保留，文件不会撤销">
                 <Icon name="refresh" size={16} />
-                <span className="sr-only">重新生成</span>
               </GhostBtn>
-              <GhostBtn disabled={questionActionsDisabled} onClick={() => onEditQuestion?.(block.questionId!)} title="修改后重试">
+              <GhostBtn disabled={questionActionsDisabled} onClick={() => onEditQuestion?.(block.questionId!)} aria-label="修改后重试" title="修改后重试">
                 <Icon name="pencil" size={16} />
-                <span className="sr-only">修改后重试</span>
               </GhostBtn>
             </div>
           )}
         </div>
       )
     case 'assistant': {
-      const hasThinking = (block.thinking ?? '').trim() !== ''
+      // thinking 字段仍保留在 block 上（回放/压缩），界面不再渲染思考栏。
       const hasText = block.text.trim() !== ''
-      // The model is still thinking and hasn't begun the answer — the thinking panel
-      // carries the live caret, so the (empty) answer area is suppressed until text
-      // starts, avoiding a stray second caret.
-      const thinkingActive = block.streaming && hasThinking && !hasText
-      // A turn may produce an assistant message with no text (tool-only) or just
-      // whitespace; don't render an empty bubble — unless there's reasoning to show.
-      if (!block.streaming && !hasText && !hasThinking) return null
+      // 无正文的已完成回合不画空气泡（纯工具回合由工具卡承担）。
+      if (!block.streaming && !hasText) return null
       return (
         <BotRow>
           <div className="flex flex-col gap-2">
-            {hasThinking && <ThinkingPanel text={block.thinking ?? ''} streaming={thinkingActive} />}
-            {!thinkingActive && (hasText || block.streaming) && (
+            {(hasText || block.streaming) && (
               <div
                 ref={block.streaming ? aScroll.ref : undefined}
                 onScroll={block.streaming ? aScroll.onScroll : undefined}
                 className={`text-[15px] text-ink2 leading-[1.75] break-words${block.streaming ? ' max-h-[58vh] overflow-y-auto pr-1' : ''}`}
               >
-                <Markdown onOpenFile={onOpenFile} resolveFile={resolveFile}>{block.text}</Markdown>
+                {hasText && (
+                  <AssistantMarkdown
+                    messageId={block.id}
+                    streaming={block.streaming}
+                    textOnly={textOnly}
+                    sessionId={sessionId}
+                    onOpenFile={onOpenFile}
+                    resolveFile={resolveFile}
+                    onContentHeightChange={onContentHeightChange}
+                    onOpenCodePreview={onOpenCodePreview}
+                  >
+                    {scrubImageGenerationAssistantText(block.text)}
+                  </AssistantMarkdown>
+                )}
                 {block.streaming && <span className="caret">▍</span>}
+              </div>
+            )}
+            {!block.streaming && block.imageGenerationNote && (
+              <div className="text-[12px] text-muted leading-snug flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span>
+                  当前使用的生图模型：{block.imageGenerationNote.modelLabel}
+                  {' · '}
+                  生图尺寸：{displayImageGenerationSizeLabel(block.imageGenerationNote.sizeLabel)}
+                </span>
+                {onOpenImageGenerationSettings ? (
+                  <button type="button" onClick={onOpenImageGenerationSettings} className="text-primary hover:underline cursor-pointer bg-transparent border-0 p-0 text-[12px]">
+                    修改生图设置
+                  </button>
+                ) : (
+                  <span className="text-faint">在「设置 → 图片生成」中修改生图设置</span>
+                )}
               </div>
             )}
           </div>
@@ -147,7 +176,7 @@ export function BlockView({ block, onOpenFile, resolveFile, onGenerateMinutes, o
     case 'tool':
       // Live Task with sub-agent activity → nested observable view; a resumed Task
       // (no live nested data) falls back to the normal card showing its result.
-      if (block.tool.toolName === 'Task' && block.nested) return <BotRow><AgentTaskCard tool={block.tool} nested={block.nested} /></BotRow>
+      if (block.tool.toolName === 'Task' && block.nested) return <BotRow><AgentTaskCard tool={block.tool} nested={block.nested} sessionId={sessionId ?? block.sessionId} onOpenCodePreview={onOpenCodePreview} /></BotRow>
       return <BotRow><ExecutionCard tools={[block.tool]} /></BotRow>
   }
 }

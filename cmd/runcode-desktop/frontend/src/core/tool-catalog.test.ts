@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMcpToolName, toolLabel, toolVerb } from './tool-catalog'
+import { BUILTIN_TOOLS, parseMcpToolName, toolLabel, toolVerb } from './tool-catalog'
 
 describe('parseMcpToolName', () => {
   it('splits the mcp__<server>__<tool> convention', () => {
@@ -69,6 +69,12 @@ describe('toolLabel', () => {
     expect(toolLabel('ReadOffice')).toBe('读取 Office 文档')
     expect(toolLabel('ListMcpResources')).toBe('列出 MCP 资源')
   })
+})
+
+it('labels image generation without promising it is free', () => {
+  expect(toolVerb('image_generate')).toBe('生成图片')
+  expect(toolLabel('image_generate')).toBe('文生图')
+  expect(BUILTIN_TOOLS.image_generate.desc).not.toMatch(/免费|不计费/)
 })
 
 it('labels OA attachment discovery and local downloads separately', () => {

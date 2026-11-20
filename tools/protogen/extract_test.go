@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+// 使用真实 App 导出面检查外壳接线排除与生成物，避免合成类型测试漏掉新增方法。
+func TestDesktopProtocolSurface(t *testing.T) {
+	if err := run(true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionStatusUsesEngineSessionInfo(t *testing.T) {
+	if got := eventPayloads["EventSessionStatus"]; got != "SessionInfo" {
+		t.Fatalf("session:status payload = %q, want engine SessionInfo", got)
+	}
+}
+
 // parseJSONTag 必须对齐 encoding/json 的 tag 语义——尤其是 `,string`（值在线上是
 // JSON 字符串，常用于保 64 位整数精度）与 `-,`（字段名字面量为 "-"）；漏掉任何一个
 // 都会静默生成错误的 TS 类型（审核问题 #9）。

@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "description": "结果不明（设计 6.3 第四行与第 7 节）。可能已生成/计费：保留已提交预算，不生成占位图，不自动再生成。bridge.transport 为 disconnect/timeout 时表示客户端未收到完整响应。",
+  "cases": [
+    {
+      "name": "bridge_timeout_after_send",
+      "core": { "behavior": "timeout" },
+      "bridge": {
+        "status": 504,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0301" },
+        "body": { "error": { "code": "unknown_outcome", "message": "生成结果无法确认，可能已生成或计费，请勿重复提交", "request_id": "brg-synthetic-0301" } }
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0301", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "core_2xx_empty_data",
+      "core": { "status": 200, "body": { "created": 1762761602, "data": [] } },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0302" },
+        "body": { "error": { "code": "unknown_outcome", "message": "生成结果无法确认，可能已生成或计费，请勿重复提交", "request_id": "brg-synthetic-0302" } }
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0302", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "core_2xx_multiple_images",
+      "core": { "status": 200, "body": { "created": 1762761603, "data": [{ "url": "{{IMAGE_URL}}" }, { "url": "{{IMAGE_URL}}" }] } },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0303" },
+        "body": { "error": { "code": "unknown_outcome", "message": "生成结果无法确认，可能已生成或计费，请勿重复提交", "request_id": "brg-synthetic-0303" } }
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0303", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "client_sees_2xx_empty_data",
+      "core": null,
+      "bridge": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0304" },
+        "body": { "created": 1762761604, "data": [] }
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0304", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "client_sees_2xx_multiple_images",
+      "core": null,
+      "bridge": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0305" },
+        "body": { "created": 1762761605, "data": [{ "url": "{{IMAGE_URL}}" }, { "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" }] }
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0305", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "client_sees_2xx_item_without_result",
+      "core": null,
+      "bridge": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0306" },
+        "body": { "created": 1762761606, "data": [{ "revised_prompt": "只有修订提示词，没有图片" }] }
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0306", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "client_sees_2xx_malformed_body",
+      "core": null,
+      "bridge": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0307" },
+        "rawBody": "{\"created\": 1762761607, \"data\": [ {\"url\": "
+      },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "brg-synthetic-0307", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "client_disconnect_after_send",
+      "core": { "behavior": "accepted" },
+      "bridge": { "transport": "disconnect" },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "", "retries": 0, "budgetUsed": true, "images": 0 }
+    },
+    {
+      "name": "client_cancel_after_submit",
+      "core": { "behavior": "accepted" },
+      "bridge": { "transport": "cancel" },
+      "expect": { "status": "cancelled", "code": "", "requestId": "", "retries": 0, "budgetUsed": true, "images": 0, "messageMustMention": "可能已生成" }
+    },
+    {
+      "name": "restart_with_submitted_ledger",
+      "core": null,
+      "bridge": null,
+      "ledger": { "version": 1, "status": "submitted", "accountingStatus": "unverified" },
+      "expect": { "status": "unknown", "code": "unknown_outcome", "requestId": "", "retries": 0, "budgetUsed": true, "images": 0 }
+    }
+  ]
+}

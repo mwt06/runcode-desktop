@@ -197,6 +197,7 @@ func (a *App) SwitchModel(sessionID, kind, name string) (SessionInfo, error) {
 	cfg.TokenSource = a.tokens.Token
 	cfg.OnUnauthorized = a.tokens.ForceRefresh
 	cfg.Model = name
+	cfg = usePlatformCaptureProvider(cfg, true)
 	info, err := a.rebuildResumingWithConnectionHeld(cfg, id, true, nextTenant)
 	if err != nil {
 		return SessionInfo{}, err

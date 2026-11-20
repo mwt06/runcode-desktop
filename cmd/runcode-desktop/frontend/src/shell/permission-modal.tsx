@@ -40,7 +40,7 @@ export function PermissionModal({ req, onDecide, remaining = 0, onDenyRest }: { 
   const rememberable = canRemember(decisions)
   const primary: PermissionDecision = decisions.includes('allow-session') ? 'allow-session' : 'allow-once'
   return (
-    <div className="fixed inset-0 bg-ink/30 backdrop-blur-[2px] flex items-center justify-center z-20 anim-rise">
+    <div className="fixed inset-0 bg-ink/30 backdrop-blur-[2px] flex items-center justify-center anim-rise" style={{ zIndex: 'var(--z-permission, 80)' }}>
       <div role="dialog" aria-modal="true" aria-label="权限请求" className="w-[560px] max-w-[92vw] max-h-[90vh] overflow-y-auto bg-surface rounded-2xl p-[22px] shadow-modal">
         <h3 className="m-0 mb-4 text-[16px] font-bold flex items-center gap-2.5">
           <span className="w-[9px] h-[9px] rounded-sm bg-primary" />权限请求

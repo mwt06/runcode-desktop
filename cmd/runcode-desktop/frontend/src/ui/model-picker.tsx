@@ -7,6 +7,7 @@ import { Popover, type PopoverPlacement } from './popover'
 import { FIELD_CLS } from './fields'
 import { imageCapabilityLabel } from '@/core/vision'
 import { customModelOptionSub } from '@/core/custom-models'
+import { isChatModel } from '@/core/image-generation'
 import { type CustomModel, type PassportModel } from '@/core/bridge'
 
 // ModelOption is one row in the shared model picker. `id` is what picking it
@@ -21,9 +22,10 @@ export type ModelOption = { id: string; label: string; sub?: string; kind: 'plat
 // (tagged 自定义). `id` is exactly what SwitchModel receives: a platform model id, or
 // a custom profile's name; `modelId` carries the custom profile's underlying model id
 // so the current live model (which reports the id, not the profile name) still marks.
+// Every caller picks a text model, so image-only platform models never appear.
 export function toModelOptions(platform: PassportModel[], custom: CustomModel[]): ModelOption[] {
   return [
-    ...platform.map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy, ...(m.supportsImages == null ? {} : { supportsImages: m.supportsImages }) })),
+    ...platform.filter(isChatModel).map((m): ModelOption => ({ kind: 'platform', id: m.id, label: m.id, sub: m.ownedBy, ...(m.supportsImages == null ? {} : { supportsImages: m.supportsImages }) })),
     ...custom.map((c): ModelOption => ({ kind: 'custom', id: c.name, label: c.name, sub: customModelOptionSub(c), modelId: c.model, ...(c.supportsImages == null ? {} : { supportsImages: c.supportsImages }) })),
   ]
 }

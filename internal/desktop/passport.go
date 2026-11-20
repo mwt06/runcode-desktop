@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -27,9 +28,18 @@ type passportSettings struct {
 	RedirectURI   string // BridgeBaseURL + /oauth/callback
 }
 
+const defaultBridgeBaseURL = "https://bridge-aibase.ouc-online.com.cn"
+
 func passportConfig() passportSettings {
 	authority := strings.TrimRight(envOr("RUNCODE_PASSPORT_AUTHORITY", "https://passport-ai.ouchn.edu.cn"), "/")
-	bridge := strings.TrimRight(envOr("RUNCODE_BRIDGE_BASE_URL", "https://bridge-aibase.ouc-online.com.cn"), "/")
+	bridge := strings.TrimRight(envOr("RUNCODE_BRIDGE_BASE_URL", defaultBridgeBaseURL), "/")
+	redirectDefault := bridge + "/oauth/callback"
+	// 本机 Bridge 只改 API；OAuth redirect_uri 仍须是通行证已登记的中转。
+	// 若只设了 RUNCODE_BRIDGE_BASE_URL=http://localhost:… 而未另设 redirect，
+	// 回落到正式 Bridge 回调，避免授权页 invalid_request。
+	if passportBridgeIsLoopback(bridge) {
+		redirectDefault = defaultBridgeBaseURL + "/oauth/callback"
+	}
 	return passportSettings{
 		Authority: authority,
 		ClientID:  envOr("RUNCODE_PASSPORT_CLIENT_ID", "runcode-desktop"),
@@ -46,8 +56,17 @@ func passportConfig() passportSettings {
 		// invalid_scope 失败；那时用环境变量退回旧的一串即可，不必等新包。
 		Scopes:        envOr("RUNCODE_PASSPORT_SCOPES", "openid profile offline_access passportapi manageapi"),
 		BridgeBaseURL: bridge,
-		RedirectURI:   bridge + "/oauth/callback",
+		RedirectURI:   envOr("RUNCODE_PASSPORT_REDIRECT_URI", redirectDefault),
 	}
+}
+
+func passportBridgeIsLoopback(bridge string) bool {
+	u, err := url.Parse(bridge)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func (s passportSettings) tokenURL() string { return s.Authority + "/connect/token" }
@@ -270,7 +289,76 @@ func (a *App) passportModelsTimeout(tenantID string, timeout time.Duration) ([]P
 	return a.passportModelsContext(ctx, tenantID)
 }
 
-func (a *App) passportModelsContext(ctx context.Context, tenantID string) ([]PassportModel, error) {
+// decodePassportModels 解析 Bridge GET /v1/models（及 /t/{tenant}/v1/models）正文。
+// 网关扩展一律 snake_case：capabilities、image_generation、supports_images、
+// context_tokens 等。返回的是完整目录（含纯生图）；文本用途由调用方经 isChatModel
+// 过滤后再交给选择器／OA／预算。缺 capabilities 的旧条目保留可聊天语义；不按模型名
+// 或 supports_images 猜生图。缺 context_tokens 时同时清空 MaxOutputTokens／
+// MaxHistoryMessages，避免把别的模型的输出／历史默认值误当成该模型的声明。
+func decodePassportModels(body []byte) ([]PassportModel, error) {
+	// local/local_default/context_tokens 是本产品对 OpenAI 模型清单的扩展(见
+	// protocol.PassportModel)。老 Bridge 不回这些字段，解出来是零值，表现为
+	// "没有本地模型"——于是 OA 工具不注册，而不是错把云端模型当成本地的。
+	var payload struct {
+		Data []struct {
+			ImageGeneration *struct {
+				Available         bool     `json:"available"`
+				SupportedSizes    []string `json:"supported_sizes"`
+				DefaultSize       string   `json:"default_size"`
+				ResponseFormats   []string `json:"response_formats"`
+				UnavailableReason string   `json:"unavailable_reason"`
+			} `json:"image_generation"`
+			SupportsImages     *bool    `json:"supports_images"`
+			ContextTokens      *int     `json:"context_tokens"`
+			MaxOutputTokens    *int     `json:"max_output_tokens"`
+			MaxHistoryMessages *int     `json:"max_history_messages"`
+			Capabilities       []string `json:"capabilities"`
+			ID                 string   `json:"id"`
+			OwnedBy            string   `json:"owned_by"`
+			VisionDefault      bool     `json:"vision_default"`
+			Local              bool     `json:"local"`
+			LocalDefault       bool     `json:"local_default"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	models := make([]PassportModel, 0, len(payload.Data))
+	for _, m := range payload.Data {
+		contextTokens := 0
+		if m.ContextTokens != nil {
+			contextTokens = *m.ContextTokens
+		} else {
+			// 不完整的预算字段不能当作一整套默认值。
+			m.MaxOutputTokens, m.MaxHistoryMessages = nil, nil
+		}
+		entry := PassportModel{
+			SupportsImages:     m.SupportsImages,
+			VisionDefault:      m.VisionDefault,
+			ID:                 m.ID,
+			OwnedBy:            m.OwnedBy,
+			Local:              m.Local,
+			LocalDefault:       m.LocalDefault,
+			ContextTokens:      contextTokens,
+			MaxOutputTokens:    m.MaxOutputTokens,
+			MaxHistoryMessages: m.MaxHistoryMessages,
+			Capabilities:       append([]string(nil), m.Capabilities...),
+		}
+		if m.ImageGeneration != nil {
+			entry.ImageGeneration = &ImageGenerationProfile{
+				Available:         m.ImageGeneration.Available,
+				SupportedSizes:    append([]string(nil), m.ImageGeneration.SupportedSizes...),
+				DefaultSize:       m.ImageGeneration.DefaultSize,
+				ResponseFormats:   append([]string(nil), m.ImageGeneration.ResponseFormats...),
+				UnavailableReason: m.ImageGeneration.UnavailableReason,
+			}
+		}
+		models = append(models, entry)
+	}
+	return models, nil
+}
+
+func (a *App) fetchPassportModelsContext(ctx context.Context, tenantID string) ([]PassportModel, error) {
 	actor := a.visionAccountIdentity()
 	scope := platformModelRef(tenantID, "")
 	body, status, err := a.bridgeGetStatusContext(ctx, tenantPathPrefix(tenantID)+"/v1/models")
@@ -284,45 +372,9 @@ func (a *App) passportModelsContext(ctx context.Context, tenantID string) ([]Pas
 	if err != nil {
 		return nil, wireError(err)
 	}
-	// local/local_default/context_tokens 是本产品对 OpenAI 模型清单的扩展(见
-	// protocol.PassportModel)。老 Bridge 不回这三个字段，解出来是零值，表现为
-	// "没有本地模型"——于是 OA 工具不注册，而不是错把云端模型当成本地的。
-	var payload struct {
-		Data []struct {
-			ID                 string `json:"id"`
-			OwnedBy            string `json:"owned_by"`
-			SupportsImages     *bool  `json:"supports_images"`
-			VisionDefault      bool   `json:"vision_default"`
-			Local              bool   `json:"local"`
-			LocalDefault       bool   `json:"local_default"`
-			ContextTokens      *int   `json:"context_tokens"`
-			MaxOutputTokens    *int   `json:"max_output_tokens"`
-			MaxHistoryMessages *int   `json:"max_history_messages"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	models, err := decodePassportModels(body)
+	if err != nil {
 		return nil, wireError(fmt.Errorf("解析模型列表失败: %w", err))
-	}
-	models := make([]PassportModel, 0, len(payload.Data))
-	for _, m := range payload.Data {
-		contextTokens := 0
-		if m.ContextTokens != nil {
-			contextTokens = *m.ContextTokens
-		} else {
-			// A partial payload is not a complete set of model defaults.
-			m.MaxOutputTokens, m.MaxHistoryMessages = nil, nil
-		}
-		models = append(models, PassportModel{
-			SupportsImages:     m.SupportsImages,
-			VisionDefault:      m.VisionDefault,
-			ID:                 m.ID,
-			OwnedBy:            m.OwnedBy,
-			Local:              m.Local,
-			LocalDefault:       m.LocalDefault,
-			ContextTokens:      contextTokens,
-			MaxOutputTokens:    m.MaxOutputTokens,
-			MaxHistoryMessages: m.MaxHistoryMessages,
-		})
 	}
 	if a.visionAccountIdentity() != actor {
 		return nil, wireError(errors.New("加载模型期间账号已变化，请重试"))
@@ -330,15 +382,30 @@ func (a *App) passportModelsContext(ctx context.Context, tenantID string) ([]Pas
 	if scope != platformModelRef(tenantID, "") {
 		return nil, wireError(errors.New("加载模型期间平台已变化，请重试"))
 	}
+	// 完整目录先入缓存（含纯生图）；文本返回值再过滤，否则 ListImageGenerationModels
+	// 读不到仅生图条目，而聊天选择器又会混入纯生图。
 	a.rememberModelCatalog(scope, actor, models)
-	stored := loadRawConfig()
-	for i := range models {
-		if v := imageOverride(stored, platformModelRef(tenantID, models[i].ID)); v != nil {
-			models[i].SupportsImages = v
-		}
-	}
-	a.rememberLocalModel(tenantID, models)
 	return models, nil
+}
+
+func (a *App) passportModelsContext(ctx context.Context, tenantID string) ([]PassportModel, error) {
+	models, err := a.fetchPassportModelsContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	stored := loadRawConfig()
+	chat := make([]PassportModel, 0, len(models))
+	for _, m := range models {
+		if !isChatModel(m) {
+			continue
+		}
+		if v := imageOverride(stored, platformModelRef(tenantID, m.ID)); v != nil {
+			m.SupportsImages = v
+		}
+		chat = append(chat, m)
+	}
+	a.rememberLocalModel(tenantID, chat)
+	return chat, nil
 }
 
 // PassportValidate confirms the persisted token still works by calling the
@@ -467,6 +534,8 @@ func (a *App) applyPassport(cfg engine.Config, req StartSessionRequest) engine.C
 	cfg.TokenSource = a.tokens.Token
 	// 服务端 401(令牌过期/被拒)时强制刷新一次令牌后重试。
 	cfg.OnUnauthorized = a.tokens.ForceRefresh
+	// 平台采集适配器：仅改构建用 Provider 名，用户设置仍写 passport／openai 语义。
+	cfg = usePlatformCaptureProvider(cfg, true)
 	return cfg
 }
 

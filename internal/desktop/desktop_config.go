@@ -31,6 +31,9 @@ type desktopConfig struct {
 	WebProxy         string        `json:"webProxy,omitempty"`
 	SkipLogin        bool          `json:"skipLogin,omitempty"`
 	ContextAudit     bool          `json:"contextAudit,omitempty"`
+	// 文生图默认模型，按账号/Bridge/租户分区（键是 imageGenerationScope）。只经
+	// SaveImageGenerationSettings 修改；其他保存路径从原配置出发，自然保留它。
+	ImageGenerationPreferences map[string]imageGenerationPreference `json:"imageGenerationPreferences,omitempty"`
 }
 
 func configFromRequest(req StartSessionRequest) desktopConfig {

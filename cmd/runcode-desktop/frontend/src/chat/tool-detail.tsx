@@ -80,6 +80,18 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
     case 'WebFetch':
       if (s('url')) return kvRows([['URL', s('url')], ['路线', networkRouteLabel(o.proxy)], o.diagnose_only === true && ['方式', '仅诊断，不抓取正文']])
       break
+    case 'image_generate': {
+      const data = tool.data && typeof tool.data === 'object' ? tool.data as Record<string, unknown> : null
+      const intent = typeof data?.displayIntent === 'string' ? data.displayIntent : (tool.message || s('displayIntent') || s('prompt'))
+      const size = typeof data?.size === 'string' ? data.size : s('size')
+      const model = typeof data?.model === 'string' ? data.model : ''
+      return kvRows([
+        !!intent && ['意图', intent],
+        !!size && ['尺寸', size],
+        !!model && ['模型', model],
+        !!s('prompt') && !intent && ['提示', s('prompt')],
+      ])
+    }
   }
   return <RawJson value={o} />
 }
@@ -146,7 +158,20 @@ export function ToolDetail({ tool }: { tool: ToolEvent }) {
   const out = tool.output ?? []
   const outScroll = useStickToBottom<HTMLPreElement>(out.length)
   const img = tool.image
-  const imgSrc = img ? (img.url || (img.data ? `data:${img.media_type || 'image/png'};base64,${img.data}` : '')) : ''
+  // 栅格生图主图在行下舞台，展开区不嵌第二张图。
+  const imgSrc = tool.toolName === 'image_generate'
+    ? ''
+    : (img ? (img.url || (img.data ? `data:${img.media_type || 'image/png'};base64,${img.data}` : '')) : '')
+  const imageGenSummary = (() => {
+    if (tool.toolName !== 'image_generate') return ''
+    const data = tool.data && typeof tool.data === 'object' ? tool.data as { images?: { path?: string; width?: number; height?: number; bytes?: number; mimeType?: string }[]; status?: string } : null
+    const art = data?.images?.[0]
+    if (art?.path) {
+      const dim = art.width && art.height ? `${art.width}×${art.height}` : ''
+      return [art.path, dim].filter(Boolean).join(' · ')
+    }
+    return data?.status ? `状态：${data.status}` : ''
+  })()
   return (
     <div className="min-w-0 flex flex-col gap-2.5">
       <div>
@@ -157,12 +182,14 @@ export function ToolDetail({ tool }: { tool: ToolEvent }) {
 
       <div>
         <div className="text-[11px] text-faint mb-1 tracking-wide">
-          输出{imgSrc ? ' · 图片' : matched.length > 0 ? ` · ${matched.length}${tool.filesTotal && tool.filesTotal > matched.length ? `/${tool.filesTotal}` : ''} 个匹配` : out.length > 0 ? ` · ${out.length} 行` : ''}
+          输出{imgSrc ? ' · 图片' : matched.length > 0 ? ` · ${matched.length}${tool.filesTotal && tool.filesTotal > matched.length ? `/${tool.filesTotal}` : ''} 个匹配` : out.length > 0 ? ` · ${out.length} 行` : imageGenSummary ? ' · 摘要' : ''}
         </div>
         {imgSrc ? (
         <div className="bg-surface2 border border-line rounded-lg p-2 inline-block max-w-full">
           <img src={imgSrc} alt="" className="max-h-[340px] max-w-full rounded-[5px] block" />
         </div>
+      ) : imageGenSummary ? (
+        <div className="text-[13px] text-ink bg-surface2 border border-line rounded-lg py-2 px-2.5 font-mono break-all">{imageGenSummary}</div>
       ) : matched.length > 0 ? (
         <div className="bg-surface2 border border-line rounded-lg py-2 px-2.5 max-h-[360px] overflow-auto">
           <MatchedFileTree paths={matched.slice(0, 400).map((f) => f.path)} />

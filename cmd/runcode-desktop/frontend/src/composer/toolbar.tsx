@@ -140,7 +140,7 @@ export function ComposerToolbar({
         <div className="relative flex-none">
           <button
             onClick={() => setAddMenu((v) => !v)}
-            title="添加：技能 / 智能体 / 图片"
+            title="添加：技能 / 智能体 / 文件 / 图片"
             className="border-none bg-transparent text-muted text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 hover:bg-surface2 hover:text-ink"
           >
             <Icon name="plus" size={16} />
@@ -154,13 +154,13 @@ export function ComposerToolbar({
               { icon: 'hash', label: '文件', run: onOpenFilePicker },
               { icon: 'paperclip', label: '图片附件', run: onPickAttachment },
             ] as const).map((it) => (
-              <div
+              <button type="button"
                 key={it.label}
                 onClick={() => { setAddMenu(false); it.run() }}
-                className="px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2"
+                className="w-full px-3 py-[7px] text-[13px] cursor-pointer text-ink hover:bg-surface2 flex items-center gap-2 disabled:opacity-40 disabled:cursor-default"
               >
                 <Icon name={it.icon} size={15} /> {it.label}
-              </div>
+              </button>
             ))}
           </Popover>
         </div>

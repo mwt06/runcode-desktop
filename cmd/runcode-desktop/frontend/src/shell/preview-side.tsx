@@ -5,7 +5,7 @@ import { PreviewPane } from '@/preview/pane'
 import { FileBrowser } from '@/preview/file-browser'
 import { type PreviewTab } from '@/preview/tabs'
 
-export function PreviewSide({ tabs, active, baseURL, width, dragHandlers, files, autoOpen, onToggleAutoOpen, onSelect, onCloseTab, onCloseAll, onCloseBrowser, onPickFile }: {
+export function PreviewSide({ tabs, active, baseURL, width, dragHandlers, files, autoOpen, onToggleAutoOpen, onSelect, onCloseTab, onCloseAll, onBackToBrowser, onCloseBrowser, onPickFile }: {
   tabs: PreviewTab[]
   active: string | null
   baseURL: string
@@ -21,6 +21,7 @@ export function PreviewSide({ tabs, active, baseURL, width, dragHandlers, files,
   onSelect: (key: string) => void
   onCloseTab: (key: string) => void
   onCloseAll: () => void
+  onBackToBrowser: () => void
   onCloseBrowser: () => void
   onPickFile: (path: string) => void
 }) {
@@ -39,6 +40,7 @@ export function PreviewSide({ tabs, active, baseURL, width, dragHandlers, files,
             onSelect={onSelect}
             onCloseTab={onCloseTab}
             onClose={onCloseAll}
+            onBack={onBackToBrowser}
           />
         ) : (
           <div className="flex flex-col h-full min-h-0">

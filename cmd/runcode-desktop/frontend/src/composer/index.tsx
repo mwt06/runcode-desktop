@@ -1,4 +1,5 @@
 import type { QuestionDraft } from '@/core/bridge'
+import { InlineEditor, type ComposerEditorHandle } from './inline-editor'
 import { GhostBtn } from '@/ui/ghost-btn'
 // composer 是对话输入区：多行输入框、@技能 / /子代理 / #文件 三种触发的选择器、
 // 附件（选图、粘贴），以及底部工具条(拆到 ./toolbar)。选择器与附件等 UI 状态全部
@@ -26,8 +27,7 @@ import { BRAND } from '@/core/brand'
 // Composer 的对外契约：input 受控于 App（插件页“使用技能/委派子代理”要往输入框
 // 追加文案并聚焦，故 input 与 taRef 由 App 持有）；files 归 App（文件浏览器/回复
 // 产物条也要用），选择器打开时经 onRefreshFiles 请求刷新。
-export function Composer({
-  attachments, setAttachments, retry, retryDisabled, submitting, onCancelRetry, onRemoveOriginal,
+export function Composer({  attachments, setAttachments, retry, retryDisabled, submitting, onCancelRetry, onRemoveOriginal,
   input,
   onInputChange,
   taRef,
@@ -58,7 +58,7 @@ export function Composer({
   onRemoveOriginal: (index: number) => void
   input: string
   onInputChange: (v: string) => void
-  taRef: RefObject<HTMLTextAreaElement>
+  taRef: RefObject<ComposerEditorHandle>
   chatScrollRef: RefObject<HTMLDivElement>
   busy: boolean
   toast: string
@@ -85,7 +85,8 @@ export function Composer({
   onPickScenario: (s: Scenario) => void
 }) {
   const inputId = useId()
-  const resize = useComposerResize(taRef, chatScrollRef)
+  const editorElement = useRef<HTMLDivElement>(null)
+  const resize = useComposerResize(editorElement, chatScrollRef, 0)
   const [mention, setMention] = useState<{ query: string; start: number; sel: number; trigger: MentionTrigger } | null>(null)
   const closeMention = useCallback(() => setMention(null), [])
   const [sending, setSending] = useState(false)
@@ -167,7 +168,6 @@ export function Composer({
   function openFilePicker() {
     mentionRegion.keepOpen()
     closeScenario()
-    const ta = taRef.current
     const sep = input && !/\s$/.test(input) ? ' ' : ''
     const next = input + sep + '#'
     onInputChange(next)
@@ -175,7 +175,7 @@ export function Composer({
     // Refresh the workspace file list on open — a session that listed none at
     // startup (or before its workspace was ready) still gets a current list.
     onRefreshFiles()
-    requestAnimationFrame(() => ta?.focus())
+    setCaret(next.length)
   }
   // The "+" menu opens the skill (@) or sub-agent (/) picker directly, mirroring
   // typing the trigger at the composer start. Both are start-of-input commands that
@@ -226,7 +226,7 @@ export function Composer({
   }
 
   // 粘贴。收不收由 shouldIntakePaste 定（有文本就让路，理由在那儿）。
-  async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+  async function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
     const data = e.clipboardData
     const files = Array.from(data?.files ?? [])
     if (!shouldIntakePaste(files.length, data?.getData('text/plain') ?? '')) return
@@ -277,7 +277,9 @@ export function Composer({
     const body = sendText(input, attachments)
     sendingRef.current = true
     setSending(true)
-    try { await onSend(body, images, text || undefined) }
+    try {
+      await onSend(body, images, text || undefined)
+    }
     catch (e) { onNotify?.(errText(e)) }
     finally { sendingRef.current = false; setSending(false) }
   }
@@ -391,24 +393,25 @@ export function Composer({
           ))}
         </div>
       )}
-      <textarea
+      <InlineEditor
         ref={taRef}
+        elementRef={editorElement}
         id={inputId}
         style={{ height: resize.height }}
         readOnly={submitting || sending}
         className={`block w-full resize-none overflow-y-auto bg-surface text-ink border-x border-line2 px-4 py-3.5 outline-none placeholder:text-faint ${attachments.length > 0 ? '' : 'border-t rounded-t-card'}`}
         value={input}
         placeholder={busy ? '回合进行中——输入后 Enter 立即补充，模型会在当前步骤结束后看到' : '继续对话，@ 技能，/ 子代理，# 文件；Enter 发送，Shift+Enter 换行'}
-        onChange={(e) => {
-          onInputChange(e.target.value)
-          syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
+        onChange={(text, caret) => {
+          onInputChange(text)
+          syncMention(text, caret)
         }}
         // 点回输入框只关闭候选；继续键入/移动光标才重新匹配，避免同一次点击又弹出。
         onClick={closeMention}
         onPaste={(e) => void handlePaste(e)}
         onKeyUp={(e) => {
           if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-            syncMention(input, e.currentTarget.selectionStart ?? input.length)
+            syncMention(input, taRef.current?.getSelection().start ?? input.length)
           }
         }}
         onKeyDown={(e) => {

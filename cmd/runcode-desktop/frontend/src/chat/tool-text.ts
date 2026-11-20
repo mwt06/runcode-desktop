@@ -68,6 +68,13 @@ export function toolVerbTarget(t: ToolEvent): { verb: string; target: string } {
     case 'install_runtime':
       target = RUNTIME_LABEL[String(o.runtime ?? '').trim().toLowerCase()] ?? String(o.runtime ?? '')
       break
+    case 'image_generate': {
+      const data = t.data && typeof t.data === 'object' ? t.data as { displayIntent?: unknown } : null
+      const intent = typeof data?.displayIntent === 'string' ? data.displayIntent.trim() : ''
+      const progress = (t.message ?? '').trim()
+      target = clip(intent || progress, 44)
+      break
+    }
     default:
       target = basename(t.files?.[0]?.path) || basename(String(o.path ?? ''))
   }

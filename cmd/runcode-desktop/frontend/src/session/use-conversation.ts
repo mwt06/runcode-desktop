@@ -32,7 +32,17 @@ import {
   type AgentNested,
   type Block,
 } from '@/chat/blocks'
+import {
+  isUnconfiguredImageGenerationNote,
+  loadImageGenerationNoteMap,
+  rehydrateAssistantNotes,
+  saveImageGenerationNote,
+  shouldStampUnconfiguredImageGenerationNote,
+  stampTurnAssistantNote,
+  type AssistantImageGenerationNote,
+} from '@/chat/image-generation-note'
 import { basename } from '@/core/paths'
+import { IMAGE_GENERATION_TOOL, isGeneratedImageRel } from '@/core/image-generation'
 import { digestDisplayText, docDisplayText, minutesDisplayText, parseRecordingMarker, type RecordingMark } from '@/recorder/minutes'
 import {
   convOf, dropConv, lastUserText, patchConv, sessionOf, withReverted, withContextCompaction,
@@ -46,7 +56,15 @@ const now = () =>
 
 export type Conversation = ReturnType<typeof useConversation>
 
-export function useConversation({ focusedId, infoRef, permissions, onFilesChanged, onOpenPreview, showToast }: {
+type PendingImageGenerationNote = {
+  sessionId: string
+  note: AssistantImageGenerationNote
+  questionId?: string
+  observed: boolean
+  finished: boolean
+}
+
+export function useConversation({ focusedId, infoRef, permissions, onFilesChanged, onOpenPreview, showToast, getImageGenerationNote }: {
   /** focusedId 是当前**看得见**的那条会话。状态每会话存一份，渲染只取这一条。 */
   focusedId: string
   infoRef: RefObject<SessionInfo | null>
@@ -58,6 +76,8 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   onFilesChanged: () => void
   onOpenPreview: (artifact: import('@/core/bridge').ArtifactReference) => void
   showToast: (text: string) => void
+  /** 回合开始时读取当前生图设置快照（可异步）；缺省则不写尾注。 */
+  getImageGenerationNote?: () => AssistantImageGenerationNote | null | Promise<AssistantImageGenerationNote | null>
 }) {
   // 每会话一份状态。引擎本来就是多会话的，每条信封都带 sessionId；存成一份全局
   // 状态时，后台会话的输出会记到前台会话头上。planOpen 不在其中——它是"胶囊下拉
@@ -71,6 +91,12 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   // 读 focusedId）。事件本身按信封里的 id 落，这个只用于判断"要不要动界面"。
   const focusedRef = useRef(focusedId)
   focusedRef.current = focusedId
+  // 每轮在提交时冻结尾注，但只有实际出现 image_generate、TurnEnd 完成并拿到
+  // questionId 后才同时盖章和落盘，避免图表回复继承生图模型说明。
+  const pendingImageGenByUserBlock = useRef(new Map<string, PendingImageGenerationNote>())
+  const activeImageGenBlockBySession = useRef(new Map<string, string>())
+  const getImageGenNoteRef = useRef(getImageGenerationNote)
+  getImageGenNoteRef.current = getImageGenerationNote
 
   // patch 改**指定**会话；下面那组 setXxx 是"改聚焦会话"的薄壳，签名与原来的
   // useState setter 一致，所以发送/停止/压缩那些本来就只作用于当前会话的动作
@@ -88,6 +114,48 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
       return next === s.blocks ? s : { ...s, blocks: next }
     })
   }, [patch])
+
+  const finalizeImageGenerationNote = useCallback((sessionId: string, blockId: string, dropUnused = false) => {
+    const pending = pendingImageGenByUserBlock.current.get(blockId)
+    if (!pending || pending.sessionId !== sessionId) return
+    if (!pending.observed || !pending.finished || !pending.questionId) {
+      // 未观察到生图调用的回合可以直接丢弃；观察到调用但回执尚未到达时必须保留，
+      // 等 questionId 补上后再同时盖章和落盘。
+      if (dropUnused && pending.finished && !pending.observed) {
+        pendingImageGenByUserBlock.current.delete(blockId)
+        if (activeImageGenBlockBySession.current.get(sessionId) === blockId) activeImageGenBlockBySession.current.delete(sessionId)
+      }
+      return
+    }
+    pendingImageGenByUserBlock.current.delete(blockId)
+    if (activeImageGenBlockBySession.current.get(sessionId) === blockId) {
+      // 设置可能在一轮开始后才改；这里使用提交时冻结的尾注，不读取当前设置。
+      blocksOf(sessionId, (prev) => stampTurnAssistantNote(prev, pending.note))
+      activeImageGenBlockBySession.current.delete(sessionId)
+    }
+    try {
+      saveImageGenerationNote(sessionId, pending.questionId, pending.note)
+    } catch {
+      // localStorage 失败不能阻断对话终态；界面尾注已经按冻结值落下。
+    }
+  }, [blocksOf])
+
+  const observeImageGeneration = useCallback((sessionId: string) => {
+    const ready: string[] = []
+    for (const [blockId, pending] of pendingImageGenByUserBlock.current) {
+      if (pending.sessionId !== sessionId) continue
+      pending.observed = true
+      ready.push(blockId)
+    }
+    for (const blockId of ready) finalizeImageGenerationNote(sessionId, blockId)
+  }, [finalizeImageGenerationNote])
+
+  const discardImageGenerationTurn = useCallback((sessionId: string) => {
+    for (const [blockId, pending] of pendingImageGenByUserBlock.current) {
+      if (pending.sessionId === sessionId) pendingImageGenByUserBlock.current.delete(blockId)
+    }
+    activeImageGenBlockBySession.current.delete(sessionId)
+  }, [])
 
   type Upd<T> = T | ((prev: T) => T)
   const apply = <T,>(u: Upd<T>, prev: T): T => (typeof u === 'function' ? (u as (p: T) => T)(prev) : u)
@@ -160,13 +228,23 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
           if (snap) patch(sessionOf(env), (s) => ({ ...s, plan: snap }))
           return
         }
+        if (!ev.parentToolUseID && ev.toolName === IMAGE_GENERATION_TOOL) {
+          observeImageGeneration(sessionOf(env))
+        }
         // 只有**看得见**的那条会话才准打开预览面板:后台会话弹一个面板出来会把
         // 用户正在看的东西顶掉,而他甚至不知道那是哪条会话干的。
         if (ev.toolName === 'open_preview') {
           const artifact = ev.data as import('@/core/bridge').ArtifactReference | undefined
           if (artifact?.reference) {
-            if (!ev.parentToolUseID && artifact.sessionId === sessionOf(env) && sessionOf(env) === focusedRef.current) cb.current.onOpenPreview(artifact)
-            else void releaseArtifact(artifact.reference).catch(() => {})
+            // 栅格生图产物走卡片下方预览，不自动开侧栏；仍释放本事件临时引用。
+            const rel = (artifact.path || '').replace(/\\/g, '/')
+            if (isGeneratedImageRel(rel)) {
+              void releaseArtifact(artifact.reference).catch(() => {})
+            } else if (!ev.parentToolUseID && artifact.sessionId === sessionOf(env) && sessionOf(env) === focusedRef.current) {
+              cb.current.onOpenPreview(artifact)
+            } else {
+              void releaseArtifact(artifact.reference).catch(() => {})
+            }
           }
         }
         blocksOf(sessionOf(env), (prev) => {
@@ -199,10 +277,11 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
           if (idx >= 0) {
             const existing = next[idx] as Extract<Block, { kind: 'tool' }>
             next = [...next]
-            next[idx] = { ...existing, tool: mergeTool(existing.tool, ev) }
+            // 保留首次写入的来源 sessionId；合并事件不得把它冲掉或改成焦点会话。
+            next[idx] = { ...existing, tool: mergeTool(existing.tool, ev), sessionId: existing.sessionId ?? sessionOf(env) }
             return next
           }
-          return [...next, { kind: 'tool', id: nextID(), tool: ev }]
+          return [...next, { kind: 'tool', id: nextID(), tool: ev, sessionId: sessionOf(env) }]
         })
       }),
       // Live context occupancy: emitted before every model round-trip inside a turn,
@@ -269,6 +348,35 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
           if (end.inputTokens > 0 || end.outputTokens > 0) {
             next = [...next, { kind: 'usage', id: nextID(), inTok: end.inputTokens, outTok: end.outputTokens, durMs: end.durationMs }]
           }
+          // 生图尾注盖章与清理必须在本 updater 内同步完成。
+          // 若再调用 finishImageGenerationTurn，它会在本 updater 入队后立刻以
+          // observed=false 把未配置回合丢掉（React 尚未跑到这里），尾注永久缺失。
+          // 未配置时模型常「请勿调用」而不发 image_generate，仍须按失败引导盖尾注。
+          for (const [blockId, pending] of [...pendingImageGenByUserBlock.current]) {
+            if (pending.sessionId !== sid) continue
+            pending.finished = true
+            if (!pending.observed
+              && isUnconfiguredImageGenerationNote(pending.note)
+              && shouldStampUnconfiguredImageGenerationNote(next)) {
+              pending.observed = true
+            }
+            if (pending.observed && pending.questionId) {
+              next = stampTurnAssistantNote(next, pending.note)
+              try {
+                saveImageGenerationNote(sid, pending.questionId, pending.note)
+              } catch { /* localStorage 失败不阻断终态 */ }
+              pendingImageGenByUserBlock.current.delete(blockId)
+              if (activeImageGenBlockBySession.current.get(sid) === blockId) {
+                activeImageGenBlockBySession.current.delete(sid)
+              }
+            } else if (!pending.observed) {
+              pendingImageGenByUserBlock.current.delete(blockId)
+              if (activeImageGenBlockBySession.current.get(sid) === blockId) {
+                activeImageGenBlockBySession.current.delete(sid)
+              }
+            }
+            // observed 但尚无 questionId：保留，等 submit 回执 finalize。
+          }
           return next
         })
       }),
@@ -282,6 +390,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
         // 原因"。turnErrorText 兜住这层判断并给空原因兜底。
         const text = turnErrorText(error, userStopped.current.has(sid))
         userStopped.current.delete(sid)
+        discardImageGenerationTurn(sid)
         blocksOf(sid, (prev) => {
           const base = finalizeTools(finalizeStreaming(prev))
           return text === null ? base : [...base, { kind: 'error', id: nextID(), text }]
@@ -326,7 +435,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
     // 只订阅一次:引擎事件是进程级的,重订阅会漏事件也会重复处理。列进依赖的三个
     // 都是稳定引用(infoRef 是 ref;patch/blocksOf 经 useCallback 固定),所以这条
     // 依赖数组不会导致重订阅;其余外部回调经上面的 cb ref 取最新值。
-  }, [infoRef, patch, blocksOf])
+  }, [infoRef, patch, blocksOf, observeImageGeneration, discardImageGenerationTurn])
 
   // Pin the conversation to the bottom while output streams, but only if the user
   // is already at (or near) the bottom — once they scroll up to read, streaming
@@ -357,14 +466,31 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
     const blockId = nextID()
     userStopped.current.delete(sid)
     chatStick.current = true
+    let note: AssistantImageGenerationNote | null = null
+    try {
+      note = (await getImageGenNoteRef.current?.()) ?? null
+    } catch { note = null }
+    if (note) {
+      pendingImageGenByUserBlock.current.set(blockId, {
+        sessionId: sid, note, observed: false, finished: false,
+      })
+      activeImageGenBlockBySession.current.set(sid, blockId)
+    }
     blocksOf(sid, (prev) => [...prev, { kind: 'user', id: blockId, text: display ?? req.text, ts: now(), attachments: names }])
     patch(sid, (s) => ({ ...s, busy: true }))
     try {
       const receipt = await submitQuestion(req)
       blocksOf(sid, (prev) => prev.map((b) => b.id === blockId && b.kind === 'user' ? { ...b, questionId: receipt.questionId } : b))
+      const pending = pendingImageGenByUserBlock.current.get(blockId)
+      if (pending && receipt.questionId) {
+        pending.questionId = receipt.questionId
+        finalizeImageGenerationNote(sid, blockId)
+      }
       // Never set busy here: a fast model may have already emitted turn:end.
       return true
     } catch (e) {
+      pendingImageGenByUserBlock.current.delete(blockId)
+      if (activeImageGenBlockBySession.current.get(sid) === blockId) activeImageGenBlockBySession.current.delete(sid)
       blocksOf(sid, (prev) => {
         const remaining = prev.filter((b) => b.id !== blockId)
         const last = remaining[remaining.length - 1]
@@ -447,6 +573,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
   // 调用时机很关键：use-session 里 reset() 跟在 setInfo(新会话) 之后同步调用，
   // 那一刻 React 还没重渲染，focusedRef 仍指着**旧**会话——正是要删的那个。
   function reset() {
+    discardImageGenerationTurn(focusedRef.current)
     setConvs((m) => dropConv(m, focusedRef.current))
     setPlanOpen(false)
   }
@@ -504,6 +631,7 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
         return [{
           kind: 'tool',
           id: nextID(),
+          sessionId: sid,
           tool: {
             type: t.isError ? 'failed' : 'completed',
             toolName: t.toolName,
@@ -514,10 +642,16 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
             message: t.isError ? 'completed with error' : 'completed',
             files: matched ?? (t.path ? [{ path: t.path }] : undefined),
             output: matched ? [] : lines,
+            // 生图结果在历史里单独字段；卡片读的是 tool.data，恢复时要接回去。
+            data: t.imageGeneration,
           },
         }]
       }),
     )
+    // 引擎恢复会换掉助手块 id；按 questionId 从本机尾注映射贴回去。
+    if (sid) {
+      setBlocks((prev) => rehydrateAssistantNotes(prev, loadImageGenerationNoteMap(sid)))
+    }
     const edits = (await listEdits(sid)) ?? []
     if (isStale()) return
     if (edits.length > 0) {
@@ -572,7 +706,10 @@ export function useConversation({ focusedId, infoRef, permissions, onFilesChange
 
   // dropSession 丢掉一条会话的对话状态。用户关掉一条会话时调用——留着就是纯占
   // 内存，而且会让 busyBySession 里挂着一条已经不存在的会话。
-  const dropSession = (id: string) => setConvs((m) => dropConv(m, id))
+  const dropSession = (id: string) => {
+    discardImageGenerationTurn(id)
+    setConvs((m) => dropConv(m, id))
+  }
 
   return {
     blocks, harmAllows, oaBlocked, busy, plan, planOpen, setPlanOpen, busyBySession, lastUserBySession, dropSession,

@@ -6,6 +6,9 @@ package protocol
 const (
 	// EventDirectoryAccessChanged carries DirectoryAccessChanged.
 	EventDirectoryAccessChanged = "directory:changed"
+	// EventPreviewLifecycle 携带 PreviewLifecycle：同 ID 会话重建与关闭时，
+	// 让文件预览丢掉过期缓存（含真实 generation）；与聊天 HTML 名额无关。
+	EventPreviewLifecycle = "preview:lifecycle"
 	// EventSessionRenamed carries a SessionRenamed when a turn's generated title is
 	// ready, so the sidebar can refresh that session's name.
 	EventSessionRenamed = "session:renamed"

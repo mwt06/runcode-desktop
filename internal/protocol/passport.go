@@ -25,16 +25,23 @@ type PassportStatus struct {
 //     新 Bridge 同时声明三项；缺失输出/历史字段表示旧目录，不能沿用其他模型的值。
 //
 // VisionDefault is the unique tenant-authorized platform image fallback, not OA.
+//
+// Capabilities/ImageGeneration come from the gateway's image_generation
+// extension. An old catalog omits both; such a model keeps its chat behavior
+// and is never an image generation candidate (no guessing from the name, and
+// SupportsImages is image *input*, not output).
 type PassportModel struct {
-	MaxOutputTokens    *int   `json:"maxOutputTokens,omitempty"`
-	MaxHistoryMessages *int   `json:"maxHistoryMessages,omitempty"`
-	VisionDefault      bool   `json:"visionDefault,omitempty"`
-	SupportsImages     *bool  `json:"supportsImages,omitempty"`
-	ID                 string `json:"id"`
-	OwnedBy            string `json:"ownedBy"`
-	Local              bool   `json:"local,omitempty"`
-	LocalDefault       bool   `json:"localDefault,omitempty"`
-	ContextTokens      int    `json:"contextTokens,omitempty"`
+	ImageGeneration    *ImageGenerationProfile `json:"imageGeneration,omitempty"`
+	Capabilities       []string                `json:"capabilities,omitempty"`
+	MaxOutputTokens    *int                    `json:"maxOutputTokens,omitempty"`
+	MaxHistoryMessages *int                    `json:"maxHistoryMessages,omitempty"`
+	VisionDefault      bool                    `json:"visionDefault,omitempty"`
+	SupportsImages     *bool                   `json:"supportsImages,omitempty"`
+	ID                 string                  `json:"id"`
+	OwnedBy            string                  `json:"ownedBy"`
+	Local              bool                    `json:"local,omitempty"`
+	LocalDefault       bool                    `json:"localDefault,omitempty"`
+	ContextTokens      int                     `json:"contextTokens,omitempty"`
 }
 
 // PassportTenant 是当前用户可用的租户（Bridge /api/tenants）。

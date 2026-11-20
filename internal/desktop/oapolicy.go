@@ -6,8 +6,9 @@ package desktop
 //
 // 切到本地模型解决的是"历史发给谁"。但历史还能**被模型自己搬出去**:它可以把一条
 // 待办的标题拼进 WebSearch 的搜索词,那串词会经 Bridge 送到 AI.Core 的搜索服务,
-// 再送到外部搜索引擎。WebFetch 同理(URL 里可以带任何东西)。模型不必有恶意——它
-// 可能只是想帮用户"查一下这个文件号是什么意思"。
+// 再送到外部搜索引擎。WebFetch 同理(URL 里可以带任何东西)，image_generate 也会把
+// 提示词送到平台生图服务。模型不必有恶意——它可能只是想帮用户"查一下这个文件号
+// 是什么意思"。
 //
 // # 为什么用权限层而不是"不装这两个工具"
 //
@@ -22,11 +23,12 @@ package desktop
 //
 // Bash 本来就要逐次审批,用户点了确认就是用户自己的决定,那是知情的授权而不是模型
 // 的自作主张。而且这是一个办公助手,封掉 Bash 等于让它在锁定后基本不能干活。这里
-// 封的是**不需要用户点头就能出网**的那两条。
+// 封的是**不需要用户点头就能出网**的 WebSearch、WebFetch 与 image_generate。
 
 import (
 	"context"
 
+	"github.com/wt68/runcode/internal/imagegentool"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/webfetch"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/websearch"
@@ -36,10 +38,8 @@ import (
 // 策略就必然要自造理由;它会出现在工具结果、审批界面与遥测里。
 const reasonOALocked permissions.Reason = "oa_locked"
 
-// oaEgressTools 是锁定后要封的工具名。
-//
-// 刻意只有这两条。名字**从引擎的工具实例上问**,不写字面量:工具改名/挪走时这里会
-// 编译失败,而不是悄悄漏掉一条出网通路。
+// oaEgressTools 是锁定后要封的工具名。名字尽量从工具实例或共享常量上取，
+// 工具改名/挪走时让编译失败，而不是悄悄漏掉一条出网通路。
 //
 // 为什么不用 websearch.ToolName(它更直白):那个常量只存在于尚未发版的引擎工作区,
 // 引用它会让整个发布链路(GOWORK=off,引擎按 go.mod 的 tag 解析)编不过——而 OA 这条
@@ -47,6 +47,7 @@ const reasonOALocked permissions.Reason = "oa_locked"
 var oaEgressTools = map[string]bool{
 	websearch.Tool{}.Name(): true,
 	webfetch.Tool{}.Name():  true,
+	imagegentool.Name:       true,
 }
 
 // oaLockPolicy 在会话被 OA 锁定后拒绝出网工具,其余一律透传给内层策略。

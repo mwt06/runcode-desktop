@@ -130,6 +130,9 @@ func (a *App) DeleteSession(id string) error {
 	if ws == "" || id == "" {
 		return wireError(errors.New("无效的会话"))
 	}
+	if !validImageGenerationID(id) {
+		return wireError(errors.New("无效的会话"))
+	}
 	if opened {
 		return wireError(errors.New("不能删除仍然打开的会话；请先关闭该会话再删除"))
 	}
@@ -147,6 +150,9 @@ func (a *App) DeleteSession(id string) error {
 	}
 	if err := deleter.Delete(context.Background(), id); err != nil {
 		return wireError(err)
+	}
+	if err := deleteImageGenerationSessionRecords(ws, id); err != nil {
+		return wireError(fmt.Errorf("会话已删除，但生图派生记录清理失败: %w", err))
 	}
 	return nil
 }
@@ -201,7 +207,7 @@ func (a *App) ResumeSession(id string) (ResumedSession, error) {
 		if err != nil {
 			return err
 		}
-		blocks = imageAnalysisBlocks(ctx, ws, info.SessionID, toResumedBlocks(history))
+		blocks = imageGenerationBlocks(ws, info.SessionID, imageAnalysisBlocks(ctx, ws, info.SessionID, toResumedBlocks(history)))
 		meta, err := backend.LoadMeta(ctx, info.SessionID)
 		if err != nil {
 			return err

@@ -1,6 +1,6 @@
 // ChatPane 是对话流本身：顶部的计划进度胶囊、可滚动的消息区（把 groupBlocks 分好
 // 的组映射成各类卡片）、空态与"思考中"指示。纯展示——所有交互都经 props 回调。
-import { type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { Logo } from '@/ui/icons'
 import { BRAND } from '@/core/brand'
 import { shortenPath } from '@/core/paths'
@@ -10,6 +10,16 @@ import { diffStats, hasDiff } from '@/chat/tool-text'
 import { AgentTaskGroup } from '@/chat/agent-task'
 import { AnalyzeCard } from '@/chat/analyze-card'
 import { SkillCard } from '@/chat/skill-card'
+import { GeneratedImagePreview } from '@/chat/generated-image-preview'
+import {
+  buildGeneratedImagePresentation,
+  isMergedRasterOpenPreview,
+} from '@/chat/generated-image-presentation'
+import {
+  isImageGenerateToolRunning,
+  isImageGenerationResult,
+  shouldShowImageGenerationStage,
+} from '@/core/image-generation'
 import { AskCard } from '@/chat/ask-card'
 import { BlockView } from '@/chat/block-view'
 import { BotRow } from '@/chat/bot-row'
@@ -21,15 +31,23 @@ import { ReplyArtifacts } from '@/chat/reply-artifacts'
 import { type PreviewTab } from '@/preview/tabs'
 import { PlanStates, type PlanSnapshot } from '@/core/bridge'
 import { type Plan } from '@/session/use-plan'
+import { InlinePreviewBudgetProvider } from '@/chat/inline-preview-budget'
+import type { CodePreviewTarget } from '@/preview/code-preview'
 
 export function ChatPane({
-  blocks, busy, cwd, userName, plan, planOpen, onPlanToggle, planning,
+  blocks, busy, cwd, userName, plan, planOpen, onPlanToggle, planning, textOnly = false,
   harmAllows, oaBlocked, revertedEdits, files, tabs,
   scrollRef, onScroll,
   onAnswer, onOpenFile, onReviewEdit, onUndoEdit, resolveFile,
   recorderCard,
   onGenerateMinutes, onRetryQuestion, onEditQuestion, questionActionsDisabled,
+  onOpenImageGenerationSettings,
+  sessionId,
+  onRasterImageView,
+  onRasterImageAnnotate,
+  onOpenCodePreview,
 }: {
+  textOnly?: boolean
   onRetryQuestion?: (id: string) => void
   onEditQuestion?: (id: string) => void
   questionActionsDisabled?: boolean
@@ -60,8 +78,39 @@ export function ChatPane({
   recorderCard?: ReactNode
   // onGenerateMinutes 由历史里的录音卡片触发「重新生成纪要」。
   onGenerateMinutes?: (mark: RecordingMark) => void
+  onOpenImageGenerationSettings?: () => void
+  sessionId?: string
+  onRasterImageView?: (image: import('@/core/bridge').ImageGenerationArtifact, toolUseId: string) => void
+  onRasterImageAnnotate?: (image: import('@/core/bridge').ImageGenerationArtifact, toolUseId: string) => void
+  onOpenCodePreview?: (target: CodePreviewTarget) => void
 }) {
   const groups = groupBlocks(blocks)
+  // 外部生图进行中时，卡片下方已有扫光舞台，不再叠「思考中」三点。
+  const imageGenerateRunning = useMemo(
+    () => blocks.some((b) => b.kind === 'tool' && isImageGenerateToolRunning(b.tool)),
+    [blocks],
+  )
+  // 栅格生图展示投影：合并指向本条产物的 open_preview，避免执行卡重复占行。
+  const imagePresentations = useMemo(() => {
+    if (!sessionId) return []
+    return buildGeneratedImagePresentation(blocks, cwd ?? '', {
+      sessionId,
+      sessionEpoch: 0,
+      selectedCopies: new Map(),
+    })
+  }, [blocks, cwd, sessionId])
+  // 内联预览高度晚于文本：只在用户本来贴底时跟随。贴底状态由 ChatPane 自己维护，
+  // 不经 App.tsx，避免与用量页等其它滚动容器抢同一份逻辑。
+  const stick = useRef(true)
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    onScroll()
+  }, [scrollRef, onScroll])
+  const onContentHeightChange = useCallback(() => {
+    const el = scrollRef.current
+    if (el && stick.current) el.scrollTo({ top: el.scrollHeight })
+  }, [scrollRef])
   // 计划胶囊上的聚合数字：本会话改过的文件数与累计增删行数。
   const fileSet = new Set<string>()
   let planAdds = 0
@@ -102,7 +151,9 @@ export function ChatPane({
           />
         </div>
       )}
-      <div className="flex-1 overflow-y-auto bg-surface px-6 pt-3 pb-8" ref={scrollRef} onScroll={onScroll}>
+      <div className="flex-1 overflow-y-auto bg-surface px-6 pt-3 pb-8" data-chat-scroll="" ref={scrollRef} onScroll={handleScroll}>
+        {/* HTML 内联预览名额挂在本消息区：跨消息共享 liveFrames，切会话随子树卸载释放。 */}
+        <InlinePreviewBudgetProvider>
         <div className="mx-auto max-w-[1200px] flex flex-col gap-6">
           {blocks.length === 0 && (
             <div className="mt-[16vh] text-center text-faint">
@@ -129,9 +180,46 @@ export function ChatPane({
             </div>
           )}
           {groups.map((g) =>
-            g.kind === 'exec' ? (
-              <BotRow key={g.id}><ExecutionCard tools={g.tools} harmAllows={harmAllows} oaBlocked={oaBlocked} /></BotRow>
-            ) : g.kind === 'ask' ? (
+            g.kind === 'image' ? (() => {
+              // image 组只渲染结果预览；分组阶段已保证生图不会进入 ExecutionCard，
+              // 但来源 session 仍随每个工具保留，查看器和标注必须绑定原会话。
+              const kept = g.tools
+                .map((block, i) => ({ tool: block.tool, sessionId: g.sessionIds[i] ?? sessionId ?? '' }))
+                .filter(({ tool }) => !isMergedRasterOpenPreview(tool, imagePresentations, cwd ?? '', sessionId ?? ''))
+              if (kept.length === 0) return null
+              return (
+                <BotRow key={g.id}>
+                  {kept.filter(({ tool }) => shouldShowImageGenerationStage(tool)).map(({ tool, sessionId: sid }) => {
+                    const result = isImageGenerationResult(tool.data) ? tool.data : null
+                    const image = result?.status === 'succeeded' ? result.images?.[0] : undefined
+                    return (
+                      <GeneratedImagePreview
+                        key={tool.toolUseID ?? tool.toolName}
+                        tool={tool}
+                        sessionId={sid || sessionId || ''}
+                        image={image}
+                        onView={() => { if (image) onRasterImageView?.(image, tool.toolUseID ?? '') }}
+                        // 标注入口保留；开关关闭时 onRasterImageAnnotate 为空。
+                        onAnnotate={onRasterImageAnnotate
+                          ? () => { if (image) onRasterImageAnnotate(image, tool.toolUseID ?? '') }
+                          : undefined}
+                      />
+                    )
+                  })}
+                </BotRow>
+              )
+            })() : g.kind === 'exec' ? (() => {
+              const kept = g.tools
+                .map((tool, i) => ({ tool, sessionId: g.sessionIds[i] ?? sessionId ?? '' }))
+                .filter(({ tool }) => !isMergedRasterOpenPreview(tool, imagePresentations, cwd ?? '', sessionId ?? ''))
+              if (kept.length === 0) return null
+              const tools = kept.map((k) => k.tool)
+              return (
+                <BotRow key={g.id}>
+                  <ExecutionCard tools={tools} harmAllows={harmAllows} oaBlocked={oaBlocked} />
+                </BotRow>
+              )
+            })() : g.kind === 'ask' ? (
               <BotRow key={g.id}><AskCard tool={g.tool} busy={busy} onAnswer={onAnswer} /></BotRow>
             ) : g.kind === 'edits' ? (
               <BotRow key={g.id}><EditedCards edits={g.edits} reverted={revertedEdits} onReview={onReviewEdit} onUndo={onUndoEdit} /></BotRow>
@@ -140,18 +228,18 @@ export function ChatPane({
             ) : g.kind === 'skill' ? (
               <BotRow key={g.id}><SkillCard tool={g.tool} /></BotRow>
             ) : g.kind === 'taskgroup' ? (
-              <BotRow key={g.id}><AgentTaskGroup tasks={g.tasks} /></BotRow>
+              <BotRow key={g.id}><AgentTaskGroup tasks={g.tasks} sessionId={sessionId} onOpenCodePreview={onOpenCodePreview} /></BotRow>
             ) : (
               <div key={g.block.id}>
-                <BlockView onRetryQuestion={onRetryQuestion} onEditQuestion={onEditQuestion} questionActionsDisabled={questionActionsDisabled} block={g.block} onOpenFile={onOpenFile} resolveFile={resolveFile} onGenerateMinutes={onGenerateMinutes} />
-                {g.block.kind === 'assistant' && (
+                <BlockView textOnly={textOnly} onRetryQuestion={onRetryQuestion} onEditQuestion={onEditQuestion} questionActionsDisabled={questionActionsDisabled} block={g.block} onOpenFile={onOpenFile} onOpenCodePreview={onOpenCodePreview} resolveFile={resolveFile} onGenerateMinutes={onGenerateMinutes} onContentHeightChange={onContentHeightChange} onOpenImageGenerationSettings={onOpenImageGenerationSettings} sessionId={sessionId} />
+                {!textOnly && g.block.kind === 'assistant' && (
                   <ReplyArtifacts text={g.block.text} files={files} tabs={tabs} onOpen={onOpenFile} />
                 )}
               </div>
             ),
           )}
           {recorderCard && <BotRow>{recorderCard}</BotRow>}
-          {busy && (
+          {busy && !imageGenerateRunning && (
             <BotRow>
               <div className="inline-flex items-center gap-2.5 text-faint py-1">
                 <span className="think-dots"><i /><i /><i /></span>
@@ -160,6 +248,7 @@ export function ChatPane({
             </BotRow>
           )}
         </div>
+        </InlinePreviewBudgetProvider>
       </div>
       {/* 审批板钉在输入区上方，不随对话滚走：这是一道必须有人应答的闸门。 */}
       {showBoard && (

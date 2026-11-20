@@ -2,7 +2,10 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/wt68/runcode/internal/browsertool"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
@@ -21,7 +24,10 @@ This is a local desktop host with a system-browser opening capability. A hidden/
 
 // Show the local host and port before approval without leaking URL queries into
 // telemetry. Classification, grants and all outer policy guards stay unchanged.
-type browserResolver struct{ inner permissions.Resolver }
+type browserResolver struct {
+	inner   permissions.Resolver
+	preview func(context.Context, string, string, string) bool
+}
 
 func (r browserResolver) Resolve(ctx context.Context, req permissions.ResolveRequest) (permissions.Action, error) {
 	action, err := r.inner.Resolve(ctx, req)
@@ -36,5 +42,48 @@ func (r browserResolver) Resolve(ctx context.Context, req permissions.ResolveReq
 		action.Metadata = make(map[string]any)
 	}
 	action.Metadata[permissions.MetadataNetworkHost] = host
+	if r.preview != nil && req.Context != nil {
+		var in struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(req.Input, &in) == nil && r.preview(ctx, req.Context.SessionID, req.Context.WorkingDirectory, in.URL) {
+			action.Metadata[metadataArtifactPreview] = true
+		}
+	}
 	return action, nil
+}
+
+// sessionArtifactPreviewURL reports whether a browser URL is the loopback
+// preview server owned by this session's workspace. The browser tool has
+// already validated that the URL is local; comparing the bound preview origin
+// prevents an unrelated localhost service from inheriting the product bypass.
+func (a *App) sessionArtifactPreviewURL(_ context.Context, sessionID, workspace, raw string) bool {
+	if a == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(workspace) == "" {
+		return false
+	}
+	a.mu.Lock()
+	entry := a.entryLocked(sessionID)
+	bound := entry != nil && !entry.closed && entry.workspace == workspace
+	a.mu.Unlock()
+	if !bound {
+		return false
+	}
+	base := a.previewURLFor(workspace)
+	if base == "" || strings.TrimSpace(raw) == "" {
+		return false
+	}
+	want, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	got, err := url.Parse(raw)
+	if err != nil || want.Scheme != got.Scheme || !strings.EqualFold(want.Host, got.Host) {
+		return false
+	}
+	basePath := strings.TrimRight(want.Path, "/")
+	targetPath := strings.TrimRight(got.Path, "/")
+	if targetPath == "" || targetPath == basePath {
+		return false
+	}
+	return basePath == "" || strings.HasPrefix(targetPath, basePath+"/")
 }

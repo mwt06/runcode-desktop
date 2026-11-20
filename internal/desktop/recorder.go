@@ -250,6 +250,9 @@ func validRecordingID(id string) error {
 func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.RecordingInfo, error) {
 	a.rec.mu.Lock()
 	defer a.rec.mu.Unlock()
+	if a.exit.closing.Load() {
+		return protocol.RecordingInfo{}, wireError(errAppExiting)
+	}
 
 	if a.rec.sess != nil {
 		return protocol.RecordingInfo{}, wireError(errors.New("已经有一场录音在进行中"))
@@ -825,10 +828,13 @@ func (a *App) passportDisplayName() string {
 
 // Shutdown 在应用退出时收尾（外壳的 OnShutdown 调它）。
 //
-// 它只负责录音：对话会话由 CloseSession 收。分开是因为两者的失败后果不同——
-// 对话没收干净下次还能续上，录音没收干净就是一个被截断的 WAV 加一份状态停在
-// "recording" 的 meta。
+// 所有退出入口共用 PrepareExit 的期限和单次收尾，确保用量库在会话之后关闭。
 func (a *App) Shutdown() {
+	_ = a.PrepareExit(ExitTimeout)
+}
+
+// Recorder resources do not depend on session completion and can stop in parallel.
+func (a *App) shutdownRecorder() {
 	a.closeRecorder()
 	// 撤掉 askpass 的套接字：它的路径带着本进程的 pid，留下来只是一个死文件。
 	a.askpassSrv.Load().close()

@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, ArtifactReference, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, DirectoryAccessRequest, DirectoryAccessView, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, ModelContextView, ModelReference, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, QuestionDraft, QuestionReceipt, QuestionReference, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SaveModelContextSettingsRequest, SaveSettingsRequest, SaveVisionSettingsRequest, SecretStorage, SessionInfo, SessionSummary, SetPlatformImageCapabilityRequest, SettingsView, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, SubmitQuestionRequest, ToolInfo, UpdateInfo, VisionSettings } from './types';
+import type { AgentList, AgentSaveRequest, ArtifactReference, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, DirectoryAccessRequest, DirectoryAccessView, EditDiff, EditRecord, ImageGenerationArtifact, ImageGenerationCatalog, ImageGenerationSettings, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, ModelContextView, ModelReference, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, QuestionDraft, QuestionReceipt, QuestionReference, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SaveImageGenerationEditRequest, SaveImageGenerationSettingsRequest, SaveModelContextSettingsRequest, SaveSettingsRequest, SaveVisionSettingsRequest, SecretStorage, SessionInfo, SessionSummary, SetPlatformImageCapabilityRequest, SettingsView, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, SubmitQuestionRequest, ToolInfo, UpdateInfo, UsageDimensionsPage, UsageDimensionsQuery, UsageOverview, UsageQuery, UsageRequestsPage, UsageRequestsQuery, VisionSettings } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -187,6 +187,18 @@ export function forkQuestion(ref: QuestionReference): Promise<ResumedSession> {
   return call<ResumedSession>('ForkQuestion', ref);
 }
 
+// GetImageGenerationSettings 返回当前账号在 tenantID 下已保存的默认；从不访问 Bridge。
+// kind: query
+export function getImageGenerationSettings(tenantID: string): Promise<ImageGenerationSettings> {
+  return call<ImageGenerationSettings>('GetImageGenerationSettings', tenantID);
+}
+
+// GetLocalUsageTenants 只读本机 SQLite 中当前账号与 Bridge 关联过的历史租户， 并补上当前活动／会话租户（即使尚无采集记录），方便直接查看本机空统计。 它不访问 Bridge，也不切换聊天会话当前租户。
+// kind: query
+export function getLocalUsageTenants(): Promise<PassportTenant[] | null> {
+  return call<PassportTenant[] | null>('GetLocalUsageTenants');
+}
+
 // GetModelContextSettings reads defaults and local overrides for one model.
 // kind: query
 export function getModelContextSettings(ref: ModelReference): Promise<ModelContextView> {
@@ -203,6 +215,24 @@ export function getProtocolInfo(): Promise<Info> {
 // kind: query
 export function getQuestion(ref: QuestionReference): Promise<QuestionDraft> {
   return call<QuestionDraft>('GetQuestion', ref);
+}
+
+// GetUsageDimensions 返回本机已采集的平台模型维度；供应商维度首期不提供。
+// kind: query
+export function getUsageDimensions(req: UsageDimensionsQuery): Promise<UsageDimensionsPage> {
+  return call<UsageDimensionsPage>('GetUsageDimensions', req);
+}
+
+// GetUsageOverview 返回当前登录账号与租户的本机汇总。
+// kind: query
+export function getUsageOverview(req: UsageQuery): Promise<UsageOverview> {
+  return call<UsageOverview>('GetUsageOverview', req);
+}
+
+// GetUsageRequests 返回固定本机快照中的一页调用记录。
+// kind: query
+export function getUsageRequests(req: UsageRequestsQuery): Promise<UsageRequestsPage> {
+  return call<UsageRequestsPage>('GetUsageRequests', req);
 }
 
 // GetVisionSettings returns credential-free image routing preferences.
@@ -293,6 +323,12 @@ export function listEdits(sessionID: string): Promise<EditRecord[] | null> {
 // kind: query
 export function listFiles(): Promise<string[] | null> {
   return call<string[] | null>('ListFiles');
+}
+
+// ListImageGenerationModels 列出当前账号在 tenantID 下可见的生图模型。 查询失败必须是错误，绝不能用空目录冒充「没有模型」。
+// kind: query
+export function listImageGenerationModels(tenantID: string): Promise<ImageGenerationCatalog> {
+  return call<ImageGenerationCatalog>('ListImageGenerationModels', tenantID);
 }
 
 // ListMCPServers returns every configured MCP server (from the shared config.toml), annotated with live connection state from the running session.
@@ -535,6 +571,12 @@ export function reset(sessionID: string): Promise<void> {
   return call<void>('Reset', sessionID);
 }
 
+// ResetLocalUsageStore archives the unreadable database and opens a fresh one.
+// kind: trigger
+export function resetLocalUsageStore(): Promise<void> {
+  return call<void>('ResetLocalUsageStore');
+}
+
 // ResolveArtifactPath returns the authorized source path for the UI copy action.
 // kind: idempotent-set
 export function resolveArtifactPath(reference: string): Promise<string> {
@@ -605,6 +647,18 @@ export function saveAgent(req: AgentSaveRequest): Promise<AgentList> {
 // kind: idempotent-set
 export function saveCustomModel(req: SaveCustomModelRequest): Promise<CustomModel[] | null> {
   return call<CustomModel[] | null>('SaveCustomModel', req);
+}
+
+// SaveImageGenerationEdit 把画板合成的 PNG 存为同一 generation 目录下的新 edited-*.png。 原图不动；路径必须落在本会话工作区 生成图片/<generationId>/ 下已有文件。
+// kind: trigger
+export function saveImageGenerationEdit(req: SaveImageGenerationEditRequest): Promise<ImageGenerationArtifact> {
+  return call<ImageGenerationArtifact>('SaveImageGenerationEdit', req);
+}
+
+// SaveImageGenerationSettings 对照活目录校验后替换作用域默认。 重复提交已确认目标原样返回；目标变了但修订号过期则拒绝。
+// kind: idempotent-set
+export function saveImageGenerationSettings(req: SaveImageGenerationSettingsRequest): Promise<ImageGenerationSettings> {
+  return call<ImageGenerationSettings>('SaveImageGenerationSettings', req);
 }
 
 // SaveMCPServer creates or updates a server and persists it to config.toml.

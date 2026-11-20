@@ -233,6 +233,22 @@ OS 窗口标题（无边框窗口下只在任务栏/alt-tab 显示，UI 标题�
 - `.runcode/image-analysis/<会话ID的sha256>.json` 是有界、原子、rooted 的派生记录，不含原图/凭据；恢复展示真实已保存结果。分支只复制问题和全部图片均属于前缀的分析，重新绑定图片引用，不能把后续分析倒灌到过去；损坏按缺缓存处理。删除会话前须关闭它，不能删除仍在后台持有历史/分析写入器的非聚焦会话。
 - 所需 agentloop API 已随 `v0.15.0` 发布，三个 module 固定到该 tag；真实第三方模型兼容性、真实 OA 图片与其它平台 GUI 不能拿合成 HTTP/UI fixture 冒充验收。
 
+### 文生图
+
+`image_generate` 只在通行证主会话注册，子代理结构上拿不到。默认生图模型与尺寸按“账号稳定指纹 + Bridge + 租户”分区保存；前端不再维护单会话开关，只要该作用域配置了可用模型，回合开始就自动冻结模型、尺寸、账号代际、租户、会话实例与 TurnID。冻结不发网络请求，真正提交前仍复核活目录、身份、OA 锁和账本。
+
+`.runcode/image-generation/requests/<session>/` 是提交账本，`turns/<session>/` 是跨实例的每回合一次标记；两者都不是 Core 的计费原子承诺。提交成功后的图片保存使用独立有界 context，停止回合不能丢掉已返回的图片。删除会话清理 requests/turns 及历史 sessions sidecar，但 `生成图片/<generationId>/` 归用户保留。OA 锁同时由权限策略层和工具内部检查，任何 OA 内容都不能发往平台生图服务。
+
+### 本机用量
+
+本机用量 SQLite 只记录平台调用，不保存正文、凭据或成本。schema v3 使用 `cache_estimates` 物化有效缓存命中估算；v2→v3 有一次性迁移，v1 从未发布因此明确拒绝，版本过新或损坏也绝不静默删库。初始化失败会把具体类别带到用量页，用户确认“重建本机用量库”后原库及 WAL/SHM 先改名为 `.backup-<时间>`，再新建空库。
+
+LLM 用量归属以引擎 `LLMRequestObserver` 的 purpose 为准，不匹配提示词原文。自动标题、安全裁判等内部辅助调用不计入“用户请求”；`compaction_summary` 的 token 必须入账。生图、搜索、识图分别使用明确的 call kind；采集失败不阻断业务，但查询失败不能显示成零用量。
+
+### 预览生命周期
+
+`preview:lifecycle` 是预览缓存失效的唯一跨会话信号：关闭前发 `invalidating`，同一逻辑会话重建后发带 generation 的 `ready`，真正关闭发 `closed`。前端按会话与 generation 丢弃旧 iframe、图片、Mermaid/SVG/HTML 渲染和在途读取；不能只按路径或旧 URL 复用。预览服务器按工作区共享并按引用计数停止，关闭失败保留状态并拒绝新读取。
+
 ### WebFetch 本机代理恢复（已随引擎 `v0.16.0` 发布）
 
 `WebFetch` 新增 `proxy` / `diagnose_only`。省略 proxy 即 auto：原配置连接失败后由引擎 `webaccess` 有界发现并验证本机代理，满足条件时只重试一次，不再依赖模型执行 Bash。显式会话/环境代理与 NO_PROXY 不自动绕过；带 query、userinfo 的 URL 和 HTTP 正文不自动改投新代理。`configured` 固定原路线，显式回环代理 URL 只用于单次调用。HEAD origin 探测只用于 diagnose_only，不带原路径/query/凭据，也不作为正式 GET 的前置条件。正式代理 GET 独立获得 30 秒总预算（含 TLS 与正文），通过实际请求验证路线；原路由仍保留原超时。诊断记录区分连接、代理隧道、TLS、等待响应和读取正文，短探测超时不能误报为没有代理，HTTP 403 不能误报为网络不通。

@@ -97,7 +97,7 @@ func (a *App) ForkQuestion(ref QuestionReference) (ResumedSession, error) {
 		if err != nil {
 			return err
 		}
-		result = ResumedSession{Info: a.sessionInfo(child.Status()), Blocks: imageAnalysisBlocks(ctx, e.workspace, fork.SessionID, toResumedBlocks(fork.Prefix)), ContextTokens: child.EstimateContextTokens(), Source: &ref}
+		result = ResumedSession{Info: a.sessionInfo(child.Status()), Blocks: imageGenerationBlocks(e.workspace, fork.SessionID, imageAnalysisBlocks(ctx, e.workspace, fork.SessionID, toResumedBlocks(fork.Prefix))), ContextTokens: child.EstimateContextTokens(), Source: &ref}
 		return nil
 	})
 	return result, wireError(err)

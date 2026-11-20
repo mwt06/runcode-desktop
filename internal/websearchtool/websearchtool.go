@@ -45,6 +45,16 @@ const (
 	maxErrorText = 512
 )
 
+// Outcome is the terminal result of one submitted logical search, including its
+// optional authentication retry. It does not infer submission from an error code.
+type Outcome string
+
+const (
+	OutcomeSucceeded Outcome = "succeeded"
+	OutcomeFailed    Outcome = "failed"
+	OutcomeCancelled Outcome = "cancelled"
+)
+
 // Config 是这条工具的接线。Endpoint 与 Token 必填。
 type Config struct {
 	// Endpoint 是搜索端点的完整 URL(如 https://bridge/…/v1/websearch)。
@@ -60,6 +70,11 @@ type Config struct {
 	// Client 是发请求用的 HTTP 客户端。nil 用一个带超时的普通客户端——**不能**用
 	// 引擎那个加固客户端：它拒连回环/内网地址，而 Bridge 常部署在内网。
 	Client *http.Client
+	// Capture runs immediately before the first HTTP submission. The returned end
+	// receives an explicit outcome once, including any internal 401 refresh retry.
+	// Token, request construction and cancellation failures before submission do
+	// not enter capture. errCode is a safe short code.
+	Capture func(ctx context.Context, model string) (end func(Outcome, string))
 }
 
 // Tool 是走平台搜索服务的 WebSearch 工具。
@@ -179,19 +194,38 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, eve
 		return tool.Result{}, fmt.Errorf("build search request: %w", err)
 	}
 
-	status, payload, err := t.post(ctx, body)
+	endCapture := func(Outcome, string) {}
+	captured := false
+	beforeSend := func() {
+		if !captured && t.cfg.Capture != nil {
+			captured = true
+			if end := t.cfg.Capture(ctx, t.cfg.Model); end != nil {
+				endCapture = end
+			}
+		}
+	}
+
+	status, payload, err := t.post(ctx, body, beforeSend)
 	if err != nil {
+		outcome, code := OutcomeFailed, "transport"
+		if errors.Is(err, context.Canceled) {
+			outcome, code = OutcomeCancelled, "canceled"
+		}
+		endCapture(outcome, code)
 		return tool.Result{}, err
 	}
 	if status < 200 || status >= 300 {
+		endCapture(OutcomeFailed, "http_error")
 		return errorResult(fmt.Sprintf("联网搜索服务返回 HTTP %d：%s", status, upstreamMessage(payload))), nil
 	}
 
 	var env searchEnvelope
 	if err := json.Unmarshal(payload, &env); err != nil {
+		endCapture(OutcomeFailed, "parse_error")
 		return tool.Result{}, fmt.Errorf("parse search results: %w", err)
 	}
 	if !env.State {
+		endCapture(OutcomeFailed, "upstream_reject")
 		return errorResult("联网搜索失败：" + fallback(strings.TrimSpace(env.Message), "服务端未说明原因")), nil
 	}
 
@@ -200,10 +234,12 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, eve
 		results = results[:limit]
 	}
 	if len(results) == 0 {
+		endCapture(OutcomeSucceeded, "")
 		return tool.Result{
 			Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: fmt.Sprintf("No results found for %q.", query)}},
 		}, nil
 	}
+	endCapture(OutcomeSucceeded, "")
 	return tool.Result{
 		Content: []tool.ResultContent{{Type: tool.ResultContentTypeText, Text: format(query, results, events)}},
 	}, nil
@@ -211,16 +247,16 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, _ *tool.Context, eve
 
 // post 发一次请求并读回状态码与正文。401 时先请调用方强制刷新令牌，再重试一次
 // ——桌面会话可以开很久，访问令牌过期是常态而不是异常。
-func (t Tool) post(ctx context.Context, body []byte) (int, []byte, error) {
-	status, payload, err := t.postOnce(ctx, body)
+func (t Tool) post(ctx context.Context, body []byte, beforeSend func()) (int, []byte, error) {
+	status, payload, err := t.postOnce(ctx, body, beforeSend)
 	if err != nil || status != http.StatusUnauthorized || t.cfg.OnUnauthorized == nil {
 		return status, payload, err
 	}
 	t.cfg.OnUnauthorized()
-	return t.postOnce(ctx, body)
+	return t.postOnce(ctx, body, beforeSend)
 }
 
-func (t Tool) postOnce(ctx context.Context, body []byte) (int, []byte, error) {
+func (t Tool) postOnce(ctx context.Context, body []byte, beforeSend func()) (int, []byte, error) {
 	token, err := t.cfg.Token()
 	if err != nil {
 		return 0, nil, err
@@ -233,6 +269,10 @@ func (t Tool) postOnce(ctx context.Context, body []byte) (int, []byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
+	if err := ctx.Err(); err != nil {
+		return 0, nil, err
+	}
+	beforeSend()
 	resp, err := t.cfg.Client.Do(req)
 	if err != nil {
 		return 0, nil, fmt.Errorf("search request failed: %w", err)

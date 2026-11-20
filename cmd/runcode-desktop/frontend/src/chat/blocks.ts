@@ -3,15 +3,19 @@
 // unit-tested directly (see chat.test.ts).
 import type { ToolEvent, PlanSnapshot, PlanItem, EditRecord, ResumedBlock } from '@/core/bridge'
 import { isEditRecord } from '@/core/bridge'
+import { IMAGE_GENERATION_TOOL } from '@/core/image-generation'
 import { type RecordingMark } from '@/recorder/minutes'
+import type { AssistantImageGenerationNote } from './image-generation-note'
 
 // AgentNested holds a sub-agent's live activity, shown nested inside its Task card:
 // the streamed assistant text and the child tool events (merged by tool-use id).
 export type AgentNested = { agent: string; text: string; tools: ToolEvent[]; usage?: { inTok: number; outTok: number; durMs?: number } }
 export type Block =
   | { kind: 'user'; id: string; questionId?: string; text: string; ts: string; attachments?: string[] }
-  | { kind: 'assistant'; id: string; text: string; thinking?: string; streaming: boolean; ts: string }
-  | { kind: 'tool'; id: string; tool: ToolEvent; nested?: AgentNested }
+  | { kind: 'assistant'; id: string; text: string; thinking?: string; streaming: boolean; ts: string; imageGenerationNote?: AssistantImageGenerationNote }
+  // sessionId is the session the tool ran in; previews that open its files must
+  // address that session, never whichever is focused.
+  | { kind: 'tool'; id: string; tool: ToolEvent; nested?: AgentNested; sessionId?: string }
   | { kind: 'error'; id: string; text: string }
   | { kind: 'warning'; id: string; text: string }
   | { kind: 'notice'; id: string; text: string }
@@ -35,7 +39,10 @@ export type ToolBlock = Extract<Block, { kind: 'tool' }>
 
 export type Group =
   | { kind: 'block'; block: Block }
-  | { kind: 'exec'; id: string; tools: ToolEvent[] }
+  // sessionIds 与 tools 等长：栅格生图预览必须绑来源会话，不能猜当前焦点。
+  | { kind: 'exec'; id: string; tools: ToolEvent[]; sessionIds: string[] }
+  // 生图工具独立成组，只渲染图片预览，不进入通用执行卡。
+  | { kind: 'image'; id: string; tools: ToolBlock[]; sessionIds: string[] }
   | { kind: 'ask'; id: string; tool: ToolEvent }
   | { kind: 'analyze'; id: string; tool: ToolEvent }
   // skill is one "模型加载了某个技能" moment. It leaves the compact tool list
@@ -262,9 +269,25 @@ export function groupBlocks(blocks: Block[]): Group[] {
         }
         continue
       }
+      // 生图是结果展示而非参数/输出执行行，连续调用合并为一个 image 组。
+      if (b.tool.toolName === IMAGE_GENERATION_TOOL) {
+        const last = out[out.length - 1]
+        if (last && last.kind === 'image') {
+          last.tools.push(b)
+          last.sessionIds.push(b.sessionId ?? '')
+        } else {
+          out.push({ kind: 'image', id: b.id, tools: [b], sessionIds: [b.sessionId ?? ''] })
+        }
+        continue
+      }
       const last = out[out.length - 1]
-      if (last && last.kind === 'exec') last.tools.push(b.tool)
-      else out.push({ kind: 'exec', id: b.id, tools: [b.tool] })
+      const sid = b.sessionId ?? ''
+      if (last && last.kind === 'exec') {
+        last.tools.push(b.tool)
+        last.sessionIds.push(sid)
+      } else {
+        out.push({ kind: 'exec', id: b.id, tools: [b.tool], sessionIds: [sid] })
+      }
       continue
     }
     out.push({ kind: 'block', block: b })

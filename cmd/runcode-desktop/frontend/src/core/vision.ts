@@ -1,4 +1,5 @@
 import type { CustomModel, ModelReference, PassportModel } from './bridge'
+import { isChatModel } from './image-generation'
 
 export function imageCapabilityLabel(value?: boolean): string {
   return value === true ? '支持图片' : value === false ? '仅文本' : '未标注'
@@ -11,7 +12,7 @@ export function imageModelKey(ref?: ModelReference): string {
 }
 export function imageModelCandidates(platform: PassportModel[], custom: CustomModel[], bridge: string, tenantId: string) {
   return [
-    ...platform.filter((m) => m.supportsImages === true).map((m) => ({ label: m.id, ref: { kind: 'platform', name: m.id, bridge, tenantId } satisfies ModelReference })),
+    ...platform.filter((m) => isChatModel(m) && m.supportsImages === true).map((m) => ({ label: m.id, ref: { kind: 'platform', name: m.id, bridge, tenantId } satisfies ModelReference })),
     ...custom.filter((m) => m.supportsImages === true).map((m) => ({ label: `${m.name} · 自定义`, ref: { kind: 'custom', name: m.name } satisfies ModelReference })),
   ]
 }

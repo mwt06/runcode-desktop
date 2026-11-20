@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wt68/runcode/internal/imagegentool"
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tools/webfetch"
@@ -170,14 +171,14 @@ func TestOALockPolicyBlocksEgressOnlyWhenLocked(t *testing.T) {
 	locked := ""
 	policy := newOALockPolicy(allowAllPolicy{}, func() string { return locked })
 
-	for _, name := range []string{websearch.ToolName, webfetch.Tool{}.Name()} {
+	for _, name := range []string{websearch.ToolName, webfetch.Tool{}.Name(), imagegentool.Name} {
 		if d := policy.Decide(context.Background(), permissions.Action{ToolName: name}); d.Effect != permissions.EffectAllow {
 			t.Fatalf("unlocked session: %s was blocked (%v)", name, d.Effect)
 		}
 	}
 
 	locked = "qwen3.6-27b"
-	for _, name := range []string{websearch.ToolName, webfetch.Tool{}.Name()} {
+	for _, name := range []string{websearch.ToolName, webfetch.Tool{}.Name(), imagegentool.Name} {
 		d := policy.Decide(context.Background(), permissions.Action{ToolName: name})
 		if d.Effect != permissions.EffectDeny {
 			t.Fatalf("locked session: %s was allowed to reach the network", name)

@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "description": "Core 未约定的失败（设计 6.3 第三行）。core 是 Core 对 Bridge 的合成响应（文本为合成样例，不是真实 Core 契约）；bridge 是 Bridge 对客户端的脱敏通用封装。客户端一律 unknown/generation_failed：不按文本推断额度/限流/内容原因，内部 401 不当成用户登录过期，零重发。",
+  "genericMessage": "生成服务未返回可确认的结果，请联系管理员核查",
+  "forbiddenClientText": ["额度", "限流", "内容审核", "quota", "rate", "Unauthorized", "<html", "X-Internal-Service-Key", "登录已失效"],
+  "cases": [
+    {
+      "name": "core500_quota_like_text",
+      "core": { "status": 500, "contentType": "text/plain; charset=utf-8", "body": "额度不足，请联系管理员充值（合成样例）" },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0201" },
+        "body": { "error": { "code": "generation_failed", "message": "生成服务未返回可确认的结果，请联系管理员核查", "request_id": "brg-synthetic-0201" } }
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "brg-synthetic-0201", "corePosts": 1, "retries": 0, "userAuthExpired": false }
+    },
+    {
+      "name": "core500_rate_limit_like_text",
+      "core": { "status": 500, "contentType": "text/plain; charset=utf-8", "body": "触发限流 rate limit exceeded（合成样例）" },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0202" },
+        "body": { "error": { "code": "generation_failed", "message": "生成服务未返回可确认的结果，请联系管理员核查", "request_id": "brg-synthetic-0202" } }
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "brg-synthetic-0202", "corePosts": 1, "retries": 0, "userAuthExpired": false }
+    },
+    {
+      "name": "core500_content_like_text",
+      "core": { "status": 500, "contentType": "text/plain; charset=utf-8", "body": "内容审核未通过（合成样例）" },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0203" },
+        "body": { "error": { "code": "generation_failed", "message": "生成服务未返回可确认的结果，请联系管理员核查", "request_id": "brg-synthetic-0203" } }
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "brg-synthetic-0203", "corePosts": 1, "retries": 0, "userAuthExpired": false }
+    },
+    {
+      "name": "core_internal_service_401",
+      "core": { "status": 401, "contentType": "text/plain", "body": "Unauthorized: invalid X-Internal-Service-Key（合成样例）" },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0204" },
+        "body": { "error": { "code": "generation_failed", "message": "生成服务未返回可确认的结果，请联系管理员核查", "request_id": "brg-synthetic-0204" } }
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "brg-synthetic-0204", "corePosts": 1, "retries": 0, "userAuthExpired": false, "tokenRefresh": 0 }
+    },
+    {
+      "name": "core_internal_service_403",
+      "core": { "status": 403, "contentType": "text/plain", "body": "Forbidden（合成样例）" },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0205" },
+        "body": { "error": { "code": "generation_failed", "message": "生成服务未返回可确认的结果，请联系管理员核查", "request_id": "brg-synthetic-0205" } }
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "brg-synthetic-0205", "corePosts": 1, "retries": 0, "userAuthExpired": false }
+    },
+    {
+      "name": "core500_html_error_page",
+      "core": { "status": 500, "contentType": "text/html", "body": "<html><body><h1>500 Internal Server Error</h1><pre>at Synthetic.Stack()</pre></body></html>" },
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0206" },
+        "body": { "error": { "code": "generation_failed", "message": "生成服务未返回可确认的结果，请联系管理员核查", "request_id": "brg-synthetic-0206" } }
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "brg-synthetic-0206", "corePosts": 1, "retries": 0, "userAuthExpired": false }
+    },
+    {
+      "name": "client_sees_unstructured_gateway_html",
+      "core": null,
+      "bridge": {
+        "status": 502,
+        "headers": { "Content-Type": "text/html" },
+        "rawBody": "<html><body>502 Bad Gateway（合成样例）</body></html>"
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "", "retries": 0, "userAuthExpired": false }
+    },
+    {
+      "name": "client_sees_unstructured_401_after_send",
+      "core": null,
+      "bridge": {
+        "status": 401,
+        "headers": { "Content-Type": "text/plain" },
+        "rawBody": "Unauthorized（合成样例：没有 Bridge 错误封装的 401，无法证明是 Bridge 自身拒绝）"
+      },
+      "expect": { "status": "unknown", "code": "generation_failed", "requestId": "", "retries": 0, "userAuthExpired": false, "tokenRefresh": 0 }
+    }
+  ]
+}

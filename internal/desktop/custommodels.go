@@ -20,13 +20,24 @@ func supportedCustomModelProvider(provider string) bool {
 	if isCodexProfile(provider) {
 		return true
 	}
+	// 内部用量适配器名不得进入自定义模型可选列表。
+	if isInternalUsageProvider(provider) {
+		return false
+	}
 	return llm.IsRegistered(provider)
 }
 
 // unsupportedProviderError names what is actually available rather than leaving
 // the user to guess the spelling.
 func unsupportedProviderError(provider string) error {
-	return fmt.Errorf("不支持的服务商 %q（可选：%s、%s）", provider, strings.Join(llm.Registered(), "、"), codexProviderID)
+	names := make([]string, 0, len(llm.Registered()))
+	for _, n := range llm.Registered() {
+		if isInternalUsageProvider(n) {
+			continue
+		}
+		names = append(names, n)
+	}
+	return fmt.Errorf("不支持的服务商 %q（可选：%s、%s）", provider, strings.Join(names, "、"), codexProviderID)
 }
 
 // ListCustomModels 返回脱敏后的自定义模型列表。连接密钥只在后端解析会话时

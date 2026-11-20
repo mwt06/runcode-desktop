@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Events, errText, installMarketSkill, listSkills, onEvent, skillMarket } from '@/core/bridge'
 import type { Scenario } from '@/core/scenarios'
+import type { ComposerEditorHandle } from '@/composer/inline-editor'
 import type { InstallState } from '@/composer/install-overlay'
 import { pickScenarioAction } from './scenario-actions'
 import { useActionScope } from './use-action-scope'
@@ -9,7 +10,7 @@ export function useScenarioActions({ sessionId, input, setInput, textarea, notif
   sessionId: string
   input: string
   setInput: (value: string) => void
-  textarea: RefObject<HTMLTextAreaElement>
+  textarea: RefObject<ComposerEditorHandle>
   notify: (message: string) => void
 }) {
   const [installing, setInstalling] = useState<InstallState | null>(null)

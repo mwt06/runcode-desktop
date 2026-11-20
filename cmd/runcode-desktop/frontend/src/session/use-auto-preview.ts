@@ -1,7 +1,10 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import { toolTargetPath } from '@/chat/tool-text'
-import { extractFilePaths, rankAutoPreview, toWorkspaceRel } from '@/preview/classify'
+import { rankAutoPreview } from '@/preview/classify'
 import { createActionScope } from './action-scope'
+import { collectAutoPreviewCandidates } from './auto-preview-candidates'
+import {
+  inlineFileStatus, isStaticInlinePath, noteInlineFile, shouldSkipAutoPreview, waitForInlineSettled,
+} from './inline-preview-status'
 import type { Block } from '@/chat/blocks'
 
 // 最多验证前几个候选就收手：助手正文里往往会提到一串路径，逐个问后端既慢又没必要
@@ -71,21 +74,9 @@ export function useAutoPreview({ sessionID, busy, blocks, cwd, enabled, opens, o
       const { blocks: bs, cwd: dir, enabled: on, opens, open: openFile } = latest.current
       const alreadyShown = (opens.current ?? 0) > opensAtTurnStart.current
       if (on && !alreadyShown) {
-        const paths: string[] = []
-        for (const b of bs.slice(turnStartLen.current)) {
-          if (b.kind === 'tool') {
-            const t = b.tool
-            if ((t.toolName === 'Write' || t.toolName === 'Edit') && t.type === 'completed') {
-              const p = toolTargetPath(t)
-              if (p) paths.push(toWorkspaceRel(p, dir))
-            }
-          } else if (b.kind === 'assistant') {
-            // 正文里的路径可能是绝对的（"已生成 D:\演示\…\deck.pptx"），换算成
-            // 工作区相对路径后才与其它候选同形。
-            for (const token of extractFilePaths(b.text)) paths.push(toWorkspaceRel(token, dir))
-          }
-        }
-        void openFirstExisting(rankAutoPreview(paths), openFile, scope.current.capture())
+        // 候选收集（含排除「生成图片」）见 auto-preview-candidates，避免生图抢侧栏。
+        const paths = collectAutoPreviewCandidates(bs.slice(turnStartLen.current), dir)
+        void openFirstExisting(sessionID, rankAutoPreview(paths), openFile, scope.current.capture())
       }
     }
     prevBusy.current = busy
@@ -97,9 +88,19 @@ export function useAutoPreview({ sessionID, busy, blocks, cwd, enabled, opens, o
 // 存在性问后端而不是查前端的工作区清单：清单在回合结束时才异步刷新，此刻仍是上一轮
 // 的旧值，本回合刚生成的产物必然缺席。resolveArtifactPath 对不存在的路径会失败（后端
 // 归一化成 not_found），正好当作探针——顺带把越界路径也挡掉。
-async function openFirstExisting(ranked: string[], openFile: (relPath: string, quiet?: boolean) => Promise<boolean>, current: () => boolean) {
+//
+// 可内联的静态图（svg/html/mmd）若正文已成功画出，跳过自动侧栏，避免同一产物占两处。
+async function openFirstExisting(sessionID: string, ranked: string[], openFile: (relPath: string, quiet?: boolean) => Promise<boolean>, current: () => boolean) {
   for (const rel of ranked.slice(0, maxProbes)) {
     if (!current()) return
+    if (isStaticInlinePath(rel)) {
+      if (shouldSkipAutoPreview(sessionID, rel)) continue
+      // 尚无状态时先记 pending，给正文 InlinePreview 一个短窗口上报 rendered。
+      if (inlineFileStatus(sessionID, rel) === null) noteInlineFile(sessionID, rel, 'pending')
+      const settled = await waitForInlineSettled(sessionID, rel)
+      if (!current()) return
+      if (settled === 'rendered') continue
+    }
     if (await openFile(rel, true)) return
   }
 }

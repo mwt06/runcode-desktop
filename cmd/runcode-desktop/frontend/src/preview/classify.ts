@@ -1,11 +1,13 @@
 export type PreviewKind =
-  | 'markdown' | 'image' | 'svg' | 'html' | 'code' | 'text'
+  | 'markdown' | 'image' | 'svg' | 'html' | 'mermaid' | 'code' | 'text'
   | 'docx' | 'pptx' | 'xlsx' | 'pdf'
   | 'unsupported'
 
 const IMAGE = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 const MARKDOWN = new Set(['md', 'markdown'])
 const HTML = new Set(['html', 'htm'])
+// .h5 是 HDF5 等数据格式的常见后缀，不按网页解释；H5 网页用 .html/.htm。
+const MERMAID = new Set(['mmd', 'mermaid'])
 const TEXT = new Set(['txt', 'log', 'csv', 'env'])
 // Extension -> highlight.js language for the code viewer.
 const CODE: Record<string, string> = {
@@ -29,6 +31,7 @@ export function classifyPreview(path: string): { kind: PreviewKind; lang?: strin
   if (e === 'svg') return { kind: 'svg' }
   if (IMAGE.has(e)) return { kind: 'image' }
   if (HTML.has(e)) return { kind: 'html' }
+  if (MERMAID.has(e)) return { kind: 'mermaid' }
   // Office documents and PDF: rendered in-place by lazy-loaded viewers (see
   // PreviewPanel). The legacy .doc/.ppt/.xls binary formats are not OOXML zips and
   // the JS renderers can't read them, so only the modern *x extensions qualify.
@@ -115,6 +118,7 @@ export function artifactKindLabel(kind: PreviewKind): string {
     case 'html': return 'HTML 页面'
     case 'image': return '图像'
     case 'svg': return 'SVG 矢量图'
+    case 'mermaid': return 'Mermaid 图'
     case 'code': return '代码'
     case 'text': return '文本'
     case 'docx': return 'Word 文档'
@@ -131,6 +135,7 @@ export function kindIcon(kind: PreviewKind): string {
     case 'html': return 'file-html'
     case 'markdown': return 'file-md'
     case 'code': return 'file-code'
+    case 'mermaid': return 'file-code'
     case 'image': case 'svg': return 'file-image'
     case 'docx': return 'file-doc'
     case 'pptx': return 'file-ppt'
@@ -147,6 +152,7 @@ export function kindIcon(kind: PreviewKind): string {
 const FILE_COLOR: Record<string, string> = {
   md: '#5b8fc9', markdown: '#5b8fc9',
   html: '#d9895b', htm: '#d9895b',
+  mmd: '#6b8fc9', mermaid: '#6b8fc9',
   css: '#5b9fd9', scss: '#c96b9f',
   js: '#d9b24a', mjs: '#d9b24a', cjs: '#d9b24a', jsx: '#d9b24a',
   ts: '#4f86c6', tsx: '#4f86c6',
@@ -213,7 +219,7 @@ const AUTO_PREVIEW_RANK: Record<PreviewKind, number> = {
   docx: 0, pptx: 0, xlsx: 0, pdf: 0,
   html: 1,
   markdown: 2,
-  code: 3,
+  code: 3, mermaid: 3,
   image: 4, svg: 4,
   text: 5,
   unsupported: 99,

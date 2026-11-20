@@ -46,6 +46,10 @@
   --shadow-lift-danger: 0 5px 14px rgba(224, 86, 74, 0.3);
   /* Modal elevation, shared by the permission dialog and the confirm dialog. */
   --shadow-modal: 0 30px 70px rgba(30, 35, 60, 0.28);
+  /* 栅格生图查看层 60／放弃确认 61；权限／密码层 80（高于图片层）。 */
+  --z-image-modal: 60;
+  --z-image-confirm: 61;
+  --z-permission: 80;
 
   /* Corner radii, anchored in px. Tailwind's presets are rem-based, so
      `rounded-lg` (0.5rem) and a hand-written `rounded-[8px]` render identically

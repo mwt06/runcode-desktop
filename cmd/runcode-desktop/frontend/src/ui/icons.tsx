@@ -13,7 +13,8 @@ export const TOOL_ICON: Record<string, string> = {
   Read: 'file', Write: 'pencil', Edit: 'pencil', Delete: 'trash',
   Bash: 'terminal', BashOutput: 'terminal', KillShell: 'terminal',
   Grep: 'search', Glob: 'search', WebFetch: 'globe', WebSearch: 'globe',
-  TodoWrite: 'grid', Analyze: 'sparkles', analyze_image: 'file-image', AskUser: 'chat', open_preview: 'file',
+  TodoWrite: 'grid', Analyze: 'sparkles', analyze_image: 'file-image', image_generate: 'image-plus',
+  AskUser: 'chat', open_preview: 'file',
   Task: 'bot', Skill: 'book', Remember: 'sparkles',
   Wait: 'clock', GetCurrentTime: 'clock', install_runtime: 'terminal',
   'general-purpose': 'bot', 'code-reviewer': 'shield', 'code-explorer': 'search',
@@ -110,6 +111,15 @@ export function Icon({ name, size = 18, className }: Props) {
           <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
           <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
           <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
+        </svg>
+      )
+    case 'image-plus':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M20 13v4.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11A2.5 2.5 0 0 1 6.5 4H13" />
+          <path d="m4.5 17 4.2-4.2a1.4 1.4 0 0 1 2 0l4.8 4.8" />
+          <path d="m12.4 13.2 1.8-1.8a1.4 1.4 0 0 1 2 0L20 15.1" />
+          <path d="M18 3v6M15 6h6" />
         </svg>
       )
     case 'book':
@@ -240,6 +250,12 @@ export function Icon({ name, size = 18, className }: Props) {
       return (
         <svg {...common} {...stroke}>
           <path d="m6 9.5 6 6 6-6" />
+        </svg>
+      )
+    case 'chevron-left':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="m14.5 6-6 6 6 6" />
         </svg>
       )
     // Sidebar collapse/expand toggle: the conventional panel glyph (frame with a
@@ -458,6 +474,14 @@ export function Icon({ name, size = 18, className }: Props) {
           <path d="M4 20l7-7" />
         </svg>
       )
+    case 'download':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 20h14" />
+        </svg>
+      )
     case 'shrink':
       return (
         <svg {...common} {...stroke}>
@@ -480,6 +504,23 @@ export function Icon({ name, size = 18, className }: Props) {
         <svg {...common} {...stroke}>
           <path d="M15 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H15" />
           <path d="M12 12h9m0 0-3.2-3.2M21 12l-3.2 3.2" />
+        </svg>
+      )
+    // 文生图：画框 + 右上角的生成星点。
+    case 'image-gen':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M13 4.5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V11" />
+          <path d="M4.5 16.5l4-4 3.5 3.5 2.5-2.5 4 4" />
+          <path d="M18 2.8v4.4M15.8 5h4.4" />
+        </svg>
+      )
+    // 用量统计：基线上三根高低不一的柱。
+    case 'chart':
+      return (
+        <svg {...common} {...stroke}>
+          <path d="M4 20h16" />
+          <path d="M7 16v-5M12 16V6M17 16v-8" />
         </svg>
       )
     default:

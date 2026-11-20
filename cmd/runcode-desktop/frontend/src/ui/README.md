@@ -112,13 +112,22 @@
 ### `PageShell` —— 管理页骨架
 
 ```tsx
-<PageShell title="设置" hint="模型与权限模式即时生效…" width={640}>…</PageShell>
+<PageShell title="设置" hint="按目录定位设置…" width={864} scrollRef={…} contentClassName="settings-shell">…</PageShell>
 <PageShell title="MCP 服务器" hint={<>…含 <code>标记</code> 的富文本…</>} action={<button/>}>…</PageShell>
 ```
 
-滚动列 + 居中版心 + 标题/副标题 + 可选右上动作。`width` 是阅读版心（默认 720；设置页 640，因为它是表单不是文档）。mcp / memory / settings 三页用它——此前各写一遍，已经在内边距和标题字号上漂开过。
+滚动列 + 居中版心 + 标题/副标题 + 可选右上动作。`width` 是阅读版心（默认 720；设置页 864，容纳左侧目录 200 + 间距 24 + 右栏 640）。mcp / memory / settings / usage 等管理页用它——此前各写一遍，已经在内边距和标题字号上漂开过。
 
 `width` 走内联 style 而非 `max-w-[…]` 类：Tailwind 靠扫源码里的**字面**类名生成 CSS，运行时拼的类名根本不会被产出。
+
+外层滚动列固定带 `min-h-0` 与 `overscroll-contain`：缺前者时 flex 子项按内容撑高，整窗（含侧栏）跟着 `body` 滚，滚过头会露出灰底；后者拦住触底后的滚动链（与设置页目录同思路）。
+
+两个可选扩展，不传时 DOM 与默认完全一致（`layout.test.tsx` 卡住）：
+
+| prop | 说明 |
+| --- | --- |
+| `scrollRef` | 绑定到**外层滚动列**本身。页内需要按滚动位置定位/高亮的页面用它（设置页的分类目录），必须拿这个根算偏移、调 `scrollTo`——用 `window.scrollTo` 或不限定根的 `scrollIntoView` 会连带滚动外层（聊天侧栏、整个窗口） |
+| `contentClassName` | 只追加到**内层版心**，用于挂页面自己的命名空间样式（如 `settings-shell`）。外层滚动列的类名不开放配置：内边距与滚动行为正是各管理页要保持一致的部分 |
 
 > `plugins` 与 `permissions` **不套**这层：它们有各自的固定页头（独立滚动体）和更宽的文档版心，抹平差异要加一堆开关，那样 shell 就变成配置容器了。
 
@@ -168,7 +177,7 @@
 
 | 导出 | 用途 |
 | --- | --- |
-| `Markdown` | 助手文本渲染（GFM + 代码高亮），块代码保留 highlight.js 配色、行内代码是紧凑 chip |
+| `Markdown` | 助手文本渲染（GFM + 代码高亮），块代码保留 highlight.js 配色、行内代码是紧凑 chip。可选 `renderCodeBlock` 插槽：传入时用 hast 原文偏移与拼接文本（不是 `String(children)`）把围栏交给调用方；返回 `null` 或不传则行为与原来完全一致。`textOnly` 下插槽不生效。业务层（`chat/assistant-markdown`）负责静态预览识别，本层不反向导入 `chat`/`preview` |
 | `Icon` / `Logo` / `toolIcon` / `TOOL_ICON` | 内联 SVG（`stroke=currentColor`），无图标字体、无网络请求。`TOOL_ICON` 把工具/内置子代理名映射到图标，对话工具行与插件管理页共用，**同一能力在哪都是同一个字形** |
 | `CheckMark` / `WarnTriangle` / `Spinner`（`glyphs.tsx`） | 画出来的小状态图形（完成/警告/进行中）。与 `Icon` 分开是因为这些是**绘制**的，不是查表来的 |
 | `DiffStat` / `SourceBadge` / `sourceLabel`（`badges.tsx`） | `+N −N` 变更量；技能/子代理/工具的来源标（内置/用户/项目） |

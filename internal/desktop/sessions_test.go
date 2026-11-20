@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,6 +35,70 @@ func TestDeleteSessionAllowsOtherSessions(t *testing.T) {
 	focusOn(a, "sess-live", "")
 	if err := a.DeleteSession("sess-other"); err != nil {
 		t.Fatalf("deleting a non-active session must pass the guard, got %v", err)
+	}
+}
+
+func TestDeleteSessionRemovesImageGenerationDerivedRecords(t *testing.T) {
+	ws := t.TempDir()
+	a := &App{workspace: ws}
+	focusOn(a, "sess-live", "")
+
+	target := "sess_delete"
+	other := "sess_keep"
+	targetPaths := []string{
+		filepath.Join(ws, ".runcode", "image-generation", "sessions", target+".json"),
+		filepath.Join(ws, ".runcode", "image-generation", "requests", target, "gen_1.json"),
+		filepath.Join(ws, ".runcode", "image-generation", "turns", target, "turn_1.json"),
+	}
+	otherPaths := []string{
+		filepath.Join(ws, ".runcode", "image-generation", "sessions", other+".json"),
+		filepath.Join(ws, ".runcode", "image-generation", "requests", other, "gen_2.json"),
+		filepath.Join(ws, ".runcode", "image-generation", "turns", other, "turn_2.json"),
+	}
+	artifact := filepath.Join(ws, "生成图片", "gen_1", "image.png")
+	for _, path := range append(append([]string{}, targetPaths...), otherPaths...) {
+		writeDeleteSessionFixture(t, path)
+	}
+	writeDeleteSessionFixture(t, artifact)
+
+	if err := a.DeleteSession(target); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	for _, path := range targetPaths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("derived record still exists: %s (%v)", path, err)
+		}
+	}
+	for _, path := range append(append([]string{}, otherPaths...), artifact) {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("unrelated file removed: %s (%v)", path, err)
+		}
+	}
+}
+
+func TestDeleteImageGenerationSessionRecordsIsMissingSafeAndRooted(t *testing.T) {
+	ws := t.TempDir()
+	if err := deleteImageGenerationSessionRecords(ws, "sess_missing"); err != nil {
+		t.Fatalf("missing session cleanup = %v", err)
+	}
+
+	outside := filepath.Join(filepath.Dir(ws), "outside.txt")
+	writeDeleteSessionFixture(t, outside)
+	if err := deleteImageGenerationSessionRecords(ws, "../outside"); err == nil {
+		t.Fatal("path traversal session id accepted")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside file was touched: %v", err)
+	}
+}
+
+func writeDeleteSessionFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

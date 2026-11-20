@@ -4,7 +4,7 @@
 // Each of these was previously written out per page, which is why the three
 // manager pages drifted apart in padding and heading size despite being the same
 // screen. Structure lives here; pages supply content only.
-import { type ReactNode } from 'react'
+import { type ReactNode, type Ref } from 'react'
 
 // Inset strip: a settings row, a status line, a "you're logged in as…" bar. The
 // box styling is exported separately from the flex row because some call sites
@@ -40,16 +40,25 @@ export function Placeholder({ children, pad = 'md', className }: {
 // Deliberately not applied to the plugins and permissions pages: those have a
 // pinned header with its own scroll body and a wider documentation measure, so
 // forcing them through here would mean adding flags for every difference.
-export function PageShell({ title, hint, action, width = 720, children }: {
+//
+// `scrollRef` hands out the scrolling column itself, for pages that position
+// content inside it (settings' in-page directory). `contentClassName` is appended
+// to the measure only; the scrolling column's classes are not configurable.
+//
+// 页面在主栏的剩余高度内滚动，min-h-0 允许长内容收缩，overscroll-contain 隔离触底滚动。
+// 这不能替代 App 的窗口边界：无就近定位父容器的绝对定位元素仍可能越出页面滚动区。
+export function PageShell({ title, hint, action, width = 720, scrollRef, contentClassName, children }: {
   title: ReactNode
   hint?: ReactNode
   action?: ReactNode
   width?: number
+  scrollRef?: Ref<HTMLDivElement>
+  contentClassName?: string
   children: ReactNode
 }) {
   return (
-    <div className="flex-1 overflow-y-auto px-[22px] py-7">
-      <div className="mx-auto flex flex-col gap-5" style={{ maxWidth: width }}>
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[22px] py-7">
+      <div className={`mx-auto flex flex-col gap-5${contentClassName ? ' ' + contentClassName : ''}`} style={{ maxWidth: width }}>
         <div className={action ? 'flex items-start justify-between gap-3' : undefined}>
           <div className={action ? 'min-w-0' : undefined}>
             <h2 className="m-0 text-[20px] font-bold tracking-tight">{title}</h2>
