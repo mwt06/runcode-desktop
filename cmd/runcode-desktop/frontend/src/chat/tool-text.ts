@@ -68,6 +68,30 @@ export function toolVerbTarget(t: ToolEvent): { verb: string; target: string } {
     case 'install_runtime':
       target = RUNTIME_LABEL[String(o.runtime ?? '').trim().toLowerCase()] ?? String(o.runtime ?? '')
       break
+    case 'automation_task':
+      return { verb: '执行', target: clip(String(o.name ?? ''), 44) }
+    case 'image_generate': {
+      const data = t.data && typeof t.data === 'object' ? t.data as { displayIntent?: unknown } : null
+      const intent = typeof data?.displayIntent === 'string' ? data.displayIntent.trim() : ''
+      const progress = (t.message ?? '').trim()
+      target = clip(intent || progress, 44)
+      break
+    }
+    case 'search_contacts':
+      target = clip(String(o.query ?? ''), 44)
+      break
+    case 'add_mail_contact': {
+      const name = String(o.name ?? '').trim()
+      const email = String(o.email ?? '').trim()
+      target = clip([name, email].filter(Boolean).join(' '), 44)
+      break
+    }
+    case 'send_email': {
+      const data = t.data && typeof t.data === 'object' ? t.data as { subject?: unknown } : null
+      const subj = typeof data?.subject === 'string' ? data.subject : String(o.subject ?? '')
+      target = clip(subj, 44)
+      break
+    }
     default:
       target = basename(t.files?.[0]?.path) || basename(String(o.path ?? ''))
   }

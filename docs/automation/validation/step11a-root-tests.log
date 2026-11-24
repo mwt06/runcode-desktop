@@ -1,0 +1,27 @@
+ok  	github.com/wt68/runcode/internal/appupdate	4.776s
+ok  	github.com/wt68/runcode/internal/automation	5.233s
+ok  	github.com/wt68/runcode/internal/browsertool	1.180s
+ok  	github.com/wt68/runcode/internal/codexauth	2.345s
+ok  	github.com/wt68/runcode/internal/codexproxy	1.749s
+ok  	github.com/wt68/runcode/internal/command	0.534s
+ok  	github.com/wt68/runcode/internal/desktop	58.492s
+?   	github.com/wt68/runcode/internal/desktop/builtinskills	[no test files]
+ok  	github.com/wt68/runcode/internal/download	0.804s
+ok  	github.com/wt68/runcode/internal/imagegentool	0.549s
+--- FAIL: TestCaptureDisabledIntervalsHaveBoundedHistory (1.12s)
+    coverage_disabled_test.go:152: context deadline exceeded
+FAIL
+FAIL	github.com/wt68/runcode/internal/localusage	7.952s
+ok  	github.com/wt68/runcode/internal/oatool	1.736s
+ok  	github.com/wt68/runcode/internal/officetool	1.585s
+ok  	github.com/wt68/runcode/internal/plantool	0.512s
+ok  	github.com/wt68/runcode/internal/previewtool	0.826s
+?   	github.com/wt68/runcode/internal/protocol	[no test files]
+ok  	github.com/wt68/runcode/internal/recorder	3.811s
+ok  	github.com/wt68/runcode/internal/runtimetool	0.537s
+ok  	github.com/wt68/runcode/internal/skilltool	0.868s
+ok  	github.com/wt68/runcode/internal/ui	0.690s
+ok  	github.com/wt68/runcode/internal/vision	0.969s
+ok  	github.com/wt68/runcode/internal/websearchtool	1.672s
+ok  	github.com/wt68/runcode/cmd/runcode	4.881s
+FAIL

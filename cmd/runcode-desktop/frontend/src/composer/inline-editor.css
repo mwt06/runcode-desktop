@@ -1,0 +1,10 @@
+.composer-inline-editor > p {
+  margin: 0;
+}
+
+.composer-inline-editor:has(> p:only-child > br:only-child)::before {
+  content: attr(data-placeholder);
+  color: var(--color-faint, #8b8e95);
+  pointer-events: none;
+  position: absolute;
+}

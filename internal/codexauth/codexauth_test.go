@@ -118,6 +118,8 @@ func TestPollSuccessExchangesTokens(t *testing.T) {
 			_ = r.ParseForm()
 			tokenForm = r.Form.Encode()
 			claims := map[string]any{
+				"iss":                         "https://auth.openai.com",
+				"sub":                         "user-9",
 				"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct-9"},
 				"email":                       "u@example.com",
 			}
@@ -138,6 +140,9 @@ func TestPollSuccessExchangesTokens(t *testing.T) {
 	if tok.Email != "u@example.com" {
 		t.Fatalf("email = %q, want it read from the id_token", tok.Email)
 	}
+	if tok.Subject != "user-9" || tok.Issuer != "https://auth.openai.com" {
+		t.Fatalf("identity = %q / %q, want the stable subject and issuer", tok.Subject, tok.Issuer)
+	}
 	if time.Until(tok.Expiry) < 59*time.Minute {
 		t.Fatalf("expiry = %v, want ~1h out", tok.Expiry)
 	}
@@ -156,13 +161,13 @@ func TestPollSuccessExchangesTokens(t *testing.T) {
 // The account id may sit at the top level instead of the namespaced claim; both
 // shapes appear in the wild and either one must work.
 func TestAccountIDFromTopLevelClaim(t *testing.T) {
-	id, email := accountFromIDToken(idToken(t, map[string]any{"chatgpt_account_id": "top", "email": "a@b.c"}))
-	if id != "top" || email != "a@b.c" {
-		t.Fatalf("accountFromIDToken = (%q, %q), want the top-level claim", id, email)
+	claims := accountFromIDToken(idToken(t, map[string]any{"chatgpt_account_id": "top", "email": "a@b.c", "sub": "user-top"}))
+	if claims.AccountID != "top" || claims.Email != "a@b.c" || claims.Subject != "user-top" {
+		t.Fatalf("accountFromIDToken = %+v, want the top-level claim and subject", claims)
 	}
 	// A malformed token must degrade to empty, never panic.
-	if id, _ := accountFromIDToken("not-a-jwt"); id != "" {
-		t.Fatalf("malformed id_token yielded %q, want empty", id)
+	if claims := accountFromIDToken("not-a-jwt"); claims.AccountID != "" || claims.Subject != "" {
+		t.Fatalf("malformed id_token yielded %+v, want empty", claims)
 	}
 }
 

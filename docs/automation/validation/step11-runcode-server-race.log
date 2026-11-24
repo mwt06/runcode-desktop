@@ -1,0 +1,3 @@
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/cmd/runcode-server	0.188s
+FAIL

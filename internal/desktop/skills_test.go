@@ -7,11 +7,14 @@ import (
 	"testing"
 )
 
-type fakeDialoger struct{ path string }
+type fakeDialoger struct {
+	path string
+	err  error
+}
 
-func (f fakeDialoger) PickFile(string) (string, error)           { return f.path, nil }
-func (f fakeDialoger) PickFolder(string, string) (string, error) { return f.path, nil }
-func (f fakeDialoger) PickImage(string) (string, error)          { return f.path, nil }
+func (f fakeDialoger) PickFile(string) (string, error)           { return f.path, f.err }
+func (f fakeDialoger) PickFolder(string, string) (string, error) { return f.path, f.err }
+func (f fakeDialoger) PickImage(string) (string, error)          { return f.path, f.err }
 
 func writeSkillDir(t *testing.T, dir, name, body string) {
 	t.Helper()

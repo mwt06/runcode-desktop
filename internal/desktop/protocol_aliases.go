@@ -24,19 +24,23 @@ import (
 
 // Event names emitted to the frontend.
 const (
-	EventAssistantDelta    = hostproto.EventAssistantDelta
-	EventAssistantThinking = hostproto.EventAssistantThinking
-	EventToolEvent         = hostproto.EventToolEvent
-	EventPermissionRequest = hostproto.EventPermissionRequest
-	EventTurnEnd           = hostproto.EventTurnEnd
-	EventTurnError         = hostproto.EventTurnError
-	EventWarning           = hostproto.EventWarning
-	EventSessionRenamed    = protocol.EventSessionRenamed
-	EventSessionStatus     = protocol.EventSessionStatus
-	EventOABlocked         = protocol.EventOABlocked
-	EventHarmAutoAllow     = protocol.EventHarmAutoAllow
-	EventPlanUpdated       = protocol.EventPlanUpdated
-	EventPassportChanged   = protocol.EventPassportChanged
+	EventAssistantDelta           = hostproto.EventAssistantDelta
+	EventAssistantThinking        = hostproto.EventAssistantThinking
+	EventToolEvent                = hostproto.EventToolEvent
+	EventPermissionRequest        = hostproto.EventPermissionRequest
+	EventTurnEnd                  = hostproto.EventTurnEnd
+	EventTurnError                = hostproto.EventTurnError
+	EventWarning                  = hostproto.EventWarning
+	EventSessionRenamed           = protocol.EventSessionRenamed
+	EventSessionStatus            = protocol.EventSessionStatus
+	EventOABlocked                = protocol.EventOABlocked
+	EventHarmAutoAllow            = protocol.EventHarmAutoAllow
+	EventAutomationTaskChanged    = protocol.EventAutomationTaskChanged
+	EventAutomationRunChanged     = protocol.EventAutomationRunChanged
+	EventAutomationServiceChanged = protocol.EventAutomationServiceChanged
+	EventAutomationContextChanged = protocol.EventAutomationContextChanged
+	EventPlanUpdated              = protocol.EventPlanUpdated
+	EventPassportChanged          = protocol.EventPassportChanged
 )
 
 // 阶段化计划模式的阶段与运行状态值,同样再导出(文档在 protocol 包)。
@@ -124,6 +128,43 @@ type (
 	CustomModel            = protocol.CustomModel
 	SaveCustomModelRequest = protocol.SaveCustomModelRequest
 
+	// 邮箱账号设置。
+	MailSettings                    = protocol.MailSettings
+	MailAccountView                 = protocol.MailAccountView
+	SaveMailAccountRequest          = protocol.SaveMailAccountRequest
+	DisableMailAccountRequest       = protocol.DisableMailAccountRequest
+	RemoveMailAccountRequest        = protocol.RemoveMailAccountRequest
+	TestMailConnectionRequest       = protocol.TestMailConnectionRequest
+	MailConnectionTestResult        = protocol.MailConnectionTestResult
+	SendMailTestToSelfRequest       = protocol.SendMailTestToSelfRequest
+	MailTestSendResult              = protocol.MailTestSendResult
+	ConfirmMailTestReceiptRequest   = protocol.ConfirmMailTestReceiptRequest
+	OpenMailOfficialURLRequest      = protocol.OpenMailOfficialURLRequest
+	MailAddressView                 = protocol.MailAddressView
+	MailContactView                 = protocol.MailContactView
+	MailDraftView                   = protocol.MailDraftView
+	ListMailContactsRequest         = protocol.ListMailContactsRequest
+	SaveMailContactRequest          = protocol.SaveMailContactRequest
+	DeleteMailContactRequest        = protocol.DeleteMailContactRequest
+	MailContactImportRow            = protocol.MailContactImportRow
+	PreviewMailContactImportRequest = protocol.PreviewMailContactImportRequest
+	MailContactImportPreview        = protocol.MailContactImportPreview
+	CommitMailContactImportRequest  = protocol.CommitMailContactImportRequest
+	ListMailDraftsRequest           = protocol.ListMailDraftsRequest
+	GetMailDraftRequest             = protocol.GetMailDraftRequest
+	DeleteMailDraftRequest          = protocol.DeleteMailDraftRequest
+	SaveMailDraftRequest            = protocol.SaveMailDraftRequest
+	CreateMailDraftRequest          = protocol.CreateMailDraftRequest
+	PrepareMailSendRequest          = protocol.PrepareMailSendRequest
+	PrepareMailSendResult           = protocol.PrepareMailSendResult
+	MailSendPreview                 = protocol.MailSendPreview
+	MailAttachmentPreview           = protocol.MailAttachmentPreview
+	ConfirmMailSendRequest          = protocol.ConfirmMailSendRequest
+	ConfirmMailSendResult           = protocol.ConfirmMailSendResult
+	ListMailOutboxRequest           = protocol.ListMailOutboxRequest
+	MailOutboxEntryView             = protocol.MailOutboxEntryView
+	WindowCapabilitiesView          = protocol.WindowCapabilitiesView
+
 	// ChatGPT(Codex)登录。
 	CodexDeviceCode = protocol.CodexDeviceCode
 	CodexStatus     = protocol.CodexStatus
@@ -146,4 +187,36 @@ type (
 
 	// Context audit (测试版专属).
 	ContextAuditInfo = protocol.ContextAuditInfo
+
+	// 自动化任务命令。
+	AutomationDefaults             = protocol.AutomationDefaults
+	ListAutomationTasksRequest     = protocol.ListAutomationTasksRequest
+	AutomationTaskPage             = protocol.AutomationTaskPage
+	CreateAutomationTaskRequest    = protocol.CreateAutomationTaskRequest
+	UpdateAutomationTaskRequest    = protocol.UpdateAutomationTaskRequest
+	SetAutomationTaskPausedRequest = protocol.SetAutomationTaskPausedRequest
+	RunAutomationTaskNowRequest    = protocol.RunAutomationTaskNowRequest
+	DeleteAutomationTaskRequest    = protocol.DeleteAutomationTaskRequest
+	AutomationTaskResult           = protocol.AutomationTaskResult
+	AutomationRunResult            = protocol.AutomationRunResult
+	DeleteAutomationTaskResult     = protocol.DeleteAutomationTaskResult
+	ListAutomationRunsRequest      = protocol.ListAutomationRunsRequest
+	SessionAutomationRunsRequest   = protocol.SessionAutomationRunsRequest
+	AutomationRunPage              = protocol.AutomationRunPage
+	OpenAutomationSessionRequest   = protocol.OpenAutomationSessionRequest
+	AutomationSessionResult        = protocol.AutomationSessionResult
+	AutomationConversationResult   = protocol.AutomationConversationResult
+	AutomationTaskChanged          = protocol.AutomationTaskChanged
+	AutomationRunChanged           = protocol.AutomationRunChanged
+	AutomationServiceChanged       = protocol.AutomationServiceChanged
+	AutomationContextChanged       = protocol.AutomationContextChanged
+	AutomationContext              = protocol.AutomationContext
+	AutomationEventSource          = protocol.AutomationEventSource
+	AutomationModelSummary         = protocol.AutomationModelSummary
+	AutomationTask                 = protocol.AutomationTask
+	AutomationTaskDraft            = protocol.AutomationTaskDraft
+	AutomationSchedule             = protocol.AutomationSchedule
+	AutomationRun                  = protocol.AutomationRun
+	AutomationOrigin               = protocol.AutomationOrigin
+	AutomationBindingSummary       = protocol.AutomationBindingSummary
 )

@@ -57,7 +57,7 @@ function fencedCode(text: string, lang?: string): string {
   return `${fence}${lang ?? ''}\n${text}\n${fence}`
 }
 
-export function PreviewPanel({ artifact, relPath, onClose }: { artifact?: ArtifactReference; relPath: string; onClose: () => void }) {
+export function PreviewPanel({ artifact, relPath, onClose, onBack }: { artifact?: ArtifactReference; relPath: string; onClose: () => void; onBack?: () => void }) {
   const reference = artifact?.reference ?? ''
   const sourceURL = artifact?.url ?? ''
   const src = (url: string) => `${url}?v=${bust}`
@@ -70,7 +70,8 @@ export function PreviewPanel({ artifact, relPath, onClose }: { artifact?: Artifa
   // with a fresh arrow never re-triggers the read below.
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
-  const textual = kind === 'markdown' || kind === 'code' || kind === 'text'
+  // mermaid 源文件侧栏先按源码显示（方案 5.2）；对话内联预览另走静态渲染。
+  const textual = kind === 'markdown' || kind === 'code' || kind === 'text' || kind === 'mermaid'
 
   useEffect(() => {
     if (!textual) return
@@ -105,6 +106,7 @@ export function PreviewPanel({ artifact, relPath, onClose }: { artifact?: Artifa
       <div className="flex-none flex items-center gap-1.5 h-[44px] px-2.5 border-b border-line2">
         <span className="flex-none" style={{ color: fileColor(relPath) }}><Icon name={kindIcon(kind)} size={15} /></span>
         <span className="flex-none text-[11px] text-faint bg-inset rounded px-1.5 py-0.5 mr-auto">{artifactKindLabel(kind)}</span>
+        {onBack && <IconBtn name="chevron-left" title="返回上一级" onClick={onBack} />}
         <IconBtn name="refresh" title="刷新" onClick={() => setBust((v) => v + 1)} />
         <IconBtn name="external-link" title="用系统默认程序打开" onClick={() => { openExternal(reference).catch(() => {}) }} />
         <IconBtn name="copy" title="复制路径" onClick={copyPath} />
@@ -118,7 +120,7 @@ export function PreviewPanel({ artifact, relPath, onClose }: { artifact?: Artifa
           <div className="p-4 flex items-center justify-center min-h-full bg-inset/30"><img src={src(sourceURL)} alt={name} className="max-w-full" /></div>
         )}
         {kind === 'markdown' && text != null && <div className="p-4"><Markdown>{text}</Markdown></div>}
-        {kind === 'code' && text != null && <div className="p-4"><Markdown>{fencedCode(text, lang)}</Markdown></div>}
+        {(kind === 'code' || kind === 'mermaid') && text != null && <div className="p-4"><Markdown>{fencedCode(text, kind === 'mermaid' ? 'mermaid' : lang)}</Markdown></div>}
         {kind === 'text' && text != null && (
           <pre className="m-0 p-4 font-mono text-[13px] leading-[1.6] whitespace-pre-wrap break-words">{text}</pre>
         )}

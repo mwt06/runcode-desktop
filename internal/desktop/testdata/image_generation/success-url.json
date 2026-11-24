@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "description": "恰一张 URL 结果（设计 6.2）。Bridge 在 X-Request-ID 返回自己的关联 ID；Core 响应体不带 request_id。{{IMAGE_URL}} 由测试替换为测试图片地址，不是真实签名 URL。",
+  "core": {
+    "status": 200,
+    "body": { "created": 1762761600, "data": [{ "url": "{{IMAGE_URL}}", "revised_prompt": "合成修订提示词" }] }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/t/{tenantId}/v1/Images/Generations",
+    "body": {
+      "model": "image-only-url",
+      "prompt": "校园开放日海报背景，明亮、清新，留出标题空间",
+      "n": 1,
+      "size": "2048x2048",
+      "response_format": "url"
+    }
+  },
+  "bridge": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0001" },
+    "body": { "created": 1762761600, "data": [{ "url": "{{IMAGE_URL}}", "revised_prompt": "合成修订提示词" }] }
+  },
+  "image": {
+    "mimeType": "image/png",
+    "width": 1,
+    "height": 1,
+    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+  },
+  "expect": {
+    "status": "succeeded",
+    "code": "",
+    "requestId": "brg-synthetic-0001",
+    "accountingStatus": "unverified",
+    "images": 1,
+    "extension": "png",
+    "corePosts": 1,
+    "retries": 0
+  }
+}

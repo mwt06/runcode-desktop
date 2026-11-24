@@ -1,0 +1,12 @@
+
+> runcode-desktop-frontend@0.0.0 test
+> vitest run
+
+
+ RUN  v4.1.12 C:/Users/yyzxc/.codex/worktrees/automation-tasks-1118/imagegen-client/cmd/runcode-desktop/frontend
+
+
+ Test Files  96 passed (96)
+      Tests  942 passed (942)
+   Start at  11:12:37
+   Duration  17.12s (transform 18.22s, setup 0ms, import 41.98s, tests 8.08s, environment 107.52s)

@@ -124,6 +124,20 @@ type RecorderSettings struct {
 	Version int `json:"version"`
 }
 
+// RecorderSettingsPatch 只携带本次用户编辑的字段。nil 表示保持原值；空串与 false
+// 都是真实修改。Version、Root、SummaryModel 不接受来自设置表单的 patch。
+type RecorderSettingsPatch struct {
+	GatewayURL      *string `json:"gatewayUrl,omitempty"`
+	GatewayToken    *string `json:"gatewayToken,omitempty"`
+	SpeakerName     *string `json:"speakerName,omitempty"`
+	Lang            *string `json:"lang,omitempty"`
+	MicDeviceID     *string `json:"micDeviceId,omitempty"`
+	SysDeviceID     *string `json:"sysDeviceId,omitempty"`
+	MicDiarize      *bool   `json:"micDiarize,omitempty"`
+	KeepAudio       *bool   `json:"keepAudio,omitempty"`
+	AutoFullMinutes *bool   `json:"autoFullMinutes,omitempty"`
+}
+
 // RecorderTranscript 是网关下行的一条转写事件。
 //
 // 字段与 recorder.Event 一一对应，含义见那边——这里刻意不复述，两处各写一遍

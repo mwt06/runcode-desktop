@@ -1,6 +1,6 @@
 package protocol
 
-// DirectoryAccessRequest names the calling session, never the focus.
+// DirectoryAccessRequest 指名调用会话，从不猜焦点会话。
 type DirectoryAccessRequest struct {
 	ConfirmRoot bool   `json:"confirmRoot,omitempty"`
 	SessionID   string `json:"sessionId"`
@@ -9,7 +9,7 @@ type DirectoryAccessRequest struct {
 	Scope       string `json:"scope"`
 }
 
-// DirectoryAccessGrant is one scoped directory allow rule.
+// DirectoryAccessGrant 是一条作用域内的目录允许规则。
 type DirectoryAccessGrant struct {
 	Directory string   `json:"directory"`
 	Access    string   `json:"access"`
@@ -17,7 +17,7 @@ type DirectoryAccessGrant struct {
 	CoveredBy []string `json:"coveredBy"`
 }
 
-// DirectoryAccessView lists directory rules for a named session.
+// DirectoryAccessView 列出指定会话的目录规则。
 type DirectoryAccessView struct {
 	SessionID string                 `json:"sessionId"`
 	Workspace string                 `json:"workspace"`
@@ -25,7 +25,7 @@ type DirectoryAccessView struct {
 	Grants    []DirectoryAccessGrant `json:"grants"`
 }
 
-// ArtifactReference is a bounded, session-instance-bound file capability.
+// ArtifactReference 是有界、绑定会话实例的文件能力句柄。
 type ArtifactReference struct {
 	Reference  string `json:"reference"`
 	SessionID  string `json:"sessionId"`
@@ -34,7 +34,16 @@ type ArtifactReference struct {
 	URL        string `json:"url"`
 }
 
-// DirectoryAccessChanged invalidates the directory view for one workspace.
+// DirectoryAccessChanged 使某一工作区的目录视图失效。
 type DirectoryAccessChanged struct {
 	Workspace string `json:"workspace"`
+}
+
+// PreviewLifecycle 让桌面文件预览缓存与会话实例重建对齐。
+// Phase 为 invalidating／ready／closed。ready 携带新的 host generation；
+// invalidating／closed 可将 Generation 留空。不覆盖聊天内静态 HTML 预览预算。
+type PreviewLifecycle struct {
+	SessionID  string `json:"sessionId"`
+	Phase      string `json:"phase"`
+	Generation string `json:"generation,omitempty"`
 }

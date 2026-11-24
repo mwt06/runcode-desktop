@@ -9,8 +9,13 @@
 // the Wails runtime directly, and runtime access stays here + in the generated
 // events module.
 
+import { onEnvelope as onCoreEnvelope, type EventMap } from './protocol/events'
+import type { AutomationEventSource, Envelope as WireEnvelope } from './protocol/types'
+import { Events as RuntimeEvents } from '@wailsio/runtime'
+
 // ---- wire types (generated single source of truth) ----------------------------
 export type {
+  SessionInfo,
  ArtifactReference, DirectoryAccessRequest, DirectoryAccessGrant, DirectoryAccessView,
   ModelContextValues, ModelContextOverride, ModelContextView, SaveModelContextSettingsRequest,
   QuestionReference, QuestionImage, QuestionDraft, QuestionReceipt, SubmitQuestionRequest,
@@ -61,6 +66,7 @@ export type {
   RecorderDeviceList,
   RecorderLevel,
   RecorderSettings,
+  RecorderSettingsPatch,
   RecorderState,
   RecorderTrack,
   RecorderTranscript,
@@ -70,7 +76,6 @@ export type {
   ResumedSession,
   ResumedTool,
   SaveCustomModelRequest,
-  SessionInfo,
   SessionRenamed,
   OpenSessionInfo,
   SessionSummary,
@@ -100,13 +105,32 @@ export type {
 // expose it under a collision-free name (the old handwritten bridge exported no
 // error type, so nothing depends on the bare name).
 export type { Error as ProtocolError } from './protocol/types'
-export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, SkillInstallStages, UpdateStages, RuntimePackIds, RuntimeStages, ProtocolVersion } from './protocol/types'
+export { Events, ToolEventTypes, Decisions, ErrCodes, PlanStages, PlanStates, SkillInstallStages, UpdateStages, RuntimePackIds, RuntimeStages, MailVersions, MailOnboardingStatuses, ProtocolVersion } from './protocol/types'
 
 export type { PassportTenant } from './protocol/types'
 
 // ---- events (generated; unwraps the Envelope exactly like the old helpers) ----
-export { onEvent, onEnvelope } from './protocol/events'
-export type { EventMap } from './protocol/events'
+// onEnvelope is wrapped so automation runs can carry AutomationEventSource
+// beside the Core envelope. sessionId, seq, and payload stay the generated wire.
+export { onEvent } from './protocol/events'
+export type { EventMap }
+
+export type DesktopEnvelope<P> = WireEnvelope<P> & { automationSource?: AutomationEventSource }
+
+export function onEnvelope<K extends keyof EventMap>(
+  event: K,
+  handler: (data: DesktopEnvelope<EventMap[K]>) => void,
+): () => void {
+  return onCoreEnvelope(event, (data) => {
+    handler(data as DesktopEnvelope<EventMap[K]>)
+  })
+}
+
+// 托盘“查看待处理任务”是宿主原生事件，不携带 Core Envelope；这里集中封装，
+// 页面组件仍只依赖 bridge，不直接访问 Wails runtime。
+export function onAutomationOpenManager(handler: () => void): () => void {
+  return RuntimeEvents.On('automation:open_manager', () => handler())
+}
 
 // ---- commands (generated; same lowerCamel names the old helpers used) ---------
 export {
@@ -132,6 +156,7 @@ export {
   interrupt,
   listAgents,
   getVisionSettings, saveVisionSettings, setPlatformImageCapability,
+  getLocalUsageTenants,
   listCustomModels,
   listEdits,
   listFiles,
@@ -168,6 +193,7 @@ export {
   readRecordingTranscript,
   recorderDevices,
   recorderSettings,
+  patchRecorderSettings,
   recorderStatus,
   listRecordings,
   saveRecorderSettings,
@@ -355,3 +381,63 @@ function base64(bytes: Uint8Array): string {
   }
   return btoa(binary)
 }
+
+// ---- 文生图（IMG-GEN-001）---------------------------------------------------------
+export type {
+  ImageGenerationProfile, ImageGenerationModel, ImageGenerationCatalog, ImageGenerationSettings,
+  SaveImageGenerationSettingsRequest, SaveImageGenerationEditRequest,
+  ImageGenerationArtifact, ImageGenerationResult,
+} from './protocol/types'
+export {
+  listImageGenerationModels, getImageGenerationSettings, saveImageGenerationSettings,
+  saveImageGenerationEdit,
+} from './protocol/commands'
+
+// ---- 邮箱账号设置（接入向导）+ 通信录/草稿业务页 --------------------------------
+export type {
+  MailSettings, MailAccountView, MailVersion, MailOnboardingStatus,
+  SaveMailAccountRequest, DisableMailAccountRequest, RemoveMailAccountRequest,
+  TestMailConnectionRequest, MailConnectionTestResult,
+  SendMailTestToSelfRequest, MailTestSendResult, ConfirmMailTestReceiptRequest,
+  OpenMailOfficialURLRequest,
+  MailAddressView, MailContactView, MailDraftView, MailOutboxEntryView,
+  ListMailContactsRequest, SaveMailContactRequest, DeleteMailContactRequest,
+  MailContactImportRow, PreviewMailContactImportRequest, MailContactImportPreview,
+  CommitMailContactImportRequest, ListMailDraftsRequest, GetMailDraftRequest,
+  DeleteMailDraftRequest, SaveMailDraftRequest, CreateMailDraftRequest, ListMailOutboxRequest,
+  PrepareMailSendRequest, PrepareMailSendResult, MailSendPreview, MailAttachmentPreview,
+  ConfirmMailSendRequest, ConfirmMailSendResult,
+} from './protocol/types'
+export {
+  getMailSettings, saveMailAccount, disableMailAccount, removeMailAccount,
+  testMailConnection, sendMailTestToSelf, confirmMailTestReceipt, openMailOfficialURL,
+  listMailContacts, saveMailContact, deleteMailContact,
+  previewMailContactImport, commitMailContactImport,
+  listMailDrafts, getMailDraft, createMailDraft, saveMailDraft, deleteMailDraft, listMailOutbox,
+  prepareMailSend, confirmMailSend,
+} from './protocol/commands'
+
+// ---- 用量统计（USAGE-001）：只读查询，类型与命令都来自生成协议 ------------------
+export type {
+  UsageQuery, UsageEffectiveRange, ResolvedUsageQuery, UsageRequestsQuery, UsageDimensionsQuery,
+  UsageQuality, UsageTotals, UsageBucket, UsageCapabilities, UsageCoverageGap, UsageOverview,
+  UsageRowQuality, UsageRequestRow, UsageRequestsPage, UsageDimensionRow, UsageDimensionsPage,
+} from './protocol/types'
+export { getUsageOverview, getUsageRequests, getUsageDimensions, resetLocalUsageStore } from './protocol/commands'
+
+// ---- 自动化任务：命令与类型都来自生成协议；页面只从这里调用 ----------------------
+export type {
+  AutomationBindingSummary, AutomationContext, AutomationContextChanged, AutomationConversationResult,
+  AutomationDefaults, AutomationEventSource, AutomationModelSummary, AutomationOrigin, AutomationRun,
+  AutomationRunChanged, AutomationRunPage, AutomationSchedule, AutomationServiceChanged, AutomationSessionResult,
+  AutomationTask, AutomationTaskChanged, AutomationTaskDraft, AutomationTaskPage, AutomationTaskResult,
+  AutomationRunResult, DeleteAutomationTaskRequest, DeleteAutomationTaskResult,
+  CreateAutomationTaskRequest, ListAutomationRunsRequest, ListAutomationTasksRequest, OpenAutomationSessionRequest,
+  RunAutomationTaskNowRequest, SessionAutomationRunsRequest, SetAutomationTaskPausedRequest, UpdateAutomationTaskRequest,
+} from './protocol/types'
+export {
+  getAutomationDefaults, listAutomationTasks, createAutomationTask, updateAutomationTask,
+  setAutomationTaskPaused, runAutomationTaskNow, deleteAutomationTask,
+  listAutomationRuns, listSessionAutomationRuns, getAutomationConversation,
+  openAutomationSession, closeMainWindow, requestAppExit,
+} from './protocol/commands'

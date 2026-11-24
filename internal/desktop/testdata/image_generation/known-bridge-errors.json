@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "description": "Bridge 自知原因的拒绝（设计 6.3 第一、二行）。core 为 null 表示 Bridge 尚未转发 Core，Core POST 计数必须为 0。客户端结果为 failed，不自动重发原 POST。",
+  "cases": [
+    {
+      "name": "bridge_auth_rejected",
+      "core": null,
+      "bridge": {
+        "status": 401,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0101" },
+        "body": { "error": { "code": "auth", "message": "登录已失效，请重新登录后再试", "request_id": "brg-synthetic-0101" } }
+      },
+      "expect": { "status": "failed", "code": "auth", "requestId": "brg-synthetic-0101", "corePosts": 0, "retries": 0, "tokenRefreshAndResend": false }
+    },
+    {
+      "name": "bridge_tenant_or_model_forbidden",
+      "core": null,
+      "bridge": {
+        "status": 403,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0102" },
+        "body": { "error": { "code": "forbidden", "message": "当前账号或租户无权使用该生图模型", "request_id": "brg-synthetic-0102" } }
+      },
+      "expect": { "status": "failed", "code": "forbidden", "requestId": "brg-synthetic-0102", "corePosts": 0, "retries": 0 }
+    },
+    {
+      "name": "bridge_invalid_input",
+      "core": null,
+      "bridge": {
+        "status": 400,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0103" },
+        "body": { "error": { "code": "invalid_input", "message": "图片尺寸不在该模型支持范围内", "request_id": "brg-synthetic-0103" } }
+      },
+      "expect": { "status": "failed", "code": "invalid_input", "requestId": "brg-synthetic-0103", "corePosts": 0, "retries": 0 }
+    },
+    {
+      "name": "bridge_model_unavailable",
+      "core": null,
+      "bridge": {
+        "status": 503,
+        "headers": { "Content-Type": "application/json", "X-Request-ID": "brg-synthetic-0104" },
+        "body": { "error": { "code": "model_unavailable", "message": "该生图模型当前不可用", "request_id": "brg-synthetic-0104" } }
+      },
+      "expect": { "status": "failed", "code": "model_unavailable", "requestId": "brg-synthetic-0104", "corePosts": 0, "retries": 0 }
+    }
+  ]
+}

@@ -141,6 +141,55 @@ type kylinQuit struct {
 	ctx context.Context
 }
 
+func newKylinWindowLifecycle(deskApp *desktop.App, dlg *kylinDialog, quit *kylinQuit) *desktop.WindowLifecycle {
+	confirm := func(prompt desktop.ExitConfirmation, decide func(bool)) {
+		ctx := dlg.get()
+		if ctx == nil {
+			decide(false)
+			return
+		}
+		result, err := wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
+			Type: wruntime.QuestionDialog, Title: "退出" + brandTitle, Message: prompt.Message,
+			Buttons: []string{"取消", "退出"}, DefaultButton: "取消", CancelButton: "取消",
+		})
+		decide(err == nil && result == "退出")
+	}
+	report := func(err error) {
+		ctx := dlg.get()
+		if ctx == nil || err == nil {
+			return
+		}
+		_, _ = wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
+			Type: wruntime.ErrorDialog, Title: "窗口操作失败", Message: err.Error(), Buttons: []string{"确定"},
+		})
+	}
+	return desktop.NewAppWindowLifecycle(deskApp, desktop.WindowHostOptions{
+		BackgroundSupported: false,
+		Hide: func() error {
+			ctx := dlg.get()
+			if ctx == nil {
+				return errors.New("窗口上下文尚未就绪")
+			}
+			wruntime.WindowHide(ctx)
+			return nil
+		},
+		UnMinimise: func() {},
+		Show: func() {
+			if ctx := dlg.get(); ctx != nil {
+				wruntime.WindowShow(ctx)
+			}
+		},
+		Focus: func() {
+			if ctx := dlg.get(); ctx != nil {
+				wruntime.WindowShow(ctx)
+			}
+		},
+		ConfirmExit: confirm,
+		Quit:        quit.Quit,
+		ReportError: report,
+	})
+}
+
 func (q *kylinQuit) setCtx(ctx context.Context) {
 	q.mu.Lock()
 	q.ctx = ctx
@@ -233,6 +282,7 @@ func main() {
 	deskApp := desktop.New(sink)
 	deskApp.SetDialoger(dlg)
 	deskApp.SetQuitter(quit)
+	windowLife := newKylinWindowLifecycle(deskApp, dlg, quit)
 
 	// 麒麟是 Linux，麦克风与系统声音（PulseAudio 的 monitor 源）都录得到，所以这里
 	// 与 v3 那份一样要把采集实现注进去。拿不到不算致命：没跑 PulseAudio 的环境下
@@ -279,18 +329,22 @@ func main() {
 			sink.setCtx(ctx)
 			dlg.setCtx(ctx)
 			quit.setCtx(ctx)
+			deskApp.SetWindowController(windowLife)
 			deskApp.Startup()
 		},
-		// 收尾放在 OnBeforeClose 而不是 OnShutdown。v2 在 Linux 上是先 gtk_main_quit、
-		// 主循环停了才调 OnShutdown（internal/app/app_production.go 的 Run），这时窗口
-		// 已经不会重绘也不会消失：关会话最长要等十几秒，用户看到的是一个点了关闭却
-		// 冻住不动的窗口，再点也没反应。关闭按钮、前端的退出、SIGTERM 与更新安装都
-		// 经 Frontend.Quit 走到这里，而且在单独的 goroutine 里调，主循环仍在跑，
-		// 所以先藏窗口它是真的会消失。返回 false = 不拦，接着退出。
+		// 非 Windows/麒麟没有托盘，关闭即退出；但仍通过同一生命周期先确认后台任务。
+		// 取消时返回 true 拦下关闭；确认后 Quitting 立即为 true，返回 false 允许系统退出。
 		OnBeforeClose: func(ctx context.Context) bool {
-			wruntime.WindowHide(ctx)
-			deskApp.PrepareExit(desktop.ExitTimeout)
-			return false
+			if windowLife.Quitting() {
+				return false
+			}
+			if err := windowLife.RequestAppExit(); err != nil {
+				_, _ = wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
+					Type: wruntime.ErrorDialog, Title: "无法退出", Message: err.Error(), Buttons: []string{"确定"},
+				})
+				return true
+			}
+			return !windowLife.Quitting()
 		},
 		// 兜底：万一有哪条路绕过了 OnBeforeClose，这里补做一次；已经做过的话
 		// PrepareExit 直接返回同一个结果，不会重复收尾，也不会再等满时限。

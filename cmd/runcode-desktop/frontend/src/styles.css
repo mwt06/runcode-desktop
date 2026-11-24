@@ -46,6 +46,10 @@
   --shadow-lift-danger: 0 5px 14px rgba(224, 86, 74, 0.3);
   /* Modal elevation, shared by the permission dialog and the confirm dialog. */
   --shadow-modal: 0 30px 70px rgba(30, 35, 60, 0.28);
+  /* 栅格生图查看层 60／放弃确认 61；权限／密码层 80（高于图片层）。 */
+  --z-image-modal: 60;
+  --z-image-confirm: 61;
+  --z-permission: 80;
 
   /* Corner radii, anchored in px. Tailwind's presets are rem-based, so
      `rounded-lg` (0.5rem) and a hand-written `rounded-[8px]` render identically
@@ -200,4 +204,14 @@
   border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 2px 16px rgba(30, 35, 60, 0.14);
+}
+
+/* 自动化管理窗是盖在客户端上的模态，不是预览页。宽高是方案里的布局上限。 */
+.automation-window {
+  width: min(1120px, calc(100vw - 48px));
+  height: calc(100vh - 48px);
+  max-height: calc(100vh - 48px);
+}
+.automation-drawer {
+  width: min(440px, 100%);
 }

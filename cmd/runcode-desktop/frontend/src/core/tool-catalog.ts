@@ -36,6 +36,10 @@ export const BUILTIN_TOOLS: Record<string, BuiltinTool> = {
   // 审批板（见 chat/plan-board）。
   plan_write: { label: '记录方案', desc: '计划模式下按阶段记录规划产出（需求理解 / 方案设计 / 方案审查），交给用户编辑与审批(仅桌面版)。' },
   install_runtime: { verb: '安装运行时', label: '安装运行时环境', desc: '缺 Python / Node.js / Git 时安装应用自带的那一份：校验 sha256、装到用户目录、不需要管理员权限，每次都要你批准(仅桌面版)。' },
+  image_generate: { verb: '生成图片', label: '文生图', desc: '已在设置中选择生图模型的通行证会话中，聊天模型会根据你的提示词判断是否生成图片并保存到工作区(仅桌面版、平台通行证会话)。' },
+  search_contacts: { verb: '查找联系人', label: '查找通信录', desc: '在本地通信录中按姓名或邮箱子串查询，最多 20 条；同名不猜地址(仅桌面版)。' },
+  add_mail_contact: { verb: '添加联系人', label: '添加通信录', desc: '将姓名与邮箱写入本地通信录；邮箱格式不正确时拒绝保存并提示修改(仅桌面版)。' },
+  send_email: { verb: '准备邮件', label: '准备邮件草稿', desc: '创建可编辑邮件草稿并返回 draft_ready；不直接 SMTP 发送，需用户在邮箱页确认(仅桌面版)。' },
   Task: { verb: '委派子代理', label: '委派子代理', desc: '把一个自包含的子任务委派给子代理独立执行。' },
   Skill: { verb: '加载技能', label: '加载技能', desc: '加载并执行一个已定义的技能。' },
   // 以下四个由引擎的 mcp 包提供，配了 MCP 服务器时才出现在工具集里。它们不带

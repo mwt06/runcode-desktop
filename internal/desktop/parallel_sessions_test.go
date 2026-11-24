@@ -81,7 +81,7 @@ func newParallelApp(t *testing.T) (*App, *recordingSink, chan *fakeHostSession) 
 
 // openParallelSession 开一条会话并登记进外壳的会话表，**不关掉别的会话**。
 //
-// 走的是 registerSessionLocked——与生产路径同一个登记口，只是不带"先关掉当前那条"
+// 走的是 registerSession——与生产路径同一个登记口，只是不带"先关掉当前那条"
 // 那道单会话策略。多会话 UI（P2）要的正是这个组合。
 func openParallelSession(t *testing.T, a *App, built chan *fakeHostSession) (string, *fakeHostSession) {
 	t.Helper()
@@ -93,8 +93,8 @@ func openParallelSession(t *testing.T, a *App, built chan *fakeHostSession) (str
 	a.mu.Lock()
 	edits, plans, emit := a.pendingEdits, a.pendingPlans, a.pendingEmit
 	a.pendingEdits, a.pendingPlans, a.pendingEmit = nil, nil, nil
-	a.registerSessionLocked(id, cwd, edits, plans, emit)
 	a.mu.Unlock()
+	a.registerSession(id, cwd, edits, plans, emit)
 
 	select {
 	case s := <-built:

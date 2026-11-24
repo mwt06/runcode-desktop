@@ -2,12 +2,16 @@ package desktop
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+
+	wireprotocol "github.com/wt68/runcode/internal/protocol"
+	engineprotocol "gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
 
 // 旧文件格式必须能完整读回；修改表单不应重写不属于它的连接/私有字段。
@@ -91,6 +95,74 @@ func TestSaveSettingsRejectsInvalidInputWithoutWriting(t *testing.T) {
 	}
 	if _, ok := loadRawConfigOK(); ok {
 		t.Fatal("invalid settings reached disk")
+	}
+}
+
+func TestSaveSettingsExplicitEmptySessionOnlyWritesDefaults(t *testing.T) {
+	isolateConfigDir(t)
+	app := New(&recordingSink{})
+	focusOn(app, "focused", t.TempDir())
+	empty := ""
+
+	info, err := app.SaveSettings(SaveSettingsRequest{
+		SessionID:      &empty,
+		PermissionMode: "judge",
+		HarmJudgeVotes: 3,
+		SkipLogin:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.SessionID != "" {
+		t.Fatalf("defaults-only save returned focused session %q", info.SessionID)
+	}
+	got := loadRawConfig()
+	if got.PermissionMode != "judge" || got.HarmJudgeVotes != 3 || !got.SkipLogin {
+		t.Fatalf("defaults-only fields not persisted: %+v", got)
+	}
+}
+
+func TestSaveSettingsRejectsClosedExplicitSessionBeforeWriting(t *testing.T) {
+	isolateConfigDir(t)
+	app := New(&recordingSink{})
+	entry := focusOn(app, "closed", t.TempDir())
+	app.mu.Lock()
+	entry.closed = true
+	app.mu.Unlock()
+	id := "closed"
+
+	_, err := app.SaveSettings(SaveSettingsRequest{
+		SessionID:      &id,
+		PermissionMode: "judge",
+		HarmJudgeVotes: 3,
+	})
+	var pe *engineprotocol.Error
+	if !errors.As(err, &pe) || pe.Code != engineprotocol.ErrCodeNoSession {
+		t.Fatalf("closed target error = %v, want no_session", err)
+	}
+	if _, ok := loadRawConfigOK(); ok {
+		t.Fatal("closed target reached disk")
+	}
+}
+
+func TestSaveSettingsReportsApplyFailureAfterPersistence(t *testing.T) {
+	isolateConfigDir(t)
+	app := New(&recordingSink{})
+	focusOn(app, "live-without-manager", t.TempDir())
+	id := "live-without-manager"
+
+	_, err := app.SaveSettings(SaveSettingsRequest{
+		SessionID:      &id,
+		PermissionMode: "judge",
+		HarmJudgeVotes: 5,
+	})
+	var pe *engineprotocol.Error
+	if !errors.As(err, &pe) || pe.Code != wireprotocol.ErrCodeSettingsApplyFailed {
+		t.Fatalf("apply failure = %v, want settings_apply_failed", err)
+	}
+	got := loadRawConfig()
+	if got.PermissionMode != "judge" || got.HarmJudgeVotes != 5 {
+		t.Fatalf("persistence should have succeeded before apply failure: %+v", got)
 	}
 }
 

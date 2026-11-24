@@ -1,0 +1,23 @@
+ok  	github.com/wt68/runcode/internal/appupdate	(cached)
+ok  	github.com/wt68/runcode/internal/automation	(cached)
+ok  	github.com/wt68/runcode/internal/browsertool	(cached)
+ok  	github.com/wt68/runcode/internal/codexauth	(cached)
+ok  	github.com/wt68/runcode/internal/codexproxy	(cached)
+ok  	github.com/wt68/runcode/internal/command	(cached)
+ok  	github.com/wt68/runcode/internal/desktop	53.723s
+?   	github.com/wt68/runcode/internal/desktop/builtinskills	[no test files]
+ok  	github.com/wt68/runcode/internal/download	(cached)
+ok  	github.com/wt68/runcode/internal/imagegentool	(cached)
+ok  	github.com/wt68/runcode/internal/localusage	(cached)
+ok  	github.com/wt68/runcode/internal/oatool	(cached)
+ok  	github.com/wt68/runcode/internal/officetool	(cached)
+ok  	github.com/wt68/runcode/internal/plantool	(cached)
+ok  	github.com/wt68/runcode/internal/previewtool	(cached)
+?   	github.com/wt68/runcode/internal/protocol	[no test files]
+ok  	github.com/wt68/runcode/internal/recorder	(cached)
+ok  	github.com/wt68/runcode/internal/runtimetool	(cached)
+ok  	github.com/wt68/runcode/internal/skilltool	(cached)
+ok  	github.com/wt68/runcode/internal/ui	(cached)
+ok  	github.com/wt68/runcode/internal/vision	(cached)
+ok  	github.com/wt68/runcode/internal/websearchtool	(cached)
+ok  	github.com/wt68/runcode/cmd/runcode	(cached)

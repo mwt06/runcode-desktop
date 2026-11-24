@@ -17,6 +17,9 @@ import (
 	"github.com/wt68/runcode/internal/browsertool"
 	"github.com/wt68/runcode/internal/codexauth"
 	"github.com/wt68/runcode/internal/codexproxy"
+	"github.com/wt68/runcode/internal/imagegentool"
+	"github.com/wt68/runcode/internal/localusage"
+	"github.com/wt68/runcode/internal/mailtool"
 	"github.com/wt68/runcode/internal/officetool"
 	"github.com/wt68/runcode/internal/plantool"
 	"github.com/wt68/runcode/internal/previewtool"
@@ -25,6 +28,7 @@ import (
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/imageinput"
+	"gitlab.ouc-online.com.cn/aibase/agentloop/llm"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/protocol"
 )
@@ -33,8 +37,9 @@ import (
 // their protocol codes at every command boundary. Host-side failures already
 // arrive as *protocol.Error and pass through untouched.
 var (
-	errNoSession = errors.New("no active session")
-	errBusy      = errors.New("a turn is already in progress")
+	errNoSession  = errors.New("no active session")
+	errBusy       = errors.New("a turn is already in progress")
+	errAppExiting = errors.New("应用正在退出，无法创建会话")
 )
 
 // Dialoger opens native file/folder pickers. The Wails shell implements it; the
@@ -71,7 +76,8 @@ type Quitter interface{ Quit() }
 //     条目加锁,并遵守 startMu → App.mu → entry.mu 的次序。
 type sessionEntry struct {
 	modelRef   modelReference
-	questionMu sync.Mutex // serializes submission preparation without holding App.mu
+	questionMu sync.Mutex             // serializes submission preparation without holding App.mu
+	identity   sessionIdentityBinding // immutable account binding for per-session product state
 	// Creation connection belongs to this entry, not whichever session has focus.
 	connectionConfig engine.Config
 	passport         bool
@@ -86,6 +92,9 @@ type sessionEntry struct {
 	emit      func(event string, payload any)
 	edits     *editStore
 	plans     *planStore
+	// imageGeneration holds this session instance's image_generate turn
+	// snapshot (nil for sessions that do not register the tool).
+	imageGeneration *imageGenerationTurnState
 
 	// turnActive mirrors whether this session has a turn in flight (set on
 	// submit, cleared when the sink adapter observes turn:end / turn:error).
@@ -231,6 +240,13 @@ type App struct {
 	// approval gate, and the persisted copy that lets a pending approval survive a
 	// restart. Same lifecycle as pendingEdits; promoted onto the entry on success.
 	pendingPlans *planStore
+	// pendingImageGeneration parks image_generate state while Create is in flight.
+	pendingImageGeneration *imageGenerationTurnState
+	// imageGenerationPrefs is the in-memory mirror of the scoped image defaults.
+	// Turn start reads this snapshot; desktop.json is only read by settings commands
+	// and startup, never on the chat hot path.
+	imageGenerationMu    sync.RWMutex
+	imageGenerationPrefs map[string]imageGenerationPreference
 	// tokens holds the Passport OAuth tokens (memory + DPAPI persistence); it is
 	// also the engine's TokenSource. passportUser caches /api/me for PassportStatus.
 	// loginCancel cancels an in-flight browser login wait.
@@ -258,6 +274,20 @@ type App struct {
 	// oaBindings 缓存"当前账号在 Passport 里绑没绑 OA"（见 oa.go）。与上一行同一套
 	// 理由：会话创建不能每次都去问一趟。键同样是租户 id。
 	oaBindings map[string]oaBindingEntry
+	// usageStore 是本机平台用量 SQLite（见 usage_capture.go／internal/localusage）。
+	// Startup 打开；Shutdown 在回合收尾后关闭。nil 表示未启用或打开失败。
+	usageMu      sync.RWMutex
+	usageStore   *localusage.Store
+	usageInitErr error
+	// auto 是自动化任务的会话租约。Emit 只往这里记事实；关会话在独立 worker。
+	auto automationHost
+	// autoCtl 是任务库可用性和身份代际。它和 auto 分开，避免在主机发射锁里做存储 IO。
+	autoCtl autoCtl
+	// mailCtl 是独立邮件库与派发器；失败只阻断邮件，不影响聊天/automation。
+	mailCtl mailCtl
+	// windowCtrl 是独立窗口能力引用（GetWindowCapabilities）；不读取 autoCtl.window。
+	windowMu   sync.Mutex
+	windowCtrl WindowController
 }
 
 // New returns an App that emits events to sink. Session events are enveloped
@@ -271,19 +301,33 @@ func New(sink EventSink) *App { return newWithBuild(sink, host.DefaultBuild) }
 // **多会话并行**:那需要两条真的引擎会话同时在跑,而真会话要一个连得上的 provider。
 // 引擎的 host.BuildFunc 本来就写着"tests inject a fake",这里只是把它透出来。
 func newWithBuild(sink EventSink, build host.BuildFunc) *App {
+	raw := loadRawConfig()
 	a := &App{
-		out:            sink,
-		sink:           newEnvelopeSink(sink),
-		sessions:       map[string]*sessionEntry{},
-		idleEdits:      newEditStore(),
-		idlePlans:      newPlanStore(),
-		passportTenant: strings.TrimSpace(loadRawConfig().TenantID),
-		audit:          newContextAuditManager(),
+		out:                  sink,
+		sink:                 newEnvelopeSink(sink),
+		sessions:             map[string]*sessionEntry{},
+		idleEdits:            newEditStore(),
+		idlePlans:            newPlanStore(),
+		passportTenant:       strings.TrimSpace(raw.TenantID),
+		imageGenerationPrefs: cloneImageGenerationPreferences(raw.ImageGenerationPreferences),
+		audit:                newContextAuditManager(),
 		// ChatGPT 账号在这里就读回落盘的令牌,所以重启后仍是登录态(见 codex.go)。
 		codex: newCodexAccount(),
 	}
+	// 真实引擎会话需要一层极薄包装，以便 host.Manager 的 SubmitQuestion
+	// 把它分配的问题 ID 透传到生图工具；测试 fake session 保持原样。
+	wrappedBuild := func(cfg engine.Config, opts engine.Options) (host.Session, error) {
+		session, err := build(cfg, opts)
+		if err != nil {
+			return nil, err
+		}
+		if engSess, ok := session.(*engine.Session); ok {
+			return &imageGenerationInvocationSession{Session: engSess, app: a, sessionID: cfg.SessionID}, nil
+		}
+		return session, nil
+	}
 	a.mgr = host.NewManager(host.Options{
-		Build:       build,
+		Build:       wrappedBuild,
 		Sink:        hostSinkAdapter{app: a},
 		Limits:      host.Limits{}, // single-user shell: unbounded, IdleTimeout 0
 		Configure:   a.configureSession,
@@ -295,6 +339,7 @@ func newWithBuild(sink EventSink, build host.BuildFunc) *App {
 		a.mu.Lock()
 		a.passportUser = nil
 		a.mu.Unlock()
+		a.noteAutomationIdentity()
 		a.sink.Emit(EventPassportChanged, PassportStatus{})
 	})
 	a.tokens.loadPersisted()
@@ -377,6 +422,14 @@ func (a *App) Startup() {
 			debugLog("context audit restore: %v", err)
 		}
 	}
+	// 本机平台用量：独立 SQLite；失败只记日志，不阻断启动。
+	if err := a.initLocalUsage(); err != nil {
+		debugLog("local usage init: %v", err)
+	}
+	// 自动化任务库失败不阻断聊天。New 不做这件事，避免测试和工具构造 App 时写库。
+	a.initAutomation()
+	// 邮件库/派发器失败只阻断邮件，不影响聊天与 automation。
+	a.initMail()
 }
 
 // hostSinkAdapter forwards host envelopes to the shell sink under the
@@ -397,10 +450,15 @@ func (s hostSinkAdapter) Emit(env protocol.Envelope) {
 			s.app.noteToolFinished(ev.ToolName)
 		}
 	}
+	// 自动化事实只进内存队列。这里不能写库，也不能关会话：Emit 持有主机的
+	// 会话发射锁，堵住就会把整条会话的事件停住。
+	// 终态观察会删掉租约，所以外发包装必须先把租约抄出来。
+	lease, leased := s.app.automationLease(env.SessionID)
+	s.app.observeAutomationEnvelope(env)
 	// Record the turn lifecycle to the diagnostic log before forwarding, so a turn
 	// that fails or ends empty is traceable even when nothing renders in the UI.
 	logEnvelope(env)
-	s.app.out.Emit(env.Event, env)
+	s.app.forwardAutomationEnvelope(env, lease, leased)
 }
 
 // noteTurnDone clears the in-flight mirror when a session's turn finishes
@@ -653,12 +711,18 @@ func (a *App) SetQuitter(q Quitter) { a.quit = q }
 // 让"某些会话里 OA 工具一调就被拒"这种问题多一个可能来源。
 var hostToolClasses = func() map[string]permissions.ToolClass {
 	m := map[string]permissions.ToolClass{
-		plantool.Name:       permissions.ClassReadOnly,
-		previewtool.Name:    permissions.ClassReadOnly,
-		officetool.Name:     permissions.ClassReadOnly,
-		runtimetool.Name:    permissions.ClassMutating,
-		browsertool.Name:    permissions.ClassMutating,
+		plantool.Name:    permissions.ClassReadOnly,
+		previewtool.Name: permissions.ClassReadOnly,
+		officetool.Name:  permissions.ClassReadOnly,
+		runtimetool.Name: permissions.ClassMutating,
+		browsertool.Name: permissions.ClassMutating,
+		// 生图会计费并写本地文件：ClassMutating 保留；会话开启「生成图片」后免弹窗放行。
+		imagegentool.Name:   permissions.ClassMutating,
 		imageinput.ToolName: permissions.ClassReadOnly,
+		// 邮件：查询只读；add_mail_contact / send_email 写库归 mutating；SMTP 另走用户确认。
+		mailtool.SearchContactsName: permissions.ClassReadOnly,
+		mailtool.AddMailContactName: permissions.ClassMutating,
+		mailtool.SendEmailName:      permissions.ClassMutating,
 	}
 	for name, class := range oaToolClasses {
 		m[name] = class
@@ -740,7 +804,10 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		// runtimeResolver 只做展示：给 install_runtime 的审批弹窗配一句"装的是什么、
 		// 多大、装到哪"（见 runtimetool.go）。
 		Resolver: privilegeResolver{inner: runtimeResolver{
-			inner: browserResolver{inner: fileReadResolver{inner: permissions.WithToolClasses(nil, hostToolClasses)}},
+			inner: imageGenerationResolver{
+				inner: browserResolver{inner: fileReadResolver{inner: permissions.WithToolClasses(nil, hostToolClasses)}, preview: a.sessionArtifactPreviewURL},
+				state: a.imageGenerationStateOf,
+			},
 			rt:    a.rt,
 			trust: a.ensureRuntimeTrust,
 		}},
@@ -760,9 +827,13 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 		// sudo 那一层（privilegePolicy，把 sudo 从硬拒改成每次询问）必须包在 OA 锁**里面**：
 		// OA 锁要有最终决定权。反过来的话，一条 `sudo curl …` 会被这一层从"拒绝"改回
 		// "询问"，OA 锁想挡的出网就漏了。
+		// artifactPolicy 包在 appDir 外、提权内：工作区内产品产物的 Write/Edit
+		// 免弹窗，且只接受普通文件；执行面、凭据、越界和命令路径仍由内层规则保护。
 		Policy: newOALockPolicy(
 			privilegePolicy{
-				inner:   newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPBindings: trustedMCPBindings(cfg.MCPServers)}),
+				inner: newArtifactPolicy(
+					newAppDirPolicy(permissions.DefaultPolicy{TrustedMCPBindings: trustedMCPBindings(cfg.MCPServers)}),
+				),
 				enabled: a.privilegeReady,
 			},
 			func() string { return a.oaLockedModel(sctx.ID) },
@@ -813,7 +884,7 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 
 	// 联网搜索：登录了通行证就换成平台自己的搜索(经 Bridge 走 AI.Core)，否则保留
 	// 引擎内置的那条。同样是"替换"而非"新增"——理由见 websearch.go。
-	if ws := passportWebSearch(cfg); ws != nil {
+	if ws := passportWebSearchFor(a, cfg); ws != nil {
 		opts.WebSearchTool = ws
 	}
 
@@ -826,11 +897,36 @@ func (a *App) configureSession(sctx host.SessionContext, cfg *engine.Config, opt
 	if oa := a.oaTools(cfg, sctx.ID); len(oa) > 0 {
 		opts.ExtraTools = append(opts.ExtraTools, oa...)
 	}
+	// image_generate：通行证主会话常驻注册；是否可用由每回合冻结的快照描述，关闭时
+	// Run 本地拒绝、零请求。
+	imageGenerationTools := a.imageGenerationTools(cfg, sctx.ID, sctx.Generation)
+	hasImageGeneration := len(imageGenerationTools) > 0
+	if hasImageGeneration {
+		opts.ExtraTools = append(opts.ExtraTools, imageGenerationTools...)
+	} else {
+		a.mu.Lock()
+		a.pendingImageGeneration = nil
+		a.mu.Unlock()
+	}
+	// 邮件工具：主会话常驻；子代理拿不到 ExtraTools。OA 锁在权限层挡 send_email。
+	opts.ExtraTools = append(opts.ExtraTools, a.mailTools(cfg, sctx.ID)...)
+	// 通用格式分工所有会话都需要；带 image_generate 的规则只跟随工具注册。
+	appendRenderRoutePrompts(cfg, hasImageGeneration)
 
-	// 上下文审核观测器只在测试版接线;正式版连回调都不装,功能整体不存在。
-	// 回调内部查原子开关,所以运行中切换立即对当前会话生效,无需重建。
+	// LLMRequestObserver 同时服务本地用量 purpose 归属和测试版上下文审核。
+	// 用量追踪器在生产路径也必须存在，否则 provider 只能看到请求而看不到 purpose。
+	purposes := currentPlatformPurposeTracker()
+	var auditObserver func(purpose, turnID string, req llm.Request)
 	if IsTestBuild() {
-		opts.LLMRequestObserver = a.audit.observer(sctx.ID)
+		auditObserver = a.audit.observer(sctx.ID)
+	}
+	if purposes != nil || auditObserver != nil {
+		opts.LLMRequestObserver = func(purpose, turnID string, req llm.Request) {
+			purposes.Observe(purpose, req)
+			if auditObserver != nil {
+				auditObserver(purpose, turnID, req)
+			}
+		}
 	}
 
 	a.configureImages(sctx, *cfg, opts)
@@ -881,6 +977,9 @@ func (a *App) StartSession(req StartSessionRequest) (SessionInfo, error) {
 	}
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
+	if a.exit.closing.Load() {
+		return SessionInfo{}, wireError(errAppExiting)
+	}
 	// Record the workspace before the build so session listing works even when
 	// this start fails (pre-host behavior).
 	a.mu.Lock()
@@ -919,6 +1018,9 @@ func (a *App) openSessionHeld(cfg engine.Config) (SessionInfo, error) {
 // 别的东西,它就没了"——先是新建对话,再是换工作区,最后是点最近对话。替换式打开
 // 留给真正意味着"这条会话要被换掉"的地方:换模型/改设置的原地重建、重载 MCP。
 func (a *App) addSessionHeld(cfg engine.Config, passport bool, tenantID string, refs ...modelReference) (SessionInfo, error) {
+	if a.exit.closing.Load() {
+		return SessionInfo{}, errAppExiting
+	}
 	if info, ok, err := a.focusIfAlreadyOpenHeld(cfg.Resume); ok {
 		return info, err
 	}
@@ -929,6 +1031,9 @@ func (a *App) addSessionHeld(cfg engine.Config, passport bool, tenantID string, 
 // identity. Callers that build a new connection pass its origin directly; callers
 // that reuse a.config use openSessionHeld and inherit the stored identity.
 func (a *App) openSessionWithConnectionHeld(cfg engine.Config, passport bool, tenantID string, refs ...modelReference) (SessionInfo, error) {
+	if a.exit.closing.Load() {
+		return SessionInfo{}, errAppExiting
+	}
 	if info, ok, err := a.focusIfAlreadyOpenHeld(cfg.Resume); ok {
 		return info, err
 	}
@@ -992,6 +1097,9 @@ func (a *App) buildSessionModeHeld(ctx context.Context, cfg engine.Config, passp
 }
 
 func (a *App) buildSessionResolvedHeld(ctx context.Context, cfg engine.Config, passport bool, tenantID string, focus, restoreModel bool, refs ...modelReference) (SessionInfo, error) {
+	if a.exit.closing.Load() {
+		return SessionInfo{}, errAppExiting
+	}
 	requested := cfg.Model
 	cfg, err := restoredContextModel(ctx, cfg, restoreModel)
 	if err != nil {
@@ -1050,9 +1158,13 @@ func (a *App) buildSessionResolvedHeld(ctx context.Context, cfg engine.Config, p
 			cancel()
 		}
 	}
+	// 令牌锁可能被一次 30 秒的续期长期持有；先取快照，再进入 App.mu。
+	identity := a.sessionIdentitySnapshot()
 	a.mu.Lock()
 	pendingEdits, pendingPlans, pendingEmit := a.pendingEdits, a.pendingPlans, a.pendingEmit
 	a.pendingEdits, a.pendingPlans, a.pendingEmit = nil, nil, nil
+	pendingImageGeneration := a.pendingImageGeneration
+	a.pendingImageGeneration = nil
 	if err != nil {
 		a.mu.Unlock()
 		return SessionInfo{}, err
@@ -1061,8 +1173,11 @@ func (a *App) buildSessionResolvedHeld(ctx context.Context, cfg engine.Config, p
 	// "until a new session replaces them",替换点就是这里。
 	a.dropClosedLocked()
 	// 登记顺带把 focused 与 workspace 一起切到新会话(见 focusLocked)。
-	a.registerSessionModeLocked(id, cfg.CWD, pendingEdits, pendingPlans, pendingEmit, focus)
+	a.registerSessionModeLocked(id, cfg.CWD, pendingEdits, pendingPlans, pendingEmit, focus, identity)
 	entry := a.entryLocked(id)
+	if pendingImageGeneration != nil && pendingImageGeneration.sessionID == id {
+		entry.imageGeneration = pendingImageGeneration
+	}
 	entry.connectionConfig, entry.passport, entry.tenantID = cfg, passport, strings.TrimSpace(tenantID)
 	entry.modelRef = modelRef
 	// 锁跟着会话进内存:此后闸门、模型切换拦截、出网工具封锁读的都是这一份。
@@ -1090,6 +1205,7 @@ func (a *App) buildSessionResolvedHeld(ctx context.Context, cfg engine.Config, p
 
 	// Restart the workspace preview server for this session (non-fatal on error).
 	a.startPreview(cfg.CWD)
+	a.emitPreviewLifecycle(entry, "ready", a.previewGenerationOf(id))
 	return a.sessionInfo(st), nil
 }
 
@@ -1124,11 +1240,17 @@ func (a *App) closeEntryHeld(ctx context.Context, e *sessionEntry, drop bool) er
 	if e == nil {
 		return nil
 	}
+	if err := a.rejectIfAutomationLeased(e.id); err != nil {
+		return err
+	}
+	// 关闭前先发 invalidating，让前端丢掉该会话的内联文件缓存与在途读取。
+	a.emitPreviewLifecycle(e, "invalidating", "")
 	a.mu.Lock()
 	id := ""
 	if !e.closed {
 		id = e.id
 	}
+	emit := e.emit
 	a.mu.Unlock()
 	if id != "" {
 		if err := a.mgr.Close(ctx, id); err != nil {
@@ -1157,21 +1279,27 @@ func (a *App) closeEntryHeld(ctx context.Context, e *sessionEntry, drop bool) er
 	a.mu.Unlock()
 	a.dropArtifacts(e.id)
 	a.stopPreview(previewWorkspaceOf(e))
+	emitPreviewLifecycleTo(emit, e.id, "closed", "")
 	return nil
 }
 
-// registerSessionLocked 把 Create 成功的会话登记进会话表并聚焦它。调用方持 a.mu。
+// registerSession 把 Create 成功的会话登记进会话表并聚焦它。
+// 它先读身份快照，再获取 App.mu；调用方不得持 App.mu。
 //
 // 它**不关掉别的会话**——那是调用方的策略(当前只允许一条活动会话,所以开新会话
 // 前先 closeCurrentHeld)。拆出来是为了让开一条会话与关掉旧的这两件事分开:
 // 多会话 UI(P2)要的正是前者不带后者。
-func (a *App) registerSessionLocked(id, workspace string, edits *editStore, plans *planStore, emit func(string, any)) {
-	a.registerSessionModeLocked(id, workspace, edits, plans, emit, true)
+func (a *App) registerSession(id, workspace string, edits *editStore, plans *planStore, emit func(string, any)) {
+	identity := a.sessionIdentitySnapshot()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.registerSessionModeLocked(id, workspace, edits, plans, emit, true, identity)
 }
 
-func (a *App) registerSessionModeLocked(id, workspace string, edits *editStore, plans *planStore, emit func(string, any), focus bool) {
+func (a *App) registerSessionModeLocked(id, workspace string, edits *editStore, plans *planStore, emit func(string, any), focus bool, identity sessionIdentityBinding) {
 	a.sessionSeq++
 	entry := &sessionEntry{id: id, seq: a.sessionSeq, workspace: workspace, emit: emit, edits: edits, plans: plans}
+	bindSessionIdentity(entry, identity)
 	// Configure 一定在 Create 成功前跑过,所以这两个不该为 nil;真为 nil 时用兜底
 	// 存储顶上,免得后面每个取用点都要判空。
 	if entry.edits == nil {
@@ -1247,7 +1375,7 @@ func (a *App) engineSessionOf(sessionID string) (*engine.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	es, ok := s.(*engine.Session)
+	es, ok := unwrapEngineSession(s)
 	if !ok {
 		return nil, errNoSession
 	}

@@ -36,7 +36,7 @@ export function AskpassModal({ req, remaining = 0, onAnswer, onCancel }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-[rgba(30,33,50,0.32)] backdrop-blur-[2px] flex items-center justify-center z-30 anim-rise">
+    <div className="fixed inset-0 bg-[rgba(30,33,50,0.32)] backdrop-blur-[2px] flex items-center justify-center anim-rise" style={{ zIndex: 'var(--z-permission, 80)' }}>
       <div className="w-[520px] max-w-[92vw] bg-surface rounded-2xl p-[22px] shadow-modal">
         <h3 className="m-0 mb-3.5 text-[16px] font-bold flex items-center gap-2.5">
           <span className="w-[9px] h-[9px] rounded-[3px] bg-amber" />需要管理员权限

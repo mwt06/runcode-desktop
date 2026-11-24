@@ -1,0 +1,142 @@
+
+> runcode-desktop-frontend@0.0.0 build
+> vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 2925 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/recorder.html                                                    0.54 kB │ gzip:   0.33 kB
+dist/index.html                                                       0.60 kB │ gzip:   0.32 kB
+dist/assets/ibm-plex-mono-vietnamese-500-normal-C8zxqsMH.woff         5.62 kB
+dist/assets/ibm-plex-mono-vietnamese-400-normal-DDuiU_S-.woff         5.62 kB
+dist/assets/ibm-plex-mono-vietnamese-600-normal-iLQfcSjf.woff         5.71 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-500-normal-BIfNGwUT.woff       5.77 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-600-normal-9HEixskS.woff       5.79 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-400-normal-DMdlQ8Kv.woff       5.82 kB
+dist/assets/ibm-plex-mono-vietnamese-400-normal-BulugwFq.woff2        5.87 kB
+dist/assets/ibm-plex-mono-vietnamese-500-normal-DZ4AoWbu.woff2        6.04 kB
+dist/assets/ibm-plex-sans-vietnamese-400-normal-fK1oJ5dG.woff         6.39 kB
+dist/assets/ibm-plex-sans-vietnamese-500-normal-BEb3_waV.woff         6.59 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-400-normal-xuaO2J-f.woff2      6.91 kB
+dist/assets/ibm-plex-mono-vietnamese-600-normal-D2EvbN8M.woff2        6.93 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-500-normal-BqneJy0T.woff2      6.97 kB
+dist/assets/ibm-plex-mono-cyrillic-400-normal-CEL4l2ZJ.woff           7.20 kB
+dist/assets/ibm-plex-mono-cyrillic-500-normal-Ael50iVv.woff           7.21 kB
+dist/assets/ibm-plex-mono-cyrillic-600-normal-fLZuRloM.woff           7.27 kB
+dist/assets/ibm-plex-mono-cyrillic-ext-600-normal-V-xxqcpd.woff2      7.69 kB
+dist/assets/ibm-plex-sans-vietnamese-400-normal-DG4YqDda.woff2        8.20 kB
+dist/assets/ibm-plex-mono-cyrillic-400-normal-BSMlKf0J.woff2          8.36 kB
+dist/assets/ibm-plex-sans-vietnamese-500-normal-e4dixQRQ.woff2        8.42 kB
+dist/assets/ibm-plex-mono-cyrillic-500-normal-Bq9vWWag.woff2          8.46 kB
+dist/assets/ibm-plex-sans-greek-400-normal-D9ESIMu3.woff              8.76 kB
+dist/assets/ibm-plex-sans-greek-500-normal-CuWXN6rf.woff              9.15 kB
+dist/assets/ibm-plex-mono-cyrillic-600-normal-CTOM6hUh.woff2          9.35 kB
+dist/assets/ibm-plex-sans-greek-400-normal-_efipK4i.woff2             9.94 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-Dsrv2Tcn.woff      10.29 kB
+dist/assets/ibm-plex-sans-greek-500-normal-JMMifIXV.woff2            10.38 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-500-normal-DB5PtV2g.woff      10.59 kB
+dist/assets/ibm-plex-mono-latin-ext-500-normal-CZ70TYgx.woff         11.77 kB
+dist/assets/ibm-plex-mono-latin-ext-400-normal-D3D2R8hC.woff         11.77 kB
+dist/assets/ibm-plex-mono-latin-ext-600-normal-DmB0ttJJ.woff         11.83 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-g30qAdWV.woff2     12.15 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-500-normal-Cs5J6C77.woff2     12.31 kB
+dist/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff             13.14 kB
+dist/assets/ibm-plex-mono-latin-500-normal-CB9ihrfo.woff             13.16 kB
+dist/assets/ibm-plex-mono-latin-600-normal-DWFSQ4vo.woff             13.21 kB
+dist/assets/ibm-plex-mono-latin-ext-400-normal-BmRBH3aV.woff2        13.35 kB
+dist/assets/ibm-plex-mono-latin-ext-500-normal-CAhNIIs5.woff2        13.43 kB
+dist/assets/ibm-plex-sans-cyrillic-400-normal-BTotfTJu.woff          13.51 kB
+dist/assets/ibm-plex-sans-cyrillic-500-normal-ByOcLdNv.woff          13.86 kB
+dist/assets/ibm-plex-mono-latin-ext-600-normal-D38SheWl.woff2        14.33 kB
+dist/assets/ibm-plex-sans-latin-ext-400-normal-RBey6euL.woff         14.36 kB
+dist/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2            14.71 kB
+dist/assets/ibm-plex-sans-latin-ext-500-normal-D0aIdm-b.woff         14.74 kB
+dist/assets/ibm-plex-sans-cyrillic-400-normal-DZqxrq2p.woff2         14.80 kB
+dist/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2            14.89 kB
+dist/assets/ibm-plex-sans-cyrillic-500-normal-CocWQlwt.woff2         15.00 kB
+dist/assets/ibm-plex-mono-latin-600-normal-BgSNZQsw.woff2            15.62 kB
+dist/assets/ibm-plex-sans-latin-ext-400-normal-C5H60-Va.woff2        15.98 kB
+dist/assets/ibm-plex-sans-latin-ext-500-normal-DakdToA3.woff2        16.46 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff             22.10 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2            22.59 kB
+dist/assets/ibm-plex-sans-latin-500-normal-BgVn5rGT.woff             23.92 kB
+dist/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2            24.18 kB
+dist/assets/login-bg-DtnaXm5f.jpg                                    43.11 kB
+dist/assets/zhikai-composer-C19SVep7.gif                            893.67 kB
+dist/assets/login-mascot-D9XB-qOJ.svg                             1,281.86 kB │ gzip: 963.66 kB
+dist/assets/zhikai-mascot--KI9mI0u.gif                            1,869.63 kB
+dist/assets/main-HwVwbtO2.css                                         6.81 kB │ gzip:   2.25 kB
+dist/assets/styles-2m8ljOUg.css                                      66.08 kB │ gzip:  12.43 kB
+dist/assets/chunk-2Q5K7J3B-iaNS4owV.js                                0.19 kB │ gzip:   0.16 kB
+dist/assets/chunk-XXDRQBXY-BlytWZeg.js                                0.23 kB │ gzip:   0.21 kB
+dist/assets/_commonjs-dynamic-modules-TDtrdbi3.js                     0.24 kB │ gzip:   0.19 kB
+dist/assets/chunk-JWPE2WC7-BOkfJxX2.js                                0.30 kB │ gzip:   0.21 kB
+dist/assets/chunk-5VM5RSS4-19GuVVFk.js                                0.37 kB │ gzip:   0.27 kB
+dist/assets/chunk-TU62E6Q5-XY_9TfHw.js                                0.53 kB │ gzip:   0.38 kB
+dist/assets/swimlanesDiagram-OMPLPG4O-CuaKx4Mw.js                     0.54 kB │ gzip:   0.37 kB
+dist/assets/infoDiagram-KBXO4MBG-BEiIndrL.js                          0.61 kB │ gzip:   0.41 kB
+dist/assets/sizeCapture-INFHLROL-DLT9_ZRG.js                          1.03 kB │ gzip:   0.57 kB
+dist/assets/railroadDiagram-MRQ6NCDL-Bh-VjRku.js                      1.63 kB │ gzip:   0.77 kB
+dist/assets/abnfDiagram-S7VZAUFO-BPV61V9u.js                          1.84 kB │ gzip:   0.90 kB
+dist/assets/chunk-HFQBQIA3-Bluyv05N.js                                1.88 kB │ gzip:   0.83 kB
+dist/assets/pegDiagram-FD4XPPHP-Cki8BDf_.js                           1.98 kB │ gzip:   0.94 kB
+dist/assets/ebnfDiagram-UZSYDL2S-CGjzniTB.js                          2.03 kB │ gzip:   0.89 kB
+dist/assets/diagram-DNEMPZML-CJyCbQzx.js                              4.33 kB │ gzip:   1.92 kB
+dist/assets/pieDiagram-J4AKIIQI-FvFoCbnu.js                           5.17 kB │ gzip:   2.20 kB
+dist/assets/bpmnIcons-APHXDYXF-ByGoYv9M.js                            5.21 kB │ gzip:   1.16 kB
+dist/assets/chunk-KS47KZWR-c7bSqmx_.js                                5.62 kB │ gzip:   2.60 kB
+dist/assets/diagram-L3MUGCDN-DnqwmMl-.js                              6.26 kB │ gzip:   2.70 kB
+dist/assets/diagram-XPFHEONP-CZQ77238.js                              8.38 kB │ gzip:   3.74 kB
+dist/assets/recorder-B9eSJsKY.js                                      8.79 kB │ gzip:   3.35 kB
+dist/assets/cynefinDiagram-L36ESFBY-8mJK1GIW.js                      10.13 kB │ gzip:   3.65 kB
+dist/assets/chunk-KQLB2F66-Je4BpNop.js                               10.79 kB │ gzip:   4.45 kB
+dist/assets/diagram-MHCOC4E2-Da7GTg9l.js                             11.15 kB │ gzip:   4.33 kB
+dist/assets/chunk-OY52VR5R-CG6nP8d_.js                               15.75 kB │ gzip:   4.42 kB
+dist/assets/diagram-LA4NIPWU-BBUySHZs.js                             16.45 kB │ gzip:   5.86 kB
+dist/assets/ishikawaDiagram-M35NCXHK-ChQlG-Nt.js                     17.59 kB │ gzip:   6.69 kB
+dist/assets/kanban-definition-BZKZHSQY-BxktEz1x.js                   20.73 kB │ gzip:   7.31 kB
+dist/assets/mindmap-definition-I2QAS2VK-hCBnmKge.js                  22.96 kB │ gzip:   7.69 kB
+dist/assets/journeyDiagram-OPLOXDXO-D8vExqyD.js                      23.57 kB │ gzip:   8.35 kB
+dist/assets/graph-Bn3Yngep.js                                        23.92 kB │ gzip:   8.31 kB
+dist/assets/wardleyDiagram-S7YFUSEH-5PO_vxgT.js                      26.12 kB │ gzip:   6.96 kB
+dist/assets/gitGraphDiagram-STJD7YCW-Bv1bHAEx.js                     29.96 kB │ gzip:   8.89 kB
+dist/assets/erDiagram-EYBAPDEH-BkODKiKW.js                           30.83 kB │ gzip:  10.61 kB
+dist/assets/requirementDiagram-Y7LWUY3S-CoxhKRwb.js                  31.25 kB │ gzip:   9.86 kB
+dist/assets/timeline-definition-SEUHKTQE-BJxeNfBB.js                 31.38 kB │ gzip:  10.46 kB
+dist/assets/quadrantDiagram-XTYBLID2-B051Lcsg.js                     34.46 kB │ gzip:  10.11 kB
+dist/assets/sankeyDiagram-WGJFYUXA-B2XFVo28.js                       40.13 kB │ gzip:  15.16 kB
+dist/assets/d3-scale-4DPf7zan.js                                     41.33 kB │ gzip:  15.14 kB
+dist/assets/stateDiagram-v2-FJ4FJNEA-njSQfiGc.js                     42.37 kB │ gzip:  14.17 kB
+dist/assets/vennDiagram-NNMJR3RB-Ci2LSogL.js                         42.42 kB │ gzip:  15.82 kB
+dist/assets/xychartDiagram-GGNKY7IX-ChkcmiQk.js                      43.64 kB │ gzip:  12.26 kB
+dist/assets/blockDiagram-APKKGZFW-DBF-bBCx.js                        44.13 kB │ gzip:  14.40 kB
+dist/assets/dagre-SPEB5RXH-DYw7cvBo.js                               46.61 kB │ gzip:  16.62 kB
+dist/assets/classDiagram-v2-L25IHNXF-B5iju027.js                     50.02 kB │ gzip:  16.09 kB
+dist/assets/ganttDiagram-23REXITY-BsFs0Y8o.js                        53.18 kB │ gzip:  18.31 kB
+dist/assets/flowDiagram-MALGAFMO-D0s6OLRT.js                         65.93 kB │ gzip:  21.23 kB
+dist/assets/c4Diagram-KJ2TOQU5-DBi8yJXb.js                           66.00 kB │ gzip:  18.95 kB
+dist/assets/docx-preview-DghbbXYp.js                                 77.14 kB │ gzip:  21.22 kB
+dist/assets/cose-bilkent-JH36ORCC-BPmlGMtM.js                        81.75 kB │ gzip:  22.50 kB
+dist/assets/diagram-3B7GL73J-BXxR8gjJ.js                             82.19 kB │ gzip:  25.41 kB
+dist/assets/jszip.min-ClK4-Q8W.js                                    96.98 kB │ gzip:  30.03 kB
+dist/assets/sequenceDiagram-5NDRBG5M-J7raqs7w.js                    119.45 kB │ gzip:  32.16 kB
+dist/assets/swimlanes-UMQ2AFYF-BQasLklO.js                          125.07 kB │ gzip:  45.79 kB
+dist/assets/architectureDiagram-YGSQEFNW-DtqS0eWy.js                152.05 kB │ gzip:  43.24 kB
+dist/assets/usecaseDiagram-AFA6YXN4-tVr6kLTx.js                     190.66 kB │ gzip:  51.01 kB
+dist/assets/styles-0V-7PLBQ.js                                      206.54 kB │ gzip:  68.03 kB
+dist/assets/katex-Be3d8Y4U.js                                       261.90 kB │ gzip:  77.93 kB
+dist/assets/xlsx-workbook-By5cl-OP.js                               366.02 kB │ gzip: 123.84 kB
+dist/assets/cytoscape.esm-Bw5aGq32.js                               451.17 kB │ gzip: 144.50 kB
+dist/assets/mermaid.core-B5iYG_wG.js                                653.20 kB │ gzip: 155.95 kB
+dist/assets/cynefin-EF2NZ3EQ-D7aGgFjQ.js                            657.62 kB │ gzip: 139.85 kB
+dist/assets/main-Da8BcRCB.js                                      1,131.67 kB │ gzip: 364.56 kB
+dist/assets/pptx-preview.es-BLmwQzup.js                           1,255.25 kB │ gzip: 401.48 kB
+dist/assets/elk-XV6XMXQE-DiLL9657.js                              1,514.89 kB │ gzip: 464.00 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 38.30s

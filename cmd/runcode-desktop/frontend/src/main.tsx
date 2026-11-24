@@ -11,6 +11,7 @@ import { ToolPreview, ThinkingPreview } from '@/dev/previews'
 import { DirectoryAccessPreview } from '@/dev/directory-access-preview'
 import { AuthorizationPreview } from '@/dev/authorization-preview'
 import { UIGallery } from '@/dev/ui-gallery'
+import { ImageGenerationPreview } from '@/dev/image-generation-preview'
 import './styles.css'
 
 const preview = new URLSearchParams(location.search).get('preview')
@@ -47,7 +48,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      {previewTools ? <ToolPreview /> : previewThinking ? <ThinkingPreview /> : previewUI ? <UIGallery /> : preview === 'directory-access' ? <DirectoryAccessPreview /> : preview === 'authorization' ? <AuthorizationPreview /> : <App />}
+      {previewTools ? <ToolPreview /> : previewThinking ? <ThinkingPreview /> : previewUI ? <UIGallery /> : preview === 'directory-access' ? <DirectoryAccessPreview /> : preview === 'authorization' ? <AuthorizationPreview /> : preview === 'imagegen' ? <ImageGenerationPreview /> : <App />}
     </ErrorBoundary>
   </React.StrictMode>,
 )

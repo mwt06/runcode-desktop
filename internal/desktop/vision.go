@@ -3,11 +3,9 @@ package desktop
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/wt68/runcode/internal/vision"
@@ -23,33 +21,11 @@ func digestVision(value any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Only an identity fingerprint is kept. This is cache partitioning, not JWT
-// authentication; the gateway still authenticates the original bearer token.
-func tokenIdentity(token string) string {
-	parts := strings.Split(token, ".")
-	if len(parts) == 3 {
-		b, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err == nil {
-			var claims struct {
-				Sub    string `json:"sub"`
-				Issuer string `json:"iss"`
-			}
-			if json.Unmarshal(b, &claims) == nil && claims.Sub != "" {
-				return digestVision([]string{claims.Issuer, claims.Sub})
-			}
-		}
-	}
-	return ""
-}
-
 func (a *App) visionAccountIdentity() string {
 	a.tokens.mu.Lock()
 	token, identity := a.tokens.ts.AccessToken, a.tokens.identity
 	a.tokens.mu.Unlock()
-	if key := tokenIdentity(token); key != "" {
-		return key
-	}
-	return digestVision(identity)
+	return accountIdentityForToken(token, identity).Digest
 }
 
 func (a *App) modelImageSupport(ctx context.Context, ref modelReference, model string, stored desktopConfig) *bool {

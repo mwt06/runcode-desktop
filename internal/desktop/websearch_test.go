@@ -31,7 +31,7 @@ func TestPassportWebSearchReplacesBuiltin(t *testing.T) {
 		BaseURL:     "https://bridge.example/t/t-1/v1",
 		TokenSource: func() (string, error) { return "AT", nil },
 	}
-	tl := passportWebSearch(cfg)
+	tl := passportWebSearchFor(nil, cfg)
 	if tl == nil {
 		t.Fatal("a passport session got no platform search tool")
 	}
@@ -45,10 +45,10 @@ func TestPassportWebSearchReplacesBuiltin(t *testing.T) {
 // deliberately carries no TokenSource so no login credential reaches a
 // third-party endpoint.
 func TestDirectConnectionKeepsBuiltinWebSearch(t *testing.T) {
-	if tl := passportWebSearch(&engine.Config{BaseURL: "https://api.example/v1", APIKey: "sk-x"}); tl != nil {
+	if tl := passportWebSearchFor(nil, &engine.Config{BaseURL: "https://api.example/v1", APIKey: "sk-x"}); tl != nil {
 		t.Fatal("a direct connection was given the platform search tool")
 	}
-	if tl := passportWebSearch(nil); tl != nil {
+	if tl := passportWebSearchFor(nil, nil); tl != nil {
 		t.Fatal("a nil config produced a search tool")
 	}
 }

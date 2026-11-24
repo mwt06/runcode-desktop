@@ -1,18 +1,33 @@
 // 上下文审核（仅测试版构建）：完全自包含，读写直接落后端。正式版后端报
 // supported=false，整节不渲染——功能对正式用户不存在，而不是灰掉。
+//
+// 可选 onAvailabilityChange 把真实 supported 回传给设置页目录：初始／失败为 false，
+// true 只来自后端。探测始终挂载一次；设置页只隐藏锚点包装与目录项，不因未知而
+// 卸载本组件，也不另发能力请求。
 import { useEffect, useState } from 'react'
 import { BTN } from '@/ui/tokens'
 import { contextAuditStatus, copyText, errText, openInBrowser, setContextAudit, type ContextAuditInfo } from '@/core/bridge'
 import { Toggle } from '@/ui/toggle'
 import { Section } from './section'
 
-export function ContextAuditSection() {
+export function ContextAuditSection({ onAvailabilityChange }: {
+  onAvailabilityChange?: (supported: boolean) => void
+} = {}) {
   const [info, setInfo] = useState<ContextAuditInfo | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   useEffect(() => {
-    contextAuditStatus().then(setInfo).catch(() => {})
-  }, [])
+    let alive = true
+    contextAuditStatus().then((next) => {
+      if (!alive) return
+      setInfo(next)
+      onAvailabilityChange?.(!!next?.supported)
+    }).catch(() => {
+      if (!alive) return
+      onAvailabilityChange?.(false)
+    })
+    return () => { alive = false }
+  }, [onAvailabilityChange])
   if (!info?.supported) return null
 
   async function toggle(next: boolean) {

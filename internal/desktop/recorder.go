@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -145,7 +146,9 @@ func toWireDevices(in []recorder.DeviceInfo) []protocol.RecorderDevice {
 
 // RecorderSettings 读回录音设置。文件不存在时返回带默认值的空设置。
 func (a *App) RecorderSettings() (protocol.RecorderSettings, error) {
-	s, err := loadRecorderSettings()
+	recorderSettingsMu.Lock()
+	defer recorderSettingsMu.Unlock()
+	s, err := loadRecorderSettingsHeld()
 	if err != nil {
 		return protocol.RecorderSettings{}, wireError(err)
 	}
@@ -154,14 +157,66 @@ func (a *App) RecorderSettings() (protocol.RecorderSettings, error) {
 
 // SaveRecorderSettings 写回录音设置。
 func (a *App) SaveRecorderSettings(s protocol.RecorderSettings) error {
+	recorderSettingsMu.Lock()
+	defer recorderSettingsMu.Unlock()
 	// 版本戳由后端独占，不采信前端回传的数字：设置页在 recorderSettings() 还没
 	// 返回时就保存的话会送来 0，那会让一次性迁移再跑一遍，把用户刚打开的开关又
 	// 关掉。界面上本来也没有这个字段的控件。
 	s.Version = recorderSettingsVersion
-	if err := saveRecorderSettings(s); err != nil {
+	if err := saveRecorderSettingsHeld(s); err != nil {
 		return wireError(err)
 	}
 	return nil
+}
+
+// PatchRecorderSettings 合并设置页或录音窗的一次字段修改。两处会同时写同一文件，
+// 全对象覆盖会让一个窗口刚改的字段被另一个窗口的旧快照撤回。
+func (a *App) PatchRecorderSettings(patch protocol.RecorderSettingsPatch) (protocol.RecorderSettings, error) {
+	recorderSettingsMu.Lock()
+	defer recorderSettingsMu.Unlock()
+	current, err := loadRecorderSettingsHeld()
+	if err != nil {
+		return protocol.RecorderSettings{}, wireError(err)
+	}
+	if patch.GatewayURL != nil {
+		value := strings.TrimSpace(*patch.GatewayURL)
+		if value != "" {
+			parsed, parseErr := url.Parse(value)
+			if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") {
+				return protocol.RecorderSettings{}, wireError(fmt.Errorf("转写服务地址必须是完整的 ws:// 或 wss:// 地址"))
+			}
+		}
+		current.GatewayURL = value
+	}
+	if patch.GatewayToken != nil {
+		current.GatewayToken = *patch.GatewayToken
+	}
+	if patch.SpeakerName != nil {
+		current.SpeakerName = *patch.SpeakerName
+	}
+	if patch.Lang != nil {
+		current.Lang = *patch.Lang
+	}
+	if patch.MicDeviceID != nil {
+		current.MicDeviceID = *patch.MicDeviceID
+	}
+	if patch.SysDeviceID != nil {
+		current.SysDeviceID = *patch.SysDeviceID
+	}
+	if patch.MicDiarize != nil {
+		current.MicDiarize = *patch.MicDiarize
+	}
+	if patch.KeepAudio != nil {
+		current.KeepAudio = *patch.KeepAudio
+	}
+	if patch.AutoFullMinutes != nil {
+		current.AutoFullMinutes = *patch.AutoFullMinutes
+	}
+	current.Version = recorderSettingsVersion
+	if err := saveRecorderSettingsHeld(current); err != nil {
+		return protocol.RecorderSettings{}, wireError(err)
+	}
+	return current, nil
 }
 
 // RecorderStatus 报告当前录音状态。没有正在进行的录音时 ID 为空。
@@ -250,6 +305,9 @@ func validRecordingID(id string) error {
 func (a *App) StartRecording(req protocol.StartRecordingRequest) (protocol.RecordingInfo, error) {
 	a.rec.mu.Lock()
 	defer a.rec.mu.Unlock()
+	if a.exit.closing.Load() {
+		return protocol.RecordingInfo{}, wireError(errAppExiting)
+	}
 
 	if a.rec.sess != nil {
 		return protocol.RecordingInfo{}, wireError(errors.New("已经有一场录音在进行中"))
@@ -622,6 +680,8 @@ func toWireRecording(m recorder.SessionMeta, dir string) protocol.RecordingInfo 
 
 // ---- 设置与路径 -------------------------------------------------------------
 
+var recorderSettingsMu sync.Mutex
+
 func recorderSettingsPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -645,6 +705,12 @@ func recorderDefaults() protocol.RecorderSettings {
 }
 
 func loadRecorderSettings() (protocol.RecorderSettings, error) {
+	recorderSettingsMu.Lock()
+	defer recorderSettingsMu.Unlock()
+	return loadRecorderSettingsHeld()
+}
+
+func loadRecorderSettingsHeld() (protocol.RecorderSettings, error) {
 	out := recorderDefaults()
 	path, err := recorderSettingsPath()
 	if err != nil {
@@ -666,7 +732,7 @@ func loadRecorderSettings() (protocol.RecorderSettings, error) {
 	if migrateRecorderSettings(&out) {
 		// 写不回去不算致命：本次读到的已经是迁移后的值，功能是对的，只是下次
 		// 启动还要再迁一次。比因为写不动配置就让整个录音不可用要好。
-		if err := saveRecorderSettings(out); err != nil {
+		if err := saveRecorderSettingsHeld(out); err != nil {
 			debugLog("recorder: 迁移后的设置写回失败: %v", err)
 		}
 	}
@@ -762,6 +828,12 @@ func normalizeRecorderSettings(s *protocol.RecorderSettings) {
 }
 
 func saveRecorderSettings(s protocol.RecorderSettings) error {
+	recorderSettingsMu.Lock()
+	defer recorderSettingsMu.Unlock()
+	return saveRecorderSettingsHeld(s)
+}
+
+func saveRecorderSettingsHeld(s protocol.RecorderSettings) error {
 	// 入参是值拷贝，归一化只影响落盘的那一份——调用方手里的设置不受影响，
 	// 界面照旧显示当前用的是哪台服务。
 	normalizeRecorderSettings(&s)
@@ -769,14 +841,11 @@ func saveRecorderSettings(s protocol.RecorderSettings) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	return writeFileAtomic(filepath.Dir(path), filepath.Base(path), b)
 }
 
 // recorderRoot 是录音的落盘根目录。设置里指定了就用设置的。
@@ -825,10 +894,13 @@ func (a *App) passportDisplayName() string {
 
 // Shutdown 在应用退出时收尾（外壳的 OnShutdown 调它）。
 //
-// 它只负责录音：对话会话由 CloseSession 收。分开是因为两者的失败后果不同——
-// 对话没收干净下次还能续上，录音没收干净就是一个被截断的 WAV 加一份状态停在
-// "recording" 的 meta。
+// 所有退出入口共用 PrepareExit 的期限和单次收尾，确保用量库在会话之后关闭。
 func (a *App) Shutdown() {
+	_ = a.PrepareExit(ExitTimeout)
+}
+
+// Recorder resources do not depend on session completion and can stop in parallel.
+func (a *App) shutdownRecorder() {
 	a.closeRecorder()
 	// 撤掉 askpass 的套接字：它的路径带着本进程的 pid，留下来只是一个死文件。
 	a.askpassSrv.Load().close()

@@ -1,7 +1,7 @@
 // 自定义模型（直连接入点）：列表由父级持有（要合入模型候选），表单同时承担
 // 新增和编辑。编辑时 originalName 定位旧记录，允许改显示名而不留下重复项。
 // 起始页(未登录时)也复用本小节，让没有通行证的用户先配一个直连模型。
-import { useState } from 'react'
+import { useEffect, useRef, useState, type FocusEvent } from 'react'
 import { BTN } from '@/ui/tokens'
 import { FIELD_CLS, SelectField } from '@/ui/fields'
 import {
@@ -21,30 +21,72 @@ import { imageCapabilityLabel, imageCapabilityValue } from '@/core/vision'
 import { Section } from './section'
 import { CodexLoginRow } from './codex-login'
 import { InlineError } from '@/ui/feedback'
+import { createAutoSaveChannel, type AutoSaveChannel } from './autosave-channel'
+import { useSettingsSaveRegistry } from './settings-save-provider'
 
 export function CustomModelsSection({ models, onChanged }: { models: CustomModel[]; onChanged: (list: CustomModel[]) => void }) {
+  const registry = useSettingsSaveRegistry()
   const [editing, setEditing] = useState<CustomModel | null>(null)
   const [draft, setDraft] = useState<CustomModelDraft>(emptyCustomModelDraft)
   const [cmError, setCmError] = useState('')
   const [cmSaving, setCmSaving] = useState(false)
+  const channelRef = useRef<{
+    key: string
+    channel: AutoSaveChannel<CustomModelDraft>
+    unregister: () => void
+  } | null>(null)
+  const originalNameRef = useRef('')
+  const activeKeyRef = useRef('')
+  const onChangedRef = useRef(onChanged)
+  onChangedRef.current = onChanged
   // 上游给出的可用模型（登录后由 CodexLoginRow 报上来）。ChatGPT 账号能用哪些
   // 模型按订阅档次变化，本地写死一张表只会让人填到一个上游不认的名字。
   const [codexOptions, setCodexOptions] = useState<CodexModel[]>([])
 
-  const patchDraft = (patch: Partial<CustomModelDraft>) => setDraft((current) => ({ ...current, ...patch }))
+  const patchDraft = (patch: Partial<CustomModelDraft>) => setDraft((current) => {
+    const next = { ...current, ...patch }
+    if (editing && channelRef.current) channelRef.current.channel.edit(next, 'deferred')
+    return next
+  })
   // 走 ChatGPT 订阅时端点与凭据都不由用户提供，表单相应收起两栏。
   const chatgptLogin = usesChatGPTLogin(draft)
   const resetForm = () => {
+    channelRef.current?.channel.discard()
+    channelRef.current?.unregister()
     setEditing(null)
     setDraft(emptyCustomModelDraft())
     setCmError('')
+    channelRef.current = null
+    activeKeyRef.current = ''
+    originalNameRef.current = ''
   }
   const beginEdit = (m: CustomModel) => {
+    channelRef.current?.channel.discard()
+    channelRef.current?.unregister()
+    const initial = customModelDraftForEdit(m)
+    const key = `custom-model:${m.name}`
+    const channel = createAutoSaveChannel<CustomModelDraft>({
+      initial,
+      delayMs: 600,
+      validate: (value) => !value.name.trim() ? '名称不能为空' : !value.model.trim() ? '模型 ID 不能为空' : null,
+      write: async (value) => {
+        const list = await saveCustomModel(toCustomModelSaveRequest(value, originalNameRef.current))
+        if (activeKeyRef.current !== key) return value
+        onChangedRef.current(list ?? [])
+        originalNameRef.current = value.name.trim()
+        setEditing((current) => current ? { ...current, name: originalNameRef.current } : current)
+        return value
+      },
+    })
+    const unregister = registry.register(key, '自定义模型', channel)
+    channelRef.current = { key, channel, unregister }
+    originalNameRef.current = m.name
+    activeKeyRef.current = key
     setEditing(m)
-    setDraft(customModelDraftForEdit(m))
+    setDraft(initial)
     setCmError('')
   }
-  const saveModel = async () => {
+  const addModel = async () => {
     setCmSaving(true)
     setCmError('')
     try {
@@ -56,6 +98,36 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
     } finally {
       setCmSaving(false)
     }
+  }
+  useEffect(() => {
+    const channel = channelRef.current?.channel
+    if (!channel) return
+    const sync = () => {
+      const snapshot = channel.getSnapshot()
+      setCmSaving(snapshot.phase === 'saving')
+      setCmError(snapshot.phase === 'error' || snapshot.phase === 'invalid' ? snapshot.error : '')
+    }
+    sync()
+    return channel.subscribe(sync)
+  }, [editing?.name])
+  const finishEdit = async () => {
+    const channel = channelRef.current?.channel
+    if (!channel || await channel.flush()) resetForm()
+  }
+  const handleFormBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (!editing) return
+    const next = event.relatedTarget
+    if (next instanceof Node && event.currentTarget.contains(next)) return
+    if (next === null) {
+      const form = event.currentTarget
+      queueMicrotask(() => {
+        const active = document.activeElement
+        if (active instanceof Node && form.contains(active)) return
+        void channelRef.current?.channel.flush()
+      })
+      return
+    }
+    void channelRef.current?.channel.flush()
   }
 
   return (
@@ -75,7 +147,7 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
               </span>
               <span className="flex items-center gap-2 flex-none ml-2">
                 <button type="button" className="text-muted hover:text-primaryink" onClick={() => beginEdit(m)}>编辑</button>
-                <button type="button" className="text-muted hover:text-red" onClick={async () => {
+                <button type="button" className="text-muted hover:text-red disabled:opacity-40" disabled={editing?.name === m.name && cmSaving} onClick={async () => {
                   setCmError('')
                   try {
                     onChanged((await deleteCustomModel(m.name)) ?? [])
@@ -89,10 +161,10 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
           ))}
         </div>
       )}
-      <div className="flex flex-col gap-2 rounded-btn border border-dashed border-line2 p-3">
+      <div className="custom-model-form flex flex-col gap-2 rounded-btn border border-dashed border-line2 p-3" onBlur={handleFormBlur}>
         <div className="flex items-center justify-between">
           <span className="text-[12px] font-medium text-ink">{editing?.name ? `编辑：${editing?.name}` : '添加模型'}</span>
-          {editing?.name && <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={resetForm}>取消编辑</button>}
+          {editing?.name && <button type="button" className="text-[12px] text-muted hover:text-ink" disabled={cmSaving} onClick={() => void finishEdit()}>收起编辑</button>}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <input className={FIELD_CLS} placeholder="显示名称（如 本地 Ollama）" value={draft.name} onChange={(e) => patchDraft({ name: e.target.value })} />
@@ -148,12 +220,14 @@ export function CustomModelsSection({ models, onChanged }: { models: CustomModel
           </label>
         )}
         {cmError && <InlineError variant="text">{cmError}</InlineError>}
-        <div className="flex items-center gap-2">
-          <button type="button" className={`${BTN} px-5`} disabled={cmSaving || !draft.name.trim() || !draft.model.trim()} onClick={() => void saveModel()}>
-            {cmSaving ? '保存中…' : editing?.name ? '保存修改' : '添加自定义模型'}
-          </button>
-          {editing?.name && <button type="button" className={BTN} onClick={resetForm}>取消</button>}
-        </div>
+        {!editing && (
+          <div className="flex items-center gap-2">
+            <button type="button" className={`${BTN} px-5`} disabled={cmSaving || !draft.name.trim() || !draft.model.trim()} onClick={() => void addModel()}>
+              {cmSaving ? '保存中…' : '添加自定义模型'}
+            </button>
+          </div>
+        )}
+        {editing && (cmSaving || cmError) && <p className="text-[12px] text-muted">{cmSaving ? '正在自动保存…' : '修改尚未保存'}</p>}
       </div>
     </Section>
   )

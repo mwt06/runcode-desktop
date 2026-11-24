@@ -12,7 +12,7 @@ import { Icon } from '@/ui/icons'
 import { DRAG, NO_DRAG } from '@/ui/tokens'
 import { InlineError } from '@/ui/feedback'
 import { ConfirmDialog } from '@/ui/confirm-dialog'
-import { errText, recorderSettings, saveRecorderSettings, type RecorderSettings } from '@/core/bridge'
+import { errText, patchRecorderSettings, recorderSettings, type RecorderSettings, type RecorderSettingsPatch } from '@/core/bridge'
 import { useRecorder, type Recorder } from '@/session/use-recorder'
 import { lastLine, timeline, TRACK_LABEL, type Segment } from './transcript'
 import { LevelBar } from './level-bar'
@@ -60,7 +60,7 @@ export function RecorderApp() {
     if (!settings) return
     const next = { ...settings, ...p }
     setSettings(next)
-    saveRecorderSettings(next).catch((e: unknown) => setErr(errText(e)))
+    patchRecorderSettings(p as RecorderSettingsPatch).catch((e: unknown) => setErr(errText(e)))
   }
 
   const act = (fn: () => Promise<unknown>) => {

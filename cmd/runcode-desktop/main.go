@@ -289,6 +289,7 @@ func main() {
 	// 先声明再赋值：下面的 OnSecondInstanceLaunch 回调要用到 app 本身，
 	// 而 `app := application.New(...)` 时 app 在字面量里还不存在。
 	var app *application.App
+	var hostLife *desktop.WindowLifecycle
 	app = application.New(application.Options{
 		Name: brandTitle,
 		Services: []application.Service{
@@ -314,6 +315,10 @@ func main() {
 			// 真让两个同时跑起来才是坏事），于是后启动的那个默默把控制权交出去
 			// 就退了。锁没做错，缺的是让这次交接被看见。
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if hostLife != nil {
+					_ = hostLife.RestoreMainWindow()
+					return
+				}
 				w, ok := app.Window.GetByName(windowMain)
 				if !ok {
 					return
@@ -355,20 +360,19 @@ func main() {
 		EnableFileDrop: true,
 	})
 
-	// 关掉主窗 = 退出应用。
-	//
-	// Wails 自己有「最后一个窗口关掉就退出」的规则，但它数的是**注册过的**窗口，
-	// 不是看得见的窗口（application_windows.go 的 unregisterWindow：windowMap 空了
-	// 才 PostQuitMessage）。而下面那个录音窗为了省下建窗的几百毫秒是开机就建、只
-	// 挂着 Hidden——窗口表于是永远不为空，主窗关掉之后进程还活着，没有任何窗口，
-	// 也永远不会自己退出。
-	//
-	// 后果不止是多一个后台进程：单实例锁（上面的 SingleInstance）攥在它手里，再点
-	// 图标只会把启动交给这个没有窗口的进程然后自己退出——表现就是「双击了没反应，
-	// 应用打不开」，而任务管理器里那个进程看着一切正常。修在这里而不是把录音窗改成
-	// 懒加载：预建是为了那几百毫秒的手感，退出的语义不该由「有没有预建过窗口」决定。
-	mainWin.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
-		app.Quit()
+	hostLife = createDesktopWindowLifecycle(app, mainWin, deskApp, brandTitle)
+	deskApp.SetWindowController(hostLife)
+
+	// 每次标题栏 X / Alt+F4 都取消 Wails 的默认销毁并进入“隐藏 / 退出 / 取消”
+	// 确认。真正退出时 Quitting=true，钩子才放行 OnShutdown 的共享有界收尾。
+	mainWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if hostLife.Quitting() {
+			return
+		}
+		e.Cancel()
+		if err := hostLife.CloseMainWindow(); err != nil {
+			app.Dialog.Error().SetTitle("无法隐藏主窗口").SetMessage(err.Error()).Show()
+		}
 	})
 
 	// 录音窗。先建好但不显示——建窗要几百毫秒，等用户点「录音纪要」再建的话，

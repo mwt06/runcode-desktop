@@ -46,49 +46,57 @@ import (
 // 手工表的代价是会忘记改,所以 extractEvents 做**双向**核对:常量多了(漏加表行)报
 // missing,表行多了(常量已删)报 stale。表本身不是真理,与源码对上的表才是。
 var eventPayloads = map[string]string{
-	"EventDirectoryAccessChanged": "DirectoryAccessChanged",
-	"EventAssistantDelta":         "AssistantDelta",
-	"EventAssistantThinking":      "AssistantDelta",
-	"EventContextUsage":           "ContextUsage",
-	"EventContextCompaction":      "ContextCompaction",
-	"EventHarmAutoAllow":          "HarmAutoAllow",
-	"EventPassportChanged":        "PassportStatus",
-	"EventRecorderLevel":          "RecorderLevel",
-	"EventRecorderState":          "RecorderState",
-	"EventRecorderTranscript":     "RecorderTranscript",
-	"EventRetry":                  "RetryNotice",
-	"EventPermissionRequest":      "PermissionRequest",
-	"EventPlanUpdated":            "PlanRun",
-	"EventSessionRenamed":         "SessionRenamed",
-	"EventSessionStatus":          "SessionInfo",
-	"EventOABlocked":              "OABlocked",
-	"EventSkillInstall":           "SkillInstallProgress",
-	"EventUpdate":                 "UpdateInfo",
-	"EventRuntimes":               "RuntimeInfo",
-	"EventAskpassRequest":         "AskpassRequest",
-	"EventAskpassDone":            "AskpassDone",
-	"EventToolEvent":              "ToolEvent",
-	"EventTurnEnd":                "TurnEnd",
-	"EventTurnQueued":             "TurnQueued",
-	"EventTurnError":              "TurnError",
-	"EventWarning":                "Warning",
+	"EventDirectoryAccessChanged":   "DirectoryAccessChanged",
+	"EventPreviewLifecycle":         "PreviewLifecycle",
+	"EventAssistantDelta":           "AssistantDelta",
+	"EventAssistantThinking":        "AssistantDelta",
+	"EventContextUsage":             "ContextUsage",
+	"EventContextCompaction":        "ContextCompaction",
+	"EventHarmAutoAllow":            "HarmAutoAllow",
+	"EventPassportChanged":          "PassportStatus",
+	"EventRecorderLevel":            "RecorderLevel",
+	"EventRecorderState":            "RecorderState",
+	"EventRecorderTranscript":       "RecorderTranscript",
+	"EventRetry":                    "RetryNotice",
+	"EventPermissionRequest":        "PermissionRequest",
+	"EventPlanUpdated":              "PlanRun",
+	"EventSessionRenamed":           "SessionRenamed",
+	"EventSessionStatus":            "SessionInfo",
+	"EventOABlocked":                "OABlocked",
+	"EventSkillInstall":             "SkillInstallProgress",
+	"EventUpdate":                   "UpdateInfo",
+	"EventRuntimes":                 "RuntimeInfo",
+	"EventAskpassRequest":           "AskpassRequest",
+	"EventAskpassDone":              "AskpassDone",
+	"EventToolEvent":                "ToolEvent",
+	"EventTurnEnd":                  "TurnEnd",
+	"EventTurnQueued":               "TurnQueued",
+	"EventTurnError":                "TurnError",
+	"EventWarning":                  "Warning",
+	"EventAutomationTaskChanged":    "AutomationTaskChanged",
+	"EventAutomationRunChanged":     "AutomationRunChanged",
+	"EventAutomationServiceChanged": "AutomationServiceChanged",
+	"EventAutomationContextChanged": "AutomationContextChanged",
 }
 
 // excludedMethods are App methods that are shell wiring, not wire commands.
 //
-// 中文:App 上的导出方法**默认全是前端命令**,这里是唯一的例外名单。四个都是 Wails 外壳
-// 自己调的接线方法(装设备、启动、收尾),前端永远够不着,生成出来只会是四个调了必炸的
+// 中文:App 上的导出方法**默认全是前端命令**,这里是唯一的例外名单。这些都是 Wails 外壳
+// 自己调的接线方法(装设备、启动、收尾),前端永远够不着,生成出来只会是调了必炸的
 // TS 函数。
 //
 // 加进来的方法同时会从 methodSet 里消失,所以**必须一并从 internal/protocol.CommandKinds
 // 里删掉**,否则 extractCommands 的交叉核对会把它判成 orphaned(登记了却没有对应方法)。
 // 这个连带关系是故意的:排除一个命令是件需要两处都点头的事。
 var excludedMethods = map[string]bool{
-	"SetCapturer": true, // installs the system audio capturer; called by the Wails shell, never the frontend
-	"SetDialoger": true, // installs the native file-dialog provider; called by the Wails shell, never the frontend
-	"SetQuitter":  true, // installs the app-quit provider (版本更新装完要退出); called by the Wails shell, never the frontend
-	"Shutdown":    true, // once-per-run teardown; called by the Wails shell from OnShutdown, never the frontend
-	"Startup":     true, // once-per-run background work; called by the Wails shell from OnStartup, never the frontend
+	"PrepareExit":         true, // native exit cleanup; time.Duration is not a wire parameter
+	"SetCapturer":         true, // installs the system audio capturer; called by the Wails shell, never the frontend
+	"SetDialoger":         true, // installs the native file-dialog provider; called by the Wails shell, never the frontend
+	"SetQuitter":          true, // installs the app-quit provider (版本更新装完要退出); called by the Wails shell, never the frontend
+	"SetWindowController": true, // installs the native close/exit host; step 10 supplies Windows, never a frontend command
+	"AutomationRunner":    true, // in-process scheduler adapter; not a frontend command
+	"Shutdown":            true, // once-per-run teardown; called by the Wails shell from OnShutdown, never the frontend
+	"Startup":             true, // once-per-run background work; called by the Wails shell from OnStartup, never the frontend
 }
 
 // genericStructs declares protocol structs emitted as generic TS interfaces,
@@ -209,6 +217,21 @@ var constGroupSpecs = []constGroupSpec{
 		goPrefix: "RuntimeStage", constName: "RuntimeStages", unionName: "RuntimeStage", open: false,
 		doc:      "Install stages of one managed runtime pack; the values of RuntimePack.stage.",
 		unionDoc: "RuntimeStage is the closed set of install stages — the shell drives this pipeline itself, so an unknown value is a bug, not a newer peer.",
+	},
+	{
+		goPrefix: "ImageGenerationSubmission", constName: "ImageGenerationSubmissionStatuses", unionName: "ImageGenerationSubmissionStatus", open: false,
+		doc:      "Local image-generation submission dispositions; they do not prove upstream receipt or billing.",
+		unionDoc: "ImageGenerationSubmissionStatus is the closed set of local send-boundary dispositions.",
+	},
+	{
+		goPrefix: "MailVersion", constName: "MailVersions", unionName: "MailVersion", open: false,
+		doc:      "Aliyun enterprise mailbox service presets; host/port are derived and not model-chosen.",
+		unionDoc: "MailVersion is the closed set of mailbox service presets.",
+	},
+	{
+		goPrefix: "MailStatus", constName: "MailOnboardingStatuses", unionName: "MailOnboardingStatus", open: false,
+		doc:      "Mail onboarding fact states; not a single verified boolean.",
+		unionDoc: "MailOnboardingStatus is the closed set of mailbox onboarding progress states.",
 	},
 }
 

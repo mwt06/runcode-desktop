@@ -1,13 +1,25 @@
 import type { ArtifactReference } from '@/core/bridge'
+import type { StaticPreviewKind } from './static-detect'
 // A preview tab is either a workspace file (rendered in PreviewPanel) or an edit
 // review (rendered in DiffPanel). Tabs are keyed by tabKey: the relPath for files,
 // "diff:<snapshotId>" for reviews, so a file and its diff coexist as two tabs.
 export type PreviewTab =
   | { kind: 'file'; relPath: string; artifact?: ArtifactReference }
   | { kind: 'diff'; snapshotId: string; relPath: string; sessionID?: string }
+  | {
+      kind: 'inline-static'
+      ownerKey: string
+      title: string
+      sourceKind: StaticPreviewKind
+      source: string
+      messageID: string
+      sessionID: string
+    }
 
 export function tabKey(t: PreviewTab): string {
-  return t.kind === 'diff' ? 'diff:' + t.snapshotId : t.relPath
+  if (t.kind === 'diff') return 'diff:' + t.snapshotId
+  if (t.kind === 'inline-static') return t.ownerKey
+  return t.relPath
 }
 
 // openTab appends tab (focused), or just focuses it if a tab with the same key is
@@ -15,7 +27,9 @@ export function tabKey(t: PreviewTab): string {
 export function openTab(tabs: PreviewTab[], _active: string | null, tab: PreviewTab): { tabs: PreviewTab[]; active: string } {
   const key = tabKey(tab)
   if (tabs.some((t) => tabKey(t) === key)) {
-    if (tab.kind === 'file' && tab.artifact) return { tabs: tabs.map((t) => tabKey(t) === key ? tab : t), active: key }
+    if ((tab.kind === 'file' && tab.artifact) || tab.kind === 'inline-static') {
+      return { tabs: tabs.map((t) => tabKey(t) === key ? tab : t), active: key }
+    }
     return { tabs, active: key }
   }
   return { tabs: [...tabs, tab], active: key }

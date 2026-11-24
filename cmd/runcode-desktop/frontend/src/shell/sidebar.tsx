@@ -4,6 +4,7 @@ import { ConfirmDialog } from '@/ui/confirm-dialog'
 import { Popover } from '@/ui/popover'
 import { basename } from '@/core/paths'
 import { type SessionSummary } from '@/core/bridge'
+import { MoreMenu } from './more-menu'
 
 // Sidebar 是主界面左栏：新建对话、页面导航、最近对话列表与工作区切换器。
 // 全部数据与动作经 props 注入（自身只持有弹层/确认框的局部状态），与 App 的
@@ -19,13 +20,18 @@ export interface OpenSessionRow {
   focused: boolean
   /** workspace 是这条会话的目录。几条会话落在**不同目录**时才显示出来。 */
   workspace: string
+  /** automation 是会话链接上的任务。有它才画时钟，不从对话标题推断。 */
+  automation?: { taskId: string; taskName: string }
 }
+
+type NavView = 'chat' | 'settings' | 'plugins' | 'market' | 'permissions' | 'memory' | 'usage' | 'mail'
 
 // PROFILE_NAV 是收在底部用户区菜单里的几个入口：配置类的，配好之后很少再动。
 //
 // 与顶部那三个（对话/插件/市场）分开，是因为它们的使用频次差一个数量级——六个入口
 // 并排会让每天要点很多次的那几个和一周点不了一次的挤在一起抢注意力。
 const PROFILE_NAV = [
+  { label: '用量统计', name: 'chart', view: 'usage' as const },
   { label: '记忆', name: 'file', view: 'memory' as const },
   { label: '权限', name: 'shield', view: 'permissions' as const },
   { label: '设置', name: 'settings', view: 'settings' as const },
@@ -48,6 +54,8 @@ export function Sidebar({
   onNav,
   onNew,
   onResume,
+  onOpenAutomation,
+  onOpenMail,
   userName,
   avatar,
   onLogout,
@@ -63,10 +71,12 @@ export function Sidebar({
   onPickWorkspace: (path: string) => void
   onSwitchWorkspace: () => void
   onDelete: (id: string) => void
-  view: 'chat' | 'settings' | 'plugins' | 'market' | 'permissions' | 'memory'
-  onNav: (v: 'chat' | 'settings' | 'plugins' | 'market' | 'permissions' | 'memory') => void
+  view: NavView
+  onNav: (v: NavView) => void
   onNew: () => void
   onResume: (id: string) => void
+  onOpenAutomation: () => void
+  onOpenMail: () => void
   // 已登录用户的展示名与头像;未登录为空——此时用户区照样渲染(里面装着设置/权限/
   // 记忆),只是不显示头像与「退出登录」。
   userName?: string
@@ -131,12 +141,14 @@ export function Sidebar({
             {!collapsed && n.label}
           </div>
         ))}
+        <MoreMenu collapsed={collapsed} onOpenAutomation={onOpenAutomation} onOpenMail={onOpenMail} />
       </nav>
       {collapsed ? (
         // 撑开中间，让工作区按钮保持贴底（展开态由最近对话列表的 flex-1 承担）。
         <div className="flex-1" />
       ) : (
-        <div className="mt-[22px] flex-1 overflow-y-auto -mr-1 pr-1">
+        // 列表触底或不足一屏时也截住滚动链，不能让滚轮转去滚动窗口文档。
+        <div className="mt-[22px] flex-1 overflow-y-auto overscroll-contain -mr-1 pr-1">
           {openSessions.length > 0 && (
             <>
               <div className="text-[12px] text-faint px-[11px] pb-2 tracking-wide">打开中</div>
@@ -157,6 +169,11 @@ export function Sidebar({
                     }`}
                     aria-hidden
                   />
+                  {s.automation && (
+                    <span title={s.automation.taskName} className="flex-none text-faint">
+                      <Icon name="clock" size={13} />
+                    </span>
+                  )}
                   <span className="flex-1 min-w-0 truncate">{s.title}</span>
                   {/* 目录名。只有几条会话**落在不同目录**时才出现——同一个目录里全都
                       一样，那就是纯噪声。多工作区并行时它是唯一能区分"两条同名会话
@@ -219,7 +236,13 @@ export function Sidebar({
                     active ? 'text-ink bg-surface2' : 'text-muted hover:bg-surface2'
                   }`}
                 >
-                  <Icon name="file" size={15} />
+                  {s.automation ? (
+                    <span title={s.automation.taskName} className="flex-none text-faint">
+                      <Icon name="clock" size={15} />
+                    </span>
+                  ) : (
+                    <Icon name="file" size={15} />
+                  )}
                   <span className="flex-1 min-w-0 truncate">{s.title}</span>
                   <span className="text-faint text-[11px] flex-none group-hover:hidden">{s.when}</span>
                   {/* 打开中的会话不提供删除:后端会拒绝(删掉后下一个回合会把文件重建成

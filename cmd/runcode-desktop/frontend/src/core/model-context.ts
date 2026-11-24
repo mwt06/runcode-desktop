@@ -1,4 +1,5 @@
 import type { CustomModel, ModelContextOverride, ModelReference, PassportModel } from './bridge'
+import { isChatModel } from './image-generation'
 
 export const CONTEXT_FIELDS = [
   { key: 'maxOutputTokens', label: '最大输出 Tokens', min: 1, hint: '限制单次输出；必须为正整数。' },
@@ -14,7 +15,7 @@ export function modelContextKey(ref: ModelReference): string {
 
 export function contextModelCandidates(platform: PassportModel[], custom: CustomModel[], tenantId: string) {
   return [
-    ...platform.map((m) => ({ ref: { kind: 'platform', name: m.id, tenantId } as ModelReference, label: `平台 · ${m.id}` })),
+    ...platform.filter(isChatModel).map((m) => ({ ref: { kind: 'platform', name: m.id, tenantId } as ModelReference, label: `平台 · ${m.id}` })),
     ...custom.map((m) => ({ ref: { kind: 'custom', name: m.name } as ModelReference, label: `自定义 · ${m.name}` })),
   ]
 }

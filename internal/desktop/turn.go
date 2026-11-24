@@ -36,11 +36,14 @@ func (a *App) InjectMessage(sessionID, text string) (bool, error) {
 // the message as a fresh turn instead. Shared by InjectMessage and
 // InjectMessageWithImages.
 func (a *App) injectOrSend(sessionID, text string, images []llm.ImageSource, withImages bool) (bool, error) {
-	id, err := a.sessionIDOf(sessionID)
+	if err := a.rejectIfAutomationLeased(sessionID); err != nil {
+		return false, wireError(err)
+	}
+	e, err := a.entryOf(sessionID)
 	if err != nil {
 		return false, wireError(err)
 	}
-	err = a.mgr.Inject(id, text, images)
+	err = a.mgr.Inject(e.id, text, images)
 	if err == nil {
 		return false, nil // spliced into the running turn
 	}
@@ -58,6 +61,9 @@ func (a *App) injectOrSend(sessionID, text string, images []llm.ImageSource, wit
 // maintaining the desktop-side turn bookkeeping: the in-flight mirror, the
 // auto-title text, and the per-turn edit baseline reset.
 func (a *App) sendUserTurn(sessionID, text string, images []llm.ImageSource, withImages bool) error {
+	if err := a.rejectIfAutomationLeased(sessionID); err != nil {
+		return err
+	}
 	e, err := a.entryOf(sessionID)
 	if err != nil {
 		return err
@@ -145,8 +151,9 @@ func (a *App) Compact(sessionID string) (CompactResult, error) {
 	return result, wireError(err)
 }
 
-// The host admits the turn before this callback, but cannot execute tools until
-// it returns. Do not reset edit baselines after an asynchronous receipt arrives.
+// onTurnStart：引擎准入回合后、首个模型／工具步之前调用。此处冻结本回合的编辑基线、
+// 计划记账与生图目标（含新 TurnID／一次生成预算）。注入消息不走这里，
+// 不得另开生图预算。
 func (a *App) onTurnStart(sessionID string) {
 	e, err := a.entryOf(sessionID)
 	if err != nil {
@@ -156,4 +163,5 @@ func (a *App) onTurnStart(sessionID string) {
 	if e.plans != nil {
 		e.plans.NoteUserTurn()
 	}
+	a.freezeImageGenerationTurn(e)
 }

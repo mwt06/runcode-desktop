@@ -5,6 +5,7 @@ import { type Block } from '@/chat/blocks'
 import { AnalyzeCard } from '@/chat/analyze-card'
 import { BlockView } from '@/chat/block-view'
 import { ContextMeter } from '@/chat/context-meter'
+import { automationRunToTool } from '@/chat/automation-run'
 import { ExecutionCard } from '@/chat/execution-card'
 import { ToolDetail } from '@/chat/tool-detail'
 
@@ -72,6 +73,13 @@ export function ToolPreview() {
         <div className="text-[13px] text-muted">折叠态紧凑列表(每行:图标 + 动词 + 目标 + 状态),点行展开详情;运行中的自动展开:</div>
         <ExecutionCard tools={[bash, edit, grep, readImg]} />
         <ExecutionCard tools={[running]} />
+        <div className="text-[13px] text-muted">自动化摘要默认收起；只有成功是绿勾，点开才看参数和输出:</div>
+        <ExecutionCard tools={[automationRunToTool({
+          id: 'preview-run', taskId: 'task', taskRevision: 1, runRevision: 1, status: 'running',
+          scheduledAtUTC: '2026-11-18T01:00:00Z', name: '每日整理记录', prompt: '整理今天的记录',
+          workspace: 'D:\\notes', executionMode: 'reuse_session',
+          schedule: { mode: 'daily', timeZone: 'Asia/Shanghai', startDate: '2026-11-18', timeOfDay: '09:00:00' },
+        })]} />
         <div className="text-[13px] text-muted">图片 Read 展开(缩略图):</div>
         <div className="bg-surface border border-line2 rounded-card p-4"><ToolDetail tool={readImg} /></div>
         <div className="text-[13px] text-muted">查找/搜索展开(匹配文件列表):</div>

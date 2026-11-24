@@ -67,6 +67,7 @@ type CompactResult struct {
 // 只带后端独有的事实。标题走 session:renamed 事件与 SessionSummary，待审批数在
 // 前端的授权队列里——都不必在这里重复一遍，重复就会出现两个版本互相矛盾。
 type OpenSessionInfo struct {
+	Kind      string `json:"kind,omitempty"`
 	SessionID string `json:"sessionId"`
 	// Workspace 是这条会话的工作目录。多个会话可以各在各的目录。
 	Workspace string `json:"workspace"`
@@ -74,14 +75,19 @@ type OpenSessionInfo struct {
 	Running bool `json:"running"`
 	// Focused 表示它是当前看得见的那条。
 	Focused bool `json:"focused"`
+	// Automation 是可选的时钟来源。缺省表示普通会话，Kind 保持原值。
+	Automation *AutomationOrigin `json:"automation,omitempty"`
 }
 
 // SessionSummary describes a saved session for the sidebar's recent list.
 type SessionSummary struct {
+	Kind  string `json:"kind,omitempty"`
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	When  string `json:"when"`
 	Turns int    `json:"turns"`
+	// Automation 是可选的时钟来源。缺省表示普通历史，Kind 保持原值。
+	Automation *AutomationOrigin `json:"automation,omitempty"`
 }
 
 // ResumedBlock is one rendered item of a reopened conversation. Its kinds mirror
@@ -109,6 +115,10 @@ type ResumedTool struct {
 	Input        string `json:"input,omitempty"` // the tool call's raw arguments JSON
 	IsError      bool   `json:"isError"`
 	Output       string `json:"output,omitempty"`
+	// ImageGeneration is an image_generate call's result, merged from the
+	// session's submission ledger (or its persisted tool content), so a reopened
+	// conversation repaints the image card without re-running anything.
+	ImageGeneration *ImageGenerationResult `json:"imageGeneration,omitempty"`
 }
 
 // ResumedSession carries a reopened session's status plus its prior conversation

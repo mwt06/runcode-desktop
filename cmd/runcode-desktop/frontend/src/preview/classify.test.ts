@@ -53,6 +53,9 @@ describe('classifyPreview', () => {
     expect(classifyPreview('a/b/index.HTML').kind).toBe('html')
     expect(classifyPreview('logo.PNG').kind).toBe('image')
     expect(classifyPreview('icon.svg').kind).toBe('svg')
+    expect(classifyPreview('flow.mmd').kind).toBe('mermaid')
+    expect(classifyPreview('arch.mermaid').kind).toBe('mermaid')
+    expect(classifyPreview('data.h5').kind).toBe('unsupported')
     expect(classifyPreview('notes.txt').kind).toBe('text')
   })
   it('classifies code with a highlight language', () => {

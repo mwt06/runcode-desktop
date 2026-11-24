@@ -97,7 +97,7 @@ func (a *App) ForkQuestion(ref QuestionReference) (ResumedSession, error) {
 		if err != nil {
 			return err
 		}
-		result = ResumedSession{Info: a.sessionInfo(child.Status()), Blocks: imageAnalysisBlocks(ctx, e.workspace, fork.SessionID, toResumedBlocks(fork.Prefix)), ContextTokens: child.EstimateContextTokens(), Source: &ref}
+		result = ResumedSession{Info: a.sessionInfo(child.Status()), Blocks: imageGenerationBlocks(e.workspace, fork.SessionID, imageAnalysisBlocks(ctx, e.workspace, fork.SessionID, toResumedBlocks(fork.Prefix))), ContextTokens: child.EstimateContextTokens(), Source: &ref}
 		return nil
 	})
 	return result, wireError(err)
@@ -106,12 +106,24 @@ func (a *App) ForkQuestion(ref QuestionReference) (ResumedSession, error) {
 // SubmitQuestion binds accepted input to a durable identity. A retry can reuse
 // original image bytes only from its recorded parent question.
 func (a *App) SubmitQuestion(req SubmitQuestionRequest) (QuestionReceipt, error) {
+	return a.submitQuestion(req, "")
+}
+
+// submitQuestion 是提交的唯一入口。automationRunID 为空表示用户自己在输入；
+// 只有自动化运行器会传入这次运行的编号，并且不允许插入正在进行的回合。
+func (a *App) submitQuestion(req SubmitQuestionRequest, automationRunID string) (QuestionReceipt, error) {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return QuestionReceipt{}, wireError(errNoSession)
 	}
 	e, err := a.entryOf(req.SessionID)
 	if err != nil {
 		return QuestionReceipt{}, wireError(err)
+	}
+	if err := a.allowAutomationSubmit(e.id, automationRunID); err != nil {
+		return QuestionReceipt{}, wireError(err)
+	}
+	if automationRunID != "" {
+		req.AllowSteering = false
 	}
 	if !e.questionMu.TryLock() {
 		return QuestionReceipt{}, wireError(host.ErrBusy)
@@ -169,6 +181,7 @@ func (a *App) SubmitQuestion(req SubmitQuestionRequest) (QuestionReceipt, error)
 	previous, active := e.lastUserText, e.turnActive
 	e.lastUserText, e.turnActive = req.Text, true
 	a.mu.Unlock()
+	a.noteAutomationSubmit(e.id, req.AllowSteering, automationRunID)
 	receipt, err := a.mgr.SubmitQuestion(e.id, turn.UserInput{Text: req.Text, Images: images}, req.AllowSteering)
 	if err != nil {
 		a.mu.Lock()

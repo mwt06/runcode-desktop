@@ -1,0 +1,5 @@
+ok  	github.com/wt68/runcode/cmd/runcode-desktop	2.177s
+?   	github.com/wt68/runcode/cmd/runcode-desktop/cmd/audioprobe	[no test files]
+?   	github.com/wt68/runcode/cmd/runcode-desktop/frontend/node_modules/flatted/golang/pkg/flatted	[no test files]
+?   	github.com/wt68/runcode/cmd/runcode-desktop/internal/audio	[no test files]
+ok  	github.com/wt68/runcode/cmd/runcode-desktop/tools/icongen	(cached)

@@ -5,7 +5,7 @@
 // Regenerate with: go run ./tools/protogen
 
 import { Call } from '@wailsio/runtime';
-import type { AgentList, AgentSaveRequest, ArtifactReference, CodexDeviceCode, CodexModel, CodexStatus, CompactResult, ContextAuditInfo, CustomModel, DirectoryAccessRequest, DirectoryAccessView, EditDiff, EditRecord, Info, MCPServerInfo, MCPServerInput, McpMarketEntry, MemoryInfo, ModelContextView, ModelReference, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, ProjectContextInfo, QuestionDraft, QuestionReceipt, QuestionReference, RecorderDeviceList, RecorderSettings, RecordingInfo, ResumedSession, RuntimeInfo, SaveCustomModelRequest, SaveModelContextSettingsRequest, SaveSettingsRequest, SaveVisionSettingsRequest, SecretStorage, SessionInfo, SessionSummary, SetPlatformImageCapabilityRequest, SettingsView, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, SubmitQuestionRequest, ToolInfo, UpdateInfo, VisionSettings } from './types';
+import type { AgentList, AgentSaveRequest, ArtifactReference, AutomationConversationResult, AutomationDefaults, AutomationRunPage, AutomationRunResult, AutomationSessionResult, AutomationTaskPage, AutomationTaskResult, CodexDeviceCode, CodexModel, CodexStatus, CommitMailContactImportRequest, CompactResult, ConfirmMailSendRequest, ConfirmMailSendResult, ConfirmMailTestReceiptRequest, ContextAuditInfo, CreateAutomationTaskRequest, CreateMailDraftRequest, CustomModel, DeleteAutomationTaskRequest, DeleteAutomationTaskResult, DeleteMailContactRequest, DeleteMailDraftRequest, DirectoryAccessRequest, DirectoryAccessView, DisableMailAccountRequest, EditDiff, EditRecord, GetMailDraftRequest, ImageGenerationArtifact, ImageGenerationCatalog, ImageGenerationSettings, Info, ListAutomationRunsRequest, ListAutomationTasksRequest, ListMailContactsRequest, ListMailDraftsRequest, ListMailOutboxRequest, MCPServerInfo, MCPServerInput, MailConnectionTestResult, MailContactImportPreview, MailContactView, MailDraftView, MailOutboxEntryView, MailSettings, MailTestSendResult, McpMarketEntry, MemoryInfo, ModelContextView, ModelReference, OpenAutomationSessionRequest, OpenMailOfficialURLRequest, OpenSessionInfo, PassportModel, PassportStatus, PassportTenant, PlanApproveRequest, PlanApproveResult, PlanDoc, PlanRun, PrepareMailSendRequest, PrepareMailSendResult, PreviewMailContactImportRequest, ProjectContextInfo, QuestionDraft, QuestionReceipt, QuestionReference, RecorderDeviceList, RecorderSettings, RecorderSettingsPatch, RecordingInfo, RemoveMailAccountRequest, ResumedSession, RunAutomationTaskNowRequest, RuntimeInfo, SaveCustomModelRequest, SaveImageGenerationEditRequest, SaveImageGenerationSettingsRequest, SaveMailAccountRequest, SaveMailContactRequest, SaveMailDraftRequest, SaveModelContextSettingsRequest, SaveSettingsRequest, SaveVisionSettingsRequest, SecretStorage, SendMailTestToSelfRequest, SessionAutomationRunsRequest, SessionInfo, SessionSummary, SetAutomationTaskPausedRequest, SetPlatformImageCapabilityRequest, SettingsView, SkillList, SkillMarketPage, SkillSaveRequest, StartRecordingRequest, StartSessionRequest, SubmitQuestionRequest, TestMailConnectionRequest, ToolInfo, UpdateAutomationTaskRequest, UpdateInfo, UsageDimensionsPage, UsageDimensionsQuery, UsageOverview, UsageQuery, UsageRequestsPage, UsageRequestsQuery, VisionSettings, WindowCapabilitiesView } from './types';
 
 // APP 是 desktop.App 在 Wails v3 绑定表里的全限定名。v3 按
 // "<包路径>.<类型>.<方法>" 定位方法(pkg/application/bindings.go 的 fqn)。
@@ -73,6 +73,12 @@ export function closeAllSessions(): Promise<void> {
   return call<void>('CloseAllSessions');
 }
 
+// CloseMainWindow hides the main window when a native host is installed.
+// kind: trigger
+export function closeMainWindow(): Promise<void> {
+  return call<void>('CloseMainWindow');
+}
+
 // CloseSession 关掉一条会话（空串 = 聚焦的那条）。 与替换式打开时的关闭不同：那时条目要留着（界面上旧对话还在，「已编辑」卡片 得能继续复审）；用户主动关掉一条会话时它从界面上整个消失，条目一并移除， 聚焦顺势落到还开着的另一条上。
 // kind: trigger
 export function closeSession(sessionID: string): Promise<void> {
@@ -115,10 +121,28 @@ export function codexStatus(): Promise<CodexStatus> {
   return call<CodexStatus>('CodexStatus');
 }
 
+// CommitMailContactImport 提交导入。
+// kind: trigger
+export function commitMailContactImport(req: CommitMailContactImportRequest): Promise<MailContactView[] | null> {
+  return call<MailContactView[] | null>('CommitMailContactImport', req);
+}
+
 // Compact summarizes the oldest turns now and reports the message counts.
 // kind: trigger
 export function compact(sessionID: string): Promise<CompactResult> {
   return call<CompactResult>('Compact', sessionID);
+}
+
+// ConfirmMailSend 校验令牌后写入 queued/scheduled 投递意图；SMTP 由独立 dispatcher 执行。
+// kind: trigger
+export function confirmMailSend(req: ConfirmMailSendRequest): Promise<ConfirmMailSendResult> {
+  return call<ConfirmMailSendResult>('ConfirmMailSend', req);
+}
+
+// ConfirmMailTestReceipt 记录本人核实收到测试信。
+// kind: idempotent-set
+export function confirmMailTestReceipt(req: ConfirmMailTestReceiptRequest): Promise<MailSettings> {
+  return call<MailSettings>('ConfirmMailTestReceipt', req);
 }
 
 // ContextAuditStatus 报告上下文审核的当前状态（是否测试版、开关、查看地址、目录）。
@@ -127,10 +151,28 @@ export function contextAuditStatus(): Promise<ContextAuditInfo> {
   return call<ContextAuditInfo>('ContextAuditStatus');
 }
 
+// CreateAutomationTask persists one task.
+// kind: trigger
+export function createAutomationTask(req: CreateAutomationTaskRequest): Promise<AutomationTaskResult> {
+  return call<AutomationTaskResult>('CreateAutomationTask', req);
+}
+
+// CreateMailDraft 新建空白用户草稿。
+// kind: trigger
+export function createMailDraft(req: CreateMailDraftRequest): Promise<MailDraftView> {
+  return call<MailDraftView>('CreateMailDraft', req);
+}
+
 // DeleteAgent removes a sub-agent file in the given scope and returns the list.
 // kind: idempotent-set
 export function deleteAgent(name: string, scope: string): Promise<AgentList> {
   return call<AgentList>('DeleteAgent', name, scope);
+}
+
+// DeleteAutomationTask hides the task and closes its future scheduling while preserving run history and session links.
+// kind: trigger
+export function deleteAutomationTask(req: DeleteAutomationTaskRequest): Promise<DeleteAutomationTaskResult> {
+  return call<DeleteAutomationTaskResult>('DeleteAutomationTask', req);
 }
 
 // DeleteCustomModel 按名称删除，返回最新列表。未知名称是幂等 no-op。
@@ -143,6 +185,18 @@ export function deleteCustomModel(name: string): Promise<CustomModel[] | null> {
 // kind: idempotent-set
 export function deleteMCPServer(name: string): Promise<void> {
   return call<void>('DeleteMCPServer', name);
+}
+
+// DeleteMailContact 删除联系人。
+// kind: idempotent-set
+export function deleteMailContact(req: DeleteMailContactRequest): Promise<void> {
+  return call<void>('DeleteMailContact', req);
+}
+
+// DeleteMailDraft 删除草稿箱中的草稿。
+// kind: idempotent-set
+export function deleteMailDraft(req: DeleteMailDraftRequest): Promise<void> {
+  return call<void>('DeleteMailDraft', req);
 }
 
 // DeleteRecording 删掉一场录音（连同音频）。未知 id 是幂等 no-op。
@@ -161,6 +215,12 @@ export function deleteSession(id: string): Promise<void> {
 // kind: idempotent-set
 export function deleteSkill(name: string, scope: string): Promise<SkillList> {
   return call<SkillList>('DeleteSkill', name, scope);
+}
+
+// DisableMailAccount 禁用账号但保留密文配置。
+// kind: idempotent-set
+export function disableMailAccount(req: DisableMailAccountRequest): Promise<MailSettings> {
+  return call<MailSettings>('DisableMailAccount', req);
 }
 
 // DiscardRecording 放弃这一场：停掉并删掉整个目录。
@@ -187,6 +247,42 @@ export function forkQuestion(ref: QuestionReference): Promise<ResumedSession> {
   return call<ResumedSession>('ForkQuestion', ref);
 }
 
+// GetAutomationConversation reads a linked session without focusing it.
+// kind: query
+export function getAutomationConversation(req: OpenAutomationSessionRequest): Promise<AutomationConversationResult> {
+  return call<AutomationConversationResult>('GetAutomationConversation', req);
+}
+
+// GetAutomationDefaults returns the context bootstrap.
+// kind: query
+export function getAutomationDefaults(): Promise<AutomationDefaults> {
+  return call<AutomationDefaults>('GetAutomationDefaults');
+}
+
+// GetImageGenerationSettings 返回当前账号在 tenantID 下已保存的默认；从不访问 Bridge。
+// kind: query
+export function getImageGenerationSettings(tenantID: string): Promise<ImageGenerationSettings> {
+  return call<ImageGenerationSettings>('GetImageGenerationSettings', tenantID);
+}
+
+// GetLocalUsageTenants 只读本机 SQLite 中当前账号与 Bridge 关联过的历史租户， 并补上当前活动／会话租户（即使尚无采集记录），方便直接查看本机空统计。 它不访问 Bridge，也不切换聊天会话当前租户。
+// kind: query
+export function getLocalUsageTenants(): Promise<PassportTenant[] | null> {
+  return call<PassportTenant[] | null>('GetLocalUsageTenants');
+}
+
+// GetMailDraft 读取草稿。
+// kind: query
+export function getMailDraft(req: GetMailDraftRequest): Promise<MailDraftView> {
+  return call<MailDraftView>('GetMailDraft', req);
+}
+
+// GetMailSettings 返回脱敏邮箱设置；不含密码。
+// kind: query
+export function getMailSettings(): Promise<MailSettings> {
+  return call<MailSettings>('GetMailSettings');
+}
+
 // GetModelContextSettings reads defaults and local overrides for one model.
 // kind: query
 export function getModelContextSettings(ref: ModelReference): Promise<ModelContextView> {
@@ -205,10 +301,34 @@ export function getQuestion(ref: QuestionReference): Promise<QuestionDraft> {
   return call<QuestionDraft>('GetQuestion', ref);
 }
 
+// GetUsageDimensions 返回本机已采集的平台模型维度；供应商维度首期不提供。
+// kind: query
+export function getUsageDimensions(req: UsageDimensionsQuery): Promise<UsageDimensionsPage> {
+  return call<UsageDimensionsPage>('GetUsageDimensions', req);
+}
+
+// GetUsageOverview 返回当前登录账号与租户的本机汇总。
+// kind: query
+export function getUsageOverview(req: UsageQuery): Promise<UsageOverview> {
+  return call<UsageOverview>('GetUsageOverview', req);
+}
+
+// GetUsageRequests 返回固定本机快照中的一页调用记录。
+// kind: query
+export function getUsageRequests(req: UsageRequestsQuery): Promise<UsageRequestsPage> {
+  return call<UsageRequestsPage>('GetUsageRequests', req);
+}
+
 // GetVisionSettings returns credential-free image routing preferences.
 // kind: query
 export function getVisionSettings(): Promise<VisionSettings> {
   return call<VisionSettings>('GetVisionSettings');
+}
+
+// GetWindowCapabilities 只读独立窗口引用；不初始化自动化、不查任务库。
+// kind: query
+export function getWindowCapabilities(): Promise<WindowCapabilitiesView> {
+  return call<WindowCapabilitiesView>('GetWindowCapabilities');
 }
 
 // GrantDirectoryAccess grants the explicitly selected directory and scope.
@@ -271,6 +391,18 @@ export function listAgents(): Promise<AgentList> {
   return call<AgentList>('ListAgents');
 }
 
+// ListAutomationRuns lists one task's runs, newest first.
+// kind: query
+export function listAutomationRuns(req: ListAutomationRunsRequest): Promise<AutomationRunPage> {
+  return call<AutomationRunPage>('ListAutomationRuns', req);
+}
+
+// ListAutomationTasks lists tasks in the host-computed owner set.
+// kind: query
+export function listAutomationTasks(req: ListAutomationTasksRequest): Promise<AutomationTaskPage> {
+  return call<AutomationTaskPage>('ListAutomationTasks', req);
+}
+
 // ListCustomModels 返回脱敏后的自定义模型列表。连接密钥只在后端解析会话时 解密，前端仅知道是否已配置，不能读取明文或落盘密文。
 // kind: query
 export function listCustomModels(): Promise<CustomModel[] | null> {
@@ -295,16 +427,46 @@ export function listFiles(): Promise<string[] | null> {
   return call<string[] | null>('ListFiles');
 }
 
+// ListImageGenerationModels 列出当前账号在 tenantID 下可见的生图模型。 查询失败必须是错误，绝不能用空目录冒充「没有模型」。
+// kind: query
+export function listImageGenerationModels(tenantID: string): Promise<ImageGenerationCatalog> {
+  return call<ImageGenerationCatalog>('ListImageGenerationModels', tenantID);
+}
+
 // ListMCPServers returns every configured MCP server (from the shared config.toml), annotated with live connection state from the running session.
 // kind: query
 export function listMCPServers(): Promise<MCPServerInfo[] | null> {
   return call<MCPServerInfo[] | null>('ListMCPServers');
 }
 
+// ListMailContacts 列出通信录。
+// kind: query
+export function listMailContacts(req: ListMailContactsRequest): Promise<MailContactView[] | null> {
+  return call<MailContactView[] | null>('ListMailContacts', req);
+}
+
+// ListMailDrafts 列出仍可编辑的草稿（已投递的进发件箱，不在此出现）。
+// kind: query
+export function listMailDrafts(req: ListMailDraftsRequest): Promise<MailDraftView[] | null> {
+  return call<MailDraftView[] | null>('ListMailDrafts', req);
+}
+
+// ListMailOutbox 列出发件箱投递项（含终态与失败原因）。
+// kind: query
+export function listMailOutbox(req: ListMailOutboxRequest): Promise<MailOutboxEntryView[] | null> {
+  return call<MailOutboxEntryView[] | null>('ListMailOutbox', req);
+}
+
 // ListRecordings 列出历史录音，最近的在前。 顺带做崩溃恢复：进程被强杀过的会话在这里被标成 Interrupted，被截断的 WAV 也 在这里修好——列表是用户第一眼会看到的地方，修复放在这里最自然。 RecoverSessions 只回报它救过的那几场，所以完整清单要另取一次。
 // kind: query
 export function listRecordings(): Promise<RecordingInfo[] | null> {
   return call<RecordingInfo[] | null>('ListRecordings');
+}
+
+// ListSessionAutomationRuns lists runs linked to one workspace session.
+// kind: query
+export function listSessionAutomationRuns(req: SessionAutomationRunsRequest): Promise<AutomationRunPage> {
+  return call<AutomationRunPage>('ListSessionAutomationRuns', req);
 }
 
 // ListSessionFiles never borrows the focused workspace for an async request.
@@ -355,10 +517,22 @@ export function openArtifact(sessionID: string, path: string): Promise<ArtifactR
   return call<ArtifactReference>('OpenArtifact', sessionID, path);
 }
 
+// OpenAutomationSession focuses a linked session.
+// kind: trigger
+export function openAutomationSession(req: OpenAutomationSessionRequest): Promise<AutomationSessionResult> {
+  return call<AutomationSessionResult>('OpenAutomationSession', req);
+}
+
 // OpenExternal hands the authorized source file to the OS default application.
 // kind: trigger
 export function openExternal(reference: string): Promise<void> {
   return call<void>('OpenExternal', reference);
+}
+
+// OpenMailOfficialURL 只打开固定官方页面。
+// kind: trigger
+export function openMailOfficialURL(req: OpenMailOfficialURLRequest): Promise<void> {
+  return call<void>('OpenMailOfficialURL', req);
 }
 
 // OpenSession **再开**一条会话，不关掉已经开着的那些。 workspace 为空是"就在当前工作区再开一条"；给了目录就在那个目录开——这是 **多工作区并行**的唯一入口。每条会话记着自己的目录（sessionEntry.workspace）， 工作区寻址的那批命令跟着聚焦走（见 focusLocked），预览服务器按目录共享并计数 （见 previewRef）。 它同时取代了原来的 SwitchWorkspace（关掉当前那条、在新目录重开一条）：换目录 不再意味着丢掉手上正在跑的会话。真要丢，从「打开中」里关掉它——那是一个明确的 动作，而不是换目录的副作用。 复用当前会话的 provider / 模型 / 凭据（与 NewSession 同一套 a.config），所以 并行的几条会话共用同一条连接——每会话独立连接不在本期范围内，见 docs/multi-session.md。模型倒是每会话可以不同：SetModel 本来就按会话生效。
@@ -415,6 +589,12 @@ export function passportValidate(): Promise<PassportStatus> {
   return call<PassportStatus>('PassportValidate');
 }
 
+// PatchRecorderSettings 合并设置页或录音窗的一次字段修改。两处会同时写同一文件， 全对象覆盖会让一个窗口刚改的字段被另一个窗口的旧快照撤回。
+// kind: idempotent-set
+export function patchRecorderSettings(patch: RecorderSettingsPatch): Promise<RecorderSettings> {
+  return call<RecorderSettings>('PatchRecorderSettings', patch);
+}
+
 // PauseRecording 暂停。本地 WAV 与服务端时间轴一起停住，恢复后接着走。
 // kind: trigger
 export function pauseRecording(): Promise<void> {
@@ -455,6 +635,18 @@ export function planStatus(sessionID: string): Promise<PlanRun> {
 // kind: idempotent-set
 export function planUpdate(sessionID: string, doc: PlanDoc): Promise<PlanRun> {
   return call<PlanRun>('PlanUpdate', sessionID, doc);
+}
+
+// PrepareMailSend 校验草稿修订、冻结附件字节、签发一次性 confirmationId。 不 SMTP；OA 锁在此与 Confirm 双检。
+// kind: trigger
+export function prepareMailSend(req: PrepareMailSendRequest): Promise<PrepareMailSendResult> {
+  return call<PrepareMailSendResult>('PrepareMailSend', req);
+}
+
+// PreviewMailContactImport 预览 CSV 导入。
+// kind: query
+export function previewMailContactImport(req: PreviewMailContactImportRequest): Promise<MailContactImportPreview> {
+  return call<MailContactImportPreview>('PreviewMailContactImport', req);
 }
 
 // ReadArtifact returns UTF-8 text through a live source-session reference.
@@ -517,6 +709,12 @@ export function reloadMCPServers(): Promise<boolean> {
   return call<boolean>('ReloadMCPServers');
 }
 
+// RemoveMailAccount 删除账号与密文。
+// kind: idempotent-set
+export function removeMailAccount(req: RemoveMailAccountRequest): Promise<MailSettings> {
+  return call<MailSettings>('RemoveMailAccount', req);
+}
+
 // RemoveRuntime 删除已安装的运行时包。
 // kind: trigger
 export function removeRuntime(id: string): Promise<void> {
@@ -529,10 +727,22 @@ export function renderOfficePDF(reference: string): Promise<string> {
   return call<string>('RenderOfficePDF', reference);
 }
 
+// RequestAppExit asks the native host to quit.
+// kind: trigger
+export function requestAppExit(): Promise<void> {
+  return call<void>('RequestAppExit');
+}
+
 // Reset clears the in-memory working history (the on-disk log is untouched).
 // kind: trigger
 export function reset(sessionID: string): Promise<void> {
   return call<void>('Reset', sessionID);
+}
+
+// ResetLocalUsageStore archives the unreadable database and opens a fresh one.
+// kind: trigger
+export function resetLocalUsageStore(): Promise<void> {
+  return call<void>('ResetLocalUsageStore');
 }
 
 // ResolveArtifactPath returns the authorized source path for the UI copy action.
@@ -589,6 +799,12 @@ export function revokeDirectoryAccess(req: DirectoryAccessRequest): Promise<Dire
   return call<DirectoryAccessView>('RevokeDirectoryAccess', req);
 }
 
+// RunAutomationTaskNow queues one explicit manual run without changing the schedule or enabled/paused state.
+// kind: trigger
+export function runAutomationTaskNow(req: RunAutomationTaskNowRequest): Promise<AutomationRunResult> {
+  return call<AutomationRunResult>('RunAutomationTaskNow', req);
+}
+
 // RuntimeStatus 返回运行时环境的当前状态（纯读，不联网）。
 // kind: query
 export function runtimeStatus(): Promise<RuntimeInfo> {
@@ -607,10 +823,40 @@ export function saveCustomModel(req: SaveCustomModelRequest): Promise<CustomMode
   return call<CustomModel[] | null>('SaveCustomModel', req);
 }
 
+// SaveImageGenerationEdit 把画板合成的 PNG 存为同一 generation 目录下的新 edited-*.png。 原图不动；路径必须落在本会话工作区 生成图片/<generationId>/ 下已有文件。
+// kind: trigger
+export function saveImageGenerationEdit(req: SaveImageGenerationEditRequest): Promise<ImageGenerationArtifact> {
+  return call<ImageGenerationArtifact>('SaveImageGenerationEdit', req);
+}
+
+// SaveImageGenerationSettings 对照活目录校验后替换作用域默认。 重复提交已确认目标原样返回；目标变了但修订号过期则拒绝。
+// kind: idempotent-set
+export function saveImageGenerationSettings(req: SaveImageGenerationSettingsRequest): Promise<ImageGenerationSettings> {
+  return call<ImageGenerationSettings>('SaveImageGenerationSettings', req);
+}
+
 // SaveMCPServer creates or updates a server and persists it to config.toml.
 // kind: idempotent-set
 export function saveMCPServer(in_: MCPServerInput): Promise<void> {
   return call<void>('SaveMCPServer', in_);
+}
+
+// SaveMailAccount 仅在同配置连接测试通过且保护成功时原子写入。
+// kind: idempotent-set
+export function saveMailAccount(req: SaveMailAccountRequest): Promise<MailSettings> {
+  return call<MailSettings>('SaveMailAccount', req);
+}
+
+// SaveMailContact 新建或 CAS 更新联系人。
+// kind: idempotent-set
+export function saveMailContact(req: SaveMailContactRequest): Promise<MailContactView> {
+  return call<MailContactView>('SaveMailContact', req);
+}
+
+// SaveMailDraft 以 expectedRevision 做 CAS 保存用户编辑；不发信。
+// kind: idempotent-set
+export function saveMailDraft(req: SaveMailDraftRequest): Promise<MailDraftView> {
+  return call<MailDraftView>('SaveMailDraft', req);
 }
 
 // SaveModelContextSettings only persists a preference; it never interrupts a turn.
@@ -661,6 +907,12 @@ export function secretStorageStatus(): Promise<SecretStorage> {
   return call<SecretStorage>('SecretStorageStatus');
 }
 
+// SendMailTestToSelf 向已保存账号自身发送固定测试信；不接受外部收件人。
+// kind: trigger
+export function sendMailTestToSelf(req: SendMailTestToSelfRequest): Promise<MailTestSendResult> {
+  return call<MailTestSendResult>('SendMailTestToSelf', req);
+}
+
 // SendMessage runs one user turn asynchronously.
 // kind: trigger
 export function sendMessage(sessionID: string, text: string): Promise<void> {
@@ -689,6 +941,12 @@ export function setActiveTenant(tenantID: string): Promise<void> {
 // kind: idempotent-set
 export function setAgentEnabled(name: string, scope: string, enabled: boolean): Promise<void> {
   return call<void>('SetAgentEnabled', name, scope, enabled);
+}
+
+// SetAutomationTaskPaused sets the paused bit.
+// kind: idempotent-set
+export function setAutomationTaskPaused(req: SetAutomationTaskPausedRequest): Promise<AutomationTaskResult> {
+  return call<AutomationTaskResult>('SetAutomationTaskPaused', req);
 }
 
 // SetContextAudit 开关上下文审核并持久化。仅测试版构建允许开启；关闭总是允许 （正式版里它本来就不可能开着）。运行态先行、持久化随后：持久化失败会回滚刚 打开的运行态，保证界面所见与重启后的行为一致。
@@ -797,6 +1055,18 @@ export function submitQuestion(req: SubmitQuestionRequest): Promise<QuestionRece
 // kind: trigger
 export function switchModel(sessionID: string, kind: string, name: string): Promise<SessionInfo> {
   return call<SessionInfo>('SwitchModel', sessionID, kind, name);
+}
+
+// TestMailConnection 用当前表单探测 SMTP：连接/TLS/认证后退出，不发信、不落盘。
+// kind: trigger
+export function testMailConnection(req: TestMailConnectionRequest): Promise<MailConnectionTestResult> {
+  return call<MailConnectionTestResult>('TestMailConnection', req);
+}
+
+// UpdateAutomationTask replaces the editable fields.
+// kind: trigger
+export function updateAutomationTask(req: UpdateAutomationTaskRequest): Promise<AutomationTaskResult> {
+  return call<AutomationTaskResult>('UpdateAutomationTask', req);
 }
 
 // UpdateStatus returns the current update snapshot without network access.

@@ -23,6 +23,9 @@ type CustomModel struct {
 	APIKey   string `json:"apiKey,omitempty"`
 	// APIKeyProtected 是 DPAPI 加密后的落盘形态（同 StartSessionRequest 的凭证）。
 	APIKeyProtected string `json:"apiKeyProtected,omitempty"`
+	// CredentialRevision 只在密钥真正变化时增加。旧配置没有该字段时按 1 理解
+	// （已有密钥）或 0（没有密钥），不把密钥或其散列写进任务绑定。
+	CredentialRevision int64 `json:"credentialRevision,omitempty"`
 }
 
 // SaveCustomModelRequest 新增或修改一个自定义模型。编辑时 OriginalName 定位旧

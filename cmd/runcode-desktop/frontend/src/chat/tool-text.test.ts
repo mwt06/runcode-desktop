@@ -71,6 +71,9 @@ describe('toolVerbTarget', () => {
     expect(target).toBe('Node.js')
     expect(toolVerbTarget(ev({ toolName: 'install_runtime', input: { runtime: 'ruby' } })).target).toBe('ruby')
   })
+  it('names an automation summary by the task, not a file path', () => {
+    expect(toolVerbTarget(ev({ toolName: 'automation_task', input: { name: '每日整理记录' } }))).toEqual({ verb: '执行', target: '每日整理记录' })
+  })
   it('uses the pattern for Grep/Glob and the query for WebSearch', () => {
     expect(toolVerbTarget(ev({ toolName: 'Grep', input: { pattern: 'foo.*bar' } })).target).toBe('foo.*bar')
     expect(toolVerbTarget(ev({ toolName: 'WebSearch', input: { query: 'runcode' } })).target).toBe('runcode')
@@ -82,6 +85,27 @@ describe('toolVerbTarget', () => {
   it('keeps an unmapped tool name as its own verb', () => {
     expect(toolVerbTarget(ev({ toolName: 'CustomTool' })).verb).toBe('CustomTool')
     expect(toolVerbTarget(ev({})).verb).toBe('工具')
+  })
+
+  it('maps send_email to 准备邮件 + subject', () => {
+    expect(toolVerbTarget(ev({ toolName: 'send_email', input: { subject: '本周教学周报' } }))).toEqual({
+      verb: '准备邮件',
+      target: '本周教学周报',
+    })
+  })
+
+  it('maps search_contacts to query', () => {
+    expect(toolVerbTarget(ev({ toolName: 'search_contacts', input: { query: '王老师' } })).target).toBe('王老师')
+  })
+
+  it('maps add_mail_contact to name and email', () => {
+    expect(toolVerbTarget(ev({
+      toolName: 'add_mail_contact',
+      input: { name: '马文涛', email: 'mawentao@ouc-online.com.cn' },
+    }))).toEqual({
+      verb: '添加联系人',
+      target: '马文涛 mawentao@ouc-online.com.cn',
+    })
   })
   it('shows an MCP tool by its Chinese name, or at least without the mcp__ plumbing', () => {
     expect(toolVerbTarget(ev({ toolName: 'mcp__oa__my_todo' })).verb).toBe('待办事项')

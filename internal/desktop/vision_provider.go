@@ -77,5 +77,7 @@ func (a *App) visionProvider(cfg engine.Config, ref modelReference, stored deskt
 		cleanup()
 		return nil, func() {}, err
 	}
+	// 平台识图走同一 Recorder；自定义／Codex 不包装。幂等：已包装则不再套一层。
+	provider = wrapVisionForCapture(provider, ref.Kind == "platform", cfg.BaseURL)
 	return provider, cleanup, nil
 }

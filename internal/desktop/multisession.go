@@ -121,8 +121,10 @@ func (a *App) CloseSession(sessionID string) error {
 // 就点到了别人身上——而这一栏里每行右侧都有一颗关闭按钮，代价是关掉一条正在跑
 // 的会话，没有任何报错。
 func (a *App) OpenSessions() []OpenSessionInfo {
+	// Lease ids are copied before App.mu. The link lookup happens after the
+	// lock is released, so a session list never queries SQLite while holding it.
+	leased := a.leasedSessionIDs()
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	live := make([]*sessionEntry, 0, len(a.sessions))
 	for _, e := range a.sessions {
 		if !e.closed {
@@ -130,14 +132,35 @@ func (a *App) OpenSessions() []OpenSessionInfo {
 		}
 	}
 	sort.Slice(live, func(i, j int) bool { return live[i].seq < live[j].seq })
-	out := make([]OpenSessionInfo, 0, len(live))
+	type openSnap struct {
+		id, workspace string
+		running       bool
+		focused       bool
+	}
+	snaps := make([]openSnap, 0, len(live))
+	refs := make([]automationSessionRef, 0, len(live))
 	for _, e := range live {
-		out = append(out, OpenSessionInfo{
-			SessionID: e.id,
-			Workspace: e.workspace,
-			Running:   e.turnActive,
-			Focused:   e.id == a.focused,
+		snaps = append(snaps, openSnap{
+			id: e.id, workspace: e.workspace,
+			running: e.turnActive || leased[e.id], focused: e.id == a.focused,
 		})
+		refs = append(refs, automationSessionRef{workspace: e.workspace, sessionID: e.id})
+	}
+	a.mu.Unlock()
+	origins := a.automationOrigins(refs)
+	out := make([]OpenSessionInfo, 0, len(snaps))
+	for _, snap := range snaps {
+		info := OpenSessionInfo{
+			SessionID: snap.id,
+			Workspace: snap.workspace,
+			Running:   snap.running,
+			Focused:   snap.focused,
+		}
+		if origin, ok := originAt(origins, snap.workspace, snap.id); ok {
+			info.Kind = "agent"
+			info.Automation = &origin
+		}
+		out = append(out, info)
 	}
 	return out
 }
@@ -145,22 +168,43 @@ func (a *App) OpenSessions() []OpenSessionInfo {
 // CloseAllSessions 关掉所有开着的会话。退出时用：多会话之后「关掉当前那条」不再
 // 等于「收干净」，漏掉的会话会带着未收尾的回合和未落盘的记录一起被进程带走。
 func (a *App) CloseAllSessions() error {
+	return wireError(a.closeAllSessions(context.Background()))
+}
+
+func (a *App) closeAllSessions(parent context.Context) error {
+	// Interrupt existing work before waiting for a build or settings transition.
+	// Manager calls may emit callbacks that re-enter App.mu.
+	a.mu.Lock()
+	ids := make([]string, 0, len(a.sessions))
+	for _, e := range a.sessions {
+		ids = append(ids, e.id)
+	}
+	a.mu.Unlock()
+	for _, id := range ids {
+		_ = a.mgr.Interrupt(id)
+	}
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
+	// A creation that held startMu may only just have registered its entry.
 	a.mu.Lock()
 	all := make([]*sessionEntry, 0, len(a.sessions))
 	for _, e := range a.sessions {
 		all = append(all, e)
 	}
 	a.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+	ctx, cancel := context.WithTimeout(parent, sessionCloseTimeout)
 	defer cancel()
 	for _, e := range all {
 		_ = a.mgr.Interrupt(e.id)
 	}
 	var err error
+	if a.exit.closing.Load() {
+		// Failed builds may still have manager-owned cleanup to retry. Only exit
+		// makes the manager terminal; ordinary CloseAllSessions remains reusable.
+		err = a.mgr.CloseAll(ctx)
+	}
 	for _, e := range all {
 		err = errors.Join(err, a.closeEntryHeld(ctx, e, true))
 	}
-	return wireError(err)
+	return err
 }

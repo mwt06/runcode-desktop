@@ -11,6 +11,7 @@ func TestPassportConfigDefaultsAndEnvOverride(t *testing.T) {
 	t.Setenv("RUNCODE_PASSPORT_AUTHORITY", "")
 	t.Setenv("RUNCODE_PASSPORT_CLIENT_ID", "")
 	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "")
+	t.Setenv("RUNCODE_PASSPORT_REDIRECT_URI", "")
 	cfg := passportConfig()
 	if cfg.Authority != "https://passport-ai.ouchn.edu.cn" {
 		t.Fatalf("authority = %q", cfg.Authority)
@@ -29,6 +30,22 @@ func TestPassportConfigDefaultsAndEnvOverride(t *testing.T) {
 	cfg = passportConfig()
 	if cfg.BridgeBaseURL != "https://bridge.example" || cfg.RedirectURI != "https://bridge.example/oauth/callback" {
 		t.Fatalf("override: %+v", cfg)
+	}
+
+	// 本机 Bridge 不得把未登记的 localhost callback 送给通行证。
+	t.Setenv("RUNCODE_BRIDGE_BASE_URL", "http://localhost:8199")
+	t.Setenv("RUNCODE_PASSPORT_REDIRECT_URI", "")
+	cfg = passportConfig()
+	if cfg.BridgeBaseURL != "http://localhost:8199" {
+		t.Fatalf("loopback bridge = %q", cfg.BridgeBaseURL)
+	}
+	if cfg.RedirectURI != "https://bridge-aibase.ouc-online.com.cn/oauth/callback" {
+		t.Fatalf("loopback redirect = %q, want production callback", cfg.RedirectURI)
+	}
+	t.Setenv("RUNCODE_PASSPORT_REDIRECT_URI", "https://bridge.example/oauth/callback")
+	cfg = passportConfig()
+	if cfg.RedirectURI != "https://bridge.example/oauth/callback" {
+		t.Fatalf("explicit redirect = %q", cfg.RedirectURI)
 	}
 }
 

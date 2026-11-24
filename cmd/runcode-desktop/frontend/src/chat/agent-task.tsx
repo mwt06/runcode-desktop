@@ -3,13 +3,14 @@
 import { useState } from 'react'
 import { Icon, toolIcon } from '@/ui/icons'
 import { CheckMark, Spinner } from '@/ui/glyphs'
-import { Markdown } from '@/ui/markdown'
 import { fmtDuration, fmtTokens } from '@/core/format'
 import { type ToolEvent } from '@/core/bridge'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { type AgentNested, type ToolBlock } from './blocks'
 import { taskActivity, taskMeta, toolLabel } from './tool-text'
 import { ToolDetail } from './tool-detail'
+import { AssistantMarkdown } from './assistant-markdown'
+import type { CodePreviewTarget } from '@/preview/code-preview'
 
 // 用量/步数脚注的排版：三处（单个子代理、组合计、组内步数）必须完全一致，
 // tabular-nums 让数字在流式刷新时不抖。
@@ -18,7 +19,12 @@ const FOOTNOTE = 'flex-none text-[11px] text-faint font-mono tabular-nums'
 // AgentTaskCard renders a Task delegation as a live, observable nested view: the
 // sub-agent's streamed text plus its own tool calls (each drillable). It is
 // expanded while the sub-agent runs and collapses to a summary when it finishes.
-export function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: AgentNested }) {
+export function AgentTaskCard({ tool, nested, sessionId, onOpenCodePreview }: {
+  tool: ToolEvent
+  nested?: AgentNested
+  sessionId?: string
+  onOpenCodePreview?: (target: CodePreviewTarget) => void
+}) {
   const running = tool.type !== 'completed' && tool.type !== 'failed'
   const failed = tool.type === 'failed'
   const [open, setOpen] = useState(false)
@@ -47,7 +53,7 @@ export function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: Agen
         )}
       </div>
       {meta.desc && <div className="text-[13px] text-faint break-words">{meta.desc}</div>}
-      {expanded && <AgentTaskDetail nested={nested} running={running} />}
+      {expanded && <AgentTaskDetail nested={nested} running={running} sessionId={sessionId} onOpenCodePreview={onOpenCodePreview} />}
     </div>
   )
 }
@@ -57,7 +63,12 @@ export function AgentTaskCard({ tool, nested }: { tool: ToolEvent; nested?: Agen
 // parallel taskgroup rows. The whole view lives in a bounded inner scroll pane:
 // streamed text would otherwise keep growing the page and fight the user's own
 // scrolling; overscroll-contain stops wheel events from chaining to the chat flow.
-function AgentTaskDetail({ nested, running }: { nested?: AgentNested; running: boolean }) {
+function AgentTaskDetail({ nested, running, sessionId, onOpenCodePreview }: {
+  nested?: AgentNested
+  running: boolean
+  sessionId?: string
+  onOpenCodePreview?: (target: CodePreviewTarget) => void
+}) {
   const [selTool, setSelTool] = useState<number | null>(null)
   const { ref, onScroll } = useStickToBottom<HTMLDivElement>(nested)
   const tools = nested?.tools ?? []
@@ -89,7 +100,14 @@ function AgentTaskDetail({ nested, running }: { nested?: AgentNested; running: b
       )}
       {nested?.text ? (
         <div className="text-[14px] text-ink2 leading-[1.7] break-words">
-          <Markdown>{nested.text}</Markdown>
+          <AssistantMarkdown
+            messageId={`agent-${nested.agent || 'task'}`}
+            streaming={running}
+            sessionId={sessionId}
+            onOpenCodePreview={onOpenCodePreview}
+          >
+            {nested.text}
+          </AssistantMarkdown>
           {running && <span className="caret">▍</span>}
         </div>
       ) : running ? (
@@ -103,7 +121,11 @@ function AgentTaskDetail({ nested, running }: { nested?: AgentNested; running: b
 // a header with aggregate progress and one compact row per sub-agent, expandable on
 // click. Rows default to collapsed — the opposite of the single-Task card — because
 // several force-expanded streaming panes at once are unreadable.
-export function AgentTaskGroup({ tasks }: { tasks: ToolBlock[] }) {
+export function AgentTaskGroup({ tasks, sessionId, onOpenCodePreview }: {
+  tasks: ToolBlock[]
+  sessionId?: string
+  onOpenCodePreview?: (target: CodePreviewTarget) => void
+}) {
   const [open, setOpen] = useState(false)
   const running = tasks.some((t) => t.tool.type !== 'completed' && t.tool.type !== 'failed')
   const failed = tasks.filter((t) => t.tool.type === 'failed').length
@@ -138,7 +160,7 @@ export function AgentTaskGroup({ tasks }: { tasks: ToolBlock[] }) {
       </div>
       {expanded && (
         <div className="flex flex-col gap-0.5">
-          {tasks.map((t) => <AgentTaskRow key={t.id} block={t} />)}
+          {tasks.map((t) => <AgentTaskRow key={t.id} block={t} sessionId={sessionId} onOpenCodePreview={onOpenCodePreview} />)}
         </div>
       )}
     </div>
@@ -149,7 +171,11 @@ export function AgentTaskGroup({ tasks }: { tasks: ToolBlock[] }) {
 // (who, what, current activity or final stats) that expands on click to the full
 // nested detail view. A resumed Task carries no live nested data, so expanding it
 // falls back to the plain tool detail (input + persisted result).
-function AgentTaskRow({ block }: { block: ToolBlock }) {
+function AgentTaskRow({ block, sessionId, onOpenCodePreview }: {
+  block: ToolBlock
+  sessionId?: string
+  onOpenCodePreview?: (target: CodePreviewTarget) => void
+}) {
   const [open, setOpen] = useState(false)
   const t = block.tool
   const running = t.type !== 'completed' && t.type !== 'failed'
@@ -178,7 +204,9 @@ function AgentTaskRow({ block }: { block: ToolBlock }) {
       </div>
       {open && (
         <div className="px-2 pb-2 pt-0.5">
-          {block.nested ? <AgentTaskDetail nested={block.nested} running={running} /> : <ToolDetail tool={t} />}
+          {block.nested
+            ? <AgentTaskDetail nested={block.nested} running={running} sessionId={sessionId} onOpenCodePreview={onOpenCodePreview} />
+            : <ToolDetail tool={t} />}
         </div>
       )}
     </div>

@@ -1,12 +1,15 @@
 package desktop
 
 import (
+	"context"
 	"os"
 	"strings"
+	"time"
 
 	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/tool"
 
+	"github.com/wt68/runcode/internal/localusage"
 	"github.com/wt68/runcode/internal/websearchtool"
 )
 
@@ -40,7 +43,7 @@ func webSearchEndpoint(baseURL string) string {
 	return base + "/websearch"
 }
 
-// passportWebSearch 造这条会话要用的 WebSearch 工具；非通行证连接返回 nil，引擎
+// passportWebSearchFor 造这条会话要用的 WebSearch 工具；非通行证连接返回 nil，引擎
 // 保留内置的那条(见引擎 build.go 的 replaceWebSearch)。
 //
 // 搜索模型可用 RUNCODE_WEBSEARCH_MODEL 覆盖，留空由 websearchtool 填默认值——
@@ -49,14 +52,42 @@ func webSearchEndpoint(baseURL string) string {
 // HTTP 客户端交给 websearchtool 自己建(普通带超时客户端)：**不能**用引擎那个加固
 // 客户端，它拒连回环/内网地址，而 Bridge 常部署在内网——与 passportHTTP 同一条
 // 理由。
-func passportWebSearch(cfg *engine.Config) tool.Tool {
+// 在有 App 时挂上本机用量 Capture（401 续期仍只记一次）。
+func passportWebSearchFor(a *App, cfg *engine.Config) tool.Tool {
 	if !usingPassport(cfg) {
 		return nil
 	}
-	return websearchtool.New(websearchtool.Config{
+	wc := websearchtool.Config{
 		Endpoint:       webSearchEndpoint(cfg.BaseURL),
 		Model:          os.Getenv("RUNCODE_WEBSEARCH_MODEL"),
 		Token:          cfg.TokenSource,
 		OnUnauthorized: cfg.OnUnauthorized,
-	})
+	}
+	if a != nil && platformEnabled.Load() {
+		freeze := platformUsageFreezer(cfg.BaseURL, a.freezeUsageIdentity, currentPlatformRecorder())
+		wc.Capture = func(ctx context.Context, model string) func(websearchtool.Outcome, string) {
+			scope, err := freeze(ctx)
+			if err != nil {
+				return func(websearchtool.Outcome, string) {}
+			}
+			end, began := a.beginNonLLMCapture(ctx, localusage.StartRecord{
+				CallID: localusage.NewCallID(), Scope: scope, Model: model, CallKind: localusage.CallKindSearch,
+				StartedAt: time.Now().UTC(),
+			})
+			if !began {
+				return func(websearchtool.Outcome, string) {}
+			}
+			return func(outcome websearchtool.Outcome, errCode string) {
+				status := localusage.StatusSucceeded
+				switch outcome {
+				case websearchtool.OutcomeCancelled:
+					status = localusage.StatusCancelled
+				case websearchtool.OutcomeFailed:
+					status = localusage.StatusFailed
+				}
+				end(status, errCode, nil)
+			}
+		}
+	}
+	return websearchtool.New(wc)
 }

@@ -13,6 +13,10 @@ export const Events = {
   AskpassRequest: 'askpass:request',
   AssistantDelta: 'assistant:delta',
   AssistantThinking: 'assistant:thinking',
+  AutomationContextChanged: 'automation:context_changed',
+  AutomationRunChanged: 'automation:run_changed',
+  AutomationServiceChanged: 'automation:service_changed',
+  AutomationTaskChanged: 'automation:task_changed',
   ContextCompaction: 'context:compaction',
   ContextUsage: 'context:usage',
   DirectoryAccessChanged: 'directory:changed',
@@ -21,6 +25,7 @@ export const Events = {
   PassportChanged: 'passport:changed',
   PermissionRequest: 'permission:request',
   PlanUpdated: 'plan:updated',
+  PreviewLifecycle: 'preview:lifecycle',
   RecorderLevel: 'recorder:level',
   RecorderState: 'recorder:state',
   RecorderTranscript: 'recorder:transcript',
@@ -67,13 +72,28 @@ export type Decision = (typeof Decisions)[keyof typeof Decisions] | (string & {}
 
 // Mirrors the protocol.ErrCode* constants. Error codes carried by protocol.Error; clients switch on code.
 export const ErrCodes = {
+  AutomationBindingInvalid: 'automation_binding_invalid',
+  AutomationConflict: 'automation_conflict',
+  AutomationContextChanged: 'automation_context_changed',
+  AutomationTaskActive: 'automation_task_active',
+  AutomationUnavailable: 'automation_unavailable',
   Busy: 'busy',
   Internal: 'internal',
   InvalidArgument: 'invalid_argument',
   NoSession: 'no_session',
   NotFound: 'not_found',
   NotLoggedIn: 'not_logged_in',
+  SettingsApplyFailed: 'settings_apply_failed',
   Unavailable: 'unavailable',
+  UsageForbidden: 'usage_forbidden',
+  UsageIdentityChanged: 'usage_identity_changed',
+  UsageInvalidCursor: 'usage_invalid_cursor',
+  UsageInvalidRange: 'usage_invalid_range',
+  UsageInvalidResponse: 'usage_invalid_response',
+  UsageStorage: 'usage_storage',
+  UsageTimeout: 'usage_timeout',
+  UsageUnavailable: 'usage_unavailable',
+  UsageUnsupported: 'usage_unsupported',
 } as const;
 
 // ErrCode keeps unknown codes assignable so a newer host degrades gracefully.
@@ -153,6 +173,40 @@ export const RuntimeStages = {
 // RuntimeStage is the closed set of install stages — the shell drives this pipeline itself, so an unknown value is a bug, not a newer peer.
 export type RuntimeStage = (typeof RuntimeStages)[keyof typeof RuntimeStages];
 
+// Mirrors the protocol.ImageGenerationSubmission* constants. Local image-generation submission dispositions; they do not prove upstream receipt or billing.
+export const ImageGenerationSubmissionStatuses = {
+  Attempted: 'attempted',
+  NotSubmitted: 'not_submitted',
+  Unknown: 'unknown',
+} as const;
+
+// ImageGenerationSubmissionStatus is the closed set of local send-boundary dispositions.
+export type ImageGenerationSubmissionStatus = (typeof ImageGenerationSubmissionStatuses)[keyof typeof ImageGenerationSubmissionStatuses];
+
+// Mirrors the protocol.MailVersion* constants. Aliyun enterprise mailbox service presets; host/port are derived and not model-chosen.
+export const MailVersions = {
+  HK: 'hk',
+  Standard: 'standard',
+  XC: 'xc',
+} as const;
+
+// MailVersion is the closed set of mailbox service presets.
+export type MailVersion = (typeof MailVersions)[keyof typeof MailVersions];
+
+// Mirrors the protocol.MailStatus* constants. Mail onboarding fact states; not a single verified boolean.
+export const MailOnboardingStatuses = {
+  ConnectionTestPassed: 'connection_test_passed',
+  Guiding: 'guiding',
+  NeedsAttention: 'needs_attention',
+  NotConfigured: 'not_configured',
+  ReceiptConfirmed: 'receipt_confirmed',
+  Saved: 'saved',
+  TestMailAccepted: 'test_mail_accepted',
+} as const;
+
+// MailOnboardingStatus is the closed set of mailbox onboarding progress states.
+export type MailOnboardingStatus = (typeof MailOnboardingStatuses)[keyof typeof MailOnboardingStatuses];
+
 // Mirrors protocol.AgentInfo. AgentInfo is one sub-agent for the UI's sub-agent manager.
 export interface AgentInfo {
   name: string;
@@ -210,7 +264,7 @@ export interface ApprovalSummary {
   policyRule?: string;
 }
 
-// Mirrors protocol.ArtifactReference. ArtifactReference is a bounded, session-instance-bound file capability.
+// Mirrors protocol.ArtifactReference. ArtifactReference 是有界、绑定会话实例的文件能力句柄。
 export interface ArtifactReference {
   reference: string;
   sessionId: string;
@@ -238,6 +292,188 @@ export interface AssistantDelta {
   text: string;
 }
 
+// Mirrors protocol.AutomationBindingSummary. AutomationBindingSummary is the desensitized frozen connection.
+export interface AutomationBindingSummary {
+  modelKind: string;
+  modelName: string;
+  bridge?: string;
+  tenantId?: string;
+  permissionMode?: string;
+  bindingVersion: number;
+}
+
+// Mirrors protocol.AutomationContext. AutomationContext is the opaque view id plus the process identity epoch.
+export interface AutomationContext {
+  viewId: string;
+  epoch: number;
+}
+
+// Mirrors protocol.AutomationContextChanged. AutomationContextChanged is the payload of automation:context_changed.
+export interface AutomationContextChanged {
+  context: AutomationContext;
+}
+
+// Mirrors protocol.AutomationConversationResult. AutomationConversationResult is a read-only history fetch.
+export interface AutomationConversationResult {
+  context: AutomationContext;
+  workspace: string;
+  sessionId: string;
+  blocks: ResumedBlock[] | null;
+  historyPending: boolean;
+}
+
+// Mirrors protocol.AutomationDefaults. AutomationDefaults is the context bootstrap.
+export interface AutomationDefaults {
+  context: AutomationContext;
+  available: boolean;
+  unavailableReason?: string;
+  currentWorkspace: string;
+  recentWorkspaces: string[] | null;
+  model: AutomationModelSummary;
+  permissionMode?: string;
+  backgroundSupported: boolean;
+  bindingVersion: number;
+}
+
+// Mirrors protocol.AutomationEventSource. AutomationEventSource marks a host envelope that belongs to a leased run.
+export interface AutomationEventSource {
+  context: AutomationContext;
+  runId: string;
+  leaseGeneration: number;
+}
+
+// Mirrors protocol.AutomationModelSummary. AutomationModelSummary is the model the create form is bound to.
+export interface AutomationModelSummary {
+  kind?: string;
+  name?: string;
+  permissionMode?: string;
+  bridge?: string;
+  tenantId?: string;
+}
+
+// Mirrors protocol.AutomationOrigin. AutomationOrigin is the optional clock source on a chat session DTO.
+export interface AutomationOrigin {
+  taskId: string;
+  taskName: string;
+}
+
+// Mirrors protocol.AutomationRun. AutomationRun is one occurrence.
+export interface AutomationRun {
+  id: string;
+  taskId: string;
+  taskRevision: number;
+  runRevision: number;
+  status: string;
+  reason?: string;
+  sessionId?: string;
+  questionId?: string;
+  scheduledAtUTC: string;
+  startedAtUTC?: string;
+  finishedAtUTC?: string;
+  summary?: string;
+  missedCount?: number;
+  trigger?: string;
+  name?: string;
+  prompt?: string;
+  workspace?: string;
+  executionMode?: string;
+  schedule: AutomationSchedule;
+}
+
+// Mirrors protocol.AutomationRunChanged. AutomationRunChanged is the payload of automation:run_changed.
+export interface AutomationRunChanged {
+  context: AutomationContext;
+  run: AutomationRun;
+}
+
+// Mirrors protocol.AutomationRunPage. AutomationRunPage is one run page.
+export interface AutomationRunPage {
+  context: AutomationContext;
+  items: AutomationRun[] | null;
+  nextCursor?: string;
+}
+
+// Mirrors protocol.AutomationRunResult. AutomationRunResult is one manual run plus the context it was accepted under.
+export interface AutomationRunResult {
+  context: AutomationContext;
+  run: AutomationRun;
+}
+
+// Mirrors protocol.AutomationSchedule. AutomationSchedule is the user-facing time rule.
+export interface AutomationSchedule {
+  mode: string;
+  timeZone: string;
+  startDate: string;
+  timeOfDay: string;
+  weekdays?: number[] | null;
+  monthDay?: number;
+  interval?: number;
+}
+
+// Mirrors protocol.AutomationServiceChanged. AutomationServiceChanged is the payload of automation:service_changed.
+export interface AutomationServiceChanged {
+  context: AutomationContext;
+  available: boolean;
+  backgroundSupported: boolean;
+  reason?: string;
+}
+
+// Mirrors protocol.AutomationSessionResult. AutomationSessionResult focuses a linked session.
+export interface AutomationSessionResult {
+  context: AutomationContext;
+  session: ResumedSession;
+  historyPending: boolean;
+}
+
+// Mirrors protocol.AutomationTask. AutomationTask is the desensitized task snapshot.
+export interface AutomationTask {
+  id: string;
+  revision: number;
+  name: string;
+  prompt: string;
+  workspace: string;
+  executionMode: string;
+  schedule: AutomationSchedule;
+  state: string;
+  nextRunAtUTC?: string;
+  blockedReason?: string;
+  lastRun?: AutomationRun;
+  activeRunId?: string;
+  lastLinkedRunId?: string;
+  linkedSessionTitle?: string;
+  deletedAtUtc?: string;
+  binding: AutomationBindingSummary;
+}
+
+// Mirrors protocol.AutomationTaskChanged. AutomationTaskChanged is the payload of automation:task_changed.
+export interface AutomationTaskChanged {
+  context: AutomationContext;
+  task: AutomationTask;
+}
+
+// Mirrors protocol.AutomationTaskDraft. AutomationTaskDraft is the editable create/update body.
+export interface AutomationTaskDraft {
+  name: string;
+  prompt: string;
+  workspace: string;
+  executionMode: string;
+  schedule: AutomationSchedule;
+}
+
+// Mirrors protocol.AutomationTaskPage. AutomationTaskPage is one page.
+export interface AutomationTaskPage {
+  context: AutomationContext;
+  items: AutomationTask[] | null;
+  nextCursor?: string;
+}
+
+// Mirrors protocol.AutomationTaskResult. AutomationTaskResult is one task plus the context it was read under.
+export interface AutomationTaskResult {
+  context: AutomationContext;
+  task: AutomationTask;
+  warning?: string;
+}
+
 // Mirrors protocol.CodexDeviceCode. CodexDeviceCode 是发起登录后要展示给用户的东西：把 UserCode 显示出来，让他在 VerificationURL 那个页面里输入。ExpiresAt 之后这串码作废，要重新发起。
 export interface CodexDeviceCode {
   userCode: string;
@@ -259,6 +495,11 @@ export interface CodexStatus {
   accountId?: string;
 }
 
+// Mirrors protocol.CommitMailContactImportRequest. CommitMailContactImportRequest 提交预览可接受行。
+export interface CommitMailContactImportRequest {
+  rows: MailContactImportRow[] | null;
+}
+
 // Mirrors protocol.CompactResult. CompactResult reports the in-memory message counts before and after an explicit compaction.
 export interface CompactResult {
   before: number;
@@ -266,6 +507,26 @@ export interface CompactResult {
   contextTokens: number;
   inputTokens: number;
   outputTokens: number;
+}
+
+// Mirrors protocol.ConfirmMailSendRequest. ConfirmMailSendRequest 消耗 confirmationId，入队 queued/scheduled。
+export interface ConfirmMailSendRequest {
+  confirmationId: string;
+}
+
+// Mirrors protocol.ConfirmMailSendResult. ConfirmMailSendResult 报告确认结果。 immediate：尽量同步 SMTP，status 为 accepted/failed/unknown；scheduled：仅入队为 scheduled。
+export interface ConfirmMailSendResult {
+  submissionId: string;
+  status: string;
+  detail?: string;
+  draftId: string;
+  revision: number;
+}
+
+// Mirrors protocol.ConfirmMailTestReceiptRequest. ConfirmMailTestReceiptRequest 记录本人在网页核实收到测试信。
+export interface ConfirmMailTestReceiptRequest {
+  expectedRevision: number;
+  shortId: string;
 }
 
 // Mirrors protocol.ContextAuditInfo. ContextAuditInfo 是"上下文审核"（仅测试版构建存在）的状态快照。开启后，引擎每次 发给模型的完整请求上下文（系统提示词、全部消息历史、工具清单）都会落盘，并由一个 仅监听 127.0.0.1 的本地页面提供查看。
@@ -292,6 +553,20 @@ export interface ContextUsage {
   iteration: number;
 }
 
+// Mirrors protocol.CreateAutomationTaskRequest. CreateAutomationTaskRequest creates one task.
+export interface CreateAutomationTaskRequest {
+  context: AutomationContext;
+  clientRequestId: string;
+  expectedBindingVersion: number;
+  draft: AutomationTaskDraft;
+  ownerScope?: string;
+}
+
+// Mirrors protocol.CreateMailDraftRequest. CreateMailDraftRequest 新建空白用户草稿。
+export interface CreateMailDraftRequest {
+  accountId?: string;
+}
+
 // Mirrors protocol.CustomModel. CustomModel 是用户自定义的直连模型接入点，与通行证平台模型并列显示在模型 选择器里。Provider 通常是引擎 provider registry 的名称（openai/ openai-responses/anthropic），由 llm.IsRegistered 校验而非本仓库的名单；旧配置 没有该字段时由桌面端按 openai 兼容处理。 唯一的例外是 "codex"：它是**外壳层**的服务商，引擎注册表里没有这个名字。 桌面端在解析时把它翻译成 openai-responses（Codex 说的就是 Responses 协议）， 并把 Base URL 指向本地那个负责补凭据与指纹头的小代理，见 internal/codexproxy。密钥字段仅用于桌面端持久化， ListCustomModels 对外返回时必须清空，只通过 HasAPIKey 暴露是否已配置。
 export interface CustomModel {
   supportsImages?: boolean;
@@ -303,14 +578,40 @@ export interface CustomModel {
   authMode?: string;
   apiKey?: string;
   apiKeyProtected?: string;
+  credentialRevision?: number;
 }
 
-// Mirrors protocol.DirectoryAccessChanged. DirectoryAccessChanged invalidates the directory view for one workspace.
+// Mirrors protocol.DeleteAutomationTaskRequest. DeleteAutomationTaskRequest soft-deletes one task while preserving its runs and linked conversations.
+export interface DeleteAutomationTaskRequest {
+  context: AutomationContext;
+  taskId: string;
+  expectedRevision: number;
+  ownerScope?: string;
+}
+
+// Mirrors protocol.DeleteAutomationTaskResult. DeleteAutomationTaskResult confirms the task hidden by a soft delete.
+export interface DeleteAutomationTaskResult {
+  context: AutomationContext;
+  taskId: string;
+}
+
+// Mirrors protocol.DeleteMailContactRequest. DeleteMailContactRequest 删除联系人。
+export interface DeleteMailContactRequest {
+  id: string;
+  expectedRevision: number;
+}
+
+// Mirrors protocol.DeleteMailDraftRequest. DeleteMailDraftRequest 删除草稿箱中的草稿。
+export interface DeleteMailDraftRequest {
+  id: string;
+}
+
+// Mirrors protocol.DirectoryAccessChanged. DirectoryAccessChanged 使某一工作区的目录视图失效。
 export interface DirectoryAccessChanged {
   workspace: string;
 }
 
-// Mirrors protocol.DirectoryAccessGrant. DirectoryAccessGrant is one scoped directory allow rule.
+// Mirrors protocol.DirectoryAccessGrant. DirectoryAccessGrant 是一条作用域内的目录允许规则。
 export interface DirectoryAccessGrant {
   directory: string;
   access: string;
@@ -318,7 +619,7 @@ export interface DirectoryAccessGrant {
   coveredBy: string[] | null;
 }
 
-// Mirrors protocol.DirectoryAccessRequest. DirectoryAccessRequest names the calling session, never the focus.
+// Mirrors protocol.DirectoryAccessRequest. DirectoryAccessRequest 指名调用会话，从不猜焦点会话。
 export interface DirectoryAccessRequest {
   confirmRoot?: boolean;
   sessionId: string;
@@ -327,12 +628,17 @@ export interface DirectoryAccessRequest {
   scope: string;
 }
 
-// Mirrors protocol.DirectoryAccessView. DirectoryAccessView lists directory rules for a named session.
+// Mirrors protocol.DirectoryAccessView. DirectoryAccessView 列出指定会话的目录规则。
 export interface DirectoryAccessView {
   sessionId: string;
   workspace: string;
   revision: string;
   grants: DirectoryAccessGrant[] | null;
+}
+
+// Mirrors protocol.DisableMailAccountRequest. DisableMailAccountRequest 禁用已保存账号（保留配置，停止发信）。
+export interface DisableMailAccountRequest {
+  expectedRevision: number;
 }
 
 // Mirrors protocol.EditDiff. EditDiff is the red/green review of one edit: the turn baseline vs the turn's latest content for that file, as renderable diff lines.
@@ -375,6 +681,11 @@ export interface FileReference {
   kind?: string;
 }
 
+// Mirrors protocol.GetMailDraftRequest. GetMailDraftRequest 读取单草稿。
+export interface GetMailDraftRequest {
+  id: string;
+}
+
 // Mirrors protocol.HarmAutoAllow. HarmAutoAllow is the payload of EventHarmAutoAllow: a sanitized record of a harm-gate decision (no raw command or path).
 export interface HarmAutoAllow {
   tool: string;
@@ -386,10 +697,103 @@ export interface HarmAutoAllow {
   count: number;
 }
 
+// Mirrors protocol.ImageGenerationArtifact. ImageGenerationArtifact 是一张已保存图片，路径相对工作区。
+export interface ImageGenerationArtifact {
+  path: string;
+  mimeType: string;
+  bytes: number;
+  width: number;
+  height: number;
+}
+
+// Mirrors protocol.ImageGenerationCatalog. ImageGenerationCatalog 列出某一账号／Bridge／租户作用域下的生图模型。 Models 为空表示「确实没有」；查询失败必须是错误，不能冒充空目录。
+export interface ImageGenerationCatalog {
+  scopeId: string;
+  models: ImageGenerationModel[] | null;
+}
+
+// Mirrors protocol.ImageGenerationModel. ImageGenerationModel 是设置页目录中的一条候选。
+export interface ImageGenerationModel {
+  model: ModelReference;
+  provider: string;
+  profile: ImageGenerationProfile;
+}
+
+// Mirrors protocol.ImageGenerationProfile. ImageGenerationProfile 是网关声明的单模型参数档案。 Available=false 表示组合尚未 verified，UnavailableReason 说明原因。
+export interface ImageGenerationProfile {
+  available: boolean;
+  supportedSizes: string[] | null;
+  defaultSize: string;
+  responseFormats: string[] | null;
+  unavailableReason?: string;
+}
+
+// Mirrors protocol.ImageGenerationResult. ImageGenerationResult 是模型工具正文、现场工具事件与历史回放共用的有界结果。 从不携带图片字节、Base64、签名 URL 或凭据。Status 为 succeeded／failed／ unknown／cancelled／save_failed；SubmissionStatus 表示本地是否进入发送尝试； AccountingStatus 为 verified／unverified／ambiguous／observed_mismatch，与前两者 独立——自动路径一律 unverified，历史缺提交字段按 unknown。
+export interface ImageGenerationResult {
+  version: number;
+  generationId: string;
+  status: string;
+  code?: string;
+  model: string;
+  size: string;
+  images: ImageGenerationArtifact[] | null;
+  message?: string;
+  displayIntent?: string;
+  requestId?: string;
+  submissionStatus?: string;
+  accountingStatus: string;
+}
+
+// Mirrors protocol.ImageGenerationSettings. ImageGenerationSettings 是某一作用域已保存的默认项。
+export interface ImageGenerationSettings {
+  scopeId: string;
+  revision: number;
+  defaultModel?: ModelReference;
+  defaultSize: string;
+}
+
 // Mirrors protocol.Info. Info is the handshake payload describing the host's protocol support.
 export interface Info {
   protocolVersion: number;
   appVersion?: string;
+}
+
+// Mirrors protocol.ListAutomationRunsRequest. ListAutomationRunsRequest lists one task's runs, newest first.
+export interface ListAutomationRunsRequest {
+  context: AutomationContext;
+  taskId: string;
+  cursor?: string;
+  limit?: number;
+  ownerScope?: string;
+}
+
+// Mirrors protocol.ListAutomationTasksRequest. ListAutomationTasksRequest lists tasks in the host-injected owner set.
+export interface ListAutomationTasksRequest {
+  context: AutomationContext;
+  state?: string;
+  query?: string;
+  cursor?: string;
+  limit?: number;
+  ownerScope?: string;
+}
+
+// Mirrors protocol.ListMailContactsRequest. ListMailContactsRequest 搜索/分页通信录。
+export interface ListMailContactsRequest {
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// Mirrors protocol.ListMailDraftsRequest. ListMailDraftsRequest 分页草稿。
+export interface ListMailDraftsRequest {
+  limit?: number;
+  offset?: number;
+}
+
+// Mirrors protocol.ListMailOutboxRequest. ListMailOutboxRequest 分页发件箱（投递项）。
+export interface ListMailOutboxRequest {
+  limit?: number;
+  offset?: number;
 }
 
 // Mirrors protocol.MCPServerInfo. MCPServerInfo is one configured MCP server plus its live connection state, for the UI's MCP management page.
@@ -428,6 +832,143 @@ export interface MCPServerInput {
 export interface MCPToolBrief {
   name: string;
   description?: string;
+}
+
+// Mirrors protocol.MailAccountView. MailAccountView 是已保存账号的公开视图；无密码字段。
+export interface MailAccountView {
+  id: string;
+  address: string;
+  displayName: string;
+  version: string;
+  host: string;
+  port: number;
+  enabled: boolean;
+  hasPassword: boolean;
+  revision: number;
+  credentialRevision: number;
+  onboardingStatus: string;
+  lastConnectionTestAt?: string;
+  testMailAcceptedAt?: string;
+  receiptConfirmedAt?: string;
+  lastTestShortId?: string;
+  lastTestSubmissionId?: string;
+}
+
+// Mirrors protocol.MailAddressView. MailAddressView 是可编辑地址芯片。
+export interface MailAddressView {
+  name?: string;
+  address: string;
+}
+
+// Mirrors protocol.MailAttachmentPreview. MailAttachmentPreview 是确认框里展示的已冻结附件。
+export interface MailAttachmentPreview {
+  name: string;
+  bytes: number;
+  sha256: string;
+}
+
+// Mirrors protocol.MailConnectionTestResult. MailConnectionTestResult 是连接测试结果；成功时带 ConfigFingerprint 供保存校验。
+export interface MailConnectionTestResult {
+  ok: boolean;
+  phase?: string;
+  testedAtUtc?: string;
+  configFingerprint?: string;
+  errorCategory?: string;
+  message: string;
+}
+
+// Mirrors protocol.MailContactImportPreview. MailContactImportPreview 是通信录 CSV 导入预检结果。
+export interface MailContactImportPreview {
+  accept: MailContactImportRow[] | null;
+  skip: string[] | null;
+}
+
+// Mirrors protocol.MailContactImportRow. MailContactImportRow 是 CSV 预览/提交的一行。
+export interface MailContactImportRow {
+  name: string;
+  emails: string[] | null;
+}
+
+// Mirrors protocol.MailContactView. MailContactView 是通信录条目。
+export interface MailContactView {
+  id: string;
+  revision: number;
+  name: string;
+  emails: string[] | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+// Mirrors protocol.MailDraftView. MailDraftView 是草稿编辑视图；含模型提案原文供对照，预览用用户修订字段。
+export interface MailDraftView {
+  id: string;
+  revision: number;
+  status: string;
+  accountId: string;
+  subject: string;
+  bodyMarkdown: string;
+  to: MailAddressView[] | null;
+  cc: MailAddressView[] | null;
+  bcc: MailAddressView[] | null;
+  sendMode: string;
+  dispatchMode: string;
+  scheduledLocal?: string;
+  timeZone?: string;
+  proposalMd?: string;
+  updatedAtUtc: string;
+  createdAtUtc: string;
+}
+
+// Mirrors protocol.MailOutboxEntryView. MailOutboxEntryView 是发件箱一行；状态来自投递项，失败原因不含凭据；正文为定稿快照只读。
+export interface MailOutboxEntryView {
+  itemId: string;
+  submissionId: string;
+  draftId: string;
+  draftRevision: number;
+  subject: string;
+  bodyMarkdown?: string;
+  recipient: string;
+  status: string;
+  blockedReason?: string;
+  scheduledAtUtc?: string;
+  finishedAtUtc?: string;
+  createdAtUtc: string;
+  attemptCount: number;
+}
+
+// Mirrors protocol.MailSendPreview. MailSendPreview 是本人确认前的只读定稿摘要。
+export interface MailSendPreview {
+  draftId: string;
+  revision: number;
+  accountId: string;
+  subject: string;
+  bodyMarkdown: string;
+  to: MailAddressView[] | null;
+  cc: MailAddressView[] | null;
+  bcc: MailAddressView[] | null;
+  attachments: MailAttachmentPreview[] | null;
+  sendMode: string;
+  dispatchMode: string;
+  scheduledLocal?: string;
+  timeZone?: string;
+  scheduledAtUtc?: string;
+  digest: string;
+}
+
+// Mirrors protocol.MailSettings. MailSettings 是设置页加载的脱敏视图。
+export interface MailSettings {
+  account?: MailAccountView;
+  secretStorageOk: boolean;
+}
+
+// Mirrors protocol.MailTestSendResult. MailTestSendResult 是本人测试发信结果；Accepted 只表示 SMTP 接受，不是收信核实。
+export interface MailTestSendResult {
+  status: string;
+  shortId?: string;
+  submissionId?: string;
+  acceptedAt?: string;
+  message: string;
+  errorCategory?: string;
 }
 
 // Mirrors protocol.MarketSkill. MarketSkill 是技能市场（lea-config / lea-gateway）里的一条。 与本包里其它 DTO 一样，它是**桌面自己的线上形状**，不是上游 API 的原样转发： 上游返回 snake_case 且带一堆界面用不到的列（is_builtin / can_edit / pending_publish / system_prompt 全文 …），照抄进前端只会让市场页跟着上游的表结构 走。这里只留画得出来、装得上的那几个字段，上游加列不必动前端。
@@ -504,12 +1045,27 @@ export interface OABlocked {
   localModel: string;
 }
 
+// Mirrors protocol.OpenAutomationSessionRequest. OpenAutomationSessionRequest addresses a run through its task.
+export interface OpenAutomationSessionRequest {
+  context: AutomationContext;
+  taskId: string;
+  runId: string;
+  ownerScope?: string;
+}
+
+// Mirrors protocol.OpenMailOfficialURLRequest. OpenMailOfficialURLRequest 只打开固定官方 URL，不接受任意地址。
+export interface OpenMailOfficialURLRequest {
+  page: string;
+}
+
 // Mirrors protocol.OpenSessionInfo. OpenSessionInfo 描述**此刻开着**的一条会话，供界面画会话列表。 与 SessionSummary 的分工：那个是工作区里**存下来**的历史会话（标题、时间、 回合数），这个是当前进程里活着的会话。界面上是两栏：「打开中」与「历史」。 只带后端独有的事实。标题走 session:renamed 事件与 SessionSummary，待审批数在 前端的授权队列里——都不必在这里重复一遍，重复就会出现两个版本互相矛盾。
 export interface OpenSessionInfo {
+  kind?: string;
   sessionId: string;
   workspace: string;
   running: boolean;
   focused: boolean;
+  automation?: AutomationOrigin;
 }
 
 // Mirrors protocol.OutputLine. OutputLine is a single sanitized, bounded line of tool output for UI display.
@@ -520,6 +1076,8 @@ export interface OutputLine {
 
 // Mirrors protocol.PassportModel. PassportModel 是 Bridge /v1/models 列表项。 Local 及其后两个字段是本产品对 OpenAI 模型清单的扩展，由基座的 bridge.catalog 下发（改 ConfigMap 即生效，客户端不必发版）: - Local 标记该模型的推理在内网完成。**客户端只认这个标记、不做二次判断**—— "这个 id 的渠道到底指向哪里"只有基座知道，把它写死在客户端等于让两处事实 互相漂移。标记错了的后果是保密数据出内网，所以基座那边要在配置旁写明依据。 - LocalDefault 指定 Local 模型里默认用哪一个。只标 Local 不够:清单顺序一变 就换了模型，而"换哪个模型"必须是显式声明。 - ContextTokens / MaxOutputTokens / MaxHistoryMessages 是逐模型默认预算。 新 Bridge 同时声明三项；缺失输出/历史字段表示旧目录，不能沿用其他模型的值。 VisionDefault is the unique tenant-authorized platform image fallback, not OA.
 export interface PassportModel {
+  imageGeneration?: ImageGenerationProfile;
+  capabilities?: string[] | null;
   maxOutputTokens?: number;
   maxHistoryMessages?: number;
   visionDefault?: boolean;
@@ -610,6 +1168,31 @@ export interface PlatformImageCapability {
   supportsImages: boolean;
 }
 
+// Mirrors protocol.PrepareMailSendRequest. PrepareMailSendRequest 校验并冻结当前修订，返回一次性确认令牌与只读预览。
+export interface PrepareMailSendRequest {
+  draftId: string;
+  expectedRevision: number;
+}
+
+// Mirrors protocol.PrepareMailSendResult. PrepareMailSendResult 含 confirmationId 与只读预览；不发信。
+export interface PrepareMailSendResult {
+  confirmationId: string;
+  expiresAtUtc: string;
+  preview: MailSendPreview;
+}
+
+// Mirrors protocol.PreviewLifecycle. PreviewLifecycle 让桌面文件预览缓存与会话实例重建对齐。 Phase 为 invalidating／ready／closed。ready 携带新的 host generation； invalidating／closed 可将 Generation 留空。不覆盖聊天内静态 HTML 预览预算。
+export interface PreviewLifecycle {
+  sessionId: string;
+  phase: string;
+  generation?: string;
+}
+
+// Mirrors protocol.PreviewMailContactImportRequest. PreviewMailContactImportRequest / Result。
+export interface PreviewMailContactImportRequest {
+  rows: MailContactImportRow[] | null;
+}
+
 // Mirrors protocol.ProjectContextInfo. ProjectContextInfo is the workspace's project-instructions file (RUNCODE.md or AGENT.md), for viewing and editing.
 export interface ProjectContextInfo {
   path: string;
@@ -681,6 +1264,19 @@ export interface RecorderSettings {
   version: number;
 }
 
+// Mirrors protocol.RecorderSettingsPatch. RecorderSettingsPatch 只携带本次用户编辑的字段。nil 表示保持原值；空串与 false 都是真实修改。Version、Root、SummaryModel 不接受来自设置表单的 patch。
+export interface RecorderSettingsPatch {
+  gatewayUrl?: string;
+  gatewayToken?: string;
+  speakerName?: string;
+  lang?: string;
+  micDeviceId?: string;
+  sysDeviceId?: string;
+  micDiarize?: boolean;
+  keepAudio?: boolean;
+  autoFullMinutes?: boolean;
+}
+
 // Mirrors protocol.RecorderState. RecorderState 是录音状态的变化。
 export interface RecorderState {
   id: string;
@@ -741,6 +1337,20 @@ export interface RecordingInfo {
   dir?: string;
 }
 
+// Mirrors protocol.RemoveMailAccountRequest. RemoveMailAccountRequest 删除已保存账号与密文。
+export interface RemoveMailAccountRequest {
+  expectedRevision: number;
+}
+
+// Mirrors protocol.ResolvedUsageQuery. ResolvedUsageQuery 是总览返回范围之后，日志与分组共用的查询条件；翻页沿用它， 不再各自解析相对时间。
+export interface ResolvedUsageQuery {
+  tenantId: string;
+  snapshotSeq?: string;
+  effectiveRange: UsageEffectiveRange;
+  providerId?: string;
+  model?: string;
+}
+
 // Mirrors protocol.ResultImage. ResultImage is an inline image a tool returned (Data is base64 in JSON).
 export interface ResultImage {
   media_type?: string;
@@ -776,6 +1386,7 @@ export interface ResumedTool {
   input?: string;
   isError: boolean;
   output?: string;
+  imageGeneration?: ImageGenerationResult;
 }
 
 // Mirrors protocol.RetryNotice. RetryNotice reports that an LLM request failed transiently and is being retried.
@@ -783,6 +1394,15 @@ export interface RetryNotice {
   reason: string;
   attempt: number;
   maxAttempts: number;
+}
+
+// Mirrors protocol.RunAutomationTaskNowRequest. RunAutomationTaskNowRequest starts one explicit manual occurrence without changing the task's automatic schedule.
+export interface RunAutomationTaskNowRequest {
+  context: AutomationContext;
+  taskId: string;
+  expectedRevision: number;
+  clientRequestId: string;
+  ownerScope?: string;
 }
 
 // Mirrors protocol.RuntimeInfo. RuntimeInfo 是运行时环境的完整状态，也是唯一的对外形状。 它同时是 RuntimeStatus()（纯读，不联网）的返回值和 EventRuntimes 的载荷。
@@ -842,6 +1462,59 @@ export interface SaveCustomModelRequest {
   clearAPIKey?: boolean;
 }
 
+// Mirrors protocol.SaveImageGenerationEditRequest. SaveImageGenerationEditRequest 把画板合成的 PNG 存为同一 generation 目录下的新副本。 SourcePath 必须是本会话工作区 生成图片/<generationId>/ 下已有图片（含 edited-*.png）。 SourceReference 必填：宿主在同一来源会话操作内核对引用、session、generation 与路径。
+export interface SaveImageGenerationEditRequest {
+  sessionId: string;
+  sourcePath: string;
+  sourceReference: string;
+  pngBase64: string;
+}
+
+// Mirrors protocol.SaveImageGenerationSettingsRequest. SaveImageGenerationSettingsRequest 替换某一作用域的默认。DefaultModel 为 nil 表示清除。不带 Bridge／账号字段：宿主从当前身份推导作用域，并拒绝过期 ScopeID。
+export interface SaveImageGenerationSettingsRequest {
+  tenantId: string;
+  scopeId: string;
+  expectedRevision: number;
+  defaultModel?: ModelReference;
+  defaultSize: string;
+}
+
+// Mirrors protocol.SaveMailAccountRequest. SaveMailAccountRequest 保存当前表单。Password 留空保留旧值；ClearPassword 才清空。 ConfigFingerprint 必须来自同配置的 TestMailConnection 成功结果。
+export interface SaveMailAccountRequest {
+  address: string;
+  displayName: string;
+  version: string;
+  password?: string;
+  clearPassword?: boolean;
+  configFingerprint: string;
+  expectedRevision: number;
+  enabled: boolean;
+}
+
+// Mirrors protocol.SaveMailContactRequest. SaveMailContactRequest 新建或 CAS 更新联系人。
+export interface SaveMailContactRequest {
+  id?: string;
+  name: string;
+  emails: string[] | null;
+  expectedRevision: number;
+}
+
+// Mirrors protocol.SaveMailDraftRequest. SaveMailDraftRequest 保存用户修订（CAS）。
+export interface SaveMailDraftRequest {
+  id: string;
+  expectedRevision: number;
+  accountId: string;
+  subject: string;
+  bodyMarkdown: string;
+  to: MailAddressView[] | null;
+  cc: MailAddressView[] | null;
+  bcc: MailAddressView[] | null;
+  sendMode: string;
+  dispatchMode: string;
+  scheduledLocal?: string;
+  timeZone?: string;
+}
+
 // Mirrors protocol.SaveModelContextSettingsRequest. SaveModelContextSettingsRequest replaces or clears one model preference.
 export interface SaveModelContextSettingsRequest {
   model: ModelReference;
@@ -850,6 +1523,7 @@ export interface SaveModelContextSettingsRequest {
 
 // Mirrors protocol.SaveSettingsRequest. SaveSettingsRequest 只包含设置页拥有的字段，连接与租户由专用命令管理。
 export interface SaveSettingsRequest {
+  sessionId?: string;
   permissionMode: string;
   harmJudgeModel: string;
   harmJudgeVotes: number;
@@ -867,6 +1541,22 @@ export interface SecretStorage {
   ok: boolean;
   reason?: string;
   fix?: string;
+}
+
+// Mirrors protocol.SendMailTestToSelfRequest. SendMailTestToSelfRequest 向已保存账号自身发固定测试信；无收件人字段。
+export interface SendMailTestToSelfRequest {
+  expectedRevision: number;
+  clientRequestId?: string;
+}
+
+// Mirrors protocol.SessionAutomationRunsRequest. SessionAutomationRunsRequest lists runs linked to one workspace session.
+export interface SessionAutomationRunsRequest {
+  context: AutomationContext;
+  workspace: string;
+  sessionId: string;
+  cursor?: string;
+  limit?: number;
+  ownerScope?: string;
 }
 
 // Mirrors protocol.SessionInfo. SessionInfo is the display state returned when a session starts and by Status.
@@ -893,10 +1583,21 @@ export interface SessionRenamed {
 
 // Mirrors protocol.SessionSummary. SessionSummary describes a saved session for the sidebar's recent list.
 export interface SessionSummary {
+  kind?: string;
   id: string;
   title: string;
   when: string;
   turns: number;
+  automation?: AutomationOrigin;
+}
+
+// Mirrors protocol.SetAutomationTaskPausedRequest. SetAutomationTaskPausedRequest sets the paused bit.
+export interface SetAutomationTaskPausedRequest {
+  context: AutomationContext;
+  taskId: string;
+  expectedRevision: number;
+  paused: boolean;
+  ownerScope?: string;
 }
 
 // Mirrors protocol.SetPlatformImageCapabilityRequest. SetPlatformImageCapabilityRequest updates one override; nil removes it.
@@ -1024,6 +1725,13 @@ export interface SubmitQuestionRequest {
   allowSteering: boolean;
 }
 
+// Mirrors protocol.TestMailConnectionRequest. TestMailConnectionRequest 使用当前表单值探测 SMTP，不落盘、不发信。
+export interface TestMailConnectionRequest {
+  address: string;
+  password: string;
+  version: string;
+}
+
 // Mirrors protocol.ToolEvent. ToolEvent is the wire form of one tool-lifecycle update.
 export interface ToolEvent {
   type: ToolEventType;
@@ -1080,6 +1788,15 @@ export interface TurnError {
 export interface TurnQueued {
 }
 
+// Mirrors protocol.UpdateAutomationTaskRequest. UpdateAutomationTaskRequest replaces the editable fields.
+export interface UpdateAutomationTaskRequest {
+  context: AutomationContext;
+  taskId: string;
+  expectedRevision: number;
+  draft: AutomationTaskDraft;
+  ownerScope?: string;
+}
+
 // Mirrors protocol.UpdateInfo. UpdateInfo 是更新器的完整状态，也是唯一的对外形状。 它同时是 UpdateStatus()（纯读，不联网）的返回值和 EventUpdate 的载荷：读一次拿到 的东西和后续推送过来的东西是同一种，前端不必为「初始态」和「更新态」写两套解析。
 export interface UpdateInfo {
   current: string;
@@ -1098,6 +1815,193 @@ export interface UpdateInfo {
   installHint: string;
 }
 
+// Mirrors protocol.UsageBucket. UsageBucket 是趋势里的一个时间桶（首尾可能是被裁剪的部分桶）。coverage 取 known（已覆盖，没有记录就是真 0）/ gap（有证据的采集缺口）/ unknown（覆盖未知）。
+export interface UsageBucket {
+  startAt: string;
+  endAt: string;
+  requestCount: string;
+  inputTokens: string | null;
+  outputTokens: string | null;
+  totalTokens: string | null;
+  cacheHitTokens: string | null;
+  cacheEligibleInputTokens: string | null;
+  coverage: string;
+}
+
+// Mirrors protocol.UsageCapabilities. UsageCapabilities 声明本次数据能可靠支持哪些维度；本机记录支持请求状态，TTFT 未采集。
+export interface UsageCapabilities {
+  providerBreakdown: boolean;
+  cacheMetrics: boolean;
+  requestStatus: boolean;
+  ttft: boolean;
+}
+
+// Mirrors protocol.UsageCoverageGap. UsageCoverageGap 是一段有证据的采集缺口。
+export interface UsageCoverageGap {
+  startAt: string;
+  endAt: string;
+  reason?: string;
+}
+
+// Mirrors protocol.UsageDimensionRow. UsageDimensionRow 是一个模型或供应商的汇总；供应商无法确定时归入 unknown 分组。
+export interface UsageDimensionRow {
+  id: string;
+  name: string;
+  totals: UsageTotals;
+}
+
+// Mirrors protocol.UsageDimensionsPage. UsageDimensionsPage 是一页分组汇总，按请求数降序、ID 稳定排序。
+export interface UsageDimensionsPage {
+  items: UsageDimensionRow[] | null;
+  groupBy: string;
+  page: number;
+  pageSize: number;
+  totalCount: string;
+  hasMore: boolean;
+  effectiveRange: UsageEffectiveRange;
+  queryKey: string;
+}
+
+// Mirrors protocol.UsageDimensionsQuery. UsageDimensionsQuery 读取按模型或供应商分组的汇总（groupBy = model / provider）。 pageSize 只能是 50/100，page 从 1 开始。
+export interface UsageDimensionsQuery {
+  query: ResolvedUsageQuery;
+  groupBy: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+// Mirrors protocol.UsageEffectiveRange. UsageEffectiveRange 是桌面端为一次查询固定下来的半开区间 [startAt, endAt)。
+export interface UsageEffectiveRange {
+  startAt: string;
+  endAt: string;
+  timezone: string;
+}
+
+// Mirrors protocol.UsageOverview. UsageOverview 是同一次本机快照读取到的汇总、趋势与质量。dataAsOf 是本机读取时刻； local_platform 来源不使用 replicaLagSeconds。
+export interface UsageOverview {
+  scopeId: string;
+  snapshotSeq?: string;
+  collectionStartedAt?: string;
+  storageStatus?: string;
+  statusCounts?: UsageStatusCounts;
+  queryKey: string;
+  effectiveRange: UsageEffectiveRange;
+  dataAsOf: string;
+  summary: UsageTotals;
+  trend: UsageBucket[] | null;
+  capabilities: UsageCapabilities;
+  empty: boolean;
+  coverageStart: string | null;
+  coverageGaps: UsageCoverageGap[] | null;
+  coverageStatus: string;
+  coverageMessage?: string;
+  sourceKind?: string;
+  replicaLagSeconds: number | null;
+  consistency?: string;
+  mappingVersion?: string;
+}
+
+// Mirrors protocol.UsageQuality. UsageQuality 描述一组统计的口径覆盖：tokenCoverage / cacheCoverage 取 complete / partial / none；containsEstimates 表示合计含本地近似缓存（非供应商精确命中）； legacy 标记说明合计里含无法确认来源的历史口径。
+export interface UsageQuality {
+  tokenCoverage: string;
+  cacheCoverage: string;
+  containsEstimates: boolean;
+  containsLegacyUnknown: boolean;
+  containsLegacyInferredCache: boolean;
+  invalidRecordCount: string;
+}
+
+// Mirrors protocol.UsageQuery. UsageQuery 是总览查询。range 取 today / last24h / last7d / last14d / last30d / all / custom；custom 时 startAt 必填，endAt 与 followNow 二选一（followNow 只是 页面偏好：每次刷新由桌面端固定成读取时刻）。timezone 固定 Asia/Shanghai。
+export interface UsageQuery {
+  tenantId: string;
+  range: string;
+  startAt?: string;
+  endAt?: string;
+  followNow: boolean;
+  timezone: string;
+  providerId?: string;
+  model?: string;
+}
+
+// Mirrors protocol.UsageRequestRow. UsageRequestRow 是一条已入账的消费记录，只有计量与口径，没有正文或成本。 meterKind 不是 tokens 时 Token 各列为 null，用量见 usageQuantity + usageUnit。
+export interface UsageRequestRow {
+  id: string;
+  status?: string;
+  recordedAt: string;
+  startedAt: string | null;
+  model: string;
+  providerId: string | null;
+  providerName: string | null;
+  meterKind: string;
+  usageQuantity: string | null;
+  usageUnit: string | null;
+  inputTokens: string | null;
+  outputTokens: string | null;
+  cacheHitTokens: string | null;
+  cacheMissTokens: string | null;
+  reasoningTokens: string | null;
+  durationMs: number | null;
+  quality: UsageRowQuality;
+}
+
+// Mirrors protocol.UsageRequestsPage. UsageRequestsPage 是一页请求日志；totalCount 与 nextCursor 绑定同一个本机快照水位、范围与筛选。
+export interface UsageRequestsPage {
+  items: UsageRequestRow[] | null;
+  totalCount: string;
+  pageSize: number;
+  nextCursor?: string;
+  hasMore: boolean;
+  effectiveRange: UsageEffectiveRange;
+  queryKey: string;
+}
+
+// Mirrors protocol.UsageRequestsQuery. UsageRequestsQuery 读取一页请求日志。第一页不带 cursor；pageSize 只能是 20/50/100。
+export interface UsageRequestsQuery {
+  query: ResolvedUsageQuery;
+  cursor?: string;
+  pageSize: number;
+}
+
+// Mirrors protocol.UsageRowQuality. UsageRowQuality 是单条记录各项用量的来源口径（reported / estimated / derived / legacyUnknown / legacyInferred / unavailable）。
+export interface UsageRowQuality {
+  tokenSource: string;
+  cacheSource: string;
+  reasoningSource: string;
+}
+
+// Mirrors protocol.UsageStatusCounts. UsageStatusCounts 保留在途与五种终态的独立计数，pending 不进入已完成请求数。
+export interface UsageStatusCounts {
+  pending: string;
+  succeeded: string;
+  failed: string;
+  cancelled: string;
+  unknown: string;
+  saveFailed: string;
+}
+
+// Mirrors protocol.UsageTotals. UsageTotals 是一组记录的聚合。tokenRequestCount 是全部已结束的 LLM/识图调用数， sampleCount 是其中有可信数值的样本数；totalTokens 汇总所有已知输入与输出。 totalTokens = inputTokens + outputTokens（缓存是输入 子集、思考是输出子集，都不再相加）；缓存三项只统计可信缓存子集，命中率是 SUM(命中)/SUM(可信输入)。
+export interface UsageTotals {
+  requestCount: string;
+  tokenRequestCount: string;
+  inputTokenSampleCount?: string;
+  outputTokenSampleCount?: string;
+  totalTokenSampleCount?: string;
+  inputTokens: string | null;
+  outputTokens: string | null;
+  totalTokens: string | null;
+  cacheHitTokens: string | null;
+  cacheMissTokens: string | null;
+  cacheEligibleInputTokens: string | null;
+  cacheHitRate: number | null;
+  cacheKnownRequestCount: string;
+  cacheEligibleRequestCount: string;
+  reasoningTokens: string | null;
+  durationSampleCount: string;
+  averageDurationMs: number | null;
+  quality: UsageQuality;
+}
+
 // Mirrors protocol.VisionSettings. VisionSettings configures the fixed destination for automatic image analysis.
 export interface VisionSettings {
   disabled?: boolean;
@@ -1109,4 +2013,10 @@ export interface VisionSettings {
 // Mirrors protocol.Warning. Warning is a non-fatal diagnostic surfaced to the UI.
 export interface Warning {
   message: string;
+}
+
+// Mirrors protocol.WindowCapabilitiesView. WindowCapabilitiesView 是宿主窗口能力只读快照；不查自动化任务库。
+export interface WindowCapabilitiesView {
+  available: boolean;
+  backgroundSupported: boolean;
 }

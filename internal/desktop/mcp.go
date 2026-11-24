@@ -169,6 +169,11 @@ func (a *App) ReloadMCPServers() (bool, error) {
 	// 原地重建这条会话，必须重建在**它自己的目录**里——a.config 记的可能是另一个
 	// 工作区（在别处开过会话之后）。搬了家的话，重载 MCP 会让对话连同工作区一起漂走。
 	cfg := a.configForWorkspace(ws)
+	if id != "" {
+		if err := a.rejectIfAutomationLeased(id); err != nil {
+			return false, wireError(err)
+		}
+	}
 	if id == "" || cfg.Model == "" {
 		return false, nil
 	}
@@ -180,7 +185,12 @@ func (a *App) ReloadMCPServers() (bool, error) {
 	cfg.Resume = id
 	cfg.Continue = false
 	cfg.SessionID = ""
+	a.mu.Lock()
+	entry := a.entryLocked(id)
+	a.mu.Unlock()
+	a.emitPreviewLifecycle(entry, "invalidating", "")
 	if _, err := a.openSessionHeld(cfg); err != nil {
+		a.emitPreviewLifecycle(entry, "closed", "")
 		return false, wireError(err)
 	}
 	return true, nil

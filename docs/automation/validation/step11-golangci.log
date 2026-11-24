@@ -1,0 +1,1602 @@
+internal\automation\service.go:501:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\automation\service.go:704:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\automation\store.go:84:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\automation\store.go:132:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\automation\store.go:450:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\automation\store.go:513:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\automation\store.go:738:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\localusage\aggregate.go:108:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\localusage\aggregate.go:156:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\localusage\coverage.go:199:19: Error return value of `tx.Rollback` is not checked (errcheck)
+	defer tx.Rollback()
+	                 ^
+internal\localusage\coverage.go:280:19: Error return value of `tx.Rollback` is not checked (errcheck)
+	defer tx.Rollback()
+	                 ^
+internal\localusage\coverage.go:329:14: Error return value of `rows.Close` is not checked (errcheck)
+			rows.Close()
+			          ^
+internal\localusage\coverage.go:336:13: Error return value of `rows.Close` is not checked (errcheck)
+		rows.Close()
+		          ^
+internal\localusage\coverage.go:339:12: Error return value of `rows.Close` is not checked (errcheck)
+	rows.Close()
+	          ^
+internal\localusage\coverage.go:357:14: Error return value of `rows.Close` is not checked (errcheck)
+			rows.Close()
+			          ^
+internal\localusage\coverage.go:367:13: Error return value of `rows.Close` is not checked (errcheck)
+		rows.Close()
+		          ^
+internal\localusage\coverage.go:370:12: Error return value of `rows.Close` is not checked (errcheck)
+	rows.Close()
+	          ^
+internal\localusage\coverage_disabled.go:28:19: Error return value of `tx.Rollback` is not checked (errcheck)
+	defer tx.Rollback()
+	                 ^
+internal\localusage\query.go:166:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\localusage\query.go:232:18: Error return value of `rows.Close` is not checked (errcheck)
+	defer rows.Close()
+	                ^
+internal\desktop\automation_runner.go:177:81: non-wrapping format verb for fmt.Errorf. Use `%w` to format errors (errorlint)
+		return "", false, "", true, fmt.Errorf("%w: %v", errAutomationSessionUnknown, err)
+		                                                                              ^
+internal\desktop\automation_runner.go:185:81: non-wrapping format verb for fmt.Errorf. Use `%w` to format errors (errorlint)
+		return "", false, "", true, fmt.Errorf("%w: %v", errAutomationSessionUnknown, err)
+		                                                                              ^
+internal\desktop\automation_runner.go:189:81: non-wrapping format verb for fmt.Errorf. Use `%w` to format errors (errorlint)
+		return "", false, "", true, fmt.Errorf("%w: %v", errAutomationSessionUnknown, err)
+		                                                                              ^
+internal\desktop\automation.go:45:26: unlambda: replace `func() string { return AppProduct() }` with `AppProduct` (gocritic)
+	automationProductName = func() string { return AppProduct() }
+	                        ^
+internal\desktop\automation_test.go:794:27: unlambda: replace `func() string { return AppProduct() }` with `AppProduct` (gocritic)
+		automationProductName = func() string { return AppProduct() }
+		                        ^
+internal\desktop\image_generation_approval_test.go:462:3: singleCaseSwitch: should rewrite switch statement to if statement (gocritic)
+		switch call.CallKind {
+		^
+internal\protocol\custommodels.go:27:2: commentFormatting: put a space between `//` and comment text (gocritic)
+	//（已有密钥）或 0（没有密钥），不把密钥或其散列写进任务绑定。
+	^
+cmd\runcode\approval.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\approval_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\attachments.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\attachments_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\chat.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\chat_flags.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\chat_runner.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\commands.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\config.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\config_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\hooks.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\hooks_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\line_input.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\main.go:1:1: File is not properly formatted (gofmt)
+// Package main is the entry point for the runcode CLI.
+^
+cmd\runcode\main_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\main_testmain_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\mcp_sampling_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\memory.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\memory_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\permissions.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\permissions_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\pricing_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\session_resume_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\sessions.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\sessions_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\transcript.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\transcript_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\tui.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\tui_lifecycle.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\tui_lifecycle_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+cmd\runcode\tui_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+internal\appupdate\attempt.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\appupdate\attempt_test.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\appupdate\concurrency_test.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\appupdate\deps_test.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\appupdate\options.go:1:1: File is not properly formatted (gofmt)
+// Package appupdate owns the application update lifecycle, independently of the
+^
+internal\appupdate\service.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\appupdate\service_test.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\appupdate\version.go:1:1: File is not properly formatted (gofmt)
+package appupdate
+^
+internal\automation\errors.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\fake_clock_test.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\migrations.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\schedule.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\schedule_test.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\store_test.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\store_types.go:1:1: File is not properly formatted (gofmt)
+package automation
+^
+internal\automation\types.go:1:1: File is not properly formatted (gofmt)
+// Package automation owns local scheduled-task domain types, pure schedule
+^
+internal\browsertool\browser.go:1:1: File is not properly formatted (gofmt)
+// Package browsertool opens a skill's local interactive page in the user's
+^
+internal\browsertool\browser_test.go:1:1: File is not properly formatted (gofmt)
+package browsertool
+^
+internal\codexproxy\codexproxy.go:1:1: File is not properly formatted (gofmt)
+// Package codexproxy 是一个只监听回环地址的小反向代理，把引擎发出的 Responses
+^
+internal\codexproxy\codexproxy_test.go:1:1: File is not properly formatted (gofmt)
+package codexproxy
+^
+internal\command\command.go:1:1: File is not properly formatted (gofmt)
+// Package command discovers and loads custom slash commands. A command is a
+^
+internal\command\command_test.go:1:1: File is not properly formatted (gofmt)
+package command
+^
+internal\command\load.go:1:1: File is not properly formatted (gofmt)
+package command
+^
+internal\command\parse.go:1:1: File is not properly formatted (gofmt)
+package command
+^
+internal\desktop\agents.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\agents_frontmatter_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\app_host_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\appdirs.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\appdirs_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\artifact_access.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\artifact_access_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\artifact_http.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\artifact_policy.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\artifact_policy_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\askpass.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\askpass_cgo_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\askpass_other.go:1:1: File is not properly formatted (gofmt)
+//go:build (!linux && !darwin) || (darwin && !cgo)
+^
+internal\desktop\attachments.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\attachments_pasted_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\automation_replay_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\browser.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\browser_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\browser_windows.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\builtin.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\builtin_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\builtinskills\builtinskills.go:1:1: File is not properly formatted (gofmt)
+// Package builtinskills carries the skills that ship inside the binary and are
+^
+internal\desktop\codex_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\config.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\config_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\context.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\context_compaction_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\context_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\contextaudit.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\contextaudit_breakdown.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\contextaudit_breakdown_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\contextaudit_server.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\contextaudit_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\custommodels_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\desktop_config.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\directory_access.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\directory_flow_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\disabled.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\disabled_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\download.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\editstore.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\editstore_binding_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\editstore_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\engine_upgrade_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\envelope_sink.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\envelope_sink_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\exit_lifecycle_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\exit_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\file_read_resolver.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\files.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\files_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\format_helpers.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_describe_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_event_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_risk_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_script.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_script_reach_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_script_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\harm_source_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_approval_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_artifacts.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_artifacts_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_catalog.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_catalog_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_client.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_client_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_edit.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_edit_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_flow_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_helpers_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_identity_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_invocation.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_lifecycle_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_permissions.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_replay.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_replay_api_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_replay_corruption_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_replay_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_session.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_session_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_settings.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_settings_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_store.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_store_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_tool.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\image_generation_usage_boundary_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\isolate_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\kysec.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\kysec_other.go:1:1: File is not properly formatted (gofmt)
+//go:build !linux
+^
+internal\desktop\kysec_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\live_compaction_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\live_thinking_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\log.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\main_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\mcpmarket.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\mcppassport.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\mcppassport_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\mcpretire.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\mcpretire_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_catalog.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_context.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_context_integration_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_context_outage_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_context_platform_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_context_session.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\model_context_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\multisession.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oa.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oa_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oalock.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oapolicy.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oapolicy_network_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oaswitch.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oaswitch_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oauth.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\oauth_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\officepdf.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\officepdf_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\officepdf_windows.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\open.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\open_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\parallel_sessions_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\passport_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\plan.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\plan_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_error_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_lifecycle.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_lifecycle_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_ready_regression_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_server.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_server_cache_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_server_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\preview_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\privilege.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\privilege_native_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\privilege_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\privilege_windows.go:1:1: File is not properly formatted (gofmt)
+//go:build windows
+^
+internal\desktop\privilege_windows_test.go:1:1: File is not properly formatted (gofmt)
+//go:build windows
+^
+internal\desktop\processenv.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\processenv_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\questions_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\recorder.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\recorder_archive.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\recorder_archive_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\recorder_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\recording_exit_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\render_route_prompt.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\render_route_prompt_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\resources.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimeenv.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimepack.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimepack_windows_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimes.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimes_install_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimes_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimetool.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\runtimetool_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\secret_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\secret_windows.go:1:1: File is not properly formatted (gofmt)
+//go:build windows
+^
+internal\desktop\secretstatus.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\secretstatus_other.go:1:1: File is not properly formatted (gofmt)
+//go:build !linux && !darwin
+^
+internal\desktop\secretstatus_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\session_close_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\session_settings_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\session_table_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\sessions_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\settings_contract_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\sink_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\skillmarket.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\skillmarket_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\skills.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\skills_frontmatter_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\skills_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\store.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\store_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\testbuild.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\title.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\token_claims.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\tokens_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\trustwatch.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\trustwatch_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\types.go:1:1: File is not properly formatted (gofmt)
+// Package desktop is the transport-agnostic core of the runcode desktop app.
+^
+internal\desktop\untargz.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_apt.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_apt_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_bundle.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_bundle_script.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_bundle_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_bundle_transaction_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_host_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_platform.go:1:1: File is not properly formatted (gofmt)
+//go:build !kylin
+^
+internal\desktop\update_platform_test.go:1:1: File is not properly formatted (gofmt)
+//go:build !kylin
+^
+internal\desktop\update_watch.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_watch_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\update_watch_windows.go:1:1: File is not properly formatted (gofmt)
+//go:build windows
+^
+internal\desktop\update_windows.go:1:1: File is not properly formatted (gofmt)
+//go:build windows
+^
+internal\desktop\update_windows_test.go:1:1: File is not properly formatted (gofmt)
+//go:build windows
+^
+internal\desktop\usage.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_capture.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_capture_scope_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_capture_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_contract_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_coverage_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_disabled_regression_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_local.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_search_regression_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_sql_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\usage_vision_regression_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\version.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\version_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision_catalog.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision_platform_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision_provider.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision_replay.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision_settings.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\vision_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\webproxy.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\webproxy_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\websearch.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\websearch_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\workspacepath.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\desktop\workspacepath_test.go:1:1: File is not properly formatted (gofmt)
+package desktop
+^
+internal\download\download.go:1:1: File is not properly formatted (gofmt)
+// Package download streams bounded files with progress and SHA256 verification support.
+^
+internal\download\download_test.go:1:1: File is not properly formatted (gofmt)
+package download
+^
+internal\imagegentool\invocation.go:1:1: File is not properly formatted (gofmt)
+package imagegentool
+^
+internal\imagegentool\invocation_test.go:1:1: File is not properly formatted (gofmt)
+package imagegentool
+^
+internal\imagegentool\schema.go:1:1: File is not properly formatted (gofmt)
+package imagegentool
+^
+internal\imagegentool\size.go:1:1: File is not properly formatted (gofmt)
+package imagegentool
+^
+internal\imagegentool\size_test.go:1:1: File is not properly formatted (gofmt)
+package imagegentool
+^
+internal\imagegentool\tool.go:1:1: File is not properly formatted (gofmt)
+// Package imagegentool 实现桌面侧 image_generate ExtraTool。
+^
+internal\imagegentool\tool_test.go:1:1: File is not properly formatted (gofmt)
+package imagegentool
+^
+internal\localusage\aggregate.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\coverage.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\coverage_disabled.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\coverage_disabled_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\coverage_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\estimate_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\provider.go:1:1: File is not properly formatted (gofmt)
+// Package localusage 提供本机 SQLite 用量记录与平台 LLM Provider 采集包装。
+^
+internal\localusage\provider_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\query.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\query_performance_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\query_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\schema.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\store.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\store_close_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\store_helpers_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\store_test.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\localusage\types.go:1:1: File is not properly formatted (gofmt)
+package localusage
+^
+internal\oatool\catalog.go:1:1: File is not properly formatted (gofmt)
+package oatool
+^
+internal\oatool\download.go:1:1: File is not properly formatted (gofmt)
+package oatool
+^
+internal\oatool\download_test.go:1:1: File is not properly formatted (gofmt)
+package oatool
+^
+internal\oatool\oatool.go:1:1: File is not properly formatted (gofmt)
+// Package oatool implements the desktop's OA office tools: read-only
+^
+internal\oatool\oatool_test.go:1:1: File is not properly formatted (gofmt)
+package oatool
+^
+internal\officetool\docx.go:1:1: File is not properly formatted (gofmt)
+package officetool
+^
+internal\officetool\officetool.go:1:1: File is not properly formatted (gofmt)
+// Package officetool implements the ReadOffice tool: it extracts the *content*
+^
+internal\officetool\officetool_test.go:1:1: File is not properly formatted (gofmt)
+package officetool
+^
+internal\officetool\pptx.go:1:1: File is not properly formatted (gofmt)
+package officetool
+^
+internal\officetool\xlsx.go:1:1: File is not properly formatted (gofmt)
+package officetool
+^
+internal\plantool\plan.go:1:1: File is not properly formatted (gofmt)
+// Package plantool implements the plan_write tool: in plan mode the model records
+^
+internal\plantool\plan_test.go:1:1: File is not properly formatted (gofmt)
+package plantool
+^
+internal\previewtool\preview.go:1:1: File is not properly formatted (gofmt)
+// Package previewtool implements the open_preview tool: the model asks the desktop
+^
+internal\previewtool\preview_test.go:1:1: File is not properly formatted (gofmt)
+package previewtool
+^
+internal\protocol\agents.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\askpass.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\audit.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\codex.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\context.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\directory_access.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\doc.go:1:1: File is not properly formatted (gofmt)
+// Package protocol defines the desktop shell's own wire payloads: the types
+^
+internal\protocol\edits.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\harm.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\image_generation.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\mcp.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\model_context.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\oa.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\passport.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\plan.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\questions.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\recorder.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\runtimes.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\settings.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\skillmarket.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\skills.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\tools.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\update.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\usage.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\protocol\vision.go:1:1: File is not properly formatted (gofmt)
+package protocol
+^
+internal\recorder\capture.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\doc.go:1:1: File is not properly formatted (gofmt)
+// Package recorder 是录音纪要的采集核：把系统音频归一成网关要的 16 kHz 单声道
+^
+internal\recorder\framer.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\framer_test.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\resample.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\resample_test.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\session.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\session_test.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\transcript.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\transcript_test.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\wavsink.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\wavsink_test.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\wsclient.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\recorder\wsclient_test.go:1:1: File is not properly formatted (gofmt)
+package recorder
+^
+internal\runtimetool\runtime.go:1:1: File is not properly formatted (gofmt)
+// Package runtimetool implements the install_runtime tool: the model installs one of
+^
+internal\runtimetool\runtime_test.go:1:1: File is not properly formatted (gofmt)
+package runtimetool
+^
+internal\skilltool\skilltool.go:1:1: File is not properly formatted (gofmt)
+// Package skilltool is the desktop's Skill tool: the engine's built-in discloser
+^
+internal\skilltool\skilltool_test.go:1:1: File is not properly formatted (gofmt)
+package skilltool
+^
+internal\ui\approval.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\approval_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\doc.go:1:1: File is not properly formatted (gofmt)
+// Package ui is runcode 的终端交互界面(TUI):一个 bubbletea 模型,把会话服务
+^
+internal\ui\format.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\history.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\history_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\lifecycle_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\markdown.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\menu.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\menu_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\messages.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\model.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\model_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\multiline_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\picker.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\picker_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\render.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\render_approval.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\render_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\render_tools.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\service.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\slash_commands.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\slash_commands_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\tea_commands.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\tool_events.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\tool_output_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\width.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\ui\width_test.go:1:1: File is not properly formatted (gofmt)
+package ui
+^
+internal\vision\client.go:1:1: File is not properly formatted (gofmt)
+// Package vision runs bounded, tool-free image-model requests and stores their
+^
+internal\vision\client_test.go:1:1: File is not properly formatted (gofmt)
+package vision
+^
+internal\vision\fork.go:1:1: File is not properly formatted (gofmt)
+package vision
+^
+internal\vision\store.go:1:1: File is not properly formatted (gofmt)
+package vision
+^
+internal\vision\store_test.go:1:1: File is not properly formatted (gofmt)
+package vision
+^
+internal\websearchtool\capture_test.go:1:1: File is not properly formatted (gofmt)
+package websearchtool
+^
+internal\websearchtool\description_test.go:1:1: File is not properly formatted (gofmt)
+package websearchtool
+^
+internal\websearchtool\websearchtool.go:1:1: File is not properly formatted (gofmt)
+// Package websearchtool implements the desktop's WebSearch tool: instead of the
+^
+internal\websearchtool\websearchtool_test.go:1:1: File is not properly formatted (gofmt)
+package websearchtool
+^
+tools\protogen\emit.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+tools\protogen\extract_test.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+tools\protogen\main.go:1:1: File is not properly formatted (gofmt)
+// Command protogen generates the desktop frontend's TypeScript protocol layer
+^
+tools\runtimepacks\archive.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+tools\runtimepacks\main.go:1:1: File is not properly formatted (gofmt)
+// Command runtimepacks 把 Python / Node.js / Git 的上游绿色包重打成本应用的
+^
+tools\runtimepacks\sources.go:1:1: File is not properly formatted (gofmt)
+package main
+^
+tools\sysmap\main.go:1:1: File is not properly formatted (gofmt)
+// Command sysmap scans the runcode shell + agentloop engine with go/types and
+^
+internal\automation\store.go:79:38: G202: SQL string concatenation (gosec)
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM tasks WHERE client_request_id=? AND owner_scope IN `+clause+` ORDER BY created_at_utc, id`,
+	                                    ^
+internal\automation\store.go:126:7: G202: SQL string concatenation (gosec)
+	q := `SELECT owner_scope, workspace, session_id, task_id, task_name FROM session_links
+		WHERE task_id=? AND session_id=? AND owner_scope IN ` + clause
+internal\automation\store.go:730:38: G202: SQL string concatenation (gosec)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.workspace, l.session_id, l.task_id, l.task_name,
+		COALESCE(t.name, ''), COALESCE(t.updated_at_utc, '')
+		FROM session_links l
+		LEFT JOIN tasks t ON t.id = l.task_id AND t.owner_scope = l.owner_scope
+		WHERE l.owner_scope IN `+clause, args...)
+internal\localusage\aggregate.go:93:11: G202: SQL string concatenation (gosec)
+	query := `WITH boundaries(bucket,begin_ms,end_ms) AS (VALUES ` + strings.Join(values, ",") + `)
+SELECT b.bucket, ` + cols + `
+FROM boundaries b CROSS JOIN events s
+LEFT JOIN events f ON f.call_id=s.call_id AND f.phase='finish' AND f.seq<=?
+WHERE s.phase='start' AND s.seq<=? AND s.scope_id=? AND s.started_at_ms>=b.begin_ms AND s.started_at_ms<b.end_ms`
+internal\localusage\aggregate.go:152:36: G202: SQL string concatenation (gosec)
+	rows, err := tx.QueryContext(ctx, `SELECT s.model, `+cols+from+` GROUP BY s.model ORDER BY COUNT(f.seq) DESC, s.model ASC LIMIT ? OFFSET ?`, args...)
+	                                  ^
+internal\localusage\aggregate.go:172:7: G101: Potential hardcoded credentials (gosec)
+const tokenCallSQL = `(s.call_kind IN ('llm','vision') AND f.seq IS NOT NULL)`
+      ^
+internal\automation\errors.go:6:2: exported: exported var ErrConflict should have comment or be unexported (revive)
+	ErrConflict   = errors.New("automation: revision conflict")
+	^
+internal\automation\fake_clock_test.go:52:28: unused-parameter: parameter 'ctx' seems to be unused, consider removing or renaming it as _ (revive)
+func (f *fakeRunner) Start(ctx context.Context, task Task, run Run) (Submission, error) {
+                           ^
+internal\automation\fake_clock_test.go:65:29: unused-parameter: parameter 'ctx' seems to be unused, consider removing or renaming it as _ (revive)
+func (f *fakeRunner) Cancel(ctx context.Context, run Run) error {
+                            ^
+internal\automation\schedule.go:165:86: empty-block: this block is empty, you can remove it (revive)
+		if through.Before(anchor) || through.Equal(anchor) && !anchor.After(fromExclusive) {
+			// still may have later ticks
+		}
+internal\automation\service.go:40:6: exported: exported type ServiceOption should have comment or be unexported (revive)
+type ServiceOption func(*Service)
+     ^
+internal\automation\service.go:42:1: exported: exported function WithTaskChange should have comment or be unexported (revive)
+func WithTaskChange(fn func(Task)) ServiceOption { return func(s *Service) { s.onTaskChange = fn } }
+^
+internal\automation\service.go:43:1: exported: exported function WithRunChange should have comment or be unexported (revive)
+func WithRunChange(fn func(Run)) ServiceOption   { return func(s *Service) { s.onRunChange = fn } }
+^
+internal\automation\service.go:45:1: exported: exported function NewService should have comment or be unexported (revive)
+func NewService(store *Store, runner Runner, clock Clock, opts ...ServiceOption) *Service {
+^
+internal\automation\service.go:64:1: exported: exported method Service.Start should have comment or be unexported (revive)
+func (s *Service) Start(ctx context.Context) error {
+^
+internal\automation\service.go:100:1: exported: exported method Service.Stop should have comment or be unexported (revive)
+func (s *Service) Stop() {
+^
+internal\automation\service.go:109:1: exported: exported method Service.Observe should have comment or be unexported (revive)
+func (s *Service) Observe(f Fact) {
+^
+internal\automation\service.go:122:1: exported: exported method Service.HoldAdmission should have comment or be unexported (revive)
+func (s *Service) HoldAdmission(reason string) (release func()) {
+^
+internal\automation\service.go:148:1: exported: exported method Service.ExitSummary should have comment or be unexported (revive)
+func (s *Service) ExitSummary(ctx context.Context) (ExitSummary, error) {
+^
+internal\automation\service.go:160:1: exported: exported method Service.PrepareShutdown should have comment or be unexported (revive)
+func (s *Service) PrepareShutdown(ctx context.Context) error {
+^
+internal\automation\service.go:180:1: exported: exported method Service.Wake should have comment or be unexported (revive)
+func (s *Service) Wake() { s.nudge() }
+^
+internal\automation\service.go:750:1: exported: exported method Service.SetPaused should have comment or be unexported (revive)
+func (s *Service) SetPaused(ctx context.Context, taskID string, rev int64, paused bool) (Task, error) {
+^
+internal\automation\store.go:15:2: blank-imports: a blank import should be only in a main or test package, or have a comment justifying it (revive)
+	_ "modernc.org/sqlite"
+	^
+internal\automation\store.go:46:1: exported: exported method Store.Close should have comment or be unexported (revive)
+func (s *Store) Close() error {
+^
+internal\automation\store.go:173:1: exported: exported method Store.CreateTask should have comment or be unexported (revive)
+func (s *Store) CreateTask(ctx context.Context, task Task) (Task, error) {
+^
+internal\automation\store.go:207:1: exported: exported method Store.UpdateTask should have comment or be unexported (revive)
+func (s *Store) UpdateTask(ctx context.Context, task Task, expectedRevision int64) (Task, error) {
+^
+internal\automation\store.go:256:1: exported: exported method Store.SetPaused should have comment or be unexported (revive)
+func (s *Store) SetPaused(ctx context.Context, taskID string, expectedRevision int64, paused bool, now time.Time) (Task, error) {
+^
+internal\automation\store.go:275:12: empty-block: this block is empty, you can remove it (revive)
+	if paused {
+		// Cancel is service-layer; store only flips state.
+	} else if cur.NextRunAtUTC != nil {
+internal\automation\store.go:277:36: empty-block: this block is empty, you can remove it (revive)
+	} else if cur.NextRunAtUTC != nil {
+		// Caller recomputes next; keep existing unless nil.
+	}
+internal\automation\store.go:361:1: exported: exported method Store.SaveRun should have comment or be unexported (revive)
+func (s *Store) SaveRun(ctx context.Context, run Run, expectedRunRevision int64) (Run, error) {
+^
+internal\automation\store.go:398:1: exported: exported method Store.LinkSession should have comment or be unexported (revive)
+func (s *Store) LinkSession(ctx context.Context, link SessionLink) error {
+^
+internal\automation\store.go:407:1: exported: exported method Store.ListTasks should have comment or be unexported (revive)
+func (s *Store) ListTasks(ctx context.Context, filter TaskFilter) (TaskPage, error) {
+^
+internal\automation\store.go:471:1: exported: exported method Store.ListRuns should have comment or be unexported (revive)
+func (s *Store) ListRuns(ctx context.Context, filter RunFilter) (RunPage, error) {
+^
+internal\automation\store.go:534:1: exported: exported method Store.Recover should have comment or be unexported (revive)
+func (s *Store) Recover(ctx context.Context, now time.Time) error {
+^
+internal\automation\store_types.go:29:6: exported: exported type RunPage should have comment or be unexported (revive)
+type RunPage struct {
+     ^
+internal\automation\types.go:142:1: exported: exported method SystemClock.Now should have comment or be unexported (revive)
+func (SystemClock) Now() time.Time                         { return time.Now().UTC() }
+^
+internal\automation\types.go:143:1: exported: exported method SystemClock.After should have comment or be unexported (revive)
+func (SystemClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
+^
+internal\desktop\app.go:309:6: redefines-builtin-id: redefinition of the built-in function real (revive)
+		if real, ok := session.(*engine.Session); ok {
+		   ^
+internal\desktop\artifact_policy_test.go:284:51: unused-parameter: parameter 'ctx' seems to be unused, consider removing or renaming it as _ (revive)
+	r := browserResolver{inner: inner, preview: func(ctx context.Context, sessionID, workspace, raw string) bool {
+	                                                 ^
+internal\desktop\automation_runner.go:20:1: exported: exported method App.AutomationRunner should have comment or be unexported (revive)
+func (a *App) AutomationRunner() automation.Runner { return automationRunner{a} }
+^
+internal\desktop\automation_test.go:822:46: unused-parameter: parameter 'd' seems to be unused, consider removing or renaming it as _ (revive)
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	                                            ^
+internal\desktop\image_generation_client_test.go:140:73: unused-parameter: parameter 'r' seems to be unused, consider removing or renaming it as _ (revive)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	                                                                       ^
+internal\desktop\usage_capture_scope_test.go:64:7: empty-block: this block is empty, you can remove it (revive)
+						for range st.Events() {
+						}
+internal\desktop\usage_capture_scope_test.go:144:5: empty-block: this block is empty, you can remove it (revive)
+				for range st.Events() {
+				}
+internal\desktop\usage_capture_test.go:96:57: unused-parameter: parameter 'ctx' seems to be unused, consider removing or renaming it as _ (revive)
+	base := usageFakeProvider{name: "openai", stream: func(ctx context.Context, req llm.Request) (llm.Stream, error) {
+	                                                       ^
+internal\desktop\usage_capture_test.go:110:2: empty-block: this block is empty, you can remove it (revive)
+	for range st.Events() {
+	}
+internal\desktop\usage_capture_test.go:130:2: empty-block: this block is empty, you can remove it (revive)
+	for range vst.Events() {
+	}
+internal\desktop\usage_capture_test.go:226:73: unused-parameter: parameter 'r' seems to be unused, consider removing or renaming it as _ (revive)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	                                                                       ^
+internal\desktop\usage_disabled_regression_test.go:23:76: unused-parameter: parameter 'r' seems to be unused, consider removing or renaming it as _ (revive)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	                                                                          ^
+internal\desktop\usage_search_regression_test.go:64:53: unused-parameter: parameter 'w' seems to be unused, consider removing or renaming it as _ (revive)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	                                                   ^
+internal\desktop\usage_search_regression_test.go:102:78: unused-parameter: parameter 'r' seems to be unused, consider removing or renaming it as _ (revive)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			                                                                          ^
+internal\desktop\usage_sql_test.go:32:70: context-as-argument: context.Context should be the first parameter of a function (revive)
+func localUsageTestCountCalls(t testing.TB, store *localusage.Store, ctx context.Context, scopeID string) (int, error) {
+                                                                     ^
+internal\desktop\usage_sql_test.go:40:70: context-as-argument: context.Context should be the first parameter of a function (revive)
+func localUsageTestCallStatus(t testing.TB, store *localusage.Store, ctx context.Context, callID string) (string, error) {
+                                                                     ^
+internal\desktop\usage_vision_regression_test.go:24:76: unused-parameter: parameter 'r' seems to be unused, consider removing or renaming it as _ (revive)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	                                                                          ^
+internal\desktop\window_lifecycle.go:64:1: exported: exported function NewWindowLifecycle should have comment or be unexported (revive)
+func NewWindowLifecycle(opts WindowLifecycleOptions) *WindowLifecycle {
+^
+internal\desktop\window_lifecycle.go:87:1: exported: exported method WindowLifecycle.BackgroundSupported should have comment or be unexported (revive)
+func (l *WindowLifecycle) BackgroundSupported() bool {
+^
+internal\desktop\window_lifecycle.go:91:1: exported: exported method WindowLifecycle.Quitting should have comment or be unexported (revive)
+func (l *WindowLifecycle) Quitting() bool {
+^
+internal\desktop\window_lifecycle.go:100:1: exported: exported method WindowLifecycle.CloseMainWindow should have comment or be unexported (revive)
+func (l *WindowLifecycle) CloseMainWindow() error {
+^
+internal\desktop\window_lifecycle.go:120:1: exported: exported method WindowLifecycle.RestoreMainWindow should have comment or be unexported (revive)
+func (l *WindowLifecycle) RestoreMainWindow() error {
+^
+internal\desktop\window_lifecycle.go:146:1: exported: exported method WindowLifecycle.RequestAppExit should have comment or be unexported (revive)
+func (l *WindowLifecycle) RequestAppExit() error {
+^
+internal\localusage\aggregate.go:10:6: exported: exported type StatusTotals should have comment or be unexported (revive)
+type StatusTotals struct {
+     ^
+internal\localusage\aggregate.go:27:6: exported: exported type AggregateBucket should have comment or be unexported (revive)
+type AggregateBucket struct {
+     ^
+internal\localusage\aggregate.go:32:6: exported: exported type OverviewResult should have comment or be unexported (revive)
+type OverviewResult struct {
+     ^
+internal\localusage\aggregate.go:38:6: exported: exported type ModelAggregate should have comment or be unexported (revive)
+type ModelAggregate struct {
+     ^
+internal\localusage\aggregate.go:43:6: exported: exported type DimensionsResult should have comment or be unexported (revive)
+type DimensionsResult struct {
+     ^
+internal\localusage\aggregate.go:50:1: exported: exported method Store.QueryOverview should have comment or be unexported (revive)
+func (s *Store) QueryOverview(ctx context.Context, filter QueryFilter, boundaries []time.Time) (OverviewResult, error) {
+^
+internal\localusage\aggregate.go:125:1: exported: exported method Store.QueryDimensions should have comment or be unexported (revive)
+func (s *Store) QueryDimensions(ctx context.Context, filter QueryFilter, search string, page, pageSize int) (DimensionsResult, error) {
+^
+internal\localusage\coverage.go:17:1: exported: comment on exported type CoverageGap should be of the form "CoverageGap ..." (with optional leading article) (revive)
+// Coverage metadata never assigns an unattributed call to a statistical scope.
+^
+internal\localusage\coverage.go:25:6: exported: exported type CoverageMetadata should have comment or be unexported (revive)
+type CoverageMetadata struct {
+     ^
+internal\localusage\coverage.go:32:6: exported: exported type CoverageDiagnostic should have comment or be unexported (revive)
+type CoverageDiagnostic struct {
+     ^
+internal\localusage\provider_test.go:149:4: empty-block: this block is empty, you can remove it (revive)
+			for range out {
+			}
+internal\localusage\provider_test.go:507:4: empty-block: this block is empty, you can remove it (revive)
+			for range stream.Events() {
+			}
+internal\localusage\query.go:66:2: exported: exported var ErrInvalidCursor should have comment or be unexported (revive)
+	ErrInvalidCursor   = errors.New("分页游标无效")
+	^
+internal\protocol\automation.go:9:2: exported: comment on exported const ErrCodeAutomationContextChanged should be of the form "ErrCodeAutomationContextChanged ..." (revive)
+	// ErrCodeAutomationContextChanged：请求或事件携带的 context 已过期。
+	^
+internal\protocol\automation.go:12:2: exported: comment on exported const ErrCodeAutomationConflict should be of the form "ErrCodeAutomationConflict ..." (revive)
+	// ErrCodeAutomationConflict：expectedRevision 与库中不一致。
+	^
+internal\protocol\automation.go:14:2: exported: comment on exported const ErrCodeAutomationUnavailable should be of the form "ErrCodeAutomationUnavailable ..." (revive)
+	// ErrCodeAutomationUnavailable：任务库或宿主窗口能力不可用。
+	^
+internal\protocol\automation.go:16:2: exported: comment on exported const ErrCodeAutomationTaskActive should be of the form "ErrCodeAutomationTaskActive ..." (revive)
+	// ErrCodeAutomationTaskActive：任务还有未结束的运行，不能改内容。
+	^
+internal\protocol\automation.go:18:2: exported: comment on exported const ErrCodeAutomationBindingInvalid should be of the form "ErrCodeAutomationBindingInvalid ..." (revive)
+	// ErrCodeAutomationBindingInvalid：填表期间模型或连接已变化。
+	^
+internal\websearchtool\capture_test.go:18:55: unused-parameter: parameter 'w' seems to be unused, consider removing or renaming it as _ (revive)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { posts.Add(1) }))
+			                                                   ^
+internal\websearchtool\capture_test.go:53:32: unused-parameter: parameter 'code' seems to be unused, consider removing or renaming it as _ (revive)
+		return func(outcome Outcome, code string) { got = outcome; ends++ }
+		                             ^
+internal\websearchtool\capture_test.go:74:34: unused-parameter: parameter 'r' seems to be unused, consider removing or renaming it as _ (revive)
+	}}, func(w http.ResponseWriter, r *http.Request) {
+	                                ^
+internal\websearchtool\websearchtool.go:53:2: exported: exported const OutcomeSucceeded should have comment (or a comment on this block) or be unexported (revive)
+	OutcomeSucceeded Outcome = "succeeded"
+	^
+internal\automation\store.go:819:3: SA4004: the surrounding loop is unconditionally terminated (staticcheck)
+		break
+		^
+internal\desktop\automation_identity_test.go:233:3: SA2001: empty critical section (staticcheck)
+		app.mu.Unlock()
+		^
+internal\desktop\automation_identity_test.go:235:3: SA2001: empty critical section (staticcheck)
+		app.tokens.mu.Unlock()
+		^
+internal\automation\service_test.go:216:68: waitRun - d always receives 2 * time.Second (2000000000) (unparam)
+func waitRun(t *testing.T, svc *Service, st *Store, taskID string, d time.Duration, ok func(Run) bool) Run {
+                                                                   ^
+internal\automation\service_test.go:237:65: waitStarts - n always receives 1 (unparam)
+func waitStarts(t *testing.T, svc *Service, runner *fakeRunner, n int, d time.Duration) {
+                                                                ^
+internal\desktop\automation_identity.go:105:51: (*App).freezeAutomationBinding - permission always receives "safe" (unparam)
+func (a *App) freezeAutomationBinding(kind, name, permission string) (automation.Binding, error) {
+                                                  ^
+internal\desktop\automation_identity_test.go:15:14: testJWT - issuer always receives "https://passport.example" (unparam)
+func testJWT(issuer, subject, extra string) string {
+             ^
+internal\desktop\automation_runner_test.go:621:65: writeAutomationSession - permission always receives "safe" (unparam)
+func writeAutomationSession(t *testing.T, workspace, id, model, permission string) {
+                                                                ^
+internal\desktop\automation_test.go:87:39: loginPassport - tenant always receives "T1" (unparam)
+func loginPassport(app *App, subject, tenant, jti string) {
+                                      ^
+internal\desktop\usage_capture.go:186:44: platformUsageFreezer$1 - result 0 (github.com/wt68/runcode/internal/localusage.Scope) is always nil (unparam)
+	gap := func(code string, sf ScopeFreeze) (localusage.Scope, error) {
+	                                          ^
+528 issues:
+* errcheck: 20
+* errorlint: 3
+* gocritic: 4
+* gofmt: 409
+* gosec: 6
+* revive: 76
+* staticcheck: 3
+* unparam: 7

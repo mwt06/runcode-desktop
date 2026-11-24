@@ -22,7 +22,11 @@ export function DirectoryAccessPreview() {
         </div>
         <output data-testid="source-owner">{owner}</output>
         <DirectoryAccessSection sessionID={owner} state={directories} />
-        <output data-testid="preview-tabs">{preview.tabs.map((t) => t.kind === 'file' ? `${t.artifact?.sessionId}:${t.artifact?.reference}` : t.relPath).join(',')}</output>
+        <output data-testid="preview-tabs">{preview.tabs.map((t) =>
+          t.kind === 'file' ? `${t.artifact?.sessionId}:${t.artifact?.reference}`
+            : t.kind === 'diff' ? t.relPath
+              : t.ownerKey,
+        ).join(',')}</output>
       </div>
     </main>
   )

@@ -1,6 +1,7 @@
 import { useRef, useState, type RefObject } from 'react'
 import { errText, forkQuestion, getQuestion, type QuestionDraft } from '@/core/bridge'
 import { basename } from '@/core/paths'
+import type { ComposerEditorHandle } from '@/composer/inline-editor'
 import type { Conversation } from './use-conversation'
 import type { Session } from './use-session'
 import type { useChatDrafts } from './use-chat-drafts'
@@ -13,7 +14,7 @@ export function useQuestionRetry({ sessionId, blocked, drafts, conversation, ses
   drafts: ReturnType<typeof useChatDrafts>
   conversation: Conversation
   session: Session
-  textarea: RefObject<HTMLTextAreaElement>
+  textarea: RefObject<ComposerEditorHandle>
   notify: (text: string) => void
 }) {
   const [pending, setPending] = useState(false)
@@ -70,8 +71,9 @@ export function useQuestionRetry({ sessionId, blocked, drafts, conversation, ses
     if (!current() || latestBlocked.current) return false
     // Failure leaves an editable input, rather than losing the original content.
     drafts.update(sessionId, (d) => editQuestion(d, original))
+    const submittedDraft = drafts.read(sessionId)
     const accepted = await generate(original, original.text, [], (original.images ?? []).map((i) => i.index), current)
-    if (accepted) drafts.update(sessionId, cancelQuestion)
+    if (accepted) drafts.update(sessionId, d => d === submittedDraft ? cancelQuestion(d) : d)
     return accepted
   })
 
@@ -85,7 +87,7 @@ export function useQuestionRetry({ sessionId, blocked, drafts, conversation, ses
     const { original, images } = draft.retry
     return exclusive(async (current) => {
       const accepted = await generate(original, text, paths, images, current)
-      if (accepted) drafts.update(sessionId, cancelQuestion)
+      if (accepted) drafts.update(sessionId, d => d === draft ? cancelQuestion(d) : d)
       return accepted
     })
   }

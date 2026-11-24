@@ -96,13 +96,16 @@ type DeviceCode struct {
 }
 
 // Tokens 是一次成功登录的产物。AccountID 是调 Codex 后端时要带的
-// chatgpt-account-id，没有它上游不认这个订阅。
+// chatgpt-account-id，没有它上游不认这个订阅。Issuer 与 Subject 是稳定身份，
+// 邮箱和配置名都不能代替；旧令牌缺这两项时调用方要求重新登录。
 type Tokens struct {
 	AccessToken  string
 	RefreshToken string
 	Expiry       time.Time
 	AccountID    string
 	Email        string
+	Issuer       string
+	Subject      string
 }
 
 // Client 发起并完成设备码登录。零值不可用，用 New 构造。
@@ -285,7 +288,7 @@ func (c *Client) tokenRequest(ctx context.Context, form url.Values) (Tokens, err
 	if body.AccessToken == "" {
 		return Tokens{}, errors.New("令牌响应缺少 access_token")
 	}
-	accountID, email := accountFromIDToken(body.IDToken)
+	ident := accountFromIDToken(body.IDToken)
 	expiry := time.Time{}
 	if body.ExpiresIn > 0 {
 		expiry = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
@@ -294,8 +297,10 @@ func (c *Client) tokenRequest(ctx context.Context, form url.Values) (Tokens, err
 		AccessToken:  body.AccessToken,
 		RefreshToken: body.RefreshToken,
 		Expiry:       expiry,
-		AccountID:    accountID,
-		Email:        email,
+		AccountID:    ident.AccountID,
+		Email:        ident.Email,
+		Issuer:       ident.Issuer,
+		Subject:      ident.Subject,
 	}, nil
 }
 
@@ -318,24 +323,33 @@ func (c *Client) postJSON(ctx context.Context, endpoint string, body []byte, out
 	return json.Unmarshal(payload, out)
 }
 
-// accountFromIDToken 从 id_token 里取 chatgpt-account-id 与邮箱。
+// accountFromIDToken 从 id_token 里取账号、邮箱和稳定身份（iss/sub）。
 //
 // id_token 是 JWT，这里**只读 payload、不验签**：它是刚从 TLS 上换回来的，用途
-// 也只是取一个上游要的请求头值，不是用来做授权判定的。真正的鉴权在 access_token
-// 上，由上游校验。
+// 也只是记住这次登录是谁，不是用来做授权判定的。真正的鉴权在 access_token
+// 上，由上游校验。邮箱和配置名都不能代替 subject；缺 subject 的旧登录要重新登录。
 //
 // account id 有两处可能：顶层 chatgpt_account_id，或命名空间 claim
 // "https://api.openai.com/auth" 里的同名字段。两处都看，取先有的那个。
-func accountFromIDToken(idToken string) (accountID, email string) {
+type idClaims struct {
+	AccountID string
+	Email     string
+	Issuer    string
+	Subject   string
+}
+
+func accountFromIDToken(idToken string) idClaims {
 	parts := strings.Split(idToken, ".")
 	if len(parts) < 2 {
-		return "", ""
+		return idClaims{}
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", ""
+		return idClaims{}
 	}
 	var claims struct {
+		Issuer           string `json:"iss"`
+		Subject          string `json:"sub"`
 		ChatGPTAccountID string `json:"chatgpt_account_id"`
 		Email            string `json:"email"`
 		OpenAIAuth       struct {
@@ -343,13 +357,13 @@ func accountFromIDToken(idToken string) (accountID, email string) {
 		} `json:"https://api.openai.com/auth"`
 	}
 	if err := json.Unmarshal(raw, &claims); err != nil {
-		return "", ""
+		return idClaims{}
 	}
 	id := claims.ChatGPTAccountID
 	if id == "" {
 		id = claims.OpenAIAuth.ChatGPTAccountID
 	}
-	return id, claims.Email
+	return idClaims{AccountID: id, Email: claims.Email, Issuer: claims.Issuer, Subject: claims.Subject}
 }
 
 // parseInterval 容忍服务端把间隔写成数字或字符串。取不到就用默认值。

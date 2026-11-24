@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "description": "合成脱敏目录样例（IMG-GEN-001 设计 6.1）。response 是 Bridge GET /t/{tenantId}/v1/models 的响应体；expect 是客户端解析后的用途划分。模型名均为合成占位，不代表真实可用或已验证组合。",
+  "response": {
+    "object": "list",
+    "data": [
+      { "id": "chat-legacy", "object": "model", "owned_by": "platform" },
+      { "id": "chat-explicit", "object": "model", "owned_by": "platform", "capabilities": ["chat"], "supports_images": true },
+      { "id": "seedream-name-only", "object": "model", "owned_by": "volcengine" },
+      {
+        "id": "image-only-url",
+        "object": "model",
+        "owned_by": "volcengine",
+        "capabilities": ["image_generation"],
+        "image_generation": {
+          "available": true,
+          "supported_sizes": ["2048x2048"],
+          "default_size": "2048x2048",
+          "response_formats": ["url"],
+          "unavailable_reason": ""
+        }
+      },
+      {
+        "id": "image-only-b64",
+        "object": "model",
+        "owned_by": "alibaba",
+        "capabilities": ["image_generation"],
+        "image_generation": {
+          "available": true,
+          "supported_sizes": ["1024x1024", "1280x720"],
+          "default_size": "1024x1024",
+          "response_formats": ["b64_json"]
+        }
+      },
+      {
+        "id": "dual-chat-image",
+        "object": "model",
+        "owned_by": "platform",
+        "capabilities": ["chat", "image_generation"],
+        "image_generation": {
+          "available": true,
+          "supported_sizes": ["1024x1024"],
+          "default_size": "1024x1024",
+          "response_formats": ["url", "b64_json"]
+        }
+      },
+      {
+        "id": "image-unavailable",
+        "object": "model",
+        "owned_by": "tencent",
+        "capabilities": ["image_generation"],
+        "image_generation": {
+          "available": false,
+          "supported_sizes": ["1024x1024"],
+          "default_size": "1024x1024",
+          "response_formats": ["url"],
+          "unavailable_reason": "该组合尚未完成兼容验证"
+        }
+      },
+      { "id": "image-missing-profile", "object": "model", "owned_by": "tencent", "capabilities": ["image_generation"] },
+      {
+        "id": "image-bad-profile",
+        "object": "model",
+        "owned_by": "tencent",
+        "capabilities": ["image_generation"],
+        "image_generation": {
+          "available": true,
+          "supported_sizes": [],
+          "default_size": "",
+          "response_formats": ["url"]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "chatModels": ["chat-legacy", "chat-explicit", "seedream-name-only", "dual-chat-image"],
+    "imageGenerationModels": ["image-only-url", "image-only-b64", "dual-chat-image", "image-unavailable", "image-missing-profile", "image-bad-profile"],
+    "selectableImageModels": ["image-only-url", "image-only-b64", "dual-chat-image"],
+    "notes": {
+      "seedream-name-only": "名称像生图模型但没有 image_generation 能力：保留旧聊天行为，不进入生图候选（不按名称猜能力）",
+      "chat-explicit": "supports_images 只表示图片输入，不表示图片生成",
+      "image-missing-profile": "声明能力但缺参数档案：列出但不可选",
+      "image-bad-profile": "available=true 但没有尺寸：按无效档案处理，不可选"
+    }
+  }
+}

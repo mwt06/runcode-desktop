@@ -1,11 +1,12 @@
 // 预览标签携带来源会话与后端引用；路径仅用于展示，不从当前焦点猜读取权限。
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { usePersistentBool, usePersistentNumber } from '@/hooks/use-persistent-state'
-import { copyText, errText, openArtifact, openExternal, releaseArtifact, revealInFolder, resolveArtifactPath, type ArtifactReference } from '@/core/bridge'
+import { copyText, errText, Events, onEvent, openArtifact, openExternal, releaseArtifact, revealInFolder, resolveArtifactPath, type ArtifactReference } from '@/core/bridge'
 import { createActionScope } from './action-scope'
 import type { ArtifactActions } from '@/chat/artifact-actions'
 import { clampPreviewWidth, previewWidthBounds } from '@/preview/classify'
-import { closeTab, openTab, type PreviewTab } from '@/preview/tabs'
+import type { CodePreviewTarget } from '@/preview/code-preview'
+import { closeTab, openTab, tabKey, type PreviewTab } from '@/preview/tabs'
 
 export type PreviewPanelState = ReturnType<typeof usePreviewPanel>
 
@@ -17,10 +18,28 @@ const EMPTY_TABS: { tabs: PreviewTab[]; active: string | null } = { tabs: [], ac
 export function usePreviewPanel(sessionID: string, notify: (text: string) => void = () => {}) {
   const scope = useRef(createActionScope())
   scope.current.focus(sessionID)
+  const owner = useRef(sessionID)
+  owner.current = sessionID
+  const lifecycle = useRef(new Map<string, { blocked: boolean; generation?: string }>())
   useEffect(() => { const active = scope.current; active.activate(); return () => active.deactivate() }, [])
   const report = useRef(notify)
   report.current = notify
   const [bySession, setBySession] = useState<Record<string, { tabs: PreviewTab[]; active: string | null }>>({})
+  useEffect(() => onEvent(Events.PreviewLifecycle, ({ sessionId, phase, generation }) => {
+    if (!sessionId || !['invalidating', 'ready', 'closed'].includes(phase)) return
+    const previous = lifecycle.current.get(sessionId)
+    if (phase === 'ready' && previous && previous.generation === generation && !previous.blocked) return
+    lifecycle.current.set(sessionId, { blocked: phase !== 'ready', generation })
+    if (owner.current === sessionId) scope.current.invalidate()
+    // A rebuilt host cannot honor old capability handles. Close its tabs so a
+    // fresh user action obtains references from the new generation.
+    setBySession((all) => {
+      if (!(sessionId in all)) return all
+      const next = { ...all }
+      delete next[sessionId]
+      return next
+    })
+  }), [])
   const references = useRef(new Set<string>())
   useEffect(() => {
     const next = new Set(Object.values(bySession).flatMap((s) => s.tabs.flatMap((t) => t.kind === 'file' && t.artifact ? [t.artifact.reference] : [])))
@@ -74,16 +93,18 @@ export function usePreviewPanel(sessionID: string, notify: (text: string) => voi
     setBrowseOpen(false)
   }
   const openReference = (artifact: ArtifactReference) => {
-    if (artifact.sessionId !== sessionID) { void releaseArtifact(artifact.reference).catch(() => {}); return }
+    const state = lifecycle.current.get(sessionID)
+    if (owner.current !== sessionID || artifact.sessionId !== sessionID || state?.blocked || (state?.generation && artifact.generation !== state.generation)) { void releaseArtifact(artifact.reference).catch(() => {}); return false }
     open({ kind: 'file', relPath: artifact.path, artifact })
+    return true
   }
   const openFile = async (path: string, quiet = false): Promise<boolean> => {
+    if (lifecycle.current.get(sessionID)?.blocked) return false
     const current = scope.current.capture()
     try {
       const artifact = await openArtifact(sessionID, path)
       if (!current() || artifact.sessionId !== sessionID) { void releaseArtifact(artifact.reference).catch(() => {}); return false }
-      openReference(artifact)
-      return true
+      return openReference(artifact)
     } catch (e) { if (current() && !quiet) report.current(errText(e)); return false }
   }
   const actions: ArtifactActions = {
@@ -92,6 +113,7 @@ export function usePreviewPanel(sessionID: string, notify: (text: string) => voi
     copyPath: (p) => act(p, async (r) => copyText(await resolveArtifactPath(r))),
   }
   async function act(path: string, perform: (ref: string) => Promise<void>) {
+    if (lifecycle.current.get(sessionID)?.blocked) return
     const current = scope.current.capture()
     let reference = ''
     try {
@@ -100,6 +122,39 @@ export function usePreviewPanel(sessionID: string, notify: (text: string) => voi
       if (current()) await perform(reference)
     } catch (e) { if (current()) report.current(errText(e)) }
     finally { if (reference) void releaseArtifact(reference).catch(() => {}) }
+  }
+  const openCodePreview = (target: CodePreviewTarget) => {
+    if (target.kind === 'file') {
+      void openFile(target.relPath)
+      return
+    }
+    if (lifecycle.current.get(sessionID)?.blocked) return
+    opens.current++
+    setBySession((all) => {
+      const cur = all[sessionID] ?? EMPTY_TABS
+      const tab: PreviewTab = {
+        kind: 'inline-static',
+        ownerKey: target.ownerKey,
+        title: target.title,
+        sourceKind: target.sourceKind,
+        source: target.source,
+        messageID: target.messageId,
+        sessionID,
+      }
+      const opened = openTab(cur.tabs, cur.active, tab)
+      let tabs = opened.tabs
+      let active: string | null = opened.active
+      let inlineCount = tabs.filter((t) => t.kind === 'inline-static').length
+      while (inlineCount > 8) {
+        const oldest = tabs.findIndex((t) => t.kind === 'inline-static' && tabKey(t) !== active)
+        if (oldest < 0) break
+        tabs = tabs.filter((_, i) => i !== oldest)
+        inlineCount--
+      }
+      if (active && !tabs.some((t) => tabKey(t) === active)) active = tabs[tabs.length - 1] ? tabKey(tabs[tabs.length - 1]) : null
+      return { ...all, [sessionID]: { tabs, active } }
+    })
+    setBrowseOpen(false)
   }
   const openDiff = (snapshotId: string, relPath: string) => open({ kind: 'diff', snapshotId, relPath, sessionID })
   const close = (key: string) => {
@@ -157,6 +212,6 @@ export function usePreviewPanel(sessionID: string, notify: (text: string) => voi
   return {
     tabs, active, setActive, browseOpen, setBrowseOpen,
     autoOpen, toggleAutoOpen, width, dragHandlers, opens,
-    openFile, openReference, openDiff, actions, close, closeAll, dropSession,
+    openFile, openReference, openCodePreview, openDiff, actions, close, closeAll, dropSession,
   }
 }

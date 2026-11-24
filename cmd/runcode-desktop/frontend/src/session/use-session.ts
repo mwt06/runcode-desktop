@@ -17,6 +17,7 @@ import {
   Events,
   pickWorkspaceFolder,
   resumeSession,
+  openAutomationSession as openLinkedSession,
   setPermissionMode,
   setPlanMode,
   setReasoningScenario,
@@ -27,8 +28,9 @@ import {
   type SessionInfo,
   type OpenSessionInfo,
   type SessionSummary,
-  type StartSessionRequest, type SettingsView,
+  type StartSessionRequest, type SettingsView, type AutomationContext,
 } from '@/core/bridge'
+import { automationRunActive } from '@/chat/automation-run'
 import { type ModelOption } from '@/ui/model-picker'
 import { nextMode } from '@/core/permission-modes'
 
@@ -43,6 +45,9 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
     pushError: (text: string) => void
     // dropSession 丢掉一条会话的对话状态——关掉会话时用。
     dropSession: (id: string) => void
+    hasLiveBlocks?: (id: string) => boolean
+    noteAutomationPending?: (id: string) => void
+    mergeAutomationHistory?: (r: ResumedSession, isStale: () => boolean) => void
   }
   showToast: (text: string) => void
   onEnterChat: () => void
@@ -61,19 +66,19 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
       .catch(() => setInitialReq({}))
   }, [])
 
-  async function refreshRecents() {
+  const refreshRecents = useCallback(async () => {
     try {
       const r = await listSessions()
       setRecents(r ?? [])
     } catch {
       /* 列表加载失败时静默保留旧值 */
     }
-  }
+  }, [])
   // Refresh the recent list when a session opens and whenever a turn finishes
   // (a turn persists/updates the session file).
   useEffect(() => {
     if (started && !busy) void refreshRecents()
-  }, [started, busy])
+  }, [started, busy, refreshRecents])
 
   // 会话/工作区切换的并发防护：新建/恢复/切工作区都是"发请求→拿结果→整体替换
   // 会话状态"，用户快速连点两个目标时，先发但后落地的旧响应不得覆盖新会话
@@ -124,15 +129,39 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
     if (r?.id) setTitles((m) => ({ ...m, [r.id]: r.title }))
   }), [])
 
-  // 后端自作主张改了会话状态时整体采纳（目前只有 OA 自动切换到本地模型）。
+  // 后端变更只更新当前会话；后台 OA 重建不得改变用户的前台选择。
   //
   // 界面上的模型、计划模式这些开关平时都是「前端调后端 → 拿返回值更新自己」，
   // 所以后端单方面改掉的东西前端不会知道：模型确实切了、请求也发给新模型了，
   // 右下角却还显示旧模型，用户合理地以为切换没生效。
   useEffect(() => onEnvelope(Events.SessionStatus, (env) => {
     const i = env.payload
-    if (i?.model) setInfo(i)
+    if (i?.model) setInfo((current) => current?.sessionId === i.sessionId ? i : current)
   }), [])
+
+  // A background run can start before this session is focused. The clock and
+  // the running dot come from the event, then from a fresh open/recent list.
+  const [automationRunning, setAutomationRunning] = useState<Record<string, boolean>>({})
+  const noteAutomationActivity = useCallback((sessionId: string | undefined, active: boolean) => {
+    if (!sessionId) return
+    setAutomationRunning((prev) => {
+      if (active) return prev[sessionId] ? prev : { ...prev, [sessionId]: true }
+      if (!prev[sessionId]) return prev
+      const next = { ...prev }
+      delete next[sessionId]
+      return next
+    })
+  }, [])
+  useEffect(() => onEnvelope(Events.AutomationRunChanged, (env) => {
+    const run = env.payload?.run
+    noteAutomationActivity(run?.sessionId || env.sessionId, automationRunActive(run?.status))
+    void refreshOpen()
+    void refreshRecents()
+  }), [noteAutomationActivity, refreshOpen, refreshRecents])
+  useEffect(() => onEnvelope(Events.AutomationTaskChanged, () => {
+    void refreshOpen()
+    void refreshRecents()
+  }), [refreshOpen, refreshRecents])
 
   // runSwitch 是三个切换动作共用的骨架：代际防护 + 失败落一条错误块 + 收尾。
   async function runSwitch(action: (isStale: () => boolean) => Promise<void>) {
@@ -399,9 +428,32 @@ export function useSession({ busy, conversation, showToast, onEnterChat }: {
   // 动作，整件事由后端的 PlanApprove 一次做完（见 session/use-plan），这里只负责把
   // 它返回的会话状态采纳进来。
 
+  async function openAutomationSession(req: { context: AutomationContext; taskId: string; runId: string }) {
+    await runSwitch(async (isStale) => {
+      const result = await openLinkedSession(req)
+      if (isStale()) return
+      if (result.context.viewId !== req.context.viewId || result.context.epoch !== req.context.epoch) return
+      const info = result.session?.info
+      if (!info?.sessionId) return
+      setInfo(info)
+      setStarted(true)
+      if (result.historyPending) {
+        conversation.noteAutomationPending?.(info.sessionId)
+        void refreshOpen()
+        return
+      }
+      if (conversation.hasLiveBlocks?.(info.sessionId)) {
+        conversation.mergeAutomationHistory?.(result.session, isStale)
+      } else {
+        await conversation.applyResumed(result.session, isStale)
+      }
+      if (!isStale()) void refreshOpen()
+    })
+  }
+
   return {
     info, setInfo, started, starting, startError, recents, initialReq, setInitialReq, switching,
-    captureSwitch, runQuestionBranch, refreshOpen, openList, titles, openAnother, focusOn, closeOne,
+    captureSwitch, runQuestionBranch, refreshOpen, openList, titles, automationRunning, openAutomationSession, openAnother, focusOn, closeOne,
     start, newChat, openRecent, openWorkspace, pickWorkspaceAndOpen, deleteRecent, returnToStart,
     togglePlan, chooseReasoning, chooseThinking, pickMode, toggleMode, pickModel,
   }

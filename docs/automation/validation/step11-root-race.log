@@ -1,0 +1,45 @@
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/appupdate	0.149s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/automation	0.319s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/browsertool	1.426s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/codexauth	2.001s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/codexproxy	1.932s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/command	0.871s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/desktop	0.387s
+?   	github.com/wt68/runcode/internal/desktop/builtinskills	[no test files]
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/download	1.658s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/imagegentool	0.619s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/localusage	0.124s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/oatool	0.340s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/officetool	0.166s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/plantool	0.803s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/previewtool	0.971s
+?   	github.com/wt68/runcode/internal/protocol	[no test files]
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/recorder	0.296s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/runtimetool	1.313s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/skilltool	1.145s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/ui	0.256s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/vision	1.509s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/internal/websearchtool	0.217s
+exit status 0xc0000139
+FAIL	github.com/wt68/runcode/cmd/runcode	0.302s
+FAIL

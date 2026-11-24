@@ -73,7 +73,7 @@ func TestConfigureSessionWiresOptions(t *testing.T) {
 	for i, tl := range opts.ExtraTools {
 		toolNames[i] = tl.Name()
 	}
-	want := []string{"open_preview", "ReadOffice", "plan_write", "install_runtime", "open_browser"}
+	want := []string{"open_preview", "ReadOffice", "plan_write", "install_runtime", "open_browser", "search_contacts", "send_email"}
 	if strings.Join(toolNames, ",") != strings.Join(want, ",") {
 		t.Fatalf("ExtraTools = %v, want %v", toolNames, want)
 	}

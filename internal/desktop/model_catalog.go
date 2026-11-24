@@ -9,23 +9,23 @@ import (
 
 const (
 	modelCatalogTTL = time.Minute
-	// Session builds may fall back to an expired snapshot of the same account
-	// while the Bridge is unreachable; beyond this age it is no longer trusted.
+	// Bridge 不可达时，会话构建可回落到同账号过期快照；超过此龄不再信任。
 	modelCatalogStaleLimit = 24 * time.Hour
-	// After a failed fetch, session builds stop asking the Bridge for this long
-	// and go straight to the fallback instead of waiting out another timeout.
+	// 拉取失败后这段时间内会话构建不再问 Bridge，直接走回落，避免再干等超时。
 	modelCatalogRetryAfter = 30 * time.Second
 )
 
-// errModelCatalogUnavailable marks a failed catalog fetch, as opposed to a
-// catalog that was fetched and answered (e.g. "model not authorized").
+// errModelCatalogUnavailable 标记目录拉取失败，区别于「已取到但回答不可用」（如未授权）。
 var errModelCatalogUnavailable = errors.New("获取平台模型目录失败")
 
 type modelCatalog struct {
-	models map[string]PassportModel
-	// visionDefaults comes from the raw Bridge list, before ID dedupe: two
-	// entries claiming vision_default are a misconfiguration to report, not
-	// something the map may quietly collapse into one.
+	// models 只收文本能力条目，供聊天／判定／预算／识图查找。
+	// 生图条目单独放在 imageGeneration（顺序在 imageOrder），避免纯生图混进文本选择器。
+	models          map[string]PassportModel
+	imageGeneration map[string]PassportModel
+	imageOrder      []string
+	// visionDefaults 来自 Bridge 原始列表、ID 去重之前：两条都标 vision_default
+	// 是要上报的配置错误，不能被 map 默默压成一条。
 	visionDefaults []PassportModel
 	at             time.Time
 }
@@ -40,16 +40,29 @@ func modelCatalogKey(scope modelReference, actor string) string {
 	return fmt.Sprintf("%q/%q/%q", scope.Bridge, scope.TenantID, actor)
 }
 
-// Catalogs are immutable snapshots. Publish under the requesting identity, never
-// whichever account happens to be logged in when a slow response arrives.
-func (a *App) rememberModelCatalog(scope modelReference, actor string, models []PassportModel) {
-	next := modelCatalog{models: make(map[string]PassportModel, len(models)), at: time.Now()}
+func modelCatalogFromModels(models []PassportModel) modelCatalog {
+	next := modelCatalog{models: make(map[string]PassportModel, len(models)), imageGeneration: map[string]PassportModel{}, at: time.Now()}
 	for _, m := range models {
+		if isImageGenerationModel(m) {
+			if _, seen := next.imageGeneration[m.ID]; !seen {
+				next.imageOrder = append(next.imageOrder, m.ID)
+			}
+			next.imageGeneration[m.ID] = m
+		}
+		if !isChatModel(m) {
+			continue
+		}
 		next.models[m.ID] = m
 		if m.VisionDefault {
 			next.visionDefaults = append(next.visionDefaults, m)
 		}
 	}
+	return next
+}
+
+// 目录是不可变快照。按发起请求时的身份发布；迟到响应绝不能挂到「此刻登录」的账号上。
+func (a *App) rememberModelCatalog(scope modelReference, actor string, models []PassportModel) {
+	next := modelCatalogFromModels(models)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.modelCatalogs == nil || len(a.modelCatalogs) >= 64 {

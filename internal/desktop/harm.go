@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	engine "gitlab.ouc-online.com.cn/aibase/agentloop"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/host"
 	"gitlab.ouc-online.com.cn/aibase/agentloop/permissions"
 )
@@ -69,7 +68,7 @@ func (j modelHarmJudge) Assess(ctx context.Context, action permissions.Action) (
 		if access.Generation != j.generation {
 			return fmt.Errorf("来源会话已重新创建")
 		}
-		session, ok := access.Session.(*engine.Session)
+		session, ok := unwrapEngineSession(access.Session)
 		if !ok {
 			return errNoSession
 		}

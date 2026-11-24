@@ -67,6 +67,8 @@ type codexTokens struct {
 	Expiry    time.Time `json:"expiry"`
 	AccountID string    `json:"accountId"`
 	Email     string    `json:"email"`
+	Issuer    string    `json:"issuer,omitempty"`
+	Subject   string    `json:"subject,omitempty"`
 }
 
 // codexAccount 保管这台机器上登录的那个 ChatGPT 账号。
@@ -80,8 +82,9 @@ type codexTokens struct {
 type codexAccount struct {
 	auth *codexauth.Client
 
-	mu sync.Mutex
-	ts codexTokens
+	mu         sync.Mutex
+	ts         codexTokens
+	generation int64 // 登录/登出加一；刷新同一 subject 不加
 }
 
 var errCodexNotLoggedIn = errors.New("未登录 ChatGPT，请先在设置里登录")
@@ -141,13 +144,64 @@ func (a *codexAccount) Token() (string, error) {
 	a.ts.Access = fresh.AccessToken
 	a.ts.Refresh = fresh.RefreshToken
 	a.ts.Expiry = fresh.Expiry
-	if fresh.AccountID != "" {
+	if fresh.AccountID != "" && fresh.AccountID != a.ts.AccountID {
+		a.generation++
 		a.ts.AccountID = fresh.AccountID
+	}
+	if fresh.Subject != "" && fresh.Subject != a.ts.Subject {
+		a.generation++
+		a.ts.Subject = fresh.Subject
+	}
+	if fresh.Issuer != "" {
+		a.ts.Issuer = fresh.Issuer
+	}
+	if fresh.Email != "" {
+		a.ts.Email = fresh.Email
 	}
 	snapshot := a.ts
 	a.mu.Unlock()
 	persistCodexTokens(snapshot) // 磁盘 I/O 不持锁
 	return snapshot.Access, nil
+}
+
+// TokenFor 核对稳定 subject 和账号之后才交出令牌。
+// 中间若换成了另一个账号，返回错误，不返回那个人的 access token。
+func (a *codexAccount) TokenFor(subject, account string) (string, error) {
+	subject = strings.TrimSpace(subject)
+	account = strings.TrimSpace(account)
+	if subject == "" || account == "" {
+		return "", errAutomationCodexSubject
+	}
+	a.mu.Lock()
+	if a.ts.Subject == "" {
+		a.mu.Unlock()
+		return "", errAutomationCodexSubject
+	}
+	gen := a.generation
+	if a.ts.Subject != subject || a.ts.AccountID != account {
+		a.mu.Unlock()
+		return "", errAutomationIdentityChanged
+	}
+	a.mu.Unlock()
+	if _, err := a.Token(); err != nil {
+		return "", err
+	}
+	if automationCredentialGap != nil {
+		automationCredentialGap()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.generation != gen || a.ts.Subject != subject || a.ts.AccountID != account || a.ts.Access == "" {
+		return "", errAutomationIdentityChanged
+	}
+	return a.ts.Access, nil
+}
+
+// noteRefresh 只更换 access token，表示同一个人的续期。
+func (a *codexAccount) noteRefresh(access string) {
+	a.mu.Lock()
+	a.ts.Access = access
+	a.mu.Unlock()
 }
 
 // ForceRefresh 无视续期窗口立刻刷一次，用于上游回 401 时的补救。
@@ -165,12 +219,15 @@ func (a *codexAccount) ForceRefresh() {
 // Set 记录一次成功登录并落盘。
 func (a *codexAccount) Set(t codexauth.Tokens) {
 	a.mu.Lock()
+	a.generation++
 	a.ts = codexTokens{
 		Access:    t.AccessToken,
 		Refresh:   t.RefreshToken,
 		Expiry:    t.Expiry,
 		AccountID: t.AccountID,
 		Email:     t.Email,
+		Issuer:    t.Issuer,
+		Subject:   t.Subject,
 	}
 	snapshot := a.ts
 	a.mu.Unlock()
@@ -204,7 +261,10 @@ func (a *codexAccount) Clear() {
 	}
 }
 
-func (a *codexAccount) clearLocked() { a.ts = codexTokens{} }
+func (a *codexAccount) clearLocked() {
+	a.generation++
+	a.ts = codexTokens{}
+}
 
 // codexTokenPath 与 desktop.json、passport.json 同目录。
 func codexTokenPath() (string, error) {
@@ -325,6 +385,7 @@ func (a *App) CodexAwaitLogin() (CodexStatus, error) {
 		return CodexStatus{}, wireError(err)
 	}
 	a.codex.Set(tokens)
+	a.noteAutomationIdentity()
 	return a.codex.Status(), nil
 }
 
@@ -364,6 +425,7 @@ func (a *App) CodexModels() ([]CodexModel, error) {
 // CodexLogout 退出 ChatGPT 账号：清空并删掉落盘令牌。
 func (a *App) CodexLogout() CodexStatus {
 	a.codex.Clear()
+	a.noteAutomationIdentity()
 	return a.codex.Status()
 }
 
@@ -476,7 +538,22 @@ func (a *App) resolveCodexUpstream(profile string) (codexproxy.Upstream, bool) {
 	if err != nil || !isCodexProfile(cm.Provider) {
 		return codexproxy.Upstream{}, false
 	}
-	return a.codexUpstream(cm), true
+	up := a.codexUpstream(cm)
+	exp, gated := a.codexExpectation(profile)
+	if !gated {
+		return up, true
+	}
+	if strings.EqualFold(strings.TrimSpace(cm.AuthMode), codexAuthAPIKey) {
+		rev := effectiveCredentialRevision(cm.CredentialRevision, cm.APIKey != "")
+		if rev != exp.Revision {
+			up.Bearer = func() (string, error) { return "", errAutomationIdentityChanged }
+		}
+		return up, true
+	}
+	subject, account := exp.Subject, exp.AccountID
+	up.AccountID = account
+	up.Bearer = func() (string, error) { return a.codex.TokenFor(subject, account) }
+	return up, true
 }
 
 // codexConnection 返回一条 codex 配置在引擎侧应有的连接：provider 换成

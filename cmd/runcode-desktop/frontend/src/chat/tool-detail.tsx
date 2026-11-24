@@ -6,7 +6,9 @@ import { networkRouteLabel } from '@/core/network-route'
 import { type ToolEvent } from '@/core/bridge'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { buildFileTree, classifyPreview, fileColor, kindIcon, type FileNode } from '@/preview/classify'
+import { BTN } from '@/ui/tokens'
 import { formatInput, lineClass, toolInputObj, parseToolInput } from './tool-text'
+import { parseMailDraftReady, useMailDraftActions } from './mail-draft-actions'
 
 // kvRows renders a compact key→value table for a tool's structured input.
 function kvRows(rows: ([string, unknown] | false | null | undefined)[]) {
@@ -80,8 +82,60 @@ function ToolInputView({ tool }: { tool: ToolEvent }) {
     case 'WebFetch':
       if (s('url')) return kvRows([['URL', s('url')], ['路线', networkRouteLabel(o.proxy)], o.diagnose_only === true && ['方式', '仅诊断，不抓取正文']])
       break
+    case 'automation_task':
+      return kvRows([
+        ['任务', s('name')],
+        ['计划时刻', s('scheduledAtUTC')],
+        ['工作区', s('workspace')],
+        ['执行位置', s('executionMode')],
+        !!s('prompt') && ['本次任务内容', s('prompt')],
+      ])
+    case 'image_generate': {
+      const data = tool.data && typeof tool.data === 'object' ? tool.data as Record<string, unknown> : null
+      const intent = typeof data?.displayIntent === 'string' ? data.displayIntent : (tool.message || s('displayIntent') || s('prompt'))
+      const size = typeof data?.size === 'string' ? data.size : s('size')
+      const model = typeof data?.model === 'string' ? data.model : ''
+      return kvRows([
+        !!intent && ['意图', intent],
+        !!size && ['尺寸', size],
+        !!model && ['模型', model],
+        !!s('prompt') && !intent && ['提示', s('prompt')],
+      ])
+    }
+    case 'search_contacts':
+      return kvRows([['查询', s('query')]])
+    case 'add_mail_contact':
+      return kvRows([
+        !!s('name') && ['姓名', s('name')],
+        !!s('email') && ['邮箱', s('email')],
+      ])
+    case 'send_email': {
+      const addrs = (v: unknown) => Array.isArray(v)
+        ? (v as { address?: string; name?: string }[]).map((a) => {
+          const addr = a.address?.trim()
+          if (!addr) return ''
+          const name = a.name?.trim()
+          return name ? `${name} <${addr}>` : addr
+        }).filter(Boolean).join(', ')
+        : ''
+      const to = addrs(o.to)
+      const cc = addrs(o.cc)
+      return kvRows([
+        !!s('subject') && ['主题', s('subject')],
+        !!to && ['收件人', to],
+        !!cc && ['抄送', cc],
+        !!s('sendMode') && ['发送方式', s('sendMode')],
+        !!s('dispatchMode') && ['投递', s('dispatchMode')],
+        !!s('bodyMarkdown') && ['正文', clipPreview(s('bodyMarkdown'), 120)],
+      ])
+    }
   }
   return <RawJson value={o} />
+}
+
+function clipPreview(s: string, n: number) {
+  const t = s.replace(/\s+/g, ' ').trim()
+  return t.length <= n ? t : t.slice(0, n) + '…'
 }
 
 // MatchedFileTree renders a Glob/Grep matched-file list as a collapsible
@@ -146,23 +200,57 @@ export function ToolDetail({ tool }: { tool: ToolEvent }) {
   const out = tool.output ?? []
   const outScroll = useStickToBottom<HTMLPreElement>(out.length)
   const img = tool.image
-  const imgSrc = img ? (img.url || (img.data ? `data:${img.media_type || 'image/png'};base64,${img.data}` : '')) : ''
+  const mailActions = useMailDraftActions()
+  const mailReady = tool.toolName === 'send_email' ? parseMailDraftReady(tool) : null
+  // 栅格生图主图在行下舞台，展开区不嵌第二张图。
+  const imgSrc = tool.toolName === 'image_generate'
+    ? ''
+    : (img ? (img.url || (img.data ? `data:${img.media_type || 'image/png'};base64,${img.data}` : '')) : '')
+  const imageGenSummary = (() => {
+    if (tool.toolName !== 'image_generate') return ''
+    const data = tool.data && typeof tool.data === 'object' ? tool.data as { images?: { path?: string; width?: number; height?: number; bytes?: number; mimeType?: string }[]; status?: string } : null
+    const art = data?.images?.[0]
+    if (art?.path) {
+      const dim = art.width && art.height ? `${art.width}×${art.height}` : ''
+      return [art.path, dim].filter(Boolean).join(' · ')
+    }
+    return data?.status ? `状态：${data.status}` : ''
+  })()
   return (
     <div className="min-w-0 flex flex-col gap-2.5">
       <div>
         <div className="text-[11px] text-faint mb-1 tracking-wide">参数</div>
         <ToolInputView tool={tool} />
         {tool.toolName === 'analyze_image' && ((tool.inputTokens ?? 0) + (tool.outputTokens ?? 0) > 0) && <p className="text-[11px] text-muted mt-2">识图用量：输入 {tool.inputTokens ?? 0} / 输出 {tool.outputTokens ?? 0} tokens · 独立调用用量；分析文字计入主模型上下文</p>}
+        {mailReady && (
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-[12px] text-muted">草稿已就绪 · 修订 {mailReady.revision ?? '—'}</span>
+              <button type="button" className={BTN} onClick={() => mailActions.openDraft(mailReady.draftId)}>编辑草稿</button>
+              <button type="button" className={BTN} onClick={() => mailActions.openDraft(mailReady.draftId)}>查看草稿</button>
+            </div>
+            {mailReady.needsMailSetup && (
+              <div className="flex flex-wrap gap-2 items-center text-[12px] text-amberink">
+                <span>尚未设置邮箱地址与密码，确认发送前请先接入邮箱。</span>
+                <button type="button" className="text-primary hover:underline cursor-pointer bg-transparent border-0 p-0 text-[12px]" onClick={() => mailActions.openMailSettings()}>
+                  前往邮箱设置
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div>
         <div className="text-[11px] text-faint mb-1 tracking-wide">
-          输出{imgSrc ? ' · 图片' : matched.length > 0 ? ` · ${matched.length}${tool.filesTotal && tool.filesTotal > matched.length ? `/${tool.filesTotal}` : ''} 个匹配` : out.length > 0 ? ` · ${out.length} 行` : ''}
+          输出{imgSrc ? ' · 图片' : matched.length > 0 ? ` · ${matched.length}${tool.filesTotal && tool.filesTotal > matched.length ? `/${tool.filesTotal}` : ''} 个匹配` : out.length > 0 ? ` · ${out.length} 行` : imageGenSummary ? ' · 摘要' : ''}
         </div>
         {imgSrc ? (
         <div className="bg-surface2 border border-line rounded-lg p-2 inline-block max-w-full">
           <img src={imgSrc} alt="" className="max-h-[340px] max-w-full rounded-[5px] block" />
         </div>
+      ) : imageGenSummary ? (
+        <div className="text-[13px] text-ink bg-surface2 border border-line rounded-lg py-2 px-2.5 font-mono break-all">{imageGenSummary}</div>
       ) : matched.length > 0 ? (
         <div className="bg-surface2 border border-line rounded-lg py-2 px-2.5 max-h-[360px] overflow-auto">
           <MatchedFileTree paths={matched.slice(0, 400).map((f) => f.path)} />
