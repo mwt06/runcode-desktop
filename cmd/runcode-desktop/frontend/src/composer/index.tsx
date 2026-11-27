@@ -7,7 +7,7 @@ import { GhostBtn } from '@/ui/ghost-btn'
 import { useCallback, useEffect, useId, useRef, useState, type RefObject, type Dispatch, type SetStateAction } from 'react'
 import { Icon } from '@/ui/icons'
 import { basename } from '@/core/paths'
-import { errText, pickImageAttachment, savePastedFile, listAgents, listSkills, type AgentInfo, type SessionInfo, type SkillInfo } from '@/core/bridge'
+import { errText, pickImageAttachment, pickFileAttachment as pickFileAttachmentCmd, savePastedFile, listAgents, listSkills, type AgentInfo, type SessionInfo, type SkillInfo } from '@/core/bridge'
 import { classifyPreview, kindIcon } from '@/preview/classify'
 import { type ModelOption } from '@/ui/model-picker'
 import { isImage, pastedName, sendText, shouldIntakeDrop, shouldIntakePaste, tooLargeMessage, type Attachment } from './paste'
@@ -195,6 +195,15 @@ export function Composer({
       if (p) addAttachment({ path: p, image: true })
     } catch {
       /* cancelled or unavailable */
+    }
+  }
+  // Pick a document, copy it into pasted/, and attach as a non-image path note.
+  async function pickFileAttachment() {
+    try {
+      const p = await pickFileAttachmentCmd()
+      if (p) addAttachment({ path: p, image: false })
+    } catch (e) {
+      onNotify?.(errText(e))
     }
   }
 
@@ -444,6 +453,7 @@ export function Composer({
         onOpenSkillPicker={() => openTriggerPicker('@')}
         onOpenAgentPicker={() => openTriggerPicker('/')}
         onOpenFilePicker={openFilePicker}
+        onPickFileAttachment={() => void pickFileAttachment()}
         onPickAttachment={() => void pickAttachment()}
         onToggleMode={onToggleMode}
         onTogglePlan={onTogglePlan}

@@ -12,6 +12,7 @@ type fakeDialoger struct{ path string }
 func (f fakeDialoger) PickFile(string) (string, error)           { return f.path, nil }
 func (f fakeDialoger) PickFolder(string, string) (string, error) { return f.path, nil }
 func (f fakeDialoger) PickImage(string) (string, error)          { return f.path, nil }
+func (f fakeDialoger) PickDocument(string) (string, error)       { return f.path, nil }
 
 func writeSkillDir(t *testing.T, dir, name, body string) {
 	t.Helper()

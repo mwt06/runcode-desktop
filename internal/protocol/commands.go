@@ -129,6 +129,7 @@ var CommandKinds = map[string]hostproto.CommandKind{
 	"PassportLogin":           hostproto.CommandTrigger,
 	"PassportLogout":          hostproto.CommandTrigger,
 	"PickImageAttachment":     hostproto.CommandTrigger,
+	"PickFileAttachment":      hostproto.CommandTrigger,
 	"PickWorkspaceFolder":     hostproto.CommandTrigger,
 	"PauseRecording":          hostproto.CommandTrigger,
 	"ResumeRecording":         hostproto.CommandTrigger,

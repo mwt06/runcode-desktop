@@ -50,6 +50,9 @@ type Dialoger interface {
 	// PickImage opens an image-file dialog and returns the chosen path ("" if the
 	// user cancelled).
 	PickImage(title string) (string, error)
+	// PickDocument opens a common-document file dialog and returns the chosen path
+	// ("" if the user cancelled). Used by file attachments; not for Markdown/skill import.
+	PickDocument(title string) (string, error)
 }
 
 // Quitter 退出整个应用。与 Dialoger 同一个模式：退出是 Wails 那一侧的事，而

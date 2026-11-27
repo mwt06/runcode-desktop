@@ -87,6 +87,7 @@ var excludedMethods = map[string]bool{
 	"SetCapturer": true, // installs the system audio capturer; called by the Wails shell, never the frontend
 	"SetDialoger": true, // installs the native file-dialog provider; called by the Wails shell, never the frontend
 	"SetQuitter":  true, // installs the app-quit provider (版本更新装完要退出); called by the Wails shell, never the frontend
+	"PrepareExit": true, // once-per-run exit cleanup with a Duration budget; called by the Wails shell, never the frontend
 	"Shutdown":    true, // once-per-run teardown; called by the Wails shell from OnShutdown, never the frontend
 	"Startup":     true, // once-per-run background work; called by the Wails shell from OnStartup, never the frontend
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,73 @@ func (a *App) PickImageAttachment() (string, error) {
 	}
 	path, err := dialog.PickImage("选择图片附件")
 	return path, wireError(err)
+}
+
+// PickFileAttachment opens a document picker, copies the chosen file into pasted/
+// (same root as SavePastedFile), and returns the copy's absolute path. Cancel
+// returns "". The copy keeps appdirs read authorization so the model can
+// Read/ReadOffice without an outside-project prompt.
+func (a *App) PickFileAttachment() (string, error) {
+	a.mu.Lock()
+	dialog := a.dialog
+	a.mu.Unlock()
+	if dialog == nil {
+		return "", wireError(errors.New("当前环境不支持文件选择"))
+	}
+	src, err := dialog.PickDocument("选择文件附件")
+	if err != nil {
+		return "", wireError(err)
+	}
+	if src == "" {
+		return "", nil
+	}
+	path, err := stageLocalFile(src)
+	return path, wireError(err)
+}
+
+// stageLocalFile copies src into a fresh pasted/ subdirectory and returns the
+// destination path. Size is gated by maxPastedBytes before any write.
+func stageLocalFile(src string) (string, error) {
+	info, err := os.Stat(src)
+	if err != nil {
+		return "", fmt.Errorf("读取文件失败: %s", filepath.Base(src))
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("不能附加目录: %s", filepath.Base(src))
+	}
+	if info.Size() > maxPastedBytes {
+		return "", fmt.Errorf("文件过大(上限 %d MB)", maxPastedBytes>>20)
+	}
+	root, err := pastedRoot()
+	if err != nil {
+		return "", err
+	}
+	prunePasted(root)
+	dir, err := newPastedDir(root)
+	if err != nil {
+		return "", fmt.Errorf("创建附件目录失败: %w", err)
+	}
+	dest := filepath.Join(dir, safeAttachmentName(filepath.Base(src)))
+	if err := copyFile(src, dest); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("保存附件失败: %w", err)
+	}
+	return dest, nil
+}
+
+func copyFile(src, dest string) error {
+	in, err := os.Open(src) //nolint:gosec // src is a user-picked absolute path
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600) //nolint:gosec
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // SendMessageWithImages runs one user turn whose message carries the images at the

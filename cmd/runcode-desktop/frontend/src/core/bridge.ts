@@ -159,6 +159,7 @@ export {
   passportValidate,
   passportTenants,
   pickImageAttachment,
+  pickFileAttachment,
   pickWorkspaceFolder,
   planApprove,
   planCancel,

@@ -134,6 +134,20 @@ func (d *wailsDialog) PickImage(title string) (string, error) {
 	}).PromptForSingleSelection()
 }
 
+func (d *wailsDialog) PickDocument(title string) (string, error) {
+	app := d.get()
+	if app == nil {
+		return "", nil
+	}
+	return app.Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
+		Title:          title,
+		CanChooseFiles: true,
+		Filters: []application.FileFilter{
+			{DisplayName: "文档 (pdf, office, txt, md, csv, json, …)", Pattern: "*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.md;*.csv;*.json;*.xml;*.html;*.htm;*.rtf;*.log;*.yaml;*.yml;*.toml"},
+		},
+	}).PromptForSingleSelection()
+}
+
 // wailsQuit 把「退出应用」这件事交给 desktop.App —— 版本更新装完要用（拉起安装器
 // 之后必须退出，否则 NSIS 覆盖不了正在运行的 exe，单实例锁也还攥在手里）。
 //

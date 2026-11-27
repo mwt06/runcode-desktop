@@ -52,6 +52,7 @@ export function ComposerToolbar({
   onOpenSkillPicker,
   onOpenAgentPicker,
   onOpenFilePicker,
+  onPickFileAttachment,
   onPickAttachment,
   onToggleMode,
   onTogglePlan,
@@ -68,6 +69,7 @@ export function ComposerToolbar({
   onOpenSkillPicker: () => void
   onOpenAgentPicker: () => void
   onOpenFilePicker: () => void
+  onPickFileAttachment: () => void
   onPickAttachment: () => void
   onToggleMode: () => void
   onTogglePlan: () => void
@@ -140,18 +142,19 @@ export function ComposerToolbar({
         <div className="relative flex-none">
           <button
             onClick={() => setAddMenu((v) => !v)}
-            title="添加：技能 / 智能体 / 图片"
+            title="添加：技能 / 智能体 / 文件附件 / 图片"
             className="border-none bg-transparent text-muted text-[13px] px-2.5 py-1.5 rounded-lg cursor-pointer inline-flex items-center gap-1.5 hover:bg-surface2 hover:text-ink"
           >
             <Icon name="plus" size={16} />
           </button>
           <Popover open={addMenu} onClose={() => setAddMenu(false)} placement="up-left" className="w-[180px]">
-            {/* 四项结构相同、只差图标/文案/动作，走数据驱动——加第五项不必再复制一遍类名。
+            {/* 各项结构相同、只差图标/文案/动作，走数据驱动——加一项不必再复制一遍类名。
                 关菜单是所有项的共同动作，提到这里，避免每项各写一次。 */}
             {([
               { icon: 'book', label: '技能', run: onOpenSkillPicker },
               { icon: 'bot', label: '智能体', run: onOpenAgentPicker },
               { icon: 'hash', label: '文件', run: onOpenFilePicker },
+              { icon: 'file', label: '文件附件', run: onPickFileAttachment },
               { icon: 'paperclip', label: '图片附件', run: onPickAttachment },
             ] as const).map((it) => (
               <div

@@ -135,6 +135,19 @@ func (d *kylinDialog) PickImage(title string) (string, error) {
 	})
 }
 
+func (d *kylinDialog) PickDocument(title string) (string, error) {
+	ctx := d.get()
+	if ctx == nil {
+		return "", nil
+	}
+	return wruntime.OpenFileDialog(ctx, wruntime.OpenDialogOptions{
+		Title: title,
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "文档 (pdf, office, txt, md, csv, json, …)", Pattern: "*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.txt;*.md;*.csv;*.json;*.xml;*.html;*.htm;*.rtf;*.log;*.yaml;*.yml;*.toml"},
+		},
+	})
+}
+
 // kylinQuit 实现 desktop.Quitter。版本更新装完要用它退出。
 type kylinQuit struct {
 	mu  sync.RWMutex

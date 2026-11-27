@@ -421,6 +421,12 @@ export function pauseRecording(): Promise<void> {
   return call<void>('PauseRecording');
 }
 
+// PickFileAttachment opens a document picker, copies the chosen file into pasted/ (same root as SavePastedFile), and returns the copy's absolute path.
+// kind: trigger
+export function pickFileAttachment(): Promise<string> {
+  return call<string>('PickFileAttachment');
+}
+
 // PickImageAttachment opens a native image picker and returns the chosen path ("" if cancelled).
 // kind: trigger
 export function pickImageAttachment(): Promise<string> {
